@@ -64,6 +64,43 @@ freeze a byte layout from intuition: first pin a checked-in miniature source
 fixture, then compare candidate layouts using the same queries and exactness
 corpus. Preserve source attribution and provenance in every produced bundle.
 
-After implementation and focused tests, use an independent read-only review for
-format safety, exactness, unnecessary allocation, accidental full scans, and
-scope creep before running the final gates and committing.
+Every ticket follows this four-stage chain:
+
+1. **Ticket creation.** The coordinating agent writes one self-contained
+   `proposed` ticket from [`planning/templates/ticket.md`](planning/templates/ticket.md).
+   It names the observable outcome, scope, hard decisions, dependencies, tests,
+   performance proof, documentation changes, and exact gates. The coordinator
+   does not implement the ticket.
+2. **Independent ticket review.** A read-only sub-agent reviews scope,
+   assumptions, dependencies, acceptance criteria, failure cases, and fit with
+   the frontier. The reviewer does not edit files. The coordinator records and
+   answers every material finding with a change or evidence, then returns the
+   ticket to the same reviewer. Only after that reviewer records approval may
+   the coordinator mark the ticket `ready`, commit and push the reviewed ticket,
+   and begin development.
+3. **Independent development.** A different sub-agent receives the reviewed
+   ticket and repository, marks it `in-progress`, implements only that scope,
+   runs focused tests, records implementation evidence, and marks it `review`.
+   The developer does not approve its own work.
+4. **Independent code review.** A third sub-agent, different from both the
+   ticket reviewer and developer, reviews the actual diff and tests read-only.
+   It checks format safety, exactness, corrupt-input handling, unnecessary
+   allocation, accidental full scans, source/license drift, performance proof,
+   and scope creep. The developer resolves or explicitly rebuts every material
+   finding with evidence and returns the diff to the same reviewer. Only after
+   that reviewer records approval may final `make lint`, `make test`, and `make
+   spec` gates run. Record the completed review evidence in the ticket, mark it
+   `complete`, and commit and push the coherent implementation outcome.
+
+The coordinator, ticket reviewer, developer, and code reviewer are separate
+roles. Never ask an agent to review its own ticket or implementation. A material
+post-review change or rebuttal returns to the same independent reviewer for
+approval before the ticket advances. Reviews happen sequentially on the same
+intended diff; extra branches or worktrees are used only for real concurrent
+work or isolation.
+
+The reviewed-ready ticket is committed before development. The final
+implementation commit includes the `complete` ticket with its implementation
+and code-review evidence. Immediately afterward, remove that completed ticket
+in a planning-cleanup commit and push it. This preserves the full audit trail in
+git while returning `planning/tickets/` to active work only.
