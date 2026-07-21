@@ -5,12 +5,17 @@ use pangopup_core::{
     DnaBase, EnsemblGeneId, GenomicPosition, Grch38Contig, PangolinScore, RelativePosition,
     ScoreMagnitude,
 };
+use pangopup_index::{
+    AmbiguousInputLocus, IndexError, IndexReader, InputAlternative, InputLocus, OrdinaryInputLocus,
+    WriteSummary, write_index,
+};
+use sha2::{Digest, Sha256};
 use std::{
     convert::Infallible,
     ffi::OsString,
     fmt,
     fs::{self, File},
-    io::{BufRead, BufReader, Write},
+    io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -284,6 +289,434 @@ pub fn inspect_directory(
     writeln!(output, "{total}")
         .map_err(|error| SourceError::member("<stdout>", error.to_string()))?;
     Ok(total)
+}
+
+/// Discover and validate all members while streaming loci to one visitor.
+pub fn visit_directory<V: SourceVisitor + ?Sized>(
+    source_dir: &Path,
+    visitor: &mut V,
+) -> Result<TotalSummary, InspectMemberError<V::Error>> {
+    let mut members = discover_members(source_dir).map_err(InspectMemberError::Source)?;
+    if members.is_empty() {
+        return Err(InspectMemberError::Source(SourceError::member(
+            source_dir.display().to_string(),
+            "source directory contains no .tsv.gz members",
+        )));
+    }
+    members.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut total = TotalSummary::default();
+    for (filename, path) in members {
+        let filename = filename.into_string().map_err(|_| {
+            InspectMemberError::Source(SourceError::member(
+                "<non-UTF-8 filename>",
+                "invalid source filename",
+            ))
+        })?;
+        let gene = parse_member_gene(&filename).map_err(InspectMemberError::Source)?;
+        let summary = inspect_member(&path, &filename, gene, visitor)?;
+        total.add(summary);
+    }
+    Ok(total)
+}
+
+/// Result of the bounded developer/admin prototype round trip.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PrototypeSummary {
+    pub source: TotalSummary,
+    pub artifact: WriteSummary,
+}
+
+/// Source, index, or output failure from the prototype command.
+#[derive(Debug)]
+pub enum PrototypeError {
+    Source(SourceError),
+    Index(IndexError),
+}
+
+impl fmt::Display for PrototypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Source(error) => error.fmt(f),
+            Self::Index(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for PrototypeError {}
+
+/// Build, reopen, and exhaustively verify one checked source directory.
+pub fn prototype_roundtrip(
+    source_dir: &Path,
+    output: &Path,
+) -> Result<PrototypeSummary, PrototypeError> {
+    let mut loci = Vec::new();
+    let source = visit_directory(source_dir, &mut |locus: &SourceLocus| {
+        loci.push(index_locus(*locus));
+        Ok::<_, Infallible>(())
+    })
+    .map_err(|error| match error {
+        InspectMemberError::Source(error) => PrototypeError::Source(error),
+        InspectMemberError::Visitor(never) => match never {},
+    })?;
+    let artifact = write_index(output, &loci).map_err(PrototypeError::Index)?;
+    let reader = IndexReader::open(output).map_err(PrototypeError::Index)?;
+    reader.verify_exact(&loci).map_err(PrototypeError::Index)?;
+    Ok(PrototypeSummary { source, artifact })
+}
+
+/// Collect a bounded validated corpus for prototype tests and benchmarks.
+/// Full-corpus production builds use a streaming writer in the following slice.
+pub fn collect_index_loci(
+    source_dir: &Path,
+) -> Result<(TotalSummary, Vec<InputLocus>), SourceError> {
+    let mut loci = Vec::new();
+    let summary = visit_directory(source_dir, &mut |locus: &SourceLocus| {
+        loci.push(index_locus(*locus));
+        Ok::<_, Infallible>(())
+    })
+    .map_err(|error| match error {
+        InspectMemberError::Source(error) => error,
+        InspectMemberError::Visitor(never) => match never {},
+    })?;
+    Ok((summary, loci))
+}
+
+const BENCHMARK_REQUIRED_GENES: [&str; 6] = [
+    "ENSG00000010610",
+    "ENSG00000141499",
+    "ENSG00000141510",
+    "ENSG00000169129",
+    "ENSG00000175727",
+    "ENSG00000185974",
+];
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BenchmarkCorpusSummary {
+    pub selected_genes: u64,
+    pub loci: u64,
+    pub rows: u64,
+    pub observed_member_sha256: String,
+}
+
+#[derive(Debug)]
+pub struct BenchmarkCorpusError(String);
+
+impl fmt::Display for BenchmarkCorpusError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for BenchmarkCorpusError {}
+
+struct MemberChoice {
+    name: String,
+    path: PathBuf,
+    bytes: u64,
+    direction: SourceDirection,
+    quartile: usize,
+    selection: &'static str,
+}
+
+/// Build the deterministic stratified logical corpus consumed by the benchmark.
+pub fn prepare_benchmark_corpus(
+    source_dir: &Path,
+    output: &Path,
+    manifest: &Path,
+) -> Result<BenchmarkCorpusSummary, BenchmarkCorpusError> {
+    let discovered = discover_members(source_dir)
+        .map_err(|error| BenchmarkCorpusError(error.to_string()))?
+        .into_iter()
+        .map(|(name, path)| {
+            let name = name
+                .into_string()
+                .map_err(|_| BenchmarkCorpusError("non-UTF-8 member name".to_owned()))?;
+            let bytes = fs::metadata(&path)
+                .map_err(|error| BenchmarkCorpusError(error.to_string()))?
+                .len();
+            let direction = quick_direction(&path, &name)?;
+            Ok((name, path, bytes, direction))
+        })
+        .collect::<Result<Vec<_>, BenchmarkCorpusError>>()?;
+    if discovered.len() != 19_913 {
+        return Err(BenchmarkCorpusError(format!(
+            "expected 19913 source members, found {}",
+            discovered.len()
+        )));
+    }
+    let mut by_size: Vec<_> = (0..discovered.len()).collect();
+    by_size.sort_by_key(|index| (discovered[*index].2, discovered[*index].0.clone()));
+    let discovered_len = discovered.len();
+    let mut quartiles = vec![0_usize; discovered_len];
+    for (rank, original) in by_size.into_iter().enumerate() {
+        quartiles[original] = (rank * 4 / discovered_len).min(3);
+    }
+    let mut strata: [Vec<usize>; 8] = std::array::from_fn(|_| Vec::new());
+    for (index, member) in discovered.iter().enumerate() {
+        if BENCHMARK_REQUIRED_GENES
+            .iter()
+            .any(|gene| member.0 == format!("{gene}.tsv.gz"))
+        {
+            continue;
+        }
+        let direction = usize::from(member.3 == SourceDirection::Descending);
+        strata[direction * 4 + quartiles[index]].push(index);
+    }
+    let mut selected = Vec::with_capacity(134);
+    for gene in BENCHMARK_REQUIRED_GENES {
+        let name = format!("{gene}.tsv.gz");
+        let index = discovered
+            .iter()
+            .position(|member| member.0 == name)
+            .ok_or_else(|| BenchmarkCorpusError(format!("missing required member {name}")))?;
+        let (name, path, bytes, direction) = discovered[index].clone();
+        selected.push(MemberChoice {
+            name,
+            path,
+            bytes,
+            direction,
+            quartile: quartiles[index],
+            selection: "required-edge",
+        });
+    }
+    for stratum in &mut strata {
+        stratum.sort_by(|left, right| discovered[*left].0.cmp(&discovered[*right].0));
+        if stratum.len() < 16 {
+            return Err(BenchmarkCorpusError(
+                "stratum contains fewer than 16 genes".to_owned(),
+            ));
+        }
+        for sample in 0..16 {
+            let position = sample * (stratum.len() - 1) / 15;
+            let index = stratum[position];
+            let (name, path, bytes, direction) = discovered[index].clone();
+            selected.push(MemberChoice {
+                name,
+                path,
+                bytes,
+                direction,
+                quartile: quartiles[index],
+                selection: "stratified",
+            });
+        }
+    }
+    selected.sort_by(|left, right| left.name.cmp(&right.name));
+    if selected.len() != 134 {
+        return Err(BenchmarkCorpusError(
+            "selected gene count is not 134".to_owned(),
+        ));
+    }
+
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent).map_err(|error| BenchmarkCorpusError(error.to_string()))?;
+    }
+    let mut corpus =
+        File::create(output).map_err(|error| BenchmarkCorpusError(error.to_string()))?;
+    corpus
+        .write_all(b"PGLOG001\0\0\0\0\0\0\0\0")
+        .map_err(|error| BenchmarkCorpusError(error.to_string()))?;
+    let mut digest = Sha256::new();
+    let mut loci = 0_u64;
+    let mut rows = 0_u64;
+    for choice in &selected {
+        let name = choice.name.as_bytes();
+        digest.update((name.len() as u64).to_le_bytes());
+        digest.update(name);
+        digest.update(choice.bytes.to_le_bytes());
+        let mut member =
+            File::open(&choice.path).map_err(|error| BenchmarkCorpusError(error.to_string()))?;
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            let read = member
+                .read(&mut buffer)
+                .map_err(|error| BenchmarkCorpusError(error.to_string()))?;
+            if read == 0 {
+                break;
+            }
+            digest.update(&buffer[..read]);
+        }
+        let gene_text = choice
+            .name
+            .strip_suffix(".tsv.gz")
+            .ok_or_else(|| BenchmarkCorpusError("invalid selected member name".to_owned()))?;
+        let gene = EnsemblGeneId::from_str(gene_text)
+            .map_err(|error| BenchmarkCorpusError(error.to_string()))?;
+        let summary = inspect_member(
+            &choice.path,
+            &choice.name,
+            gene,
+            &mut |source: &SourceLocus| write_logical_locus(&mut corpus, index_locus(*source)),
+        )
+        .map_err(|error| BenchmarkCorpusError(error.to_string()))?;
+        loci = loci
+            .checked_add(summary.loci)
+            .ok_or_else(|| BenchmarkCorpusError("locus count overflow".to_owned()))?;
+        rows = rows
+            .checked_add(summary.rows)
+            .ok_or_else(|| BenchmarkCorpusError("row count overflow".to_owned()))?;
+    }
+    corpus
+        .seek(SeekFrom::Start(8))
+        .and_then(|_| corpus.write_all(&loci.to_le_bytes()))
+        .and_then(|_| corpus.sync_all())
+        .map_err(|error| BenchmarkCorpusError(error.to_string()))?;
+
+    let observed_member_sha256 = format!("{:x}", digest.finalize());
+    if let Some(parent) = manifest.parent() {
+        fs::create_dir_all(parent).map_err(|error| BenchmarkCorpusError(error.to_string()))?;
+    }
+    let mut report =
+        File::create(manifest).map_err(|error| BenchmarkCorpusError(error.to_string()))?;
+    writeln!(report, "# Selected gene manifest")
+        .and_then(|_| writeln!(report, "# source_doi=10.5281/zenodo.15649338"))
+        .and_then(|_| writeln!(report, "# archive=Pangolin_hg38_snvs_masked.zip"))
+        .and_then(|_| writeln!(report, "# published_bytes=12988141317"))
+        .and_then(|_| writeln!(report, "# published_md5=679ef0b50e511b6102b4b88fbf811108"))
+        .and_then(|_| writeln!(report, "# observed_member_sha256={observed_member_sha256}"))
+        .and_then(|_| {
+            writeln!(
+                report,
+                "gene\tdirection\tsize_quartile\tcompressed_bytes\tselection"
+            )
+        })
+        .map_err(|error| BenchmarkCorpusError(error.to_string()))?;
+    for choice in &selected {
+        writeln!(
+            report,
+            "{}\t{}\t{}\t{}\t{}",
+            choice.name.trim_end_matches(".tsv.gz"),
+            choice.direction,
+            choice.quartile + 1,
+            choice.bytes,
+            choice.selection
+        )
+        .map_err(|error| BenchmarkCorpusError(error.to_string()))?;
+    }
+    Ok(BenchmarkCorpusSummary {
+        selected_genes: selected.len() as u64,
+        loci,
+        rows,
+        observed_member_sha256,
+    })
+}
+
+fn quick_direction(path: &Path, member: &str) -> Result<SourceDirection, BenchmarkCorpusError> {
+    let file = File::open(path).map_err(|error| BenchmarkCorpusError(error.to_string()))?;
+    let mut reader = BufReader::new(GzDecoder::new(BufReader::new(file)));
+    let mut line = String::new();
+    reader
+        .read_line(&mut line)
+        .map_err(|error| BenchmarkCorpusError(error.to_string()))?;
+    let mut positions = Vec::with_capacity(2);
+    while positions.len() < 2 {
+        line.clear();
+        if reader
+            .read_line(&mut line)
+            .map_err(|error| BenchmarkCorpusError(error.to_string()))?
+            == 0
+        {
+            return Err(BenchmarkCorpusError(format!(
+                "{member}: fewer than two loci"
+            )));
+        }
+        let position = line
+            .split('\t')
+            .nth(1)
+            .and_then(|value| value.parse::<u32>().ok())
+            .ok_or_else(|| BenchmarkCorpusError(format!("{member}: invalid position")))?;
+        if positions.last().copied() != Some(position) {
+            positions.push(position);
+        }
+    }
+    Ok(if positions[1] > positions[0] {
+        SourceDirection::Ascending
+    } else {
+        SourceDirection::Descending
+    })
+}
+
+fn write_logical_locus(output: &mut File, locus: InputLocus) -> Result<(), io::Error> {
+    let (kind, gene, contig, position, allele, alternatives) = match locus {
+        InputLocus::Ordinary(locus) => (
+            0_u8,
+            locus.gene,
+            locus.contig,
+            locus.position,
+            locus.reference,
+            locus.alternatives,
+        ),
+        InputLocus::Ambiguous(locus) => (
+            1_u8,
+            locus.gene,
+            locus.contig,
+            locus.position,
+            locus.omitted,
+            locus.alternatives,
+        ),
+    };
+    let mut record = [0_u8; 32];
+    record[0] = kind;
+    record[1] = contig.code();
+    record[2] = match allele {
+        DnaBase::A => 0,
+        DnaBase::C => 1,
+        DnaBase::G => 2,
+        DnaBase::T => 3,
+    };
+    record[4..12].copy_from_slice(&gene.numeric().to_le_bytes());
+    record[12..16].copy_from_slice(&position.get().to_le_bytes());
+    for (index, alternative) in alternatives.iter().enumerate() {
+        let offset = 16 + index * 5;
+        record[offset] = match alternative.alternate {
+            DnaBase::A => 0,
+            DnaBase::C => 1,
+            DnaBase::G => 2,
+            DnaBase::T => 3,
+        };
+        record[offset + 1] = alternative.score.gain().hundredths();
+        record[offset + 2] = (alternative.score.gain_position().get() as i16 + 50) as u8;
+        record[offset + 3] = alternative.score.loss().hundredths();
+        record[offset + 4] = (alternative.score.loss_position().get() as i16 + 50) as u8;
+    }
+    output.write_all(&record)
+}
+
+/// Perform the cheap structural open used by the corrupt-artifact spec.
+pub fn prototype_open(path: &Path) -> Result<u64, IndexError> {
+    IndexReader::open(path).map(|reader| reader.file_len())
+}
+
+fn index_locus(locus: SourceLocus) -> InputLocus {
+    match locus {
+        SourceLocus::Ordinary(locus) => {
+            let mut alternatives = locus.alternatives.map(|value| InputAlternative {
+                alternate: value.alternate,
+                score: value.score,
+            });
+            alternatives.sort_by_key(|value| value.alternate);
+            InputLocus::Ordinary(OrdinaryInputLocus {
+                gene: locus.gene,
+                contig: locus.contig,
+                position: locus.position,
+                reference: locus.reference,
+                alternatives,
+            })
+        }
+        SourceLocus::AmbiguousReference(locus) => {
+            let mut alternatives = locus.alternatives.map(|value| InputAlternative {
+                alternate: value.alternate,
+                score: value.score,
+            });
+            alternatives.sort_by_key(|value| value.alternate);
+            InputLocus::Ambiguous(AmbiguousInputLocus {
+                gene: locus.gene,
+                contig: locus.contig,
+                position: locus.position,
+                alternatives,
+                omitted: locus.omitted,
+            })
+        }
+    }
 }
 
 /// Validate one already-identified member and stream its loci to a visitor.

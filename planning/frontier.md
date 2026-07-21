@@ -29,16 +29,18 @@ correctness only; the complete source evidence in
 [`artifacts/2026-07-20-full-dataset-entropy.md`](artifacts/2026-07-20-full-dataset-entropy.md)
 drives compression and size decisions.
 
-## Active front — compare lossless physical layouts
+## Established — measured fixed 11-byte private v1
 
-After the corpus is pinned, write the smallest builder/reader round trip needed
-to prove the hierarchical sparse direct baseline and compare it with
-independently compressed Zstd/LZ4 blocks around 1,024–4,096 loci and the 11-byte
-fixed baseline. Measure size, reproducible cold-I/O lookup, warm lookup,
-allocations, decoded bytes, and page faults using identical query sets. Retain
-the direct format unless measurements expose a speed or operational failure.
+The checked fixture round-trips exactly through every candidate. A deterministic
+134-gene real lab corpus compared hierarchical direct, fixed 11-byte, Zstd/LZ4
+at 1,024/2,048/4,096 loci, and fair in-process Tabix. Fixed won the accepted
+speed-first priority after direct was corrected to ranked zero-copy mmap lookup,
+and is the only hardened product codec. Its reader maps the
+artifact, opens without a payload-wide scan, uses a balanced overlap tree, and
+validates ordinary payload only when touched. This evidence is comparative and
+warm; definitive cold-I/O waits for the complete artifact.
 
-## Following front — full streaming build and exact CLI lookup
+## Active front — full streaming build and certification
 
 Extend the accepted format to all 19,913 source files without loading the whole
 dataset into heap memory. Certify every input invariant and source row, publish
@@ -51,7 +53,7 @@ Package the executable and generated data separately. Add explicit install and
 verify commands plus automatic first-start installation, immutable manifests,
 checksums, locking, attribution, platform-standard data/cache directories,
 offline operation, and GitHub release publication. Transport compression is
-removed at installation; the lookup path maps the direct representation.
+removed at installation; the lookup path maps the fixed representation.
 
 ## Later front — model-backed fallback
 

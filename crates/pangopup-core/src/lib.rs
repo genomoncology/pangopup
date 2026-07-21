@@ -58,6 +58,19 @@ impl Grch38Contig {
             Err(ValueError::InvalidContig(number.to_string()))
         }
     }
+
+    /// Stable numeric code for compact representations and interchange.
+    pub const fn code(self) -> u8 {
+        self.0
+    }
+
+    /// Reconstruct a primary contig from its stable numeric code.
+    pub fn from_code(code: u8) -> Result<Self, ValueError> {
+        match code {
+            1..=25 => Ok(Self(code)),
+            _ => Err(ValueError::InvalidContig(code.to_string())),
+        }
+    }
 }
 
 impl FromStr for Grch38Contig {
@@ -149,6 +162,22 @@ impl fmt::Display for DnaBase {
 /// An Ensembl gene identifier stored compactly as its numeric suffix.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct EnsemblGeneId(u64);
+
+impl EnsemblGeneId {
+    /// Numeric suffix of the canonical Ensembl identifier.
+    pub const fn numeric(self) -> u64 {
+        self.0
+    }
+
+    /// Reconstruct an Ensembl gene identifier from its numeric suffix.
+    pub fn from_numeric(numeric: u64) -> Result<Self, ValueError> {
+        if numeric <= 99_999_999_999 {
+            Ok(Self(numeric))
+        } else {
+            Err(ValueError::InvalidGene(format!("ENSG{numeric}")))
+        }
+    }
+}
 
 impl FromStr for EnsemblGeneId {
     type Err = ValueError;

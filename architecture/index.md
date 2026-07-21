@@ -69,19 +69,24 @@ It is not an absolute compression bound: spatial/context models may exploit
 neighbor correlation, while a practical random-access format pays block and
 index overhead.
 
-## Rejected fixed-width baseline
+## Selected fixed-width v1
 
 Three 28-bit score records plus a three-bit reference fit in 87 bits, or 11
-bytes per locus. Over the complete corpus that is 15,030,604,105 bytes—9.3%
-larger than the existing gzip files. It is simple and fast, but it discards the
-dominant fact that most score/position pairs are the default `(0, -50)`.
+bytes per locus. Over the complete corpus that is 15,030,604,105 bytes (about
+14.0 GiB) before directories and exceptions—9.3% larger than the existing gzip
+files. It deliberately discards the dominant default-pair sparsity.
 
-Fixed 11-byte loci remain a useful speed baseline; they are not the preferred
-compact representation.
+Ticket 002 measured that trade-off rather than rejecting it from size alone.
+After adversarial review, the direct kernel was corrected to use zero-copy mmap
+reads, packed masks, and rank-checkpoint/popcount lookup. On the equal candidate
+harness, fixed still won the 1 / 10 / 100 primary warm workloads at p50 121 /
+972 / 9,949 ns versus direct at 160 / 1,243 / 14,749 ns. The separately hardened
+product fixed reader measured 210 / 1,964 / 19,588 ns. ADR 0004 puts query
+performance first, so fixed 11-byte remains the private v1 format.
 
 ## Leading practical representations
 
-### Hierarchical sparse direct lookup — selected runtime baseline
+### Hierarchical sparse direct lookup — rejected v1 alternative
 
 A decompression-free structure can store:
 
@@ -89,18 +94,17 @@ A decompression-free structure can store:
 2. one bit per locus indicating any nondefault score/position pair;
 3. a six-bit gain/loss-pair mask only for those 310,269,258 loci;
 4. one 14-bit score/position value for each of 549,194,849 nondefault pairs;
-5. rank checkpoints per block so lookup uses bounded popcounts, not a scan.
+5. rank checkpoints every 64 loci inside 4,096-locus blocks so lookup uses
+   bounded popcounts directly over mapped bytes, not a scan or payload copy.
 
 The payload calculation is 1,706,199,888 bytes (1.589 GiB), before small rank,
 gene, segment, and provenance directories. It is directly queryable from mmap
 and is only about 88 MB larger than the measured 4,096-locus Zstd result.
 
 Query performance is the primary product objective, resident memory and pages
-touched are second, and compressed download size is third. The direct sparse
-layout is therefore the v1 runtime baseline. The implementation ticket still
-benchmarks it against the simpler fixed-width layout and compressed blocks to
-quantify the choice and catch a surprising result, but compressed blocks do not
-become the default merely because they save installed bytes.
+touched are second, and compressed download size is third. Hierarchical direct
+won size and mapped-page work but lost the measured query priority to fixed v1.
+It remains a reproducible benchmark candidate, not a supported runtime format.
 
 ### Independently compressed sparse blocks
 
@@ -122,12 +126,9 @@ candidate, not yet a frozen format. Sizes exclude the small gene/segment/source
 directories and `REF=N` exception table, and use a raw-block fallback when
 compression expands a block.
 
-The first format ticket must benchmark at least the hierarchical direct layout,
-4,096-ish Zstd and LZ4 blocks, and the fixed baseline. It should also test block
-sizes around 1,024–4,096 because the measured mean compressed 4,096-locus block
-is slightly larger than one 4 KiB page. A contrary format selection requires a
-measured speed win or evidence that the direct design is operationally invalid;
-file size alone is not enough.
+Ticket 002 compared hierarchical direct, fixed 11-byte, Zstd and LZ4 at 1,024,
+2,048, and 4,096 loci, plus an in-process Tabix baseline. Fixed supplied the
+required measured speed win. See ADR 0006 and the retained benchmark report.
 
 ## Query-oriented structure
 
@@ -144,16 +145,17 @@ The logical sections are:
 [gene directory]
 [contiguous segment directory]
 [optional source-gene overlap index]
-[rank/block directory]
+[balanced per-contig interval tree]
 [score payload]
 [N-reference exceptions]
 [provenance metadata]
 ```
 
-The gene directory is sorted by compact Ensembl identity and points to one or
-more ascending genomic segments. Within a segment, position gives a direct locus
-ordinal. A gene-filtered query binary-searches the gene and its few segments,
-then performs a direct sparse lookup or opens one compressed block.
+The segment directory is sorted by `(gene, contig, start)`. Within a segment,
+position gives a direct locus ordinal. A gene-filtered query performs an upper
+bound search on `(gene, contig, position)` and checks the sole possible
+predecessor segment, then directly decodes one fixed 11-byte locus record. It
+does not scan all segments belonging to a gene.
 
 A query without a gene needs all matching records present in the pinned source
 archive—not all genes in an unspecified current GENCODE release. Candidate
@@ -207,15 +209,13 @@ The fast installed mmap file and the downloaded release asset solve different
 problems. A GitHub release may carry a `.tar.zst` transport archive. The install
 command downloads it to a temporary path, verifies its digest and manifest,
 expands it once, verifies the installed members, then atomically publishes the
-immutable bundle. Runtime lookup maps the expanded direct sparse member and
+immutable bundle. Runtime lookup maps the expanded fixed-width member and
 never decompresses a query block.
 
-The measured 1.589 GiB direct payload is below GitHub's current requirement that
-each release asset be under 2 GiB, even before transport compression. The exact
-final artifact size remains a release gate because directories and provenance
-add bytes. If a complete archive ever approaches the ceiling, split transport
-assets by contig while retaining one manifest and one logical bundle. Do not
-weaken or redesign the runtime format merely to fit a hosting limit.
+The projected fixed payload is about 14.0 GiB, so release transport will require
+strong compression and likely per-contig splitting under one manifest. The exact
+complete artifact, transport size, and operational practicality remain a later
+release gate. Transport constraints do not add decompression to lookup.
 
 ## Reader and verification safety
 
@@ -248,8 +248,10 @@ Correctness and performance travel together. The proof includes:
 - p50/p95/p99 latency, throughput, allocations, bytes/pages touched, page faults,
   resident memory, output size, build throughput, and build peak memory.
 
-The correctness fixture selects edge cases. Format selection uses a stratified
-large corpus and complete-source size accounting; a tiny fixture cannot predict
-compression or I/O behavior. Cold testing must use a documented dataset larger
-than available memory or an isolated uncached device/read method—not merely the
-first query after a build, whose pages are usually already hot.
+The correctness fixture selects edge cases. Ticket 002 used a deterministic
+stratified real lab corpus for comparative warm selection and instrumented
+logical bytes, mapped page numbers, allocations, and page faults. That corpus is
+smaller than available memory, so it makes no cold-I/O claim. Definitive cold
+testing must use the complete artifact with a documented dataset larger than
+available memory or an isolated uncached device/read method—not merely the first
+query after a build, whose pages are usually already hot.

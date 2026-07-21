@@ -9,6 +9,17 @@ repository.workspace = true
 [dependencies]
 flate2 = "1.1.5"
 pangopup-core = { path = "../pangopup-core" }
+pangopup-index = { path = "../pangopup-index" }
+sha2 = "0.10.9"
+
+[dev-dependencies]
+libc = "0.2.188"
+lz4_flex = "0.14.0"
+memmap2 = "0.9.8"
+noodles-bgzf = "0.48.0"
+noodles-csi = "0.57.0"
+noodles-tabix = "0.63.0"
+zstd = "0.13.3"
 
 [lints]
 workspace = true

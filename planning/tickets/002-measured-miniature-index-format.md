@@ -1,6 +1,6 @@
 # 002 — Measured miniature index format and lookup kernel
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -256,8 +256,81 @@ packet eligible to become `ready`.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: `ticket_002_development`
+
+- Implemented and measured the hierarchical direct, fixed 11-byte, Zstd
+  1K/2K/4K, and LZ4 1K/2K/4K candidates plus the in-process Tabix baseline.
+  Every custom candidate exactly round-trips all 6,342 checked fixture rows,
+  including both overlapping records and both typed `REF=N` exceptions.
+- Selected and promoted fixed 11-byte v1 under ADR 0004. On the retained
+  9,858,991-locus corpus, the corrected equal-harness fixed kernel had one-open
+  p50 latency of 121 ns / 972 ns / 9,949 ns for 1/10/100 records. The ranked
+  zero-copy hierarchical direct kernel measured 160 ns / 1,243 ns / 14,749 ns;
+  the separately hardened fixed product reader measured 210 ns / 1,964 ns /
+  19,588 ns; and Tabix measured 9.372 ms / 97.298 ms / 978.623 ms. The fixed
+  selection remains supported and the Tabix stop condition did not trigger.
+- Retained the 134-gene selection manifest, 100-query manifest, complete warm
+  tables, machine/method details, and framed observed-input SHA-256
+  `0852168353c8d309a1850bc64049eb8591b4097c5e8635d1042458c5c37c261b` in
+  `planning/artifacts/`.
+- Hardened the promoted reader with checked section arithmetic, structural-only
+  open validation, touched-payload validation, explicit little-endian decoding,
+  mmap as the sole unsafe boundary, and exact open-time tree validation for
+  connectivity/coverage, acyclicity, BST order, subtree maxima, contigs, and
+  balance. Mutation tests cover magic, version, truncation, overlapping and
+  out-of-file sections, counts, reserved bytes, invalid alleles/scores/exceptions,
+  low subtree maxima, cycles, and lazy payload rejection. Block length and
+  decompression corruption are not applicable to the selected uncompressed
+  fixed format; compressed alternatives remain benchmark-only.
+- Added the augmented per-contig interval tree and its deterministic
+  19,916-segment nested/disjoint proof, the prototype builder/open commands,
+  exact fixture verification, and the corrupt-artifact executable spec.
+- Final gates on 2026-07-21: `make lint` passed; `make test` passed 23 tests;
+  `make spec` passed 10 scenarios. The retained lab corpus fits in RAM, so cold
+  I/O, definitive resident-set, and complete installed-size evidence remain
+  explicitly deferred to Ticket 004.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `ticket_002_code_review` (independent, read-only code review)
+
+Initial result: changes required.
+
+- Material M1: the hierarchical-direct benchmark copied each mapped block into
+  a `Vec` and scanned preceding bitmap bits/masks. Disposition: replaced it with
+  a zero-copy 4,096-locus mmap kernel using packed six-bit masks, active/pair
+  rank checkpoints every 64 loci, and bounded popcount. Exact candidate fixture
+  round trips pass, and the real 20-sample corpus selection was rerun.
+- Material M2: gene-filtered product and candidate lookup could scan every
+  segment for a gene, while the adversarial test covered only unfiltered lookup.
+  Disposition: both readers now upper-bound-search `(gene, contig, start)` and
+  check one predecessor; gene-filtered exceptions use their full sorted key.
+  Product and candidate proofs use a deterministic 19,916-segment directory and
+  bound decoded directory work.
+- Material M3: open checked link ranges and a weak maximum bound but not the
+  complete interval-tree invariants trusted by lookup. Disposition: canonical
+  open traversal now proves acyclicity, unique connectivity and coverage,
+  strict BST order, exact subtree maxima, contig ownership, and height balance
+  without heap allocation proportional to artifact size. Focused low-maximum
+  and cycle mutations are rejected at open.
+- Material M4: the retained report omitted comparable work metrics, used two
+  page aggregation conventions, and used a percentile floor that collapsed p99
+  into p95 with 20 samples. Disposition: page instrumentation now consistently
+  counts unique 4 KiB mapped artifact pages per complete sample; all candidate
+  primary rows retain open/serialization, latency, throughput, allocations,
+  logical bytes, pages, and faults; and documented nearest-rank percentiles make
+  p99 the maximum at 20 samples.
+- Nonmaterial N1–N3: README named the old direct installed form, core accessor
+  docs leaked private-format language, and `write_index` still called itself
+  direct sparse. Disposition: all three names/boundaries now say fixed 11-byte
+  or use representation-neutral core language.
+
+Corrected retained run: fixed selection unchanged. Equal-harness fixed one-open
+p50 was 121 / 972 / 9,949 ns for 1/10/100 versus corrected direct at 160 / 1,243
+/ 14,749 ns; Tabix remained orders of magnitude slower.
+
+Final re-review: approved. The reviewer confirmed all material findings were
+resolved and the corrected selection evidence is credible. One nonblocking
+documentation nit remained: the public `IndexReader` comment still called the
+selected reader direct sparse. Disposition: corrected it to identify the
+private fixed 11-byte format; no behavior changed.

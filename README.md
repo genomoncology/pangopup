@@ -74,15 +74,20 @@ Logically this behaves like a key-value store:
 (GRCh38 contig, position, REF, ALT) -> one or more gene-specific score records
 ```
 
-Physically it is not a generic hash table or embedded database. It is an
-immutable sparse genomic layout with direct addressing, rank checkpoints, and a
-small overlap directory. That shape removes text parsing and decompression from
-the request path and avoids loading billions of ordinary key objects.
+Physically it is not a generic hash table or embedded database. Private v1 uses
+an immutable 11-byte record per ordinary locus, contiguous gene segments, and a
+balanced per-contig overlap tree. That shape removes text parsing and
+decompression from the request path and avoids loading billions of ordinary key
+objects.
 
-The current complete-corpus calculation puts the direct sparse payload at about
-1.589 GiB before small directories and provenance. The installed file is
-memory-mapped. Pangopup reads only the directory and payload pages needed by a
-query; it does not copy the entire file into its heap.
+The complete-corpus fixed payload projects to about 14.0 GiB before small
+directories and provenance. This is deliberately larger than the 1.589 GiB
+hierarchical sparse candidate: the real-corpus benchmark found fixed lookup
+consistently faster on the equal candidate harness after direct was corrected
+to use ranked zero-copy mmap lookup, and query speed is the first accepted
+priority. The
+installed file is memory-mapped, so Pangopup reads only the directory and
+record pages needed by a query rather than copying the file into heap.
 
 ## Runtime assets
 
@@ -90,7 +95,7 @@ A full Pangopup installation uses four versioned data assets:
 
 | Asset | Used for | Original source | Installed form |
 |---|---|---|---|
-| SNV score index | Fast path | Zenodo precomputed scores | Direct sparse mmap file |
+| SNV score index | Fast path | Zenodo precomputed scores | Fixed 11-byte mmap file |
 | Model weights | Fallback | Upstream Pangolin checkpoints | Verified Rust-runtime representation |
 | GRCh38 sequence | Fallback sequence window and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Compact indexed mmap file |
 | Splice mask | Gene strand, spans, and exon boundaries | GENCODE release 38 annotation | Compact interval/boundary mmap file |
@@ -175,7 +180,7 @@ resident working set remains much smaller. Model weights and active inference
 tensors consume ordinary resident memory and are measured separately.
 
 The release archive may use strong compression because download encoding is not
-the runtime encoding. Installation expands it once into the direct mmap form.
+the runtime encoding. Installation expands it once into the fixed mmap form.
 This deliberately spends disk space to avoid per-query decompression.
 
 ## Current state
@@ -193,17 +198,21 @@ Implemented today:
 - exact GRCh38 SNV, Ensembl gene, centi-score, and relative-position Rust types;
 - bounded-memory gzip/TSV validation plus an observable source-inspection
   command, `pangopup-build inspect <SOURCE_DIR>`;
+- measured fixed/direct/Zstd/LZ4/Tabix comparison on a deterministic real lab
+  corpus, selecting and hardening the fixed 11-byte private v1 format;
+- deterministic miniature fixed-index writing, structurally checked mmap open,
+  exact lookup/exception round trips, and `pangopup-build prototype-roundtrip`;
 - the standalone API, runtime-data, delivery, and performance decisions.
 
-Not implemented yet: a public provider trait or lookup result, index writer,
-mmap reader, real CLI lookup, automatic asset manager, model runtime, HTTP
-service, or result cache.
+Not implemented yet: the complete-corpus streaming/certified index build, a
+stable public provider trait or lookup result, real CLI lookup, automatic asset
+manager, model runtime, HTTP service, or result cache.
 
 The development order is:
 
 1. checked source fixture and executable source contract (complete);
-2. measured miniature index writer/reader (next);
-3. full streaming builder, mmap lookup, and CLI;
+2. measured miniature index writer/reader (complete);
+3. full streaming builder, complete index certification, and CLI;
 4. release packaging and automatic asset installation;
 5. compatible model fallback and compact reference/mask assets;
 6. unified HTTP service and end-to-end performance proof.
