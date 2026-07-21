@@ -1,0 +1,18 @@
+[package]
+name = "pangopup-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "pangopup"
+path = "src/main.rs"
+
+[dependencies]
+pangopup-core = { path = "../pangopup-core" }
+pangopup-index = { path = "../pangopup-index" }
+
+[lints]
+workspace = true

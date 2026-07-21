@@ -1,0 +1,13 @@
+[package]
+name = "pangopup-index"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pangopup-core = { path = "../pangopup-core" }
+
+[lints]
+workspace = true

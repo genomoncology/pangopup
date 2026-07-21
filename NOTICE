@@ -1,0 +1,26 @@
+Pangopup
+========
+
+Pangopup source code is licensed under GPL-3.0-only.
+
+Pangolin precomputed scores dataset
+-----------------------------------
+
+Pangopup is designed to transform and query the following separately licensed
+dataset:
+
+  Title: Pangolin precomputed scores
+  Creators: Nils Wagner and Aleksandr Neverov
+  Publisher: Zenodo
+  DOI: 10.5281/zenodo.15649338
+  Source: https://doi.org/10.5281/zenodo.15649338
+  License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+  License text: https://creativecommons.org/licenses/by/4.0/
+
+The Pangopup index is a transformed representation of the source per-gene TSV
+files. Pangopup may reorder, validate, index, and losslessly pack their numeric
+fields for exact lookup. It does not change the source scores.
+
+Distributed index bundles must retain this notice, identify the exact source
+archive checksum, describe the transformation, and state whether further
+changes were made.

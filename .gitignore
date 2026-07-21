@@ -1,0 +1,8 @@
+target/
+*.pup
+*.pup.tmp
+/data/
+
+# Agent tooling is linked at dispatch time and is not product source.
+/.agents/
+/.claude/

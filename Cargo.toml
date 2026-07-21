@@ -1,0 +1,25 @@
+[workspace]
+members = [
+    "crates/pangopup-build",
+    "crates/pangopup-cli",
+    "crates/pangopup-core",
+    "crates/pangopup-index",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.93"
+version = "0.1.0"
+license = "GPL-3.0-only"
+repository = "https://github.com/genomoncology/pangopup"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+wildcard_imports = "warn"
