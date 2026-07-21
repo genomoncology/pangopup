@@ -11,6 +11,10 @@ precomputed dataset. Model inference and HTTP are later adapters.
   and performance method.
 - [`source-data.md`](source-data.md) — dataset identity, observed properties,
   reference evidence, and CC BY obligations.
+- [`runtime-data.md`](runtime-data.md) — the exact local assets needed for
+  standalone lookup and model fallback.
+- [`delivery.md`](delivery.md) — release assets, installation, and immutable
+  bundles.
 - [`decisions/`](decisions/) — accepted cross-cutting decisions.
 
 Current work, unresolved priorities, and hypotheses belong in

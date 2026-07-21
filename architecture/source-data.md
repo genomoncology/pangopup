@@ -62,3 +62,10 @@ The dataset remains CC BY 4.0. Every distributed derived index must include:
 
 The source code’s GPL-3.0 license does not replace the dataset’s CC BY license.
 `NOTICE` is part of every bundle and release packaging contract.
+
+## Distribution
+
+The transformed sparse index is distributed as a separately named GitHub
+release asset, not as a Git object. Transport compression is permitted because
+installation expands and verifies the direct mmap bundle once; it does not put
+decompression on the lookup path. See [`delivery.md`](delivery.md).

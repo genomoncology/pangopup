@@ -8,9 +8,10 @@ the four published Pangolin values plus provenance. It is an annotation lookup,
 not model inference.
 
 ```text
-CLI text
-  -> parse a narrow GRCh38 SNV/HGVS input
-  -> typed lookup request
+CLI/HTTP structured genomic variant
+  -> validate GRCh38 contig, position, reference, and alternate
+  -> classify SNV versus non-SNV
+  -> typed splice lookup request
   -> score-provider capability
   -> validated mmap index
   -> typed gene-specific score result(s)
@@ -63,9 +64,10 @@ other build-only dependencies stay here and do not enter runtime consumers.
 
 ### `pangopup-cli`
 
-Owns arguments, input parsing at the user boundary, output rendering, and exit
-codes. It opens one configured bundle for the process and reuses it for every
-request in batch or streaming modes. It does not parse source TSV files.
+Owns arguments, narrow genomic-variant input parsing, output rendering, and
+exit codes. It opens one configured Pangopup bundle for the process and reuses
+it for every request in batch or streaming modes. It does not parse source TSV
+files.
 
 Future `pangopup-model` and `pangopup-http` crates should be added only when
 their own observable slices begin. They must consume the same core types rather
@@ -83,20 +85,42 @@ does not claim completeness against a newer or otherwise unspecified GENCODE
 release.
 
 An optional gene filter gives the common single-record path. A caller that does
-not provide a gene receives all overlaps; Pangopup must never silently choose
-one gene. Whether CLI v1 requires the gene or defaults to all overlaps remains a
-product choice in planning.
+not provide a gene receives all matching source records; Pangopup must never
+silently choose one gene. This is the CLI and library default.
 
-## HGVS boundary
+## Standalone variant boundary
 
-Pangopup needs only the small input subset required to identify a genomic SNV,
-for example `NC_000017.11:g.43106534C>A`. It should not grow a second general
-HGVS engine.
+Pangopup is a standalone splice service. It neither depends on Genome nor tries
+to reproduce Genome's job. Its canonical request is the minimum information
+needed to identify a genomic allele:
 
-The first parser can deliberately accept only canonical GRCh38 genomic SNVs and
-reject transcript HGVS, indels, uncertain positions, and noncanonical contigs
-with typed errors. If the Genome project exposes a stable reusable parser and
-normalizer, the CLI can adapt it later without changing the index contract.
+```text
+assembly=GRCh38, contig=17, position=43106534, ref=C, alt=A
+```
+
+The first CLI and service may accept `17`, `chr17`, or the exact primary RefSeq
+accession `NC_000017.11` through a small pinned alias table. This is coordinate
+parsing, not a general HGVS system.
+
+HGVS is not required for splice scoring. Supporting transcript `c.` or protein
+`p.` input would require transcript versions, exon geometry, normalization, and
+projection rules that are unrelated to scoring. Protein notation is especially
+insufficient: several nucleotide variants can produce the same protein change,
+and a splice effect cannot generally be reconstructed from the protein result.
+Callers that begin with those forms must resolve them to one concrete GRCh38
+genomic allele before calling Pangopup.
+
+A gene is also not required in a request. The source archive is partitioned by
+Ensembl gene and masking is gene-specific, so the same genomic allele can have
+several valid score records. Pangopup returns every matching record by default
+and accepts an optional source-gene filter; it never guesses one best gene.
+
+An SNV routes to the precomputed index. A supported non-SNV may route to the
+bundled model. Unsupported shapes and reference mismatches fail with typed
+errors before scoring.
+
+See [`runtime-data.md`](runtime-data.md) for the small set of standalone assets
+needed by lookup and model execution.
 
 ## Exactness
 
@@ -131,7 +155,9 @@ not add an application cache until measurements show a miss it can improve.
 
 Lookups must be deterministic, thread-safe, and allocation-light. Returning a
 small owned score record is preferable to exposing mmap-backed lifetimes across
-the public API.
+the public API. The primary installed profile is decompression-free sparse mmap;
+transport compression is removed once at installation and never appears on the
+query path.
 
 ## Deliberate first-slice exclusions
 
@@ -140,7 +166,7 @@ the public API.
 - SQLite result caching;
 - REST or gRPC;
 - GRCh37 or liftover;
-- transcript-level HGVS and normalization;
+- transcript HGVS, protein HGVS, projection, or normalization;
 - hot reload;
 - threshold-based clinical interpretation.
 

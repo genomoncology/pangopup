@@ -10,9 +10,9 @@
    single answer.
 3. **Selective mmap lookup.** Runtime work touches only small directory and
    payload regions; it never scans or parses the full source at query time.
-4. **Small, measured representation.** The chosen format sits on the useful
-   size/latency Pareto frontier against simpler fixed records, block compression,
-   and a Tabix baseline.
+4. **Speed-first measured representation.** The chosen format minimizes lookup
+   work and latency, with size reported against fixed records, block compression,
+   and a Tabix baseline rather than treated as the primary objective.
 5. **Reproducible artifact.** A Rust builder streams the pinned source, proves
    its invariants, writes deterministically, certifies the result, and records
    enough provenance to reproduce it.
@@ -23,6 +23,11 @@
    the operating-system page cache.
 8. **License-complete packaging.** GPL source delivery and the source dataset’s
    CC BY attribution are explicit, separate, and retained in derived bundles.
+9. **Standalone deployment.** Lookup and model fallback require no Genome, UTA,
+   SeqRepo, database, or network service.
+10. **Release-asset delivery.** Executables, lookup data, and models are
+    separately versioned, verified assets whose transport encoding never enters
+    the query path.
 
 ## Not first-slice goals
 

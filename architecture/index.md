@@ -78,7 +78,7 @@ compact representation.
 
 ## Leading practical representations
 
-### Hierarchical sparse direct lookup
+### Hierarchical sparse direct lookup — selected runtime baseline
 
 A decompression-free structure can store:
 
@@ -91,6 +91,12 @@ A decompression-free structure can store:
 The payload calculation is 1,706,199,888 bytes (1.589 GiB), before small rank,
 gene, segment, and provenance directories. It is directly queryable from mmap
 and is only about 88 MB larger than the measured 4,096-locus Zstd result.
+
+Speed is the primary product objective and download size is secondary, so this
+is the v1 runtime baseline. The implementation ticket still benchmarks it
+against the simpler fixed-width layout and compressed blocks to quantify the
+choice and catch a surprising result, but compressed blocks do not become the
+default merely because they save installed bytes.
 
 ### Independently compressed sparse blocks
 
@@ -115,7 +121,9 @@ compression expands a block.
 The first format ticket must benchmark at least the hierarchical direct layout,
 4,096-ish Zstd and LZ4 blocks, and the fixed baseline. It should also test block
 sizes around 1,024–4,096 because the measured mean compressed 4,096-locus block
-is slightly larger than one 4 KiB page.
+is slightly larger than one 4 KiB page. A contrary format selection requires a
+measured speed win or evidence that the direct design is operationally invalid;
+file size alone is not enough.
 
 ## Query-oriented structure
 
@@ -184,6 +192,22 @@ uses immutable content-addressed members bound by hash into one bundle identity,
 then atomically publishes the verified manifest/pointer (or atomically renames a
 complete staging directory on one filesystem). A reader never combines members
 from different manifests.
+
+## Release transport is not runtime encoding
+
+The fast installed mmap file and the downloaded release asset solve different
+problems. A GitHub release may carry a `.tar.zst` transport archive. The install
+command downloads it to a temporary path, verifies its digest and manifest,
+expands it once, verifies the installed members, then atomically publishes the
+immutable bundle. Runtime lookup maps the expanded direct sparse member and
+never decompresses a query block.
+
+The measured 1.589 GiB direct payload is below GitHub's current requirement that
+each release asset be under 2 GiB, even before transport compression. The exact
+final artifact size remains a release gate because directories and provenance
+add bytes. If a complete archive ever approaches the ceiling, split transport
+assets by contig while retaining one manifest and one logical bundle. Do not
+weaken or redesign the runtime format merely to fit a hosting limit.
 
 ## Reader and verification safety
 

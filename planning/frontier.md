@@ -1,14 +1,14 @@
 # Frontier
 
-Updated: 2026-07-20
+Updated: 2026-07-21
 
 ## Current boundary
 
 Repository onboarding, the initial architecture, and complete-corpus entropy
-evidence are established. The first feature ticket has deliberately not been
-drafted: the public lookup multiplicity and input contract need Ian’s priority
-decision. The on-disk choice is now narrowed to measured sparse candidates but
-still needs actual lookup benchmarks rather than a size-only decision.
+evidence are established. The product is a standalone service with no Genome
+dependency. Its canonical input is an explicit GRCh38 genomic variant; a gene
+filter is optional; all matching source records are returned by default. Speed
+leads size, and generated lookup/model data ship as verified release assets.
 
 ## Active front — characterize and pin the smallest truthful corpus
 
@@ -31,11 +31,11 @@ drives compression and size decisions.
 ## Near front — compare lossless physical layouts
 
 After the corpus is pinned, write the smallest builder/reader round trip needed
-to compare the hierarchical sparse direct layout, independently compressed
-Zstd/LZ4 blocks around 1,024–4,096 loci, and the 11-byte fixed baseline. Measure
-size, reproducible cold-I/O lookup, warm lookup, allocations, decoded bytes, and
-page faults using identical query sets. Accept one v1 format only from that
-evidence.
+to prove the hierarchical sparse direct baseline and compare it with
+independently compressed Zstd/LZ4 blocks around 1,024–4,096 loci and the 11-byte
+fixed baseline. Measure size, reproducible cold-I/O lookup, warm lookup,
+allocations, decoded bytes, and page faults using identical query sets. Retain
+the direct format unless measurements expose a speed or operational failure.
 
 ## Following front — full streaming build and exact CLI lookup
 
@@ -46,7 +46,7 @@ lookups through the CLI and executable spec.
 
 ## Parked fronts
 
-- broader HGVS through Genome;
+- HGVS and coordinate projection;
 - model-backed non-SNV scoring;
 - persistent cache for model results;
 - ONNX Runtime and hardware-provider evaluation;

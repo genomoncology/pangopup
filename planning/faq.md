@@ -21,7 +21,9 @@ cryptic sites or pseudoexons away from the canonical two splice-site bases.
 
 The files are per gene, gene spans can overlap, and masking depends on annotation
 context. One genomic SNV can therefore have more than one source record. Results
-must retain Ensembl gene identity even if the common query has only one hit.
+must retain Ensembl gene identity even if the common query has only one hit. A
+caller does not need to supply a gene: without a filter Pangopup returns every
+matching source record.
 
 ### What happens at a source row whose reference is `N`?
 
@@ -52,25 +54,54 @@ zero reference mismatches against RefSeq GRCh38.p14 primary chromosomes, but the
 publisher does not identify the exact FASTA or GENCODE release. Pangopup can say
 GRCh38 and pin the archive checksum; it should not invent missing provenance.
 
-## Open priority choices
+### Does Pangopup need Genome, HGVS, or transcript projection?
 
-### What should CLI v1 require?
+No. Pangopup is standalone and accepts an already identified GRCh38 genomic
+variant: contig, one-based position, reference allele, and alternate allele.
+That is enough to look up or model a splice score. Transcript `c.` and protein
+`p.` expressions must be resolved by the caller because doing so requires a
+general transcript/protein reference system and is not splice scoring.
 
-- **Recommended:** accept canonical genomic HGVS plus an optional Ensembl gene;
-  without a gene, return all matching gene records.
-- Require a gene for every query: simplest single-result contract, but awkward
-  for callers that begin with only a genomic variant.
-- Return one “best” gene: smallest response, but biologically lossy unless a
-  separate explicit selection policy is defined.
+### What reference and annotation data does model fallback need?
 
-### How much HGVS should Pangopup own?
+The lookup path needs only the sparse score bundle. The model path additionally
+needs the model checkpoints, local GRCh38 DNA bases, and a map of gene strand
+plus exon boundaries. The DNA is pinned NCBI RefSeq GRCh38.p14
+`GCF_000001405.40`. The boundary map is compiled from the GENCODE annotation
+used by Pangolin's masking behavior. It is a compact Pangopup mmap member, not
+UTA, SeqRepo, Genome, SQLite, or gffutils at runtime.
 
-- **Recommended:** only canonical GRCh38 genomic SNVs at first, plus an explicit
-  coordinate/allele form for bulk use. Reuse Genome later for broader HGVS.
-- Depend on Genome immediately: avoids a tiny duplicate parser, but couples the
-  first index proof to a much larger evolving library.
-- Build a full parser here: self-contained, but duplicates a solved problem and
-  expands scope sharply.
+### Why is any gene information needed at all?
+
+The neural network needs only sequence and strand to produce raw changes, but
+Pangolin's default masked result uses exon boundaries. It suppresses changes
+that do not make biological sense relative to the annotated splice sites. It
+also evaluates overlapping genes separately. Pangopup therefore needs only
+gene ID, span, strand, and exon-boundary positions—not gene descriptions,
+aliases, transcripts, proteins, or disease knowledge.
+
+### Can the large files be GitHub release assets?
+
+Yes. GitHub currently permits up to 1,000 assets per release, requires each
+asset to be under 2 GiB, and states no aggregate release-size or bandwidth
+quota. The measured direct sparse payload is about 1.589 GiB before small
+directories and should be smaller as a transport archive. Pangopup will publish
+separate verified executable, lookup-data, and model assets; installation
+expands the data once so runtime lookup remains decompression-free.
+
+## Settled product choices
+
+### What does CLI v1 require?
+
+Accept an explicit GRCh38 contig, position, reference, and alternate plus an
+optional Ensembl source-gene filter. Without a filter, return every matching
+gene-specific score. No implicit best-gene selection.
+
+### How much HGVS does Pangopup own?
+
+None beyond possibly recognizing an exact genomic RefSeq accession as a contig
+alias. Pangopup does not accept transcript/protein HGVS and has no dependency on
+Genome or another projection service.
 
 ### What corpus should prove the first index?
 
@@ -84,11 +115,18 @@ GRCh38 and pin the archive checksum; it should not invent missing provenance.
 
 ### What is the primary optimization objective?
 
-- **Recommended:** exactness first, then choose the smallest layout within a
-  measured lookup-latency envelope. Report both cold and warm behavior.
-- Absolute minimum file size: favors compression and may hurt random access.
-- Absolute minimum warm latency: favors padding/precomputed directories and may
-  inflate the artifact.
+Exactness is mandatory and lookup speed is the primary optimization objective.
+Download and installed size are secondary. The direct sparse mmap layout is the
+baseline; compressed and fixed-width layouts remain measured comparators.
+
+### How are large artifacts delivered?
+
+As separately versioned GitHub release assets: executable, CC BY sparse lookup
+bundle, GPL model weights, GRCh38 reference member, and GENCODE masking member.
+Compress for transport, verify and expand once at installation, and map the
+expanded data at runtime.
+
+## Remaining design choices
 
 ### What should the first output look like?
 
