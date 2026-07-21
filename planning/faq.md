@@ -89,6 +89,38 @@ directories and should be smaller as a transport archive. Pangopup will publish
 separate verified executable, lookup-data, and model assets; installation
 expands the data once so runtime lookup remains decompression-free.
 
+### Does Pangopup install missing assets automatically?
+
+Yes. CLI and service startup resolve a binary-pinned manifest and automatically
+install a missing compatible bundle. Installation downloads to a temporary
+cache path, verifies SHA-256, extracts and verifies members in staging, then
+publishes atomically. Offline and container deployments can prefetch the same
+bundle and prohibit network access.
+
+### Where are assets installed?
+
+On Linux, durable bundles use
+`${XDG_DATA_HOME:-$HOME/.local/share}/pangopup/`. Temporary downloads may use
+`${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/`. The data directory is authoritative;
+it is not disposable cache. Other platforms use their normal application-data
+locations, and `PANGOPUP_DATA_DIR` overrides discovery.
+
+### Does the service run from a FASTA file?
+
+The GRCh38 reference source is distributed by NCBI as FASTA, but raw FASTA is a
+build input. Pangopup compiles its required primary sequence into a compact
+indexed mmap member and distributes that member. Model fallback reads a bounded
+sequence window without parsing FASTA or loading the whole reference into heap
+memory.
+
+### What latency should we expect?
+
+The target for a warm library lookup is microseconds; a long-lived local HTTP
+lookup should be sub-millisecond. A cold page fault can take longer, and neural
+model inference is orders of magnitude slower. These remain targets until the
+benchmark gate reports warm/cold percentiles, page faults, allocations, bytes
+touched, and resident memory on named hardware.
+
 ## Settled product choices
 
 ### What does CLI v1 require?
@@ -116,15 +148,16 @@ service.
 ### What is the primary optimization objective?
 
 Exactness is mandatory and lookup speed is the primary optimization objective.
-Download and installed size are secondary. The direct sparse mmap layout is the
-baseline; compressed and fixed-width layouts remain measured comparators.
+Resident memory and pages touched come next; compressed download size is third.
+The direct sparse mmap layout is the baseline; compressed and fixed-width
+layouts remain measured comparators.
 
 ### How are large artifacts delivered?
 
 As separately versioned GitHub release assets: executable, CC BY sparse lookup
 bundle, GPL model weights, GRCh38 reference member, and GENCODE masking member.
-Compress for transport, verify and expand once at installation, and map the
-expanded data at runtime.
+Compress for transport, verify and expand once at automatic or explicit
+installation, and map the expanded data at runtime.
 
 ## Remaining design choices
 

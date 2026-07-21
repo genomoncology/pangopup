@@ -92,11 +92,12 @@ The payload calculation is 1,706,199,888 bytes (1.589 GiB), before small rank,
 gene, segment, and provenance directories. It is directly queryable from mmap
 and is only about 88 MB larger than the measured 4,096-locus Zstd result.
 
-Speed is the primary product objective and download size is secondary, so this
-is the v1 runtime baseline. The implementation ticket still benchmarks it
-against the simpler fixed-width layout and compressed blocks to quantify the
-choice and catch a surprising result, but compressed blocks do not become the
-default merely because they save installed bytes.
+Query performance is the primary product objective, resident memory and pages
+touched are second, and compressed download size is third. The direct sparse
+layout is therefore the v1 runtime baseline. The implementation ticket still
+benchmarks it against the simpler fixed-width layout and compressed blocks to
+quantify the choice and catch a surprising result, but compressed blocks do not
+become the default merely because they save installed bytes.
 
 ### Independently compressed sparse blocks
 

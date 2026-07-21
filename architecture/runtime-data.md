@@ -15,15 +15,16 @@ an indexed SNV.
 
 ## Model fallback path
 
-Running Pangolin for a non-SNV genuinely needs three additional local facts:
+Running Pangolin for a lookup miss or non-SNV genuinely needs three additional
+local facts:
 
 1. **Model weights.** The twelve version-2 checkpoints loaded by the current
    upstream program, or a verified equivalent conversion.
 2. **GRCh38 reference bases.** Pangolin reads a long DNA window around the
    variant, verifies the submitted reference allele, and scores reference and
    alternate sequences. Pangopup pins NCBI's RefSeq GRCh38.p14 assembly,
-   accession `GCF_000001405.40`, and stores only the primary reference sequence
-   representation required by the supported input scope.
+   accession `GCF_000001405.40`. The source FASTA is compiled into a compact,
+   indexed mmap member; normal installations do not parse or retain raw FASTA.
 3. **Gene strand and exon boundaries.** Pangolin first finds every gene body
    containing the variant and runs the appropriate strand. In masked mode it
    keeps splice loss at annotated exon boundaries and splice gain away from
@@ -75,6 +76,6 @@ not silently change upstream behavior while claiming identical Pangolin output.
 - gene descriptions, aliases, disease knowledge, or consequences;
 - PostgreSQL, SQLite, or gffutils as a runtime dependency.
 
-The complete standalone deployment is therefore the executable plus the sparse
-score bundle; installations enabling model fallback additionally receive the
-weights, compact GRCh38 sequence member, and compact Pangolin masking member.
+The default complete standalone deployment is therefore the executable, sparse
+score bundle, weights, compact GRCh38 sequence member, and compact Pangolin
+masking member. An explicit lookup-only profile may omit the latter three.

@@ -4,17 +4,17 @@
 
 The first finished slice accepts a normalized GRCh38 genomic SNV, finds every
 matching gene-specific record present in one pinned source archive, and returns
-the four published Pangolin values plus provenance. It is an annotation lookup,
-not model inference.
+the four published Pangolin values plus provenance. The complete service adds a
+model provider for supported variants without an index result.
 
 ```text
 CLI/HTTP structured genomic variant
   -> validate GRCh38 contig, position, reference, and alternate
-  -> classify SNV versus non-SNV
-  -> typed splice lookup request
-  -> score-provider capability
-  -> validated mmap index
-  -> typed gene-specific score result(s)
+  -> if SNV, try the validated mmap score index
+       -> hit: exact precomputed result(s)
+       -> miss: continue
+  -> if supported, run model with mmap reference + masking data
+  -> typed gene-specific result(s) with source provenance
   -> stable text or JSON output
 ```
 
@@ -69,9 +69,12 @@ exit codes. It opens one configured Pangopup bundle for the process and reuses
 it for every request in batch or streaming modes. It does not parse source TSV
 files.
 
-Future `pangopup-model` and `pangopup-http` crates should be added only when
-their own observable slices begin. They must consume the same core types rather
-than leak ONNX, Torch, HTTP, or cache types into the lookup API.
+Future `pangopup-assets`, `pangopup-model`, and `pangopup-http` crates should be
+added only when their own observable slices begin. They must consume the same
+core types rather than leak a model runtime, HTTP, or cache types into the
+scoring API. `pangopup-assets` owns shared discovery, download, verification,
+and atomic installation for both executable adapters; `pangopup-core` performs
+no network or home-directory access.
 
 ## Query identity and multiplicity
 
@@ -114,9 +117,10 @@ Ensembl gene and masking is gene-specific, so the same genomic allele can have
 several valid score records. Pangopup returns every matching record by default
 and accepts an optional source-gene filter; it never guesses one best gene.
 
-An SNV routes to the precomputed index. A supported non-SNV may route to the
-bundled model. Unsupported shapes and reference mismatches fail with typed
-errors before scoring.
+An SNV tries the precomputed index first. A lookup miss or a non-SNV routes to
+the bundled model when that variant shape is supported and the required gene
+context exists. Unsupported shapes and reference mismatches fail with typed
+errors. Every success identifies whether lookup or inference produced it.
 
 See [`runtime-data.md`](runtime-data.md) for the small set of standalone assets
 needed by lookup and model execution.
@@ -148,9 +152,19 @@ Every result carries enough provenance to identify:
 
 ## Runtime behavior
 
-One long-lived reader opens one immutable bundle. A replacement bundle requires
-a new process. The operating-system page cache is the first cache; Pangopup does
-not add an application cache until measurements show a miss it can improve.
+Before serving, the CLI or HTTP adapter asks the asset manager to ensure one
+binary-pinned compatible bundle. Missing assets are downloaded, verified,
+staged, and atomically installed by default; offline mode fails with a precise
+missing-asset error. The core then opens one immutable bundle. A replacement
+bundle requires a new process.
+
+Installation performs full archive and member hash verification. Ordinary
+startup performs cheap identity, version, size, and structural checks so it does
+not page through every multi-gigabyte member. An explicit verification command
+owns repeat full hashing.
+
+The operating-system page cache is the first lookup cache; Pangopup does not add
+an application result cache until measurements show a miss it can improve.
 
 Lookups must be deterministic, thread-safe, and allocation-light. Returning a
 small owned score record is preferable to exposing mmap-backed lifetimes across

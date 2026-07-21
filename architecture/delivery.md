@@ -14,7 +14,7 @@ separate:
 
 ```text
 pangopup-<version>-<target>.tar.zst
-pangopup-data-grch38-<dataset-id>-<format>.tar.zst
+pangopup-snv-grch38-<dataset-id>-<format>.tar.zst
 pangopup-models-<upstream-version>-<conversion>.tar.zst
 pangopup-reference-grch38p14-<format>.tar.zst
 pangopup-mask-gencode38-<format>.tar.zst
@@ -22,7 +22,7 @@ SHA256SUMS
 release-manifest.json
 ```
 
-The data archive contains the sparse lookup bundle, its CC BY 4.0 attribution,
+The SNV archive contains the sparse lookup bundle, its CC BY 4.0 attribution,
 source DOI/checksum, GRCh38 compatibility evidence, and format metadata. The
 model archive contains only the exact checkpoints needed by the supported
 inference implementation plus upstream notices and checksums. Keeping it
@@ -37,17 +37,25 @@ available. Never replace an asset in place; issue a new release and identity.
 
 ## Installation
 
-`pangopup assets install` is the intended convenience adapter, not a hidden
-runtime downloader. It should:
+Each binary embeds or ships a lock manifest for one compatible asset set. The
+default full profile includes lookup data, model, reference, and masking assets;
+an explicit lookup-only profile omits model fallback.
 
-1. resolve an explicitly requested or lockfile-pinned asset set;
-2. download to a temporary file;
-3. verify size and SHA-256 before extraction;
-4. extract into a sibling staging directory;
-5. verify the inner bundle manifest, member sizes, and hashes;
-6. atomically publish the completed immutable directory.
+The CLI and HTTP service automatically ensure the selected profile before
+opening the runtime. The shared asset manager should:
 
-The caller can instead supply an already installed bundle path. Containers may
+1. resolve the binary-pinned or explicitly requested asset set;
+2. take a per-bundle installation lock;
+3. reuse a complete compatible local bundle without network access;
+4. otherwise download missing archives to a temporary cache path;
+5. verify size and SHA-256 before extraction;
+6. extract into a sibling staging directory;
+7. verify the inner manifest, member sizes, formats, and hashes;
+8. atomically publish the completed immutable directory.
+
+`pangopup assets install` exposes the same operation for prefetching. Offline
+mode forbids network access and names every missing or incompatible asset.
+Callers can instead supply an already installed bundle path. Containers may
 bake the same verified bundle into an image or mount it read-only.
 
 Default storage follows the operating system's application-data convention
@@ -56,11 +64,22 @@ Application Support on macOS, and the equivalent known folder on Windows. An
 explicit CLI flag or environment variable overrides discovery. The core library
 accepts paths and performs no download or home-directory discovery.
 
-## Why one archive first
+On Linux, durable installed bundles live under
+`${XDG_DATA_HOME:-$HOME/.local/share}/pangopup/`; transport archives and partial
+downloads may use `${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/`. Installed data is
+not cache: clearing the cache must not break a complete installation.
 
-A single full-data transport archive is simplest and remains comfortably below
-the current per-asset limit after compression. The internal bundle may still use
-one member or per-contig members according to measured lookup behavior. If the
-final archive loses sufficient headroom, per-contig release assets are a
-packaging fallback; all are pinned by one manifest so partial or mixed installs
-fail closed.
+Full hashes are mandatory during installation and explicit verification.
+Ordinary startup validates the trusted manifest identity, sizes, format
+versions, and structures without rereading every byte. This keeps startup cheap
+and avoids loading the whole mapped corpus merely to prove it has not changed.
+
+## Why one SNV archive first
+
+A single full-SNV transport archive is simplest and remains comfortably below
+the current per-asset limit after compression. Model, reference, and masking
+assets remain separately versioned. The internal SNV bundle may still use one
+member or per-contig members according to measured lookup behavior. If the final
+archive loses sufficient headroom, per-contig release assets are a packaging
+fallback; all are pinned by one manifest so partial or mixed installs fail
+closed.

@@ -8,7 +8,8 @@ Repository onboarding, the initial architecture, and complete-corpus entropy
 evidence are established. The product is a standalone service. Its canonical
 input is an explicit GRCh38 genomic variant; a gene filter is optional; all
 matching source records are returned by default. Speed leads size, and generated
-lookup/model data ship as verified release assets.
+lookup/model data ship as verified release assets. Service adapters automatically
+install their binary-pinned asset set into durable platform data storage.
 
 ## Active front — characterize and pin the smallest truthful corpus
 
@@ -47,8 +48,9 @@ lookups through the CLI and executable spec.
 ## Later front — reproducible release assets
 
 Package the executable and generated data separately. Add explicit install and
-verify commands, immutable manifests, checksums, attribution, platform-standard
-data directories, and GitHub release publication. Transport compression is
+verify commands plus automatic first-start installation, immutable manifests,
+checksums, locking, attribution, platform-standard data/cache directories,
+offline operation, and GitHub release publication. Transport compression is
 removed at installation; the lookup path maps the direct representation.
 
 ## Later front — model-backed fallback
@@ -61,11 +63,11 @@ precomputed SNV result authoritative whenever it exists.
 
 ## Later front — unified service
 
-Route SNVs to lookup and supported non-SNVs to inference through one typed API,
-then add the HTTP adapter and container. Measure end-to-end concurrency,
-startup, memory, and tail latency. Add a persistent model-result cache only if
-those measurements demonstrate useful repeated misses beyond the operating-
-system page cache.
+Try SNV lookup first, route lookup misses and supported non-SNVs to inference
+through one typed API, then add the HTTP adapter and container. Measure
+end-to-end concurrency, startup, memory, and tail latency. Add a persistent
+model-result cache only if those measurements demonstrate useful repeated
+inference beyond the operating-system page cache.
 
 ## Explicitly outside Pangopup
 

@@ -1,9 +1,9 @@
 # Pangopup Architecture
 
-Pangopup's target is an offline-built, mmap-served annotation engine for exact
-Pangolin scores. The first functional runtime will answer GRCh38 SNV queries
-from the Wagner/Neverov precomputed dataset. Model inference and HTTP follow on
-the same standalone Rust core.
+Pangopup's target combines exact published Pangolin SNV lookup with compatible
+model inference. The first functional runtime will answer GRCh38 SNV queries
+from the Wagner/Neverov precomputed dataset through an mmap index. Model
+fallback and HTTP follow on the same standalone Rust core.
 
 ## Boundaries
 
