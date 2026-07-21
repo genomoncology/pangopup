@@ -90,9 +90,8 @@ silently choose one gene. This is the CLI and library default.
 
 ## Standalone variant boundary
 
-Pangopup is a standalone splice service. It neither depends on Genome nor tries
-to reproduce Genome's job. Its canonical request is the minimum information
-needed to identify a genomic allele:
+Pangopup is a standalone splice service. Its canonical request is the minimum
+information needed to identify a genomic allele:
 
 ```text
 assembly=GRCh38, contig=17, position=43106534, ref=C, alt=A

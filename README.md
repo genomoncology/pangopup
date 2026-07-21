@@ -1,9 +1,10 @@
 # Pangopup
 
-Pangopup is a GPL-3.0 Rust workspace for fast, exact lookup of precomputed
-Pangolin splice scores. Its first product slice turns the published GRCh38 SNV
-dataset into a compact immutable index, memory-maps that index, and exposes the
-lookup through a small CLI.
+Pangopup is a standalone GPL-3.0 Rust project for fast Pangolin-compatible
+splice scoring. Its first product slice turns the published GRCh38 SNV dataset
+into a compact immutable index, memory-maps that index, and exposes exact lookup
+through a small CLI. Later slices add bundled model fallback and an HTTP service
+without depending on another application or service.
 
 The lookup engine is deliberately separate from the on-disk format. Callers use
 typed Rust capabilities; only the index crate knows byte layouts, offsets, and
@@ -12,8 +13,18 @@ an HTTP adapter are later work, not part of the initial contract.
 
 ## Current state
 
-The repository is at architecture and walking-skeleton stage. The CLI currently
-provides only identity and help output. No score lookup is implemented yet.
+Implemented today:
+
+- the four-crate Rust workspace and strict lint/test/spec gates;
+- CLI help/version behavior with two executable smoke specs;
+- GPL-3.0 source licensing and CC BY 4.0 dataset attribution;
+- a retained Rust analyzer that scanned the complete downloaded score corpus;
+- complete-corpus entropy, sparsity, and candidate-format measurements;
+- the standalone API, runtime-data, delivery, and performance decisions.
+
+Not implemented yet: public score types or traits, source fixture and validator,
+index writer, mmap reader, real CLI lookup, artifact installer, model runtime,
+HTTP service, or result cache.
 
 Start with:
 

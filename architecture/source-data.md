@@ -18,10 +18,9 @@ The initial index source is:
 | Parameters | masked; window size 50 nt; GENCODE splice-site annotations |
 | Pangolin software/model version | unspecified by the publisher |
 
-The local extracted copy is outside the repository at
-`/home/ian/workspace/data/pangolin-precompute/Pangolin_hg38_snvs_masked/`.
-It currently contains 19,913 per-gene `.tsv.gz` files. Neither it nor the 13 GB
-archive belongs in Git.
+The analyzed extracted copy contains 19,913 per-gene `.tsv.gz` files. Builders
+receive its path explicitly. Neither the extracted data nor the 13 GB archive
+belongs in Git.
 
 ## Reference-build evidence
 

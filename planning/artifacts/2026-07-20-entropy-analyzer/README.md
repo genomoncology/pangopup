@@ -15,18 +15,18 @@ Environment used for the recorded scan:
 Run the exact distribution and joint-locus entropy pass:
 
 ```bash skip
+SOURCE_DIR=/path/to/Pangolin_hg38_snvs_masked
 RAYON_NUM_THREADS=4 RUST_MIN_STACK=134217728 \
-  cargo run --locked --release -- \
-  /home/ian/workspace/data/pangolin-precompute/Pangolin_hg38_snvs_masked
+  cargo run --locked --release -- "$SOURCE_DIR"
 ```
 
 Run the practical block-compression measurements by setting the compression
 flag (the output also repeats the distribution):
 
 ```bash skip
+SOURCE_DIR=/path/to/Pangolin_hg38_snvs_masked
 PANGOPUP_COMPRESS=1 RAYON_NUM_THREADS=8 RUST_MIN_STACK=67108864 \
-  cargo run --locked --release -- \
-  /home/ian/workspace/data/pangolin-precompute/Pangolin_hg38_snvs_masked
+  cargo run --locked --release -- "$SOURCE_DIR"
 ```
 
 The analyzer fails on malformed headers, score signs/ranges, relative positions,

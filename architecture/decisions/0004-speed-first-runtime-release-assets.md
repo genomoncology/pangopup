@@ -18,7 +18,7 @@ decompresses an SNV lookup.
 ## Consequences
 
 - The operating-system page cache remains the normal hot cache.
-- The final direct bundle must stay under the hosting limit or transport is
-  split by contig without changing lookup semantics.
+- The compressed transport asset must stay under the hosting limit or transport
+  is split by contig without changing the installed lookup format or semantics.
 - Data, model, and executable assets have separate identities and notices.
 - Installation is explicit and atomic; the library itself only opens paths.

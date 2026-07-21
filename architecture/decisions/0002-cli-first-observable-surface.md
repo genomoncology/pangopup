@@ -16,5 +16,5 @@ non-SNV result cache are deferred.
   server overhead.
 - `spec/*.md` can define the outside-in contract with real commands.
 - A future REST service is an adapter, not a second implementation.
-- The CLI/process boundary remains independently useful regardless of the later
-  product licensing decision.
+- The CLI/process boundary remains independently useful for scripts, testing,
+  benchmarking, and deployments that do not need HTTP.

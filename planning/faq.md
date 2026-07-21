@@ -4,9 +4,9 @@
 
 ### Is the downloaded archive the build input?
 
-Yes. The extracted 19,913 `.tsv.gz` files already present under
-`/home/ian/workspace/data/pangolin-precompute/` are the read-only input. The
-builder will not redownload or commit them.
+Yes. The already-downloaded archive and its extracted 19,913 `.tsv.gz` members
+are the read-only input. The builder receives their path explicitly; it does not
+redownload or commit them.
 
 ### Is this an exome-only lookup?
 
@@ -54,7 +54,7 @@ zero reference mismatches against RefSeq GRCh38.p14 primary chromosomes, but the
 publisher does not identify the exact FASTA or GENCODE release. Pangopup can say
 GRCh38 and pin the archive checksum; it should not invent missing provenance.
 
-### Does Pangopup need Genome, HGVS, or transcript projection?
+### Does Pangopup need HGVS or transcript projection?
 
 No. Pangopup is standalone and accepts an already identified GRCh38 genomic
 variant: contig, one-based position, reference allele, and alternate allele.
@@ -69,7 +69,7 @@ needs the model checkpoints, local GRCh38 DNA bases, and a map of gene strand
 plus exon boundaries. The DNA is pinned NCBI RefSeq GRCh38.p14
 `GCF_000001405.40`. The boundary map is compiled from the GENCODE annotation
 used by Pangolin's masking behavior. It is a compact Pangopup mmap member, not
-UTA, SeqRepo, Genome, SQLite, or gffutils at runtime.
+a runtime database.
 
 ### Why is any gene information needed at all?
 
@@ -100,8 +100,8 @@ gene-specific score. No implicit best-gene selection.
 ### How much HGVS does Pangopup own?
 
 None beyond possibly recognizing an exact genomic RefSeq accession as a contig
-alias. Pangopup does not accept transcript/protein HGVS and has no dependency on
-Genome or another projection service.
+alias. Pangopup does not accept transcript/protein HGVS or call a projection
+service.
 
 ### What corpus should prove the first index?
 

@@ -2,32 +2,27 @@
 
 ## Durable outcomes
 
-1. **Exact SNV annotation.** A normalized GRCh38 genomic SNV returns the same
-   numeric masked gain/loss scores and positions as the pinned source row, with
-   no floating-point drift.
-2. **Gene-aware truth.** Overlapping genes and gene-specific masking remain
-   explicit. Pangopup never collapses several source records into an unexplained
-   single answer.
-3. **Selective mmap lookup.** Runtime work touches only small directory and
-   payload regions; it never scans or parses the full source at query time.
-4. **Speed-first measured representation.** The chosen format minimizes lookup
-   work and latency, with size reported against fixed records, block compression,
-   and a Tabix baseline rather than treated as the primary objective.
-5. **Reproducible artifact.** A Rust builder streams the pinned source, proves
-   its invariants, writes deterministically, certifies the result, and records
-   enough provenance to reproduce it.
-6. **Typed reusable library.** CLI and future service adapters share one Rust
-   score-provider contract while storage and transport details stay private.
-7. **Operationally simple delivery.** One immutable bundle opens once, fails
-   closed if incompatible or corrupt, works concurrently, and relies first on
-   the operating-system page cache.
-8. **License-complete packaging.** GPL source delivery and the source dataset’s
-   CC BY attribution are explicit, separate, and retained in derived bundles.
-9. **Standalone deployment.** Lookup and model fallback require no Genome, UTA,
-   SeqRepo, database, or network service.
-10. **Release-asset delivery.** Executables, lookup data, and models are
-    separately versioned, verified assets whose transport encoding never enters
-    the query path.
+1. **Exact, gene-aware SNV annotation.** A GRCh38 genomic SNV returns every
+   matching source-gene record with the exact published masked gain/loss scores
+   and positions and no floating-point drift.
+2. **Speed-first selective mmap lookup.** Runtime touches only small directory
+   and payload regions; format choice is justified by measured latency and work,
+   with installed size treated as secondary.
+3. **Reproducible artifacts.** Rust builders stream pinned inputs, prove their
+   invariants, write deterministically, certify outputs, and record enough
+   provenance to reproduce them.
+4. **Standalone typed service core.** CLI and HTTP adapters share one Rust API;
+   lookup and model fallback require no external application, database, or
+   network service.
+5. **Compatible model fallback.** Supported non-SNV variants run through
+   versioned model, reference, and masking assets with measured parity against
+   the upstream implementation.
+6. **Operationally simple delivery.** Immutable executable, lookup, model,
+   reference, and masking assets are separately versioned, verified, installed
+   atomically, and opened once.
+7. **License-complete packaging.** GPL source/model obligations and the score
+   dataset's CC BY attribution are explicit, separate, and retained in every
+   applicable release artifact.
 
 ## Not first-slice goals
 
@@ -36,5 +31,5 @@
 - REST deployment;
 - GRCh37/liftover;
 - clinical classification thresholds;
-- a general HGVS implementation;
+- HGVS parsing, transcript/protein projection, and general gene annotation;
 - application-level result caching.

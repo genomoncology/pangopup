@@ -1,9 +1,11 @@
 # AGENTS.md — Pangopup
 
-Pangopup is a Rust workspace for exact Pangolin score lookup: an offline builder
-turns the published GRCh38 SNV score files into an immutable compact index, a
-validated mmap reader serves typed lookups, and a CLI exposes the behavior.
-Read `README.md` first.
+Pangopup is a GPL Rust workspace for a standalone Pangolin-compatible splice
+service. The target product combines exact lookup of published GRCh38 SNV scores
+with model fallback for supported non-SNVs. The repository currently contains a
+walking skeleton and retained source-analysis evidence; the builder, mmap
+reader, score API, model runtime, and service are not implemented yet. Read
+`README.md` first.
 
 ## Repository contract shape
 

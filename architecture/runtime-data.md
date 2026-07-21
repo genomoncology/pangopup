@@ -69,9 +69,8 @@ not silently change upstream behavior while claiming identical Pangolin output.
 
 ## What Pangopup deliberately does not ship
 
-- UTA or another transcript-alignment database;
-- SeqRepo;
-- Genome or an HGVS engine;
+- a transcript-alignment or general sequence database;
+- an HGVS parsing or coordinate-projection engine;
 - transcript and protein sequences;
 - gene descriptions, aliases, disease knowledge, or consequences;
 - PostgreSQL, SQLite, or gffutils as a runtime dependency.

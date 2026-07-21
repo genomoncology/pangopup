@@ -5,8 +5,8 @@ Status: evidence for the first format ticket; no wire format selected
 
 ## Source
 
-- directory:
-  `/home/ian/workspace/data/pangolin-precompute/Pangolin_hg38_snvs_masked/`
+- extracted directory: `Pangolin_hg38_snvs_masked/`, supplied explicitly to the
+  analyzer and kept outside the repository
 - 19,913 per-gene `.tsv.gz` files
 - Zenodo archive checksum: `md5:679ef0b50e511b6102b4b88fbf811108`
   (the local ZIP was verified to match on 2026-07-20)

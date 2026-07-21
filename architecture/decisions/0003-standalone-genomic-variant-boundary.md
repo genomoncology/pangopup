@@ -5,11 +5,10 @@ Date: 2026-07-21
 
 ## Decision
 
-Pangopup is a standalone process and library with no dependency on Genome. Its
-canonical input is a build-qualified genomic variant containing GRCh38 contig,
-one-based position, reference allele, and alternate allele. A small fixed alias
-table may recognize primary chromosome names and their exact RefSeq genomic
-accessions.
+Pangopup is a standalone process and library. Its canonical input is a
+build-qualified genomic variant containing GRCh38 contig, one-based position,
+reference allele, and alternate allele. A small fixed alias table may recognize
+primary chromosome names and their exact RefSeq genomic accessions.
 
 Pangopup does not accept transcript/protein HGVS, project coordinates, infer a
 variant from a gene phrase, or provide general gene annotation. An optional

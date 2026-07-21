@@ -3,6 +3,25 @@ Pangopup
 
 Pangopup source code is licensed under GPL-3.0-only.
 
+Pangolin software and model
+---------------------------
+
+Pangopup is a new Rust implementation intended to reproduce and extend the
+behavior of the GPL-3.0 Pangolin project:
+
+  Project: Pangolin
+  Author: Tony Zeng
+  Source: https://github.com/tkzeng/Pangolin
+  Version inspected: 1.0.2
+  License: GNU General Public License version 3
+  Citation: Zeng T, Li YI. Predicting RNA splicing from DNA sequence using
+            Pangolin. Genome Biology 23, 103 (2022).
+
+Pangopup is not yet distributing Pangolin model checkpoints. A release that
+does so must retain the upstream license and notices, identify the exact source
+commit and checkpoint hashes, identify Pangopup's modifications, and provide
+the corresponding preferred source and conversion/build instructions.
+
 Pangolin precomputed scores dataset
 -----------------------------------
 
