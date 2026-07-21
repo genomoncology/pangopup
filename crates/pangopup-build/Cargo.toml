@@ -7,8 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+flate2 = "1.1.5"
 pangopup-core = { path = "../pangopup-core" }
-pangopup-index = { path = "../pangopup-index" }
 
 [lints]
 workspace = true

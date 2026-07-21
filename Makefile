@@ -8,5 +8,5 @@ test:          ## inside-out unit and integration tests
 	cargo test --locked --workspace
 
 spec:          ## outside-in CLI contracts
-	cargo build --locked --quiet --package pangopup-cli
+	cargo build --locked --quiet --package pangopup-cli --package pangopup-build
 	PATH="$(CURDIR)/target/debug:$$PATH" mustmatch test spec/

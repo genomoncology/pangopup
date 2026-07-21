@@ -11,25 +11,25 @@ matching source records are returned by default. Speed leads size, and generated
 lookup/model data ship as verified release assets. Service adapters automatically
 install their binary-pinned asset set into durable platform data storage.
 
-## Active front — characterize and pin the smallest truthful corpus
+## Established — pinned source ingestion contract
 
-The next slice should check in a tiny CC BY-attributed source fixture selected
-from the downloaded data and make the source invariants executable. It should
-include:
+Six CC BY-attributed excerpts from the verified archive now make source
+semantics executable. The fixture includes:
 
 - ascending and descending source position order;
 - each reference base and all three alternate bases;
 - score zero, nonzero score, and relative positions at useful boundaries;
 - two overlapping gene records for one genomic SNV if present in the source;
-- malformed synthetic rows for header, grouping, contiguity, and range failures.
+- malformed synthetic rows for header, grouping, contiguity, and range failures;
+- both real `REF=N` alternate shapes and every real coordinate gap family.
 
-Its observable result is a reproducible characterization command or test report,
-not yet a production index. The fixture proves correctness only; the complete
-source evidence in
+`pangopup-build inspect` validates gzip members without materializing a file's
+rows and emits a deterministic per-gene and corpus report. The fixture proves
+correctness only; the complete source evidence in
 [`artifacts/2026-07-20-full-dataset-entropy.md`](artifacts/2026-07-20-full-dataset-entropy.md)
 drives compression and size decisions.
 
-## Near front — compare lossless physical layouts
+## Active front — compare lossless physical layouts
 
 After the corpus is pinned, write the smallest builder/reader round trip needed
 to prove the hierarchical sparse direct baseline and compare it with

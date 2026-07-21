@@ -1,6 +1,6 @@
 # 001 — Pinned source fixture and executable ingestion contract
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -51,10 +51,16 @@ binary index and performs no runtime lookup.
   general assembly framework until a runtime provider exists.
 - Add streaming `.tsv.gz` ingestion to `pangopup-build`. Parsing must yield or
   visit one typed row/locus at a time and must not collect a whole source file or
-  source directory merely to validate it. Builder-only gzip/TSV dependencies
+  source directory merely to validate it. Accept exactly one complete gzip
+  member ending at physical EOF; reject a truncated member, concatenated second
+  member, or literal trailing bytes. Bound decompressed reads to 128 bytes for
+  the header and 256 bytes per row, including any line ending, so a missing
+  newline cannot grow memory without limit. Builder-only gzip/TSV dependencies
   remain in this crate.
 - Validate the exact eight-column header, filename-derived Ensembl gene ID,
-  field count and field syntax, supported primary chromosome spelling,
+  field count and field syntax, the source's complete GRCh38 primary-contig set
+  (`chr1`…`chr22`, `chrX`, `chrY`, and `chrM`) using exactly those canonical
+  source spellings (not adapter aliases such as `1` or `chr01`),
   one-based position, concrete ordinary reference/alternate bases, distinct
   REF and ALT, gain range `0.00..=1.00`, loss range `-1.00..=0.00`, exact
   hundredth grid, and both relative positions in `-50..=50`.
@@ -135,7 +141,11 @@ binary index and performs no runtime lookup.
   duplicate alternate groups, split/reappearing loci, direction reversal,
   mixed chromosomes, empty/no-member input, ignored unrelated entries,
   rejected symlinks, accepted ascending and descending files, accepted gaps,
-  and both valid `REF=N` exception shapes.
+  and both valid `REF=N` exception shapes. Contig tests explicitly accept
+  `chrM`, reject an outside contig such as `chr23`, and reject noncanonical `1`
+  and `chr01` source spellings. Container tests reject truncated, concatenated,
+  and trailing-byte gzip input; bounded-read tests reject oversized header and
+  row lines with correct line numbers and no large fixture.
 - A fixture exactness test proves all 6,342 committed rows parse and that the
   selected corpus contains each ordinary reference base, all three alternates
   for every ordinary locus, zero and nonzero gain/loss values, nonzero values at
@@ -292,19 +302,84 @@ gene-loci, 4 ascending and 2 descending files, 9 segments, 3 gap transitions,
 remain. A non-material wording ambiguity about symlinks was made explicit before
 marking the ticket ready.
 
+Post-approval amendment: the first implementation full-corpus pass discovered
+real `chrM` rows in `ENSG00000198712.tsv.gz`. Scope and success criteria now
+define the complete accepted source set as `chr1`…`chr22`, `chrX`, `chrY`, and
+`chrM`, with an explicit outside-contig rejection. The original ticket reviewer
+reviewed this amendment and approved it with no material findings.
+
 ## Implementation Evidence
 
-Developer: pending
+Developer: `ticket_001_development`
 
-Record focused tests, measurements, generated artifact identities, and any
-scope-relevant deviation, then set status to `review`. The developer cannot be
-either reviewer.
+- Checked fixture: six deterministic real gzip excerpts, 22,579 compressed
+  bytes. Per-member compressed and decompressed SHA-256 identities and exact
+  regeneration commands are recorded in the fixture README; the checked
+  malformed gzip member is 89 bytes.
+- Focused proof: workspace clippy with warnings denied passed; the core/build
+  suite passed 18 tests (3 core, 2 parser-unit, 13 ingestion); the executable
+  source spec passed all 5 assertions.
+- The first full-source pass correctly exposed an incomplete implementation
+  assumption by rejecting real `chrM` rows in `ENSG00000198712.tsv.gz`.
+  Pangopup's typed source-contig set, tests, architecture, and ticket were
+  amended to include mitochondrial rows while retaining outside-contig
+  rejection; the original ticket reviewer approved that amendment.
+- Complete-source command (with the local value intentionally omitted):
+  `export PANGOPUP_SOURCE_DIR=<operator-supplied extracted directory>`, then
+  `/usr/bin/time -v target/release/pangopup-build inspect
+  "$PANGOPUP_SOURCE_DIR"`. The archive MD5 was independently rechecked as
+  `679ef0b50e511b6102b4b88fbf811108`.
+- Complete-source result, exit 0:
+  `total genes=19913 rows=4099255665 loci=1366418555 ascending=10073
+  descending=9840 segments=19916 gaps=3 omitted_bases=50002
+  ambiguous_ref_loci=30 n_omit_a=9 n_omit_t=21`. Peak RSS was 7,676 KB.
+- No downloaded corpus, full report, or machine-specific path is in the diff.
+  No scope deviations remain.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `ticket_001_code_review`
 
-Record diff/test findings and their disposition before completion. The reviewer
-is read-only and cannot be the ticket reviewer or developer. Material fixes are
-returned to this reviewer. The ticket may become `complete` and enter final
-gates only after the reviewer records approval.
+Initial decision: changes required.
+
+- **M1 — source contigs were too permissive. Resolved.** The build adapter now
+  accepts only canonical `chr1`…`chr22`, `chrX`, `chrY`, and `chrM` spellings,
+  while core deliberately continues to normalize adapter aliases. Focused tests
+  reject `1`, `chr01`, and `chr23`, accept `chrM`, and prove the core/source
+  distinction.
+- **M2 — gzip physical completion was not proven. Resolved.** Ingestion now uses
+  a single-member buffered decoder, reads through its CRC/trailer, recovers the
+  compressed reader, and requires physical EOF. Regression tests reject a
+  truncated trailer with line context, literal trailing bytes, and a
+  concatenated second gzip member.
+- **M3 — newline-free input could allocate without bound. Resolved.** A bounded
+  `fill_buf`/`consume` loop caps the reusable decompressed buffer at 128 header
+  bytes and 256 row bytes, including line endings. Tests generate oversized
+  header and row input in memory and assert member plus correct line number.
+- **N1 — visitor could not abort. Resolved.** `SourceVisitor` now has an
+  associated error and returns `Result`; `InspectMemberError` preserves source
+  and visitor failures separately. An immediate-stop regression proves the
+  consumer error survives unchanged, with no row collection.
+- **N2 — score fields bypassed a constructor. Resolved.** `PangolinScore` fields
+  are private and exposed through a `const` constructor plus four typed
+  accessors; exact signed-loss rendering remains unchanged and tested.
+- Focused re-review proof: formatting and workspace clippy with warnings denied
+  passed; 18 core/build tests passed; all 5 source executable-spec assertions
+  passed; `git diff --check` passed.
+
+Re-review decision: approved. The same read-only reviewer verified every
+remediation and found no remaining material or non-material issue. Review-time
+`make lint`, `make test`, `make spec`, `git diff --check`, fixture hashes, and
+source-excerpt identity checks all passed on the exact diff.
+
+Because the gzip EOF and bounded-line fixes changed production decoding after
+the developer's corpus run, the reviewer independently reran the final release
+binary over the complete source. It exited 0 with 19,914 report lines (19,913
+members plus the total), reproduced every expected total exactly, and peaked at
+7,500 KB RSS. This independently confirms that every published member is one
+complete gzip stream, uses canonical contig spelling, and fits the declared
+line bounds.
+
+Coordinator final gates on the approved diff: `make lint`, `make test`, and
+`make spec` all passed; the workspace test gate ran 18 core/build tests and the
+spec gate ran 7 executable assertions.

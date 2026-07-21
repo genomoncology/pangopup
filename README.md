@@ -188,16 +188,21 @@ Implemented today:
   dataset attribution;
 - a retained Rust analyzer that scanned the complete downloaded score corpus;
 - complete-corpus entropy, sparsity, and candidate-format measurements;
+- six deterministic, attributed excerpts of the real score source, including
+  overlapping genes, both published `REF=N` shapes, and every coordinate gap;
+- exact GRCh38 SNV, Ensembl gene, centi-score, and relative-position Rust types;
+- bounded-memory gzip/TSV validation plus an observable source-inspection
+  command, `pangopup-build inspect <SOURCE_DIR>`;
 - the standalone API, runtime-data, delivery, and performance decisions.
 
-Not implemented yet: public score types or traits, source fixture and validator,
-index writer, mmap reader, real CLI lookup, automatic asset manager, model
-runtime, HTTP service, or result cache.
+Not implemented yet: a public provider trait or lookup result, index writer,
+mmap reader, real CLI lookup, automatic asset manager, model runtime, HTTP
+service, or result cache.
 
 The development order is:
 
-1. checked source fixture and executable source contract;
-2. measured miniature index writer/reader;
+1. checked source fixture and executable source contract (complete);
+2. measured miniature index writer/reader (next);
 3. full streaming builder, mmap lookup, and CLI;
 4. release packaging and automatic asset installation;
 5. compatible model fallback and compact reference/mask assets;

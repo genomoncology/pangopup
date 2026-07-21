@@ -21,6 +21,9 @@ one per Ensembl gene. A complete streaming scan—not a sample—validated all
 Every ordinary locus has one `A`, `C`, `G`, or `T` reference and exactly the
 other three bases as alternates. Scores are exact hundredths with gain in
 0…1 and loss in −1…0. Relative positions are integers in −50…+50.
+Source members use the GRCh38 primary-contig spellings `chr1`…`chr22`, `chrX`,
+`chrY`, and `chrM`; the mitochondrial source rows are part of the corpus rather
+than an unsupported auxiliary-contig exception.
 
 There are two small exception families that the format must represent rather
 than assume away:
@@ -167,8 +170,12 @@ memory proportional to one source gene plus compact directories.
 For every file it validates:
 
 - exact header and field parse;
+- one complete gzip member ending at physical EOF (no concatenated member or
+  trailing payload), with bounded decompressed reads of at most 128 bytes for
+  the header and 256 bytes per row, including any line ending;
 - filename as a valid Ensembl gene ID;
-- one supported primary contig;
+- one canonically spelled supported primary contig (`chr1`…`chr22`, `chrX`,
+  `chrY`, or `chrM`), rejecting adapter spellings such as `1` and `chr01`;
 - gain sign/range and loss sign/range on the exact 0.01 grid;
 - genomic-coordinate offsets inside the declared ±50 window;
 - one reference and exactly three distinct alternate rows per locus;
