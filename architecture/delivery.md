@@ -1,9 +1,9 @@
 # Artifact Delivery
 
-This document records the accepted target delivery design. The repository does
-not yet publish generated lookup/model assets and does not yet implement an
-asset manager, automatic installation, or XDG discovery. The shipped CLI opens
-an explicitly supplied bundle path.
+This document records shipped local transport and the accepted managed-delivery
+target. The repository does not yet publish generated lookup/model assets and
+does not yet implement an asset manager, automatic installation, or XDG
+discovery. The shipped runtime opens an explicitly supplied bundle path.
 
 ## GitHub Releases
 
@@ -41,6 +41,20 @@ three-file bundle in tar and does not alter the reconstructed fixed-v1 member.
 How the future publication manifest namespaces those logical filenames as
 GitHub assets is intentionally left to the publication slice.
 
+The local representation and commands are shipped now:
+
+```text
+pangopup-build transport pack --bundle <BUNDLE> --output <ABSENT_DIR>
+pangopup-build transport verify --transport <TRANSPORT_DIR>
+pangopup-build transport unpack --transport <TRANSPORT_DIR> --output <ABSENT_DIR>
+```
+
+Pack first exhaustively certifies the installed bundle. Integrity-only verify
+streams every declared layer and proves the exact decompressed member without
+creating it; it does not authenticate the publisher or prove fixed-v1 semantic
+structure. Unpack writes into unique same-filesystem staging, runs complete
+semantic certification, syncs it, and publishes by Linux no-replace rename.
+
 The model archive contains only the exact checkpoints needed by the supported
 inference implementation plus upstream notices and checksums. Keeping concerns
 separate lets lookup-only installations avoid model bytes and lets data, model,
@@ -66,7 +80,7 @@ format or installer:
 4. immutable GitHub publication plus a clean-machine install, offline restart,
    and representative query proof.
 
-Work status is intentionally absent from this durable design. Each later stage
+The first stage is shipped. Each later stage
 receives its own independently authored and reviewed contract only after the
 preceding transport or installation contract is implemented.
 
@@ -119,7 +133,7 @@ versions, and structures without rereading every byte. This will keep startup
 cheap and avoid loading the whole mapped corpus merely to prove it has not
 changed.
 
-## Historical compression evidence and accepted transport direction
+## Historical compression evidence and shipped transport
 
 The certified installed member is 15,033,158,255 bytes. GNU tar 1.35 plus
 Zstandard 1.5.5 level 9 produced a 1,935,000,209-byte transport archive
@@ -129,7 +143,7 @@ Although it fell below GitHub's under-2-GiB per-file ceiling, the remaining
 headroom was too small for a robust single asset and tar would add large-file
 format choices unrelated to lookup data.
 
-The accepted direction instead streams only `scores.pgi` through a pinned
+The shipped implementation instead streams only `scores.pgi` through a pinned
 Zstandard encoder, hashes the complete compressed stream, and divides it into
 deterministic one-billion-byte parts. A canonical manifest binds part order,
 sizes, hashes, encoder identity, the complete stream, copied small members, and

@@ -1,6 +1,6 @@
 # 005 — Deterministic split transport for the certified SNV bundle
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -33,11 +33,14 @@ model asset, or service behavior belongs here.
   builder calls the same assets API before publication; transport pack and
   unpack call it at their certification boundaries. There is one semantic
   verifier, not copied transport-specific verification logic.
-- Extend the existing deterministic builder-source digest to include sorted,
-  length-framed workspace-relative `Cargo.toml` and Rust source inputs from
-  `pangopup-assets`, because the builder now depends on its exact notice and
-  certification rules. Preserve the digest algorithm and add a regression that
-  proves a changed assets input changes the builder identity.
+- Extend the existing deterministic builder-source digest's covered product
+  inputs to include sorted, length-framed workspace-relative `Cargo.toml` and
+  Rust source inputs from `pangopup-assets` plus the repository `NOTICE`,
+  because the builder now depends on those exact notice and certification
+  rules. Preserve the digest algorithm and add regressions proving that a
+  changed assets source or `NOTICE` changes the builder identity. Planning and
+  other files outside this declared digest input set remain deliberately
+  excluded.
 - Expose from `pangopup-index` one public strict bounded canonical bundle-
   manifest parser/validator used by both `BundleOpen` and `pangopup-assets`.
   It accepts at most 1 MiB, first discriminates supported schema/index versions
@@ -236,22 +239,27 @@ boundaries where more than one defect is possible:
 |---|---|
 | `CLI_USAGE` | Missing/duplicate/unknown command or flag, positional argument, or missing flag value |
 | `UNSUPPORTED_PLATFORM` | Valid `pack`/`unpack` attempted off Linux |
-| `INPUT_IO` | Cannot open/read/stat a required user-supplied bundle or transport input |
+| `INPUT_IO` | Required user-supplied bundle/transport path or `transport.json` is missing or cannot be opened/read for an ordinary I/O reason |
 | `OUTPUT_IO` | Cannot create/write/sync/remove this invocation's output staging for a reason other than destination conflict |
-| `MANIFEST_INVALID` | Over-limit, malformed, duplicate-key, noncanonical, overflowed, or internally inconsistent supported transport manifest |
+| `MANIFEST_INVALID` | `transport.json` is a symlink or non-regular object, or its readable bytes are over-limit, malformed, duplicate-key, noncanonical, overflowed, or internally inconsistent for the supported schema |
 | `TRANSPORT_INCOMPATIBLE` | Well-formed discriminator names an unsupported transport/compression schema or version |
-| `PART_SET_INVALID` | Directory/member count, name, ordinal, type, symlink, declared size, gap, duplicate, or exact-set violation |
+| `PART_SET_INVALID` | After a supported transport manifest is parsed, copied metadata or payload directory/member count, name, ordinal, type, symlink, declared size, gap, duplicate, or exact-set violation |
 | `TRANSPORT_HASH_MISMATCH` | Actual copied metadata, part, whole compressed stream, or decompressed payload size/hash differs from its valid descriptor |
 | `COMPRESSION_INVALID` | Invalid/unsupported frame header or flags, decode/checksum error, size expansion, incomplete frame, second frame, or trailing bytes |
 | `BUNDLE_INVALID` | Inner canonical manifest, exact notice/provenance, input bundle certification, or reconstructed bundle certification fails |
 | `OUTPUT_CONFLICT` | Requested final output already exists or loses a no-replace publication race; the existing destination is untouched |
 
-An unreadable `transport.json` is `INPUT_IO`; readable bytes that exceed or
-violate the transport schema are `MANIFEST_INVALID`. A supported outer
-manifest that faithfully describes invalid inner bundle metadata is
-`BUNDLE_INVALID`. Part type/name/declared-size checks precede part hashing;
-valid part structure with wrong bytes is `TRANSPORT_HASH_MISMATCH`; a
-hash-consistent but invalid compressed frame is `COMPRESSION_INVALID`.
+A missing or ordinarily unreadable `transport.json` is `INPUT_IO`. A manifest
+pathname that exists but is a symlink or non-regular object is
+`MANIFEST_INVALID`, because validation cannot establish a supported manifest;
+readable regular bytes that exceed or violate the transport schema use the
+same code. Only after a supported outer manifest has parsed do copied metadata
+and payload member-set/type/symlink/name/ordinal violations become
+`PART_SET_INVALID`. A supported outer manifest that faithfully describes
+invalid inner bundle metadata is `BUNDLE_INVALID`. Part type/name/declared-size
+checks precede part hashing; valid part structure with wrong bytes is
+`TRANSPORT_HASH_MISMATCH`; a hash-consistent but invalid compressed frame is
+`COMPRESSION_INVALID`.
 
 `pack` first runs exhaustive verification on the supplied certified bundle.
 It creates a unique sibling stage on the output filesystem, then streams
@@ -325,7 +333,11 @@ stage as part of this ticket.
 - `make spec` owns exact CLI grammar, exit codes, stdout/stderr JSON, repeated
   deterministic pack, verify, unpack, conflict behavior, corruption failures,
   and byte-identical installed reconstruction using a checked-in miniature
-  bundle. Add `spec/snv-transport.md`.
+  bundle. `spec/snv-transport.md` must invoke the production CLI for both a
+  symlinked `transport.json` and a non-regular `transport.json` (a directory is
+  sufficient), requiring exit 1, empty stdout, and the exact compact
+  `MANIFEST_INVALID` stderr envelope. It also pins one post-parse symlinked
+  payload member as `PART_SET_INVALID`, preserving that distinct boundary.
 - Full-corpus proof rebuilds a bundle from explicit
   `PANGOPUP_SOURCE_DIR` and `PANGOPUP_GRCH38_FASTA`, runs the existing
   exhaustive verifier, and requires every established production identity and
@@ -368,6 +380,129 @@ stage as part of this ticket.
   directory member sets. Verify one transport, unpack it, exhaustively certify
   the result through the moved shared API and independently through the
   preserved build CLI, and byte-compare all three installed members.
+
+  The operator supplies `PANGOPUP_PROOF_STORE`, a durable local directory
+  outside the Git worktree. Create one unpredictable, uniquely created
+  invocation work child under `$PANGOPUP_PROOF_STORE/work/`, and put **every**
+  disposable output from the full proof beneath it: build candidate, both pack
+  candidates, unpack copy, command staging/scratch, measurement working files,
+  and logs. Record each invocation-created relative path as it is created.
+  Source/reference inputs and all pre-existing paths are read-only and are
+  never placed on the cleanup list.
+
+  After every proof above passes, atomically move the accepted bundle and one
+  of the byte-identical transport candidates out of that same-filesystem child
+  and retain exactly:
+
+  ```text
+  $PANGOPUP_PROOF_STORE/bundles/<bundle-id>/
+  $PANGOPUP_PROOF_STORE/transports/<transport-id>/
+  $PANGOPUP_PROOF_STORE/receipts/<transport-id>.json
+  ```
+
+  `<bundle-id>` and `<transport-id>` are the exact prefixed identities from the
+  canonical manifests. The retained bundle is the certified production build.
+  The retained transport is one of the two byte-identical pack outputs. Publish
+  each final directory atomically without replacing an existing path.
+
+  For a newly published path, do **not** repeat exhaustive semantic
+  certification or full transport verification after rename. Immediately
+  before rename, record from opened no-follow handles the accepted stage
+  directory and every expected regular member's device, inode, and size. After
+  rename, perform one cheap publication check: open the destination directory
+  and exact expected members without following symlinks; require the same
+  device/inode/size tuples, exact bounded member set, and canonical bounded
+  small `manifest.json`, `transport.json`, and `bundle-manifest.json` bytes to
+  be byte-identical to their accepted pre-rename copies; require the exact
+  small `NOTICE`; and require the former source pathname to be absent. This
+  proves the identity-keyed destination names resolve to the same already-
+  certified regular-file objects. It must not hash, decode, or scan
+  `scores.pgi` or compressed part contents again.
+
+  Inode continuity is unavailable when a keyed bundle or transport path
+  existed before this invocation. Such a pre-existing path may be reused only
+  after fresh exhaustive bundle certification or full transport verification,
+  respectively, plus exact identity checks. Any conflicting or invalid keyed
+  path aborts retention and is left untouched.
+
+  The local receipt is strict RFC 8785 canonical JSON, at most 1 MiB, with no
+  unknown/duplicate fields and this closed bounded shape:
+
+  ```text
+  schema: "pangopup.proof-receipt.v1"
+  bundle:
+    bundle_id: sha256
+    builder_version: string
+    builder_source_sha256: sha256
+    manifest: {size:safe_json_u64, sha256:sha256}
+    members: exactly two installed descriptors in canonical inner order,
+      each {path:string, size:safe_json_u64, sha256:sha256}
+  transport:
+    transport_id: sha256
+    manifest: {size:safe_json_u64, sha256:sha256}
+    compressed: {size:safe_json_u64, sha256:sha256}
+    parts: 1..1000 canonical descriptors,
+      each {ordinal:u16, path:string, size:safe_json_u64, sha256:sha256}
+  source:
+    archive_name: "Pangolin_hg38_snvs_masked.zip"
+    archive_size: 12988141317
+    archive_md5: md5
+    observed_member_count: 19913
+    observed_members_sha256: sha256
+  reference:
+    assembly_accession: "GCF_000001405.40"
+    input_size: 972898531
+    input_sha256: sha256
+    sequence_set_sha256: sha256
+  tool:
+    implementation_commit: exactly 40 lowercase hexadecimal Git SHA-1 digits
+    encoder_crate: "zstd/0.13.3"
+    libzstd_version: "1.5.7"
+  verify:
+    bundle: exact argv array ["pangopup-build","verify",
+      "bundles/<bundle-id>"]
+    transport: exact argv array ["pangopup-build","transport","verify",
+      "--transport","transports/<transport-id>"]
+  ```
+
+  Receipt digest spelling and `safe_json_u64` use the transport manifest rules.
+  Receipt fields must equal the already verified inner/outer manifests and
+  actual retained bytes. Paths are relative to `PANGOPUP_PROOF_STORE`; the
+  receipt contains no host path, timestamp, username, hostname, or ephemeral
+  location. This receipt is local proof metadata, not a Pangopup product,
+  runtime, release, or installation format.
+
+  The developer does not create commits. It records all receipt facts except
+  `tool.implementation_commit`, bound to the exact builder-source digest
+  embedded in the certified bundle and the declared covered Cargo/Rust/NOTICE
+  input set. After independent approval and the coordinator's implementation
+  commit, the coordinator recomputes that digest from the committed covered
+  product inputs and requires exact equality with the certified inner manifest.
+  Planning-only changes outside the declared digest inputs are allowed. Any
+  covered product-input mismatch requires rebuilding and recertifying.
+
+  The coordinator then inserts the exact implementation commit SHA, canonical-
+  serializes the final receipt candidate, writes it to a uniquely created
+  sibling temporary file, fsyncs that file, publishes it with no-replace rename,
+  and fsyncs the `receipts/` parent. If the keyed receipt already exists, reuse
+  is allowed only when a bounded read proves byte-for-byte equality with the
+  final candidate **and** fresh full bundle certification and transport
+  verification prove every referenced retained asset; otherwise abort and
+  leave the existing receipt and assets untouched. Record the final receipt's
+  SHA-256, but no local path, in the subsequent planning/evidence cleanup
+  commit.
+
+  As soon as the newly retained bundle and transport pass the cheap publication
+  check—or pre-existing reused assets pass their mandatory full verification—
+  delete only the recorded paths created by this invocation that
+  remain under its unique work child: the second pack, unpack copy, unpublished
+  stages/scratch, measurement files, and logs. Never glob, sweep the proof
+  store, follow a cleanup path outside the invocation child, or delete source/
+  reference input, pre-existing content, retained bundle/transport, or any
+  unrecorded path. Remove the now-empty invocation work child last; do not keep
+  it waiting for the later post-commit receipt step. The retained proof assets
+  are reusable inputs for publication and later installer work and avoid
+  another unnecessary full-corpus rebuild.
 - Retain `planning/artifacts/005-snv-transport.md` with the source/reference,
   bundle, manifest/NOTICE/member, transport, encoder, frame, part, and unpacked
   identities and all counts above; exact commands; compressed size and ratio;
@@ -375,8 +510,9 @@ stage as part of this ticket.
   and peak owned disk for pack, verify, and unpack. Explain that sampled
   RSS/disk values are lower bounds at the stated sampling interval, the Rust
   allocator excludes libzstd's native heap, and RSS can include file-backed
-  pages. Delete all full generated bundles, transports, staging, and unpacked
-  copies after recording proof. Never retain local source paths.
+  pages. Record the retained bundle/transport identities and receipt schema,
+  but never their local paths. Never retain local source paths in committed
+  evidence.
 
 ### Documentation and exclusions
 
@@ -416,8 +552,16 @@ and any fixed-v1 or lookup change.
 - Small production-path tests prove exact CLI behavior, corruption handling,
   bounded heap/FD use, and deterministic bytes.
 - Full-corpus evidence proves the pinned fixed-v1 member, deterministic
-  transport, exact reconstruction, resource boundaries, and deletion of all
-  generated full assets.
+  transport, exact reconstruction, resource boundaries, atomic local retention
+  of one certified bundle and one canonical transport, and cleanup of every
+  duplicate, unpacked copy, stage, scratch file, and ephemeral log.
+- The final bounded canonical `pangopup.proof-receipt.v1` binds the retained
+  assets to the recomputed committed builder-source digest and implementation
+  commit. Newly renamed assets prove continuity only through the cheap
+  post-rename object-identity/metadata check and incur no second full scan;
+  pre-existing keyed assets must freshly reverify. The receipt's SHA-256—not
+  its local path—is retained in the subsequent planning/evidence cleanup
+  commit.
 - The exact durable docs named above describe what ships and keep network,
   managed installation, model fallback, and service work explicitly future.
 - `make lint`, `make test`, and `make spec` pass.
@@ -521,9 +665,11 @@ Tickets 001–004 are shipped on `main`. No unfinished ticket is a dependency.
 - The development agent receives only this ticket and the repository. The
   downloaded Pangolin dataset and RefSeq FASTA are external, read-only inputs
   passed only through `PANGOPUP_SOURCE_DIR` and `PANGOPUP_GRCH38_FASTA` for the
-  full proof. Never commit source data, generated full bundles, transport
-  parts, unpacked outputs, local absolute paths, usernames, hostnames, temp
-  paths, or credentials.
+  full proof. `PANGOPUP_PROOF_STORE` is likewise operator-supplied, durable,
+  outside Git, and must share a filesystem with the large proof work directory
+  for atomic retention. Never commit source data, generated full bundles,
+  transport parts, the local receipt, unpacked outputs, local absolute paths,
+  usernames, hostnames, temp paths, or credentials.
 - Preserve `NOTICE` and the inner bundle's CC BY 4.0 attribution exactly in
   every transport. Generated data belongs in release assets later, never Git,
   Git LFS, or test fixtures.
@@ -600,6 +746,67 @@ not reviewer approval:
    logical-stream, notice, and installed-member invariants are restored, while
    new builder/bundle/transport identities must come from the final diff.
 
+### User-directed scope amendment
+
+On 2026-07-22 the user changed only the full-proof cleanup policy. After all
+certification, determinism, unpack, equality, and resource proofs pass, the
+operator must atomically retain one certified production bundle, one canonical
+deterministic transport, and one small identity/verification receipt in the
+caller-supplied out-of-Git proof store keyed by bundle and transport IDs. The
+duplicate pack, unpack copy, staging, scratch, measurement working files, and
+ephemeral logs are still deleted. This is operational retention for later
+publication; it does not add runtime discovery, XDG installation, networking,
+or stale-stage management to the shipped product.
+
+The same independent reviewer raised three retention-only findings, all
+accepted by the author:
+
+1. Disposable proof output is now confined to one unique invocation work
+   child. Cleanup uses only recorded invocation-created paths beneath it,
+   removes the empty child last, and expressly forbids globs, store sweeps,
+   input/pre-existing deletion, or escape outside that child.
+2. The receipt is now the closed, bounded canonical
+   `pangopup.proof-receipt.v1` local-proof schema. Publication is sibling-temp,
+   file-fsync, no-replace rename, and parent-fsync; existing-receipt reuse
+   requires both byte-identical candidate bytes and fresh verification of every
+   referenced retained asset.
+3. Undefined precommit tree equality is removed. The retained build is bound
+   to its exact builder-source digest and declared Cargo/Rust/NOTICE inputs;
+   after implementation commit the coordinator recomputes that digest, adds
+   the commit SHA, publishes the receipt, and records only its SHA-256 in the
+   later planning/evidence cleanup commit. Planning-only changes outside the
+   digest set remain allowed.
+
+The user subsequently clarified that a successful same-filesystem rename must
+not trigger another needless multi-gigabyte scan. Newly accepted assets now use
+only the bounded post-rename device/inode/size, exact-member, small-metadata,
+and vanished-source-path continuity check. Fresh exhaustive verification
+remains mandatory only when reusing a keyed path that pre-existed the
+invocation, where rename continuity cannot prove identity. This is an
+operational proof clarification only; it changes no product behavior or
+builder-source input.
+
+### Manifest-object error taxonomy amendment
+
+Formal code review found one fail-closed but contractual mismatch: the
+implementation classifies a symlinked or non-regular `transport.json` as
+`MANIFEST_INVALID`, while the prior table grouped every symlink/type failure
+under `PART_SET_INVALID`. As original ticket author, I accept the narrower
+contract amendment above. Before a supported manifest exists, Pangopup cannot
+establish a declared part set, so treating an invalid manifest filesystem
+object as `MANIFEST_INVALID` is coherent; member-set errors become meaningful
+only after that parse boundary. Missing/ordinary read failure remains
+`INPUT_IO`, and payload/copy symlinks remain `PART_SET_INVALID`.
+
+Changing otherwise safe Rust solely to rename this error would alter a covered
+builder-source input and force another complete 4,099,255,665-row build and
+certification with no correctness benefit. The amendment instead requires
+production-CLI executable specs for both manifest-object cases and the existing
+post-parse payload case. The spec Markdown and this ticket are outside the
+builder-source digest, so pinning the existing behavior introduces no product-
+binary or certified-asset drift. Return this contract amendment to the same
+independent ticket reviewer before final completion.
+
 ## Independent Ticket Review
 
 Reviewer: `ticket_005_new_review` (independent, read-only)
@@ -613,14 +820,143 @@ semantic certification are explicit, the deterministic Zstandard contract is
 implementable, the production proof is complete, and no installer, network,
 XDG, or stale-stage recovery scope was reintroduced.
 
+User-directed retention amendments: approved with no remaining findings. The
+same reviewer confirmed that disposable cleanup is confined to the recorded
+invocation child; the closed local receipt and post-commit digest binding are
+complete; newly renamed assets use the bounded inode/metadata continuity proof
+without a redundant full scan; and pre-existing keyed assets still require
+full verification. No product runtime, installer, or covered builder-source
+scope was introduced.
+
+Manifest-object error taxonomy amendment: approved with no remaining findings.
+The same reviewer confirmed that the pre-parse `MANIFEST_INVALID` versus
+post-parse `PART_SET_INVALID` boundary is coherent and fail-closed, and that
+the required executable CLI specs pin both manifest-object failures while
+preserving the payload-symlink regression. The ticket/spec-only change is
+outside the declared builder-source digest and does not invalidate the retained
+full-corpus proof.
+
 ## Implementation Evidence
 
-Developer: pending
+Developer: `ticket_005_developer`
+
+Date: 2026-07-22
+
+Implemented the reviewed slice as specified:
+
+- added the `pangopup-assets` crate with the exact embedded notice, shared
+  bundle certification, strict canonical transport manifest, deterministic
+  pinned Zstandard encoder, split writer, bounded one-handle verifier, exact
+  unpack, typed errors, and Linux no-replace publication;
+- moved bundle certification behind the typed assets boundary while preserving
+  the existing build CLI behavior, and exposed one bounded duplicate-aware
+  canonical inner-manifest parser from `pangopup-index`;
+- extended the builder-source identity to cover assets Cargo/Rust inputs and
+  `NOTICE`, pinned bundled libzstd 1.5.7, and rejected the system-library
+  override;
+- added maintenance CLI pack/verify/unpack commands, library/CLI/adversarial
+  fixture tests, isolated allocator/FD/RSS tests, executable spec coverage,
+  ADR 0007, and current README/architecture/planning documentation.
+
+The final ordinary gate passed:
+
+```text
+make lint  -> passed (fmt and clippy -D warnings)
+make test  -> passed
+make spec  -> 80 passed
+git diff --check -> passed
+```
+
+The negative bundled-codec check returned exit 101 with the required explicit
+diagnostic when `ZSTD_SYS_USE_PKG_CONFIG=1`. `cargo tree` showed exactly
+`zstd` 0.13.3, `zstd-safe` 7.2.4, and
+`zstd-sys` 2.0.16+zstd.1.5.7.
+
+After the original author and reviewer approved the narrow manifest-object
+taxonomy amendment, the executable production-CLI spec was extended to pin
+both pre-parse cases: a symlinked `transport.json` and a directory-valued
+`transport.json` each return exit 1, empty stdout, and the exact
+`MANIFEST_INVALID` envelope. The spec also preserves the post-parse payload
+symlink boundary as exit 1, empty stdout, and exact `PART_SET_INVALID`. The
+focused transport spec reports 17 passing examples. This remediation changes
+only spec and planning Markdown, not any covered builder-source input or
+retained asset.
+
+The fresh production proof passed build, independent installed verification,
+two byte-identical packs, streaming transport verification, unpack, independent
+verification of the reconstructed bundle, and byte comparison of all three
+installed members. It retained exactly one certified bundle and one canonical
+transport outside Git under these identities:
+
+```text
+bundle    sha256:c4c4162b34a73ecd8c44d379f9e4fbc4e5e07869af1967a6695b8d439d2819b3
+transport sha256:3a2f4901b8f3dece302640d0257cc98aa50010a45fe61c5ef77c64a62f4660aa
+```
+
+The full source/reference identities, all corpus counts and logical hashes,
+builder/member/part identities, exact commands, timings, RSS, sampled disk,
+isolated resource measurements, atomic proof-store migration, retention facts,
+and measurement limitations are recorded in
+`planning/artifacts/005-snv-transport.md`. Certification exhaustively decodes
+and hashes every one of the 4,099,255,665 logical records; it does not invoke
+the public `ScoreProvider` lookup for every SNV. That separate behavioral and
+performance proof belongs to the next ticket.
+
+Per the reviewed retention amendment, the coordinator publishes the bounded
+canonical `pangopup.proof-receipt.v1` only after independent code approval and
+the implementation commit exist, then records its SHA-256 without a local path.
+No source, reference, retained-asset, receipt, or proof-store path is committed.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `ticket_005_code_review` (independent, read-only)
+
+Date: 2026-07-22
+
+Result: approved after one remediation cycle. The reviewer inspected the
+complete implementation diff, production code, unit/integration/resource
+tests, executable specs, dependency graph, documentation, proof evidence,
+source-digest coverage, notice, and bounded retained metadata. The reviewer
+independently ran `make lint`, `make test`, `make spec`, and
+`git diff --check`, and confirmed that the corruption, replacement-race,
+self-consistent semantic-corruption, cleanup, SIGKILL, publication-race,
+1,000-part, and isolated-resource tests exercise their claimed paths.
+
+The first review found one observable taxonomy mismatch: a symlinked
+`transport.json` safely failed closed as `MANIFEST_INVALID`, while the then
+ticket assigned every symlink to `PART_SET_INVALID`. It also found the stale
+retention-review approval record. The finding returned through the original
+ticket author and reviewer. They approved the coherent pre-parse manifest-
+object versus post-parse declared-member boundary, and the developer added
+non-vacuous production-CLI specs for symlinked and directory-valued
+`transport.json` plus the payload-symlink boundary. The retained asset and
+covered Rust/Cargo/NOTICE inputs did not change. On re-review, the same code
+reviewer ran the focused 17-example transport spec and complete 80-example
+suite, confirmed the builder-source digest regression, and approved with no
+residual findings. No large retained payload was scanned during review.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: `/root`
+
+Date: 2026-07-22
+
+The required ticket author, ticket reviewer, developer, and code reviewer were
+four independent roles. Every material finding returned to its originating
+author/developer and the same reviewer approved the remediation. The final
+coordinator gate passed:
+
+```text
+make lint  -> passed
+make test  -> passed
+make spec  -> 80 passed
+git diff --check -> passed
+```
+
+The final tree has no source/reference/proof-store path, generated large
+member, or Genome/GenomOncology software dependency. Exactly one certified
+bundle and one canonical transport remain in the external proof store; the
+duplicate, unpacked copy, proof stages, logs, and invocation work child are
+gone. The post-commit receipt publication and receipt-hash evidence update
+remain deliberately sequenced after this implementation commit so the receipt
+can bind the real commit SHA.

@@ -3,9 +3,10 @@ use super::{
     parse_member_gene,
 };
 use flate2::bufread::GzDecoder;
+use pangopup_assets::{NOTICE, certify_bundle};
 use pangopup_index::{
-    AliasManifest, AttributionManifest, BuilderManifest, BundleCounts, BundleManifest, BundleOpen,
-    IndexReader, InputLocus, LogicalManifest, MemberManifest, ReferenceManifest, SourceManifest,
+    AliasManifest, AttributionManifest, BuilderManifest, BundleCounts, BundleManifest, IndexReader,
+    InputLocus, LogicalManifest, MemberManifest, ReferenceManifest, SourceManifest,
     StreamingIndexWriter, VisitAllError, canonical_manifest_bytes,
 };
 use serde::Serialize;
@@ -21,7 +22,6 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-const NOTICE: &[u8] = include_bytes!("../../../NOTICE");
 const REQUIRED: [(&str, &str); 25] = [
     ("chr1", "NC_000001.11"),
     ("chr2", "NC_000002.12"),
@@ -478,86 +478,17 @@ fn build_staged(
 }
 
 pub fn verify_bundle(path: &Path) -> Result<VerifyOutcome, CommandError> {
-    let opened = BundleOpen::open(path)
-        .map_err(|error| CommandError::new("BUNDLE_INVALID", error.to_string()))?;
-    for member in &opened.manifest().members {
-        let actual = hash_file(&path.join(&member.path))?;
-        if actual != member.sha256 {
-            return Err(CommandError::new(
-                "BUNDLE_MEMBER_HASH",
-                format!("bundle member {} has the wrong SHA-256", member.path),
-            ));
-        }
-    }
-    if fs::read(path.join("NOTICE")).map_err(|error| io_error("read NOTICE", error))? != NOTICE {
-        return Err(CommandError::new(
-            "BUNDLE_NOTICE",
-            "NOTICE does not match the byte-exact notice embedded in the builder",
-        ));
-    }
-    opened
-        .index()
-        .verify_canonical_structure()
-        .map_err(|error| CommandError::new("BUNDLE_INDEX", error.to_string()))?;
-    let decoded = decode_reader(opened.index())?;
-    if decoded.logical != opened.manifest().logical_decoded
-        || opened.manifest().logical_source != opened.manifest().logical_decoded
-    {
-        return Err(CommandError::new(
-            "BUNDLE_LOGICAL_MISMATCH",
-            "complete decoded logical stream does not match the manifest",
-        ));
-    }
-    let counts = opened.manifest().counts;
-    let direction_members = counts
-        .ascending_members
-        .checked_add(counts.descending_members)
-        .ok_or_else(bundle_counts_overflow)?;
-    let exception_shapes = counts
-        .n_omit_a
-        .checked_add(counts.n_omit_t)
-        .ok_or_else(bundle_counts_overflow)?;
-    let expected_rows = counts
-        .gene_loci
-        .checked_mul(3)
-        .ok_or_else(bundle_counts_overflow)?;
-    if counts.source_rows != decoded.logical.records
-        || expected_rows != counts.source_rows
-        || counts.gene_loci != decoded.loci
-        || counts.genes != decoded.genes
-        // Direction is source-only provenance. Offline verification can prove
-        // its checked total, but not independently recover the split from the
-        // canonical ascending fixed-v1 representation.
-        || counts.genes != direction_members
-        || opened.manifest().source.observed_member_count != counts.genes
-        || counts.source_segments != decoded.source_segments
-        || counts.gap_transitions != decoded.gaps
-        || counts.omitted_bases != decoded.omitted_bases
-        || counts.index_segments != decoded.index_segments
-        || decoded.index_segments != opened.index().segment_count()
-        || counts.n_ref_loci != opened.index().exception_count()
-        || counts.n_ref_loci != decoded.n_ref_loci
-        || counts.n_omit_a != decoded.n_omit_a
-        || counts.n_omit_t != decoded.n_omit_t
-        || exception_shapes != counts.n_ref_loci
-    {
-        return Err(CommandError::new(
-            "BUNDLE_COUNTS",
-            "manifest counts do not agree with the complete index decode",
-        ));
-    }
+    let certification = certify_bundle(path).map_err(|error| {
+        CommandError::new(
+            error.legacy_build_code().unwrap_or(error.kind().code()),
+            error.to_string(),
+        )
+    })?;
     Ok(VerifyOutcome {
         status: "verified",
-        bundle_id: opened.bundle_id().to_owned(),
-        members_verified: 2,
+        bundle_id: certification.bundle_id,
+        members_verified: certification.members_verified,
     })
-}
-
-fn bundle_counts_overflow() -> CommandError {
-    CommandError::new(
-        "BUNDLE_COUNTS",
-        "manifest count arithmetic overflowed during complete verification",
-    )
 }
 
 fn decode_logical(path: &Path) -> Result<LogicalManifest, CommandError> {
@@ -568,97 +499,15 @@ fn decode_logical(path: &Path) -> Result<LogicalManifest, CommandError> {
 
 struct DecodedFacts {
     logical: LogicalManifest,
-    genes: u64,
-    loci: u64,
-    source_segments: u64,
-    index_segments: u64,
-    gaps: u64,
-    omitted_bases: u64,
-    n_ref_loci: u64,
-    n_omit_a: u64,
-    n_omit_t: u64,
 }
 
 fn decode_reader(reader: &IndexReader) -> Result<DecodedFacts, CommandError> {
     let mut hash = HashWriter::new();
     let mut records = 0_u64;
-    let mut genes = 0_u64;
-    let mut loci_count = 0_u64;
-    let mut source_segments = 0_u64;
-    let mut index_segments = 0_u64;
-    let mut gaps = 0_u64;
-    let mut omitted_bases = 0_u64;
-    let mut n_ref_loci = 0_u64;
-    let mut n_omit_a = 0_u64;
-    let mut n_omit_t = 0_u64;
-    let mut previous: Option<(u64, u8, u32)> = None;
-    let mut previous_ordinary: Option<(u64, u8, u32)> = None;
     reader
         .visit_all(|locus| {
             write_logical_text(&mut hash, locus)?;
             add_decoded(&mut records, 3)?;
-            add_decoded(&mut loci_count, 1)?;
-            let (gene, contig, position) = match locus {
-                InputLocus::Ordinary(value) => {
-                    let ordinary = (
-                        value.gene.numeric(),
-                        value.contig.code(),
-                        value.position.get(),
-                    );
-                    if previous_ordinary.is_none_or(|previous| {
-                        previous.0 != ordinary.0
-                            || previous.1 != ordinary.1
-                            || previous.2.checked_add(1) != Some(ordinary.2)
-                    }) {
-                        add_decoded(&mut index_segments, 1)?;
-                    }
-                    previous_ordinary = Some(ordinary);
-                    ordinary
-                }
-                InputLocus::Ambiguous(value) => {
-                    add_decoded(&mut n_ref_loci, 1)?;
-                    match value.omitted {
-                        pangopup_core::DnaBase::A => add_decoded(&mut n_omit_a, 1)?,
-                        pangopup_core::DnaBase::T => add_decoded(&mut n_omit_t, 1)?,
-                        _ => {
-                            return Err(io::Error::new(
-                                ErrorKind::InvalidData,
-                                "invalid omitted exception base",
-                            ));
-                        }
-                    }
-                    (
-                        value.gene.numeric(),
-                        value.contig.code(),
-                        value.position.get(),
-                    )
-                }
-            };
-            match previous {
-                None => {
-                    add_decoded(&mut genes, 1)?;
-                    add_decoded(&mut source_segments, 1)?;
-                }
-                Some((previous_gene, _, _)) if previous_gene != gene => {
-                    add_decoded(&mut genes, 1)?;
-                    add_decoded(&mut source_segments, 1)?;
-                }
-                Some((_, previous_contig, previous_position)) => {
-                    if previous_contig != contig || position <= previous_position {
-                        return Err(io::Error::new(
-                            ErrorKind::InvalidData,
-                            "decoded logical order",
-                        ));
-                    }
-                    let distance = u64::from(position - previous_position);
-                    if distance > 1 {
-                        add_decoded(&mut gaps, 1)?;
-                        add_decoded(&mut omitted_bases, distance - 1)?;
-                        add_decoded(&mut source_segments, 1)?;
-                    }
-                }
-            }
-            previous = Some((gene, contig, position));
             Ok::<_, io::Error>(())
         })
         .map_err(|error| match error {
@@ -670,15 +519,6 @@ fn decode_reader(reader: &IndexReader) -> Result<DecodedFacts, CommandError> {
             records,
             sha256: hash.finish(),
         },
-        genes,
-        loci: loci_count,
-        source_segments,
-        index_segments,
-        gaps,
-        omitted_bases,
-        n_ref_loci,
-        n_omit_a,
-        n_omit_t,
     })
 }
 

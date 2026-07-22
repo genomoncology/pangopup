@@ -258,14 +258,15 @@ no-replace directory primitive is implemented.
 ## Release transport is not runtime encoding
 
 The fast installed mmap file and the downloaded release asset solve different
-problems. The accepted future lookup transport contains a canonical transport
+problems. The shipped local lookup transport contains a canonical transport
 manifest, exact copies of the installed `manifest.json` and `NOTICE`, and one
 deterministic compressed `scores.pgi` stream cut into ordered exact
-1,000,000,000-byte parts (except the nonempty final part). The planned install
-command verifies the manifest, copied small members, every part, the complete
-compressed stream, and the reconstructed score member before atomically
-publishing the unchanged three-file fixed-v1 bundle. This installation flow is
-not implemented today. Runtime lookup already maps an explicitly supplied
+1,000,000,000-byte parts (except the nonempty final part). `transport verify`
+checks metadata, parts, the complete compressed stream, and reconstructed score
+identity without materializing it. `transport unpack` additionally performs
+exhaustive fixed-v1 certification before atomically publishing the unchanged
+three-file bundle. Managed XDG installation is not implemented today. Runtime
+lookup already maps an explicitly supplied
 expanded fixed-width member and never decompresses a query block.
 
 The certified complete `scores.pgi` is 15,033,158,255 bytes. The exact GNU tar

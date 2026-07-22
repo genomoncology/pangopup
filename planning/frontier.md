@@ -9,8 +9,8 @@ and certification, and typed SNV lookup are established. Pangopup is standalone
 open-source software. Its shipped CLI accepts an explicit GRCh38 SNV and
 optional gene filter and returns all matching source records by default from an
 explicitly supplied fixed-v1 bundle. Speed leads memory and download size.
-Release assets, automatic installation, model fallback, and the HTTP service
-remain future work.
+Deterministic local transport is also established. Release publication,
+automatic installation, model fallback, and the HTTP service remain future work.
 
 ## Established — pinned source ingestion contract
 
@@ -62,7 +62,7 @@ misses, source-reference ambiguities, mixed results, incompatible bundles, and
 touched-payload corruption distinctly. Full hashing and payload scans remain an
 explicit `pangopup-build verify` operation.
 
-## Next outcome — deterministic lookup transport
+## Established — deterministic lookup transport
 
 Package the executable and generated data separately. A historical
 tar+Zstandard experiment measured 1,935,000,209 bytes and showed that one
@@ -70,12 +70,12 @@ lookup archive leaves too little headroom below GitHub's per-asset ceiling; tar
 is not the accepted lookup transport. Instead compress only the exact
 `scores.pgi` stream as one deterministic Zstandard frame, split it into ordered
 1,000,000,000-byte parts bound by a canonical manifest, and reassemble the
-unchanged installed fixed-v1 bundle. Prove exact pack, verify, and unpack
-behavior and retain full-corpus size and determinism evidence. Transport
+unchanged installed fixed-v1 bundle. Local pack, integrity-only verify, and
+semantically certified atomic unpack now implement that boundary. Transport
 compression is removed at installation; the lookup path continues to map the
 fixed representation.
 
-## Following outcome — explicit local installation
+## Next outcome — explicit local installation
 
 Install a caller-supplied, already available transport into an immutable local
 bundle using platform-standard application-data storage, locking, checksums,

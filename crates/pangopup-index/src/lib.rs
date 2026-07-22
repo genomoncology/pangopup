@@ -9,7 +9,10 @@ use pangopup_core::{
     LookupProvenance, LookupResult, PangolinScore, PrecomputedProvenance, RelativePosition,
     ScoreMagnitude, ScoreProvider, SourceReferenceAmbiguity,
 };
-use serde::{Deserialize, Serialize};
+use serde::{
+    Deserialize, Deserializer, Serialize,
+    de::{MapAccess, SeqAccess, Visitor},
+};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -27,7 +30,7 @@ const TREE_NODE_SIZE: usize = 32;
 const EXCEPTION_SIZE: usize = 40;
 const PAGE_SIZE: u64 = 4096;
 const NONE: u64 = u64::MAX;
-const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+pub const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 
 pub const INDEX_FORMAT: &str = "pangopup.fixed11.v1";
 pub const BUNDLE_SCHEMA: &str = "pangopup.bundle.v1";
@@ -251,6 +254,127 @@ pub fn canonical_manifest_bytes(manifest: &BundleManifest) -> Result<Vec<u8>, In
     serde_jcs::to_vec(manifest).map_err(|_| IndexError::Corrupt("manifest serialization"))
 }
 
+/// Parse and validate the one canonical installed-bundle manifest grammar.
+///
+/// Callers that already hold bytes (delivery and installation code) use this
+/// exact path so the runtime opener and asset tooling cannot disagree about a
+/// bundle's meaning.
+pub fn parse_bundle_manifest_bytes(bytes: &[u8]) -> Result<BundleManifest, IndexError> {
+    if bytes.len() as u64 > MAX_MANIFEST_BYTES {
+        return Err(IndexError::Corrupt("manifest size"));
+    }
+    let mut duplicate_check = serde_json::Deserializer::from_slice(bytes);
+    NoDuplicateJson::deserialize(&mut duplicate_check)
+        .map_err(|_| IndexError::Corrupt("manifest JSON"))?;
+    duplicate_check
+        .end()
+        .map_err(|_| IndexError::Corrupt("manifest JSON"))?;
+    let discriminator: ManifestDiscriminator =
+        serde_json::from_slice(bytes).map_err(|_| IndexError::Corrupt("manifest JSON"))?;
+    if discriminator.schema != BUNDLE_SCHEMA {
+        return Err(IndexError::Incompatible("bundle schema version"));
+    }
+    if discriminator.index_format != INDEX_FORMAT {
+        return Err(IndexError::Incompatible("index format version"));
+    }
+    let manifest: BundleManifest =
+        serde_json::from_slice(bytes).map_err(|_| IndexError::Corrupt("manifest JSON"))?;
+    if canonical_manifest_bytes(&manifest)? != bytes {
+        return Err(IndexError::Corrupt("manifest is not canonical"));
+    }
+    validate_manifest(&manifest)?;
+    Ok(manifest)
+}
+
+struct NoDuplicateJson;
+
+impl<'de> Deserialize<'de> for NoDuplicateJson {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(NoDuplicateVisitor)
+    }
+}
+
+struct NoDuplicateVisitor;
+
+impl<'de> Visitor<'de> for NoDuplicateVisitor {
+    type Value = NoDuplicateJson;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("JSON without duplicate object keys")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut keys = BTreeSet::new();
+        while let Some(key) = map.next_key::<String>()? {
+            if !keys.insert(key) {
+                return Err(serde::de::Error::custom("duplicate object key"));
+            }
+            map.next_value::<NoDuplicateJson>()?;
+        }
+        Ok(NoDuplicateJson)
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        while sequence.next_element::<NoDuplicateJson>()?.is_some() {}
+        Ok(NoDuplicateJson)
+    }
+
+    fn visit_bool<E>(self, _value: bool) -> Result<Self::Value, E> {
+        Ok(NoDuplicateJson)
+    }
+    fn visit_i64<E>(self, _value: i64) -> Result<Self::Value, E> {
+        Ok(NoDuplicateJson)
+    }
+    fn visit_u64<E>(self, _value: u64) -> Result<Self::Value, E> {
+        Ok(NoDuplicateJson)
+    }
+    fn visit_f64<E>(self, _value: f64) -> Result<Self::Value, E> {
+        Ok(NoDuplicateJson)
+    }
+    fn visit_str<E>(self, _value: &str) -> Result<Self::Value, E> {
+        Ok(NoDuplicateJson)
+    }
+    fn visit_borrowed_str<E>(self, _value: &'de str) -> Result<Self::Value, E> {
+        Ok(NoDuplicateJson)
+    }
+    fn visit_string<E>(self, _value: String) -> Result<Self::Value, E> {
+        Ok(NoDuplicateJson)
+    }
+    fn visit_none<E>(self) -> Result<Self::Value, E> {
+        Ok(NoDuplicateJson)
+    }
+    fn visit_unit<E>(self) -> Result<Self::Value, E> {
+        Ok(NoDuplicateJson)
+    }
+    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        NoDuplicateJson::deserialize(deserializer)
+    }
+    fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        NoDuplicateJson::deserialize(deserializer)
+    }
+    fn visit_bytes<E>(self, _value: &[u8]) -> Result<Self::Value, E> {
+        Ok(NoDuplicateJson)
+    }
+    fn visit_byte_buf<E>(self, _value: Vec<u8>) -> Result<Self::Value, E> {
+        Ok(NoDuplicateJson)
+    }
+}
+
 pub fn bundle_id(bytes: &[u8]) -> String {
     format!("sha256:{:x}", Sha256::digest(bytes))
 }
@@ -260,8 +384,11 @@ impl BundleOpen {
     /// set, regular-file identities, declared sizes, and fixed-v1 structure.
     /// Member byte hashes remain the responsibility of offline verification.
     pub fn open(path: &Path) -> Result<Self, IndexError> {
-        let mut names = Vec::new();
-        for entry in fs::read_dir(path)? {
+        let mut names = Vec::with_capacity(3);
+        for (count, entry) in fs::read_dir(path)?.enumerate() {
+            if count >= 3 {
+                return Err(IndexError::Corrupt("bundle member set"));
+            }
             let entry = entry?;
             let name = entry
                 .file_name()
@@ -291,20 +418,7 @@ impl BundleOpen {
         if manifest_bytes.len() as u64 > MAX_MANIFEST_BYTES {
             return Err(IndexError::Corrupt("manifest size"));
         }
-        let discriminator: ManifestDiscriminator = serde_json::from_slice(&manifest_bytes)
-            .map_err(|_| IndexError::Corrupt("manifest JSON"))?;
-        if discriminator.schema != BUNDLE_SCHEMA {
-            return Err(IndexError::Incompatible("bundle schema version"));
-        }
-        if discriminator.index_format != INDEX_FORMAT {
-            return Err(IndexError::Incompatible("index format version"));
-        }
-        let manifest: BundleManifest = serde_json::from_slice(&manifest_bytes)
-            .map_err(|_| IndexError::Corrupt("manifest JSON"))?;
-        if canonical_manifest_bytes(&manifest)? != manifest_bytes {
-            return Err(IndexError::Corrupt("manifest is not canonical"));
-        }
-        validate_manifest(&manifest)?;
+        let manifest = parse_bundle_manifest_bytes(&manifest_bytes)?;
         for member in &manifest.members {
             if fs::metadata(path.join(&member.path))?.len() != member.size {
                 return Err(IndexError::Corrupt("bundle member size"));

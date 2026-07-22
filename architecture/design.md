@@ -63,6 +63,16 @@ Owns streaming `.tsv.gz` ingestion, full-source validation, deterministic index
 writing, reference certification, and atomic bundle publication. Gzip/TSV and
 other build-only dependencies stay here and do not enter runtime consumers.
 
+### `pangopup-assets`
+
+Owns the byte-exact notice, exhaustive installed-bundle certification, strict
+SNV transport manifest, pinned Zstandard codec, streaming part verification,
+and atomic local pack/unpack. Dependency direction is `pangopup-core <-
+pangopup-index <- pangopup-assets <- pangopup-build`. The build CLI is a thin
+adapter over the shared certification and transport APIs. `pangopup-index`
+supplies the sole bounded canonical installed-manifest parser; assets does not
+duplicate that grammar.
+
 ### `pangopup-cli`
 
 Owns arguments, narrow genomic-variant input parsing, output rendering, and
@@ -72,12 +82,13 @@ files. The binary and performance harness call the same library renderer, so
 measured JSONL/table serialization is the production byte path rather than a
 benchmark copy.
 
-Future `pangopup-assets`, `pangopup-model`, and `pangopup-http` crates should be
+Future `pangopup-model` and `pangopup-http` crates should be
 added only when their own observable slices begin. They must consume the same
 core types rather than leak a model runtime, HTTP, or cache types into the
-scoring API. `pangopup-assets` owns shared discovery, download, verification,
-and atomic installation for both executable adapters; `pangopup-core` performs
-no network or home-directory access. The future HTTP adapter runs in the
+scoring API. The shipped assets crate intentionally has no network,
+home-directory discovery, or managed-install policy; those capabilities extend
+its verified local primitive in later bounded work. `pangopup-core` performs no
+network or home-directory access. The future HTTP adapter runs in the
 foreground; process lifecycle belongs to external managers as described in
 [`service.md`](service.md).
 

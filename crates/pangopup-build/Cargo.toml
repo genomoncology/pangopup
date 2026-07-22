@@ -8,11 +8,13 @@ repository.workspace = true
 
 [dependencies]
 flate2 = "1.1.5"
+pangopup-assets = { path = "../pangopup-assets" }
 pangopup-core = { path = "../pangopup-core" }
 pangopup-index = { path = "../pangopup-index" }
 sha2 = "0.10.9"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
+serde_jcs = "0.1.0"
 rustix = { version = "1.1.4", features = ["fs"] }
 
 [dev-dependencies]
@@ -22,7 +24,7 @@ memmap2 = "0.9.8"
 noodles-bgzf = "0.48.0"
 noodles-csi = "0.57.0"
 noodles-tabix = "0.63.0"
-zstd = "0.13.3"
+zstd = "=0.13.3"
 
 [build-dependencies]
 sha2 = "0.10.9"

@@ -84,8 +84,8 @@ The source code’s GPL-3.0 license does not replace the dataset’s CC BY licen
 The transformed fixed 11-byte index is intended for distribution as separately
 named GitHub release assets, not as Git objects. The measured complete bundle
 compressed to 1,935,000,209 bytes, too close to the under-2-GiB per-asset limit
-for comfortable headroom. Transport should therefore be split deterministically
-and reassembled and verified once during installation; runtime lookup still
-maps the unchanged fixed-v1 member and never decompresses a query. Release
-packaging and installation are not implemented yet. See
+for comfortable headroom. The shipped local transport is split deterministically
+and can be verified and reassembled explicitly; runtime lookup still maps the
+unchanged fixed-v1 member and never decompresses a query. Release publication
+and managed installation are not implemented yet. See
 [`delivery.md`](delivery.md).

@@ -323,6 +323,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pangopup-assets"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "libc",
+ "pangopup-index",
+ "rustix",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "sha2",
+ "zstd",
+ "zstd-safe",
+ "zstd-sys",
+]
+
+[[package]]
 name = "pangopup-build"
 version = "0.1.0"
 dependencies = [
@@ -333,10 +350,12 @@ dependencies = [
  "noodles-bgzf",
  "noodles-csi",
  "noodles-tabix",
+ "pangopup-assets",
  "pangopup-core",
  "pangopup-index",
  "rustix",
  "serde",
+ "serde_jcs",
  "serde_json",
  "sha2",
  "zstd",

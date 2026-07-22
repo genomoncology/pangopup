@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/pangopup-assets",
     "crates/pangopup-build",
     "crates/pangopup-cli",
     "crates/pangopup-core",

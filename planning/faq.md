@@ -87,16 +87,21 @@ up to 1,000 assets per release, requires each asset to be under 2 GiB, and
 states no aggregate release-size or bandwidth quota. The certified fixed-v1
 member is 15,033,158,255 bytes. A historical tar+Zstandard experiment measured
 1,935,000,209 bytes—too close to the per-file ceiling for comfortable headroom,
-and not the accepted format. The future lookup transport compresses only
+and not the accepted format. The shipped local lookup transport compresses only
 `scores.pgi` as one deterministic Zstandard frame and splits it into ordered
 1,000,000,000-byte parts bound by a canonical manifest. Unpack reconstructs the
 same mmap member. Executable, lookup-data, and future model assets remain
 separately versioned.
 
+The available commands are `pangopup-build transport pack`, `transport verify`,
+and `transport unpack`. They operate on explicit local paths. They do not fetch,
+publish, or install into an XDG data directory.
+
 ### Does Pangopup install missing assets automatically?
 
 Not yet. Today the CLI requires `--bundle <PATH>`, and callers can run
-`pangopup-build verify` explicitly. The accepted target is for CLI and service
+`pangopup-build verify` or the shipped local transport commands explicitly. The
+accepted target is for CLI and service
 startup to resolve a binary-pinned manifest through the same operation exposed
 by `pangopup assets sync`, download to a temporary cache, verify SHA-256,
 extract and verify in staging, and publish atomically. A local install command
@@ -202,7 +207,8 @@ GENCODE masking member. The lookup set is canonical metadata, copied small
 bundle members, and deterministic parts of one compressed score stream; it is
 not one tar archive. Verify and reassemble it once during future automatic or
 explicit installation, then map the expanded data at runtime. That
-release/install tooling is not shipped yet.
+release publication and managed-installation tooling is not shipped yet; the
+local pack/verify/unpack transport primitive is shipped.
 
 ### What does lookup output look like?
 

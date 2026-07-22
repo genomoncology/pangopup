@@ -2,8 +2,9 @@
 
 Pangopup is a standalone GPL-3.0 Rust project for high-performance,
 Pangolin-compatible splice scoring on GRCh38 genomic variants. Today it ships
-an exact precomputed-SNV library and CLI. Model inference, automatic asset
-installation, and an HTTP service are planned but not implemented.
+an exact precomputed-SNV library and CLI plus deterministic local release
+transport tooling. Model inference, automatic asset installation, and an HTTP
+service are planned but not implemented.
 
 The target service will answer each request through one of two paths:
 
@@ -116,17 +117,35 @@ the compiled reference member, not the raw FASTA, and performs bounded indexed
 sequence reads rather than parsing FASTA during a request. The same principle
 applies to GENCODE: GTF/gffutils is build input, not a runtime database.
 
-## Planned asset delivery and installation
+## Shipped local transport and planned installation
 
-This section is the accepted target design, not shipped behavior. Today callers
-pass `--bundle <PATH>` and use `pangopup-build verify` explicitly. A future
+Pangopup now packages an explicitly supplied certified bundle into canonical
+release-sized files and reconstructs the exact installed bytes:
+
+```text
+pangopup-build transport pack --bundle <BUNDLE> --output <ABSENT_DIR>
+pangopup-build transport verify --transport <TRANSPORT_DIR>
+pangopup-build transport unpack --transport <TRANSPORT_DIR> --output <ABSENT_DIR>
+```
+
+The transport directory contains canonical `transport.json`, byte-exact copies
+of the bundle manifest and CC BY notice, and numbered fragments of one pinned,
+checksummed Zstandard frame over `scores.pgi`. Pack and unpack stream through
+unique sibling staging directories and publish with Linux atomic no-replace
+rename. `transport verify` proves all declared bytes and the single frame
+without creating a 15 GB scratch file; unpack additionally runs exhaustive
+fixed-v1 semantic certification before publication. SHA-256 proves integrity,
+not who published the files.
+
+Automatic installation remains target behavior. Today callers pass
+`--bundle <PATH>` and use `pangopup-build verify` explicitly. A future
 Pangopup binary will pin a compatible release manifest containing asset URLs,
 sizes, SHA-256 digests, format versions, source identities, and licenses.
 
 The target is built in independently proved layers:
 
 1. deterministically package, split, verify, and reconstruct the lookup
-   transport without changing the installed mmap bundle;
+   transport without changing the installed mmap bundle (shipped);
 2. install caller-supplied transport files into the platform data directory
    with locking, staging, checksums, receipts, atomic publication, and verified
    reuse;
@@ -213,17 +232,18 @@ tensors consume ordinary resident memory and are measured separately.
 
 A historical experiment compressed the complete bundle to 1,935,000,209 bytes
 with GNU tar 1.35 and Zstandard 1.5.5 level 9. That measurement established the
-scale but is not the accepted lookup transport. The future transport compresses
+scale but is not the accepted lookup transport. The shipped transport compresses
 only the exact `scores.pgi` stream as one deterministic Zstandard frame and
 cuts it into ordered 1,000,000,000-byte parts bound by a canonical manifest.
-Installation reconstructs the same fixed mmap member. Download encoding must
-never put decompression on the query path.
+The shipped local unpack command, and later managed installation, reconstructs
+the same fixed mmap member. Download encoding must never put decompression on
+the query path.
 
 ## Current state
 
 Implemented today:
 
-- the four-crate Rust workspace and strict lint/test/spec gates;
+- the five-crate Rust workspace and strict lint/test/spec gates;
 - CLI help/version behavior with two executable smoke specs;
 - GPL-3.0 source licensing, upstream Pangolin attribution, and CC BY 4.0
   dataset attribution;
@@ -247,15 +267,19 @@ Implemented today:
   reconstructed index/source segment and exception counts, and equality of
   independent source/decoded logical streams (source direction is retained
   provenance whose checked total, not split, is reconstructable from fixed-v1);
-- the standalone API, runtime-data, delivery, and performance decisions.
+- deterministic local `transport pack`, `transport verify`, and `transport
+  unpack`, with canonical metadata, pinned bundled libzstd 1.5.7, exact decimal
+  1 GB parts, bounded streaming verification, and byte-identical certified
+  reconstruction;
+- the standalone API, runtime-data, delivery, and performance decisions;
 - an object-safe, thread-safe typed score provider over one long-lived mmap;
 - transactional `pangopup lookup` JSONL/table batches with strict GRCh38
   aliases, optional source-gene filtering, all-overlap results, typed misses,
   and explicit source-reference ambiguities.
 
-Not implemented yet: deterministic release transport, local or remote asset
-management, published release assets, model runtime/fallback, HTTP service,
-container, or result cache. In this slice a syntactically valid concrete REF that
+Not implemented yet: managed local or remote asset installation, published
+release assets, model runtime/fallback, HTTP service, container, or result
+cache. In this slice a syntactically valid concrete REF that
 does not match an ordinary indexed key is `not_found`; runtime FASTA validation
 begins only with the future model/reference slice.
 
@@ -265,7 +289,7 @@ The rolling outcome order is:
 2. measured miniature index writer/reader (complete);
 3. full streaming builder and complete index certification (complete);
 4. typed SNV lookup API and CLI (complete);
-5. deterministic split lookup transport;
+5. deterministic split lookup transport (complete);
 6. explicit local XDG-style installation;
 7. pinned remote sync, GitHub publication, and clean-machine proof;
 8. an upstream Pangolin compatibility corpus;
@@ -285,11 +309,12 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
 
 - `pangopup-core` — public typed vocabulary, routing, and provider capabilities;
 - `pangopup-index` — private format codec and validated mmap reader;
+- `pangopup-assets` — installed-bundle certification and deterministic local
+  transport pack/verify/unpack;
 - `pangopup-build` — offline source validation and deterministic artifact
-  builders;
+  builders plus the thin maintenance CLI adapter;
 - `pangopup-cli` — shipped lookup command and output adapter; future asset and
   service commands remain unimplemented;
-- future `pangopup-assets` — shared download, verification, and installation;
 - future `pangopup-model` — model execution behind the core provider contract;
 - future `pangopup-http` — long-lived HTTP adapter over the same core.
 
@@ -332,6 +357,9 @@ discover a home directory:
 ```bash skip
 pangopup-build build --source <PANGOLIN_SOURCE_DIR> --reference <GRCH38_FASTA_OR_GZIP> --output <NEW_BUNDLE>
 pangopup-build verify <BUNDLE>
+pangopup-build transport pack --bundle <BUNDLE> --output <ABSENT_DIR>
+pangopup-build transport verify --transport <TRANSPORT_DIR>
+pangopup-build transport unpack --transport <TRANSPORT_DIR> --output <ABSENT_DIR>
 ```
 
 Each successful command writes exactly one JSON line. A bundle contains only

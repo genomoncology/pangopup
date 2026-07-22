@@ -17,6 +17,9 @@ the same standalone Rust core.
   standalone lookup and model fallback.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
+- [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)
+  — accepted no-tar transport, deterministic codec boundary, and verification
+  layers.
 - [`service.md`](service.md) — planned lookup-first HTTP boundary, foreground
   lifecycle, deployment, and operational proof.
 - [`decisions/`](decisions/) — accepted cross-cutting decisions.

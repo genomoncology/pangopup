@@ -7,8 +7,17 @@ use std::{
 fn main() {
     let crate_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest directory"));
     let workspace = crate_dir.join("../..");
-    let mut paths = vec![PathBuf::from("Cargo.toml"), PathBuf::from("Cargo.lock")];
-    for name in ["pangopup-core", "pangopup-index", "pangopup-build"] {
+    let mut paths = vec![
+        PathBuf::from("Cargo.toml"),
+        PathBuf::from("Cargo.lock"),
+        PathBuf::from("NOTICE"),
+    ];
+    for name in [
+        "pangopup-core",
+        "pangopup-index",
+        "pangopup-assets",
+        "pangopup-build",
+    ] {
         let root = PathBuf::from(format!("crates/{name}"));
         paths.push(root.join("Cargo.toml"));
         collect_rs(&workspace.join(&root), &workspace, &mut paths);

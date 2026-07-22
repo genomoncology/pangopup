@@ -1,3 +1,4 @@
+use pangopup_assets::{pack_bundle, unpack_transport, verify_transport};
 use pangopup_build::{
     CommandError, build_bundle, inspect_directory, prepare_benchmark_corpus, prototype_open,
     prototype_roundtrip, verify_bundle,
@@ -13,6 +14,12 @@ fn main() -> ExitCode {
     }
     if arguments.first().is_some_and(|command| command == "verify") {
         return verify_command(&arguments[1..]);
+    }
+    if arguments
+        .first()
+        .is_some_and(|command| command == "transport")
+    {
+        return transport_command(&arguments[1..]);
     }
     match arguments.as_slice() {
         [command, source] if command == "inspect" => {
@@ -70,6 +77,76 @@ fn main() -> ExitCode {
         }
         _ => json_failure(&CommandError::new("CLI_USAGE", USAGE)),
     }
+}
+
+fn transport_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let Some(action) = arguments.first().and_then(|value| value.to_str()) else {
+        return json_usage("transport requires pack, verify, or unpack");
+    };
+    let arguments = &arguments[1..];
+    match action {
+        "pack" => {
+            let Ok(values) = parse_exact_flags(arguments, &["--bundle", "--output"]) else {
+                return json_usage("transport pack requires --bundle and --output exactly once");
+            };
+            match pack_bundle(Path::new(values[0]), Path::new(values[1])) {
+                Ok(outcome) => json_success(&outcome),
+                Err(error) => {
+                    json_failure(&CommandError::new(error.kind().code(), error.to_string()))
+                }
+            }
+        }
+        "verify" => {
+            let Ok(values) = parse_exact_flags(arguments, &["--transport"]) else {
+                return json_usage("transport verify requires --transport exactly once");
+            };
+            match verify_transport(Path::new(values[0])) {
+                Ok(outcome) => json_success(&outcome),
+                Err(error) => {
+                    json_failure(&CommandError::new(error.kind().code(), error.to_string()))
+                }
+            }
+        }
+        "unpack" => {
+            let Ok(values) = parse_exact_flags(arguments, &["--transport", "--output"]) else {
+                return json_usage(
+                    "transport unpack requires --transport and --output exactly once",
+                );
+            };
+            match unpack_transport(Path::new(values[0]), Path::new(values[1])) {
+                Ok(outcome) => json_success(&outcome),
+                Err(error) => {
+                    json_failure(&CommandError::new(error.kind().code(), error.to_string()))
+                }
+            }
+        }
+        _ => json_usage("transport requires pack, verify, or unpack"),
+    }
+}
+
+fn parse_exact_flags<'a>(
+    arguments: &'a [std::ffi::OsString],
+    flags: &[&str],
+) -> Result<Vec<&'a std::ffi::OsStr>, ()> {
+    let mut values = vec![None; flags.len()];
+    let mut index = 0;
+    while index < arguments.len() {
+        let flag = arguments[index].to_str().ok_or(())?;
+        let position = flags
+            .iter()
+            .position(|candidate| *candidate == flag)
+            .ok_or(())?;
+        index += 1;
+        let value = arguments.get(index).ok_or(())?;
+        if value.to_str().is_some_and(|value| value.starts_with("--")) {
+            return Err(());
+        }
+        if values[position].replace(value.as_os_str()).is_some() {
+            return Err(());
+        }
+        index += 1;
+    }
+    values.into_iter().collect::<Option<Vec<_>>>().ok_or(())
 }
 
 fn build_command(arguments: &[std::ffi::OsString]) -> ExitCode {
