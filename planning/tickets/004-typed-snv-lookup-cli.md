@@ -1,13 +1,14 @@
 # 004 — Typed mmap SNV lookup and CLI
 
-Status: proposed
+Status: ready
 
 ## Why
 
-After Ticket 003 produces a certified complete bundle, Pangopup still needs the
-first user-visible product slice: open that immutable bundle once, answer one or
-many explicit GRCh38 SNVs, return every gene-specific published score exactly,
-and quantify the real open plus 1/10/100 lookup costs.
+Ticket 003 shipped a reproducible certified-bundle builder and deleted its
+generated full artifact. Pangopup still needs the first user-visible product
+slice: rebuild and open that immutable bundle, answer one or many explicit
+GRCh38 SNVs, return every gene-specific published score exactly, and quantify
+the real open plus 1/10/100 lookup costs.
 
 This slice exposes the selected mmap reader through a narrow typed provider and
 the CLI. It returns typed misses and source exceptions; it does not silently
@@ -15,20 +16,73 @@ fall through to an unimplemented model.
 
 ## Scope
 
-- In `pangopup-core`, add the minimal stable lookup vocabulary:
-  `GeneScoreRecord` (source Ensembl gene plus `PangolinScore`),
-  `SourceReferenceAmbiguity` (gene, literal source reference `N`, published
-  alternates, and omitted alternate), `LookupResult` (sorted `records`, sorted
-  `source_reference_ambiguities`, and provenance identity), a typed lookup error,
-  and one `ScoreProvider`
-  capability accepting `Grch38Snv` plus an optional `EnsemblGeneId` filter.
-  Results are small owned values sorted by gene; no mapped-byte lifetime or file
-  layout enters the public API.
-- In `pangopup-index`, implement the provider over one long-lived immutable mmap.
-  Open performs only the cheap structural/identity validation established by
-  Tickets 002/003. It does not hash or page through the payload. Lookup uses
-  checked arithmetic, validates every touched rank/block/value, and performs no
-  scan proportional to a chromosome, gene, or bundle.
+- In `pangopup-core`, add this exact object-safe capability:
+
+  ```rust
+  pub trait ScoreProvider: Send + Sync {
+      fn lookup(
+          &self,
+          snv: Grch38Snv,
+          gene: Option<EnsemblGeneId>,
+      ) -> Result<LookupResult, LookupError>;
+  }
+  ```
+
+  Add private-field public values, all deriving `Clone, Debug, Eq, PartialEq`,
+  with public constructors and getters for every field:
+
+  ```text
+  GeneScoreRecord { gene: EnsemblGeneId, score: PangolinScore }
+  SourceReferenceAmbiguity { gene: EnsemblGeneId,
+    published_alternates: [DnaBase; 3], omitted_alternate: DnaBase }
+  PrecomputedProvenance { bundle_id: String, source_doi: String,
+    source_archive_md5: String, masked: bool, window: u32 }
+  #[non_exhaustive] LookupProvenance::Precomputed(PrecomputedProvenance)
+  LookupResult { records: Vec<GeneScoreRecord>,
+    source_reference_ambiguities: Vec<SourceReferenceAmbiguity>,
+    provenance: LookupProvenance }
+  #[non_exhaustive] LookupError::CorruptProviderData
+  ```
+
+  `LookupError` also derives `Clone, Debug, Eq, PartialEq` and implements
+  `Display` plus `std::error::Error`. Provenance stores `bundle_id` with its
+  `sha256:` prefix and `source_archive_md5` as bare 32 lowercase hex.
+  `SourceReferenceAmbiguity::source_reference()` returns literal `"N"`; the
+  type cannot represent another source reference. Its constructor accepts gene
+  plus omitted alternate and derives the canonical other-three array in
+  `A,C,G,T` order; callers cannot construct the wrong length/order.
+  `LookupResult::new` sorts both owned collections by gene, so its public
+  constructor enforces the result invariant. No `IndexError`, offset, mmap
+  lifetime, manifest type, `IndexReader`, or binary-layout detail enters this
+  API. Convert or rename the current index-private `GeneScore`,
+  `SourceAmbiguity`, and `LookupResult`; do not leave a second public result
+  vocabulary.
+- In `pangopup-index`, implement `ScoreProvider` on one long-lived opened bundle
+  provider owning its immutable mmap and provenance. Bundle open has the actual
+  shipped boundary: read and canonical-validate the capped (<=1 MiB) manifest;
+  enumerate and `stat` the exact member set; mmap `scores.pgi`; scan/validate all
+  segment, interval-tree, and exception metadata; and decode all exceptions.
+  This is `O(segment_count + exception_count)` metadata work. It deliberately
+  does not hash members or intentionally touch ordinary score payload. Tests
+  distinguish algorithm-addressed pages from incidental OS readahead.
+- Give bundle open a typed incompatibility classification rather than requiring
+  adapters to inspect `IndexError` strings: schema/index-format version mismatch
+  is `Incompatible` (or an equivalent typed variant), ordinary filesystem open
+  failures remain I/O, and every other manifest/index structural problem is
+  corrupt/invalid. CLI mapping is exact: open I/O -> `BUNDLE_IO`, typed
+  schema/format mismatch -> `BUNDLE_INCOMPATIBLE`, other open corruption ->
+  `BUNDLE_INVALID`, and post-open record decode failure -> `LOOKUP_CORRUPT`.
+- Lookup uses checked arithmetic and performs no chromosome, gene, or bundle
+  scan. Once an ordinary 11-byte record is addressed, validate its reserved
+  bit, reference code, and all six gain/loss score-position pairs before
+  selecting the requested alternate; corruption elsewhere in that addressed
+  record is therefore `CorruptProviderData`. Untouched ordinary records remain
+  lazy. Preserve the existing adversarial interval-tree proof. Complexity is:
+  gene-filtered `O(log S + log E)` plus constant decode; unfiltered enumeration
+  `O(log S + K)`; sorted public output
+  `O(log S + K log K + log E + A log A)` with `O(K + A)` result allocation,
+  where `S` is segments, `E` exceptions, `K` ordinary matches, and `A`
+  ambiguities.
 - Default lookup returns all source-gene records for the genomic allele in
   deterministic Ensembl order. An optional gene filter narrows the result and
   never changes score semantics. No-gene and gene-filtered misses remain
@@ -37,7 +91,10 @@ fall through to an unimplemented model.
   `SourceReferenceAmbiguity`; it never guesses the FASTA base or fabricates the
   missing alternate. A position may simultaneously return ordinary records and
   source ambiguities from overlapping genes. The optional gene filter applies
-  to both collections.
+  to both collections. Every syntactically valid concrete REF/ALT query at that
+  exception coordinate returns the same matching-gene ambiguity, independent
+  of the concrete pair requested, and never returns the exception's stored
+  scores.
 - Extend `pangopup` with exact first-slice grammar:
 
   ```text
@@ -46,65 +103,138 @@ fall through to an unimplemented model.
     [--gene <ENSG>] [--format jsonl|table]
   ```
 
-  Accept primary contig aliases `17`/`chr17` and the exact RefSeq accession
-  aliases embedded by the bundle. Reject any assembly other than literal
-  `GRCh38`; this is tuple parsing, not HGVS. Open the bundle once per invocation
-  and reuse it for every repeated `--variant`.
+  Accepted spellings are case-sensitive and exact: `1`..`22`, `X`, `Y`, `M`;
+  `chr1`..`chr22`, `chrX`, `chrY`, `chrM`; and the exact 25 RefSeq accessions in
+  the opened manifest. Reject zero-padded, lowercase, whitespace-padded, `MT`,
+  and all other aliases. Assembly is literal `GRCh38`; POS is nonzero decimal
+  fitting `u32` and must not exceed the opened manifest's contig length; REF/ALT
+  are uppercase `A/C/G/T` and differ. This is tuple parsing, not HGVS. A valid
+  concrete tuple whose REF does not match an ordinary indexed key is
+  `not_found`, not a reference error: no runtime FASTA is present in this slice.
+  Open once per invocation and reuse it for every repeated `--variant`.
+  Tighten `Grch38Contig::from_str` itself to those primary contig spellings;
+  bundle-aware RefSeq accession resolution remains in the CLI/provider adapter.
 - JSON Lines is the default stable machine output: one object per request with
   normalized variant, derived status, zero/one/many gene records, zero/one/many
   source ambiguities, and bundle/source provenance. Status is `found` when only
   records are nonempty, `ambiguous_source_reference` when only ambiguities are
   nonempty, `mixed` when both are nonempty, and `not_found` when both are empty.
   Score fields are fixed two-decimal JSON strings (`"0.35"`, `"-0.21"`, and
-  normalized zero `"0.00"`); positions are JSON integers. The exact field set
-  and examples below are contractual. `--format table` is a human adapter over
-  the same typed result with exact columns `ASSEMBLY CONTIG POS REF ALT STATUS
-  GENE GAIN_SCORE GAIN_POS LOSS_SCORE LOSS_POS SOURCE_REF PUBLISHED_ALTS
-  OMITTED_ALT BUNDLE_ID`; alignment is not contractual. No TTY-dependent schema
-  changes.
-- Parse and validate the entire request batch before emitting output. Exit 0
-  when all requests are syntactically valid and the bundle is usable, including
-  `not_found`, `ambiguous_source_reference`, and `mixed` results. Exit 2 for
-  CLI/input errors and 1 for bundle/open/decode failures. A batch never labels
-  partial output as complete after a fatal bundle failure.
-- Add `spec/snv-lookup.md` using the small deterministic bundle fixture/build
-  helper from Tickets 002/003. Cover one hit, the TP53/WRAP53 overlapping hit,
-  gene filtering, miss, `REF=N`, a synthetic mixed ordinary-plus-ambiguity
-  position, 10/100 repeated distinct input handling,
-  malformed variant, corrupt bundle, JSONL, and table output. Do not require the
-  full bundle in ordinary gates.
-- Add inside-out tests for open validation, all contig aliases, reference/ALT
-  checks, boundaries, deterministic multiplicity, local corrupt payloads,
-  concurrency (`Send + Sync` reader and simultaneous immutable lookups), and no
-  payload-wide work during open.
-- Add a release-mode benchmark over the full Ticket 003 bundle measuring:
-  open-only; the actual release CLI in a fresh process for deterministic
-  manifests containing exactly 1/10/100 requests that return exactly 1/10/100
-  gene-score records; and a separate one-open library benchmark over those same
-  result counts. Measure gene-filtered and all-overlap hits separately; random
-  hits and misses; same-page and cross-contig queries; and output serialization
-  separately. Reuse Ticket 002's selected-reader instrumentation and report warm
-  p50/p95/p99, throughput, allocations, resident memory, logical encoded bytes
-  decoded, unique mapped-file page numbers addressed by the query algorithm,
-  and operating-system minor/major fault deltas separately. Never claim these
-  measures are physical bytes read from storage.
+  normalized zero `"0.00"`); positions are JSON integers. Output is compact
+  UTF-8, one newline-terminated object per request in input order, with exact
+  fields and key order as illustrated below. `source_archive_md5` is the bare
+  32 lowercase hex characters after stripping manifest `md5:`; `bundle_id`
+  retains `sha256:`.
+- `--format table` is exact tab-separated UTF-8 with one header per invocation:
+  `ASSEMBLY CONTIG POS REF ALT STATUS GENE GAIN_SCORE GAIN_POS LOSS_SCORE
+  LOSS_POS SOURCE_REF PUBLISHED_ALTS OMITTED_ALT BUNDLE_ID`. Requests stay in
+  input order. For each request, emit ordinary record rows first in gene order,
+  then ambiguity rows in gene order; emit one row per item and one placeholder
+  row for `not_found`. Repeat status and request/bundle fields on every row; use
+  `.` for every inapplicable cell; encode `PUBLISHED_ALTS` as comma-separated
+  canonical bases such as `A,C,G`. The header and every row, including the
+  final row, are LF-terminated. No alignment or TTY-dependent behavior.
+- Batch behavior is transactional before stdout: parse the entire batch; open
+  once; apply manifest-length validation; perform every lookup; serialize the
+  complete JSONL or table response into memory; only then start one stdout
+  write. Lookup/decode/serialization failure therefore writes zero stdout. An
+  operating-system failure during that final write can inherently leave a
+  partial byte stream and returns `OUTPUT_IO`.
+- Lookup-subcommand failure writes no stdout and exactly one compact JSON line
+  to stderr:
+  `{"status":"error","code":string,"message":string,"details":null}`.
+  Codes are closed: `CLI_USAGE`, `INVALID_VARIANT`, `INVALID_GENE` exit 2;
+  `BUNDLE_IO`, `BUNDLE_INCOMPATIBLE`, `BUNDLE_INVALID`, `LOOKUP_CORRUPT`, and
+  `OUTPUT_IO` exit 1. Code/details are contractual; human message wording is
+  not. Exit 0 includes found, miss, ambiguity, and mixed results. Preserve
+  ordinary help/version behavior.
+- Add a dedicated checked lookup source/reference fixture built through Ticket
+  003's production bundle path. It contains the real `chr17:7686072 G>T`
+  WRAP53/TP53 source rows; an ambiguity-only locus; a mixed ordinary/`REF=N`
+  locus; a proved miss; and at least 100 distinct ordinary hits. Its compact
+  deterministic gzip FASTA contains all 25 required accession records and is
+  long enough at used coordinates. `spec/snv-lookup.md` builds its own bundle
+  and never relies on another spec's execution order. Cover one/many hits, both
+  gene filters, miss, ambiguity, mixed, 10/100 distinct input requests,
+  malformed inputs, every output status, exact JSONL/table bytes, and each
+  corruption layer without requiring external data.
+- Add inside-out tests for the exact alias grammar and length bounds;
+  deterministic multiplicity; an addressed record whose unrequested pair is
+  corrupt; an untouched corrupt ordinary record remaining lazy; and the actual
+  validation layers: manifest/header/directory/tree/exception corruption fails
+  open, same-size NOTICE substitution and untouched payload corruption may pass
+  open, addressed corruption fails lookup, and `pangopup-build verify` catches
+  member hashes and all payload corruption. Add a compile-time `Send + Sync`
+  assertion and barrier-started concurrent lookups through one `Arc` provider,
+  with every result compared with a serial oracle.
+- The complete Ticket 003 bundle no longer exists. Before full-oracle and
+  performance work, build it anew from explicit operator-supplied
+  `PANGOPUP_SOURCE_DIR` and `PANGOPUP_GRCH38_FASTA` using the current release
+  binary, then independently run `pangopup-build verify`. Require the known
+  corpus counts, logical digest, reference/source identities, and exact Ticket
+  003 `scores.pgi` SHA-256
+  `sha256:6fd8eb490e643728f6682fe6fc1910b88641354aaa221781575763c4ca94bf27`.
+  This ticket does not authorize a format/writer change; if that hash cannot be
+  reproduced, stop and open a new format ADR/ticket. Record the new
+  manifest/bundle identity, which changes because its
+  builder source digest includes Ticket 004 core/index changes. Delete the full
+  bundle after all Ticket 004 evidence is retained.
+- Retain `planning/artifacts/004-query-manifest.tsv`: request ID, workload
+  class, stable order, variant, optional gene, expected request count, and
+  expected returned gene-record count. Retain
+  `planning/artifacts/004-full-oracle.jsonl`: provenance-free expected records
+  and ambiguities for every retained request, independently extracted from the
+  source TSVs rather than decoded from `scores.pgi`; independently establish
+  misses by complete relevant-source inspection. Bind both files in the report
+  to source-member identity, reference identity, `scores.pgi` hash, and bundle
+  ID.
+- Add a release benchmark harness with four modes: fresh in-process open-only;
+  the real release CLI as one fresh child per complete 1/10/100 batch (parse,
+  open, lookup, render, write); one-open library lookup only; and
+  serialization-only over materialized results into a memory buffer. Primary
+  filtered and unfiltered manifests contain exactly 1/10/100 requests returning
+  exactly 1/10/100 gene records. Every filtered batch uses one batch-global gene
+  shared by all its variants and is one child invocation with one `--gene` plus
+  repeated `--variant`; never split it into per-query children. Add separate
+  true-overlap stress, deterministic
+  seeded random hits/misses, same-page, and cross-contig workloads. Record both
+  request and result counts.
+- Benchmark warmup is 20 unretained samples followed by 100 retained samples;
+  p50/p95/p99 use nearest-rank over sorted retained latencies. Report batches/s
+  and records/s, deterministic seed/universe, a fixed 4 KiB logical mapped-page
+  number, and CLI stdout sink. Fresh CLI reports wall latency, throughput, child
+  minor/major faults, peak RSS, and output bytes. In-process open/library/
+  serialization report latency, allocation calls/bytes, fault deltas, and RSS
+  delta; serialization-only reports JSONL and table as separate workloads.
+  Lookup-only additionally reports logical bytes decoded and unique
+  algorithm-addressed mapped pages. Use `N/A` where a metric is unavailable;
+  do not claim child allocation counts without a separately disclosed
+  instrumented build. Never call logical/page metrics physical storage reads.
 - Use a documented defensible cold method: an artifact larger than available
   memory on isolated hardware, or an OS/device method that proves pages were not
   resident. If neither is available, report cold results as unmeasured rather
   than relabeling first-after-build queries as cold.
 - Retain `planning/artifacts/004-snv-lookup-performance.md` with hardware,
-  compiler/commit, bundle/query identities, commands, methodology, and results.
+  compiler/commit, regenerated bundle/query/oracle identities, exact commands,
+  methodology, per-mode applicability, and results.
   This report must explicitly answer opening and returning 1, 10, and 100
   distinct splice scores.
 - Update `README.md`, `architecture/design.md`, `architecture/index.md`,
-  `planning/faq.md`, and `planning/frontier.md` to replace targets with measured
-  claims only where supported.
+  `architecture/decisions/0006-index-format-selection.md`, `spec/cli.md`,
+  `planning/faq.md`, and `planning/frontier.md`. Resolve the old runtime
+  reference-mismatch sentence to the no-FASTA miss semantics above; replace
+  unimplemented/remaining-choice language; and distinguish measured library
+  lookup, fresh CLI, warm state, and unmeasured cold behavior. No HTTP or model
+  latency claim follows from this ticket.
 - Excluded: automatic asset discovery/download, release publication, FASTA at
   runtime for lookup hits, model fallback, non-SNV support, model-result cache,
   HTTP, HGVS, transcript/protein projection, and clinical interpretation.
 
 ## Success Checklist
 
+- `ScoreProvider: Send + Sync` and every owned core result/provenance/error type
+  match the exact API contract; no index-private duplicate becomes a competing
+  public vocabulary.
 - The public provider and CLI return every matching source-gene record exactly;
   the overlapping `chr17:7686072 G>T` fixture returns distinct WRAP53 and TP53
   scores by default and the requested single record under each gene filter.
@@ -117,6 +247,9 @@ fall through to an unimplemented model.
 - Tests prove cheap open does not full-hash or traverse the score payload, while
   explicit `pangopup-build verify` from Ticket 003 still detects whole-bundle
   corruption.
+- Tests pin the metadata-scan open boundary, all-pairs addressed-record
+  validation, untouched-record laziness, exact aliases/ranges, transactional
+  batch stdout, closed JSON errors, and byte-exact JSONL/table multiplicity.
 - One process opens one bundle once and safely serves concurrent lookups without
   an application cache or per-query file reopen.
 - `spec/snv-lookup.md` covers the full observable matrix using only checked
@@ -124,6 +257,9 @@ fall through to an unimplemented model.
 - The retained performance report answers the requested 1/10/100 cases and
   separates process, open, lookup, page-fault, allocation, and rendering costs.
   Benchmarks are evidence, not threshold-based test assertions.
+- A current-commit full rebuild and independent verify reproduce the pinned
+  corpus/logical/index identity. The retained source-derived oracle and query
+  manifest are bound to that bundle, and the generated bundle is deleted.
 - `make lint`, `make test`, and `make spec` pass.
 
 ## Decisions
@@ -189,20 +325,23 @@ outcome:
 
 ## Dependencies
 
-- Ticket 003 complete, with one certified full bundle, deterministic small build
-  fixture/helper, final selected format, and offline verifier on `main`.
+- Ticket 003 shipped in commits `a1b9a38`/`338b401`, with the deterministic
+  production builder, fixed-v1 format, offline verifier, small production build
+  fixture, and retained full-corpus evidence on `main`. No full bundle is
+  retained; this ticket rebuilds one explicitly for its non-gate oracle and
+  benchmark work.
 
 ## Notes
 
-- This is a reviewed dependency-gated draft. Do not mark it `ready` or dispatch
-  until Tickets 002 and 003 ship; then re-read current code/docs and obtain a
-  fresh independent ticket review.
+- Tickets 002 and 003 are shipped. Do not dispatch until the fresh dependency-
+  time review below approves the revised contract.
 - A score count is gene-record count, not merely request count. Performance
   workloads must state both requests and returned records.
 - Do not benchmark a CLI loop that reopens the bundle and present it as service
   lookup throughput. Report one-shot and long-lived cases separately.
-- If build/spec helpers named here exist after Ticket 003, reuse them; otherwise
-  define the minimum helper within this ticket.
+- Reuse Ticket 003's production build helper but add the dedicated lookup
+  fixture specified above; do not pretend Ticket 002's bare `.pgi` or Ticket
+  003's two-gene fixture contains the required lookup matrix.
 - Evidence in this ticket is illustrative unless explicitly named as a retained
   artifact. Public files contain no machine paths or sibling-project references.
 - Run exactly `make lint`, `make test`, and `make spec` from repository root.
@@ -222,6 +361,24 @@ Page work now uses the same defensible logical/page/fault measures as Ticket
 Final packet re-review: approved with no remaining findings as a dependency-
 gated `proposed` draft only. It must receive a fresh independent review against
 the implementations produced by Tickets 002 and 003 before becoming `ready`.
+
+Fresh dependency-time reviewer: `ticket_004_review` (independent, read-only).
+
+Initial result: changes required. The coordinator accepted every finding and
+revised the ticket to require a current-commit full rebuild, a source-derived
+retained oracle, and a dedicated production-path lookup fixture; to pin the
+typed Rust API, exact alias/range/REF=N behavior, byte-exact JSONL/table and
+closed error contracts, and transactional batch output; to describe the actual
+metadata-scan open boundary, addressed-record validation, sorting complexity,
+and corruption layers; and to separate benchmark modes, observable metrics,
+samples, workloads, and documentation updates.
+
+Final dependency-time re-review: approved with no remaining findings. The
+reviewer confirmed the extensible provider/provenance API, typed open/decode
+classification, invariant-preserving ambiguity/results, production-path
+fixture, transactional wire contracts, unconditional fixed-v1 identity gate,
+source-derived oracle lifecycle, and four-mode benchmark are internally
+consistent and implementable against shipped Tickets 001–003.
 
 ## Implementation Evidence
 
