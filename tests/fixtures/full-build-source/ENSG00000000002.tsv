@@ -1,0 +1,10 @@
+chrom	pos	ref	alt	gain_score	gain_pos	loss_score	loss_pos
+chr1	4	T	A	0.0	-50	-0.0	-50
+chr1	4	T	C	0.0	-50	-0.0	-50
+chr1	4	T	G	0.0	-50	-0.0	-50
+chr1	3	N	C	0.0	-50	-0.0	-50
+chr1	3	N	G	0.0	-50	-0.0	-50
+chr1	3	N	T	0.0	-50	-0.0	-50
+chr1	2	C	A	0.0	-50	-0.0	-50
+chr1	2	C	G	0.0	-50	-0.0	-50
+chr1	2	C	T	0.0	-50	-0.0	-50

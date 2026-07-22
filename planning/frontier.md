@@ -40,12 +40,21 @@ artifact, opens without a payload-wide scan, uses a balanced overlap tree, and
 validates ordinary payload only when touched. This evidence is comparative and
 warm; definitive cold-I/O waits for the complete artifact.
 
-## Active front — full streaming build and certification
+## Established — full streaming build and certification
 
-Extend the accepted format to all 19,913 source files without loading the whole
-dataset into heap memory. Certify every input invariant and source row, publish
-one immutable bundle atomically, and expose gene-filtered plus all-overlap SNV
-lookups through the CLI and executable spec.
+The production builder canonicalizes one gene at a time, spools the fixed-v1
+payload and normalized primary reference to disk, certifies every ordinary
+source reference against pinned RefSeq GRCh38.p14, and publishes one immutable
+three-file bundle only after complete offline verification. The canonical
+manifest binds source/reference identities, exact member hashes, corpus counts,
+attribution, and matching independent source/decoded logical-stream digests.
+
+## Active front — typed SNV lookup
+
+Open the certified bundle through the cheap path and expose gene-filtered plus
+all-overlap exact SNV lookup through the public typed provider boundary and CLI.
+Keep full member hashing and payload scans explicit rather than adding them to
+ordinary startup.
 
 ## Later front — reproducible release assets
 

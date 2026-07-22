@@ -8,12 +8,14 @@ use pangopup_core::{
     DnaBase, EnsemblGeneId, GenomicPosition, Grch38Contig, Grch38Snv, PangolinScore,
     RelativePosition, ScoreMagnitude,
 };
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fmt,
     fs::{self, File},
-    io::{self, Write},
-    path::Path,
+    io::{self, BufReader, Write},
+    path::{Path, PathBuf},
 };
 
 const MAGIC: &[u8; 8] = b"PNGPIDX1";
@@ -24,6 +26,9 @@ const TREE_NODE_SIZE: usize = 32;
 const EXCEPTION_SIZE: usize = 40;
 const PAGE_SIZE: u64 = 4096;
 const NONE: u64 = u64::MAX;
+
+pub const INDEX_FORMAT: &str = "pangopup.fixed11.v1";
+pub const BUNDLE_SCHEMA: &str = "pangopup.bundle.v1";
 
 /// One alternate record in canonical logical input.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -97,6 +102,122 @@ pub struct WriteSummary {
     pub exceptions: u64,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BundleManifest {
+    pub schema: String,
+    pub index_format: String,
+    pub builder: BuilderManifest,
+    pub source: SourceManifest,
+    pub reference: ReferenceManifest,
+    pub counts: BundleCounts,
+    pub logical_source: LogicalManifest,
+    pub logical_decoded: LogicalManifest,
+    pub members: Vec<MemberManifest>,
+    pub attribution: AttributionManifest,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BuilderManifest {
+    pub version: String,
+    pub source_sha256: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourceManifest {
+    pub title: String,
+    pub creators: Vec<String>,
+    pub doi: String,
+    pub archive_name: String,
+    pub published_archive_size: u64,
+    pub published_archive_md5: String,
+    pub observed_member_count: u64,
+    pub observed_members_sha256: String,
+    pub masked: bool,
+    pub window: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReferenceManifest {
+    pub assembly: String,
+    pub assembly_accession: String,
+    pub input_compression: String,
+    pub input_size: u64,
+    pub input_sha256: String,
+    pub sequence_set_sha256: String,
+    pub aliases: Vec<AliasManifest>,
+    pub extra_record_count: u64,
+    pub extra_accessions_sha256: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AliasManifest {
+    pub contig: String,
+    pub accession: String,
+    pub length: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BundleCounts {
+    pub genes: u64,
+    pub source_rows: u64,
+    pub gene_loci: u64,
+    pub ascending_members: u64,
+    pub descending_members: u64,
+    pub source_segments: u64,
+    pub index_segments: u64,
+    pub gap_transitions: u64,
+    pub omitted_bases: u64,
+    pub n_ref_loci: u64,
+    pub n_omit_a: u64,
+    pub n_omit_t: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LogicalManifest {
+    pub records: u64,
+    pub sha256: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemberManifest {
+    pub path: String,
+    pub size: u64,
+    pub sha256: String,
+    pub media_type: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AttributionManifest {
+    pub notice_path: String,
+    pub license: String,
+    pub transformed: bool,
+}
+
+#[derive(Debug)]
+pub struct BundleOpen {
+    pub manifest: BundleManifest,
+    pub bundle_id: String,
+    pub index: IndexReader,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DecodedSummary {
+    pub genes: u64,
+    pub loci: u64,
+    pub ordinary_loci: u64,
+    pub exceptions: u64,
+    pub segments: u64,
+}
+
 /// A deterministic writer or validated-reader failure.
 #[derive(Debug)]
 pub enum IndexError {
@@ -123,6 +244,168 @@ impl From<io::Error> for IndexError {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
     }
+}
+
+pub fn canonical_manifest_bytes(manifest: &BundleManifest) -> Result<Vec<u8>, IndexError> {
+    serde_jcs::to_vec(manifest).map_err(|_| IndexError::Corrupt("manifest serialization"))
+}
+
+pub fn bundle_id(bytes: &[u8]) -> String {
+    format!("sha256:{:x}", Sha256::digest(bytes))
+}
+
+impl BundleOpen {
+    /// Cheap bundle open: validate the closed canonical manifest, exact member
+    /// set, regular-file identities, declared sizes, and fixed-v1 structure.
+    /// Member byte hashes remain the responsibility of offline verification.
+    pub fn open(path: &Path) -> Result<Self, IndexError> {
+        let mut names = Vec::new();
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let name = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| IndexError::Corrupt("non-UTF-8 bundle member"))?;
+            let metadata = fs::symlink_metadata(entry.path())?;
+            if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+                return Err(IndexError::Corrupt("bundle member is not a regular file"));
+            }
+            names.push(name);
+        }
+        names.sort();
+        if names != ["NOTICE", "manifest.json", "scores.pgi"] {
+            return Err(IndexError::Corrupt("bundle member set"));
+        }
+        let manifest_bytes = fs::read(path.join("manifest.json"))?;
+        if manifest_bytes.len() > 1024 * 1024 {
+            return Err(IndexError::Corrupt("manifest size"));
+        }
+        let manifest: BundleManifest = serde_json::from_slice(&manifest_bytes)
+            .map_err(|_| IndexError::Corrupt("manifest JSON"))?;
+        if canonical_manifest_bytes(&manifest)? != manifest_bytes {
+            return Err(IndexError::Corrupt("manifest is not canonical"));
+        }
+        validate_manifest(&manifest)?;
+        for member in &manifest.members {
+            if fs::metadata(path.join(&member.path))?.len() != member.size {
+                return Err(IndexError::Corrupt("bundle member size"));
+            }
+        }
+        let index = IndexReader::open(&path.join("scores.pgi"))?;
+        Ok(Self {
+            bundle_id: bundle_id(&manifest_bytes),
+            manifest,
+            index,
+        })
+    }
+}
+
+fn validate_manifest(manifest: &BundleManifest) -> Result<(), IndexError> {
+    if manifest.schema != BUNDLE_SCHEMA || manifest.index_format != INDEX_FORMAT {
+        return Err(IndexError::Corrupt("bundle compatibility"));
+    }
+    if manifest.members.len() != 2
+        || manifest.members[0].path != "NOTICE"
+        || manifest.members[0].media_type != "text/plain; charset=utf-8"
+        || manifest.members[1].path != "scores.pgi"
+        || manifest.members[1].media_type != "application/vnd.pangopup.fixed11"
+    {
+        return Err(IndexError::Corrupt("manifest members"));
+    }
+    if manifest.reference.assembly != "GRCh38.p14"
+        || manifest.reference.assembly_accession != "GCF_000001405.40"
+        || !matches!(
+            manifest.reference.input_compression.as_str(),
+            "none" | "gzip"
+        )
+        || manifest.reference.aliases.len() != 25
+        || manifest.attribution.notice_path != "NOTICE"
+        || manifest.attribution.license != "CC-BY-4.0"
+        || !manifest.attribution.transformed
+    {
+        return Err(IndexError::Corrupt("manifest fixed values"));
+    }
+    let required_aliases = [
+        ("chr1", "NC_000001.11"),
+        ("chr2", "NC_000002.12"),
+        ("chr3", "NC_000003.12"),
+        ("chr4", "NC_000004.12"),
+        ("chr5", "NC_000005.10"),
+        ("chr6", "NC_000006.12"),
+        ("chr7", "NC_000007.14"),
+        ("chr8", "NC_000008.11"),
+        ("chr9", "NC_000009.12"),
+        ("chr10", "NC_000010.11"),
+        ("chr11", "NC_000011.10"),
+        ("chr12", "NC_000012.12"),
+        ("chr13", "NC_000013.11"),
+        ("chr14", "NC_000014.9"),
+        ("chr15", "NC_000015.10"),
+        ("chr16", "NC_000016.10"),
+        ("chr17", "NC_000017.11"),
+        ("chr18", "NC_000018.10"),
+        ("chr19", "NC_000019.10"),
+        ("chr20", "NC_000020.11"),
+        ("chr21", "NC_000021.9"),
+        ("chr22", "NC_000022.11"),
+        ("chrX", "NC_000023.11"),
+        ("chrY", "NC_000024.10"),
+        ("chrM", "NC_012920.1"),
+    ];
+    if manifest
+        .reference
+        .aliases
+        .iter()
+        .zip(required_aliases)
+        .any(|(actual, expected)| {
+            actual.contig != expected.0 || actual.accession != expected.1 || actual.length == 0
+        })
+    {
+        return Err(IndexError::Corrupt("manifest aliases"));
+    }
+    if manifest.source.title != "Pangolin precomputed scores"
+        || manifest.source.creators != ["Nils Wagner", "Aleksandr Neverov"]
+        || manifest.source.doi != "10.5281/zenodo.15649338"
+        || manifest.source.archive_name != "Pangolin_hg38_snvs_masked.zip"
+        || manifest.source.published_archive_size != 12_988_141_317
+        || manifest.source.published_archive_md5 != "md5:679ef0b50e511b6102b4b88fbf811108"
+        || !manifest.source.masked
+        || manifest.source.window != 50
+        || manifest.builder.version.is_empty()
+    {
+        return Err(IndexError::Corrupt("manifest provenance"));
+    }
+    for digest in [
+        &manifest.builder.source_sha256,
+        &manifest.source.observed_members_sha256,
+        &manifest.reference.input_sha256,
+        &manifest.reference.sequence_set_sha256,
+        &manifest.reference.extra_accessions_sha256,
+        &manifest.logical_source.sha256,
+        &manifest.logical_decoded.sha256,
+    ] {
+        if !valid_prefixed_hex(digest, "sha256:", 64) {
+            return Err(IndexError::Corrupt("manifest SHA-256"));
+        }
+    }
+    if !valid_prefixed_hex(&manifest.source.published_archive_md5, "md5:", 32)
+        || manifest
+            .members
+            .iter()
+            .any(|member| !valid_prefixed_hex(&member.sha256, "sha256:", 64))
+    {
+        return Err(IndexError::Corrupt("manifest digest"));
+    }
+    Ok(())
+}
+
+fn valid_prefixed_hex(value: &str, prefix: &str, digits: usize) -> bool {
+    value.strip_prefix(prefix).is_some_and(|hex| {
+        hex.len() == digits
+            && hex
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
 }
 
 #[derive(Clone)]
@@ -256,6 +539,230 @@ pub fn write_index(path: &Path, input: &[InputLocus]) -> Result<WriteSummary, In
         segments: usize_u64(segments.len(), "segment count")?,
         exceptions: usize_u64(exceptions.len(), "exception count")?,
     })
+}
+
+#[derive(Clone)]
+struct SpoolSegment {
+    gene: EnsemblGeneId,
+    contig: Grch38Contig,
+    start: u32,
+    end: u32,
+    loci: u32,
+    payload_rel: u64,
+    payload_len: u64,
+}
+
+/// Production fixed-v1 writer. It owns only compact directories and one open
+/// disk payload spool; callers submit at most one complete gene at a time.
+pub struct StreamingIndexWriter {
+    payload_path: PathBuf,
+    payload: File,
+    payload_len: u64,
+    loci: u64,
+    segments: Vec<SpoolSegment>,
+    exceptions: Vec<AmbiguousInputLocus>,
+    previous_gene: Option<u64>,
+}
+
+impl StreamingIndexWriter {
+    pub fn create(payload_path: &Path) -> Result<Self, IndexError> {
+        Ok(Self {
+            payload_path: payload_path.to_owned(),
+            payload: File::create(payload_path)?,
+            payload_len: 0,
+            loci: 0,
+            segments: Vec::new(),
+            exceptions: Vec::new(),
+            previous_gene: None,
+        })
+    }
+
+    pub fn push_gene(&mut self, input: &[InputLocus]) -> Result<(), IndexError> {
+        let gene = input
+            .first()
+            .map(|locus| match locus {
+                InputLocus::Ordinary(value) => value.gene.numeric(),
+                InputLocus::Ambiguous(value) => value.gene.numeric(),
+            })
+            .ok_or(IndexError::InvalidInput("empty production gene"))?;
+        if self.previous_gene.is_some_and(|previous| previous >= gene) {
+            return Err(IndexError::InvalidInput("production gene order"));
+        }
+        if input.iter().any(|locus| match locus {
+            InputLocus::Ordinary(value) => value.gene.numeric() != gene,
+            InputLocus::Ambiguous(value) => value.gene.numeric() != gene,
+        }) {
+            return Err(IndexError::InvalidInput("mixed production gene"));
+        }
+        let (segments, exceptions) = canonicalize(input)?;
+        for segment in segments {
+            let loci = u32::try_from(segment.loci.len())
+                .map_err(|_| IndexError::Arithmetic("segment locus count"))?;
+            self.payload.write_all(&segment.payload)?;
+            let payload_len = usize_u64(segment.payload.len(), "segment payload length")?;
+            self.segments.push(SpoolSegment {
+                gene: segment.gene,
+                contig: segment.contig,
+                start: segment.start,
+                end: segment.end,
+                loci,
+                payload_rel: self.payload_len,
+                payload_len,
+            });
+            self.payload_len =
+                checked_add_u64(self.payload_len, payload_len, "production payload length")?;
+        }
+        self.exceptions.extend(exceptions);
+        self.loci = checked_add_u64(
+            self.loci,
+            usize_u64(input.len(), "production gene loci")?,
+            "production locus count",
+        )?;
+        self.previous_gene = Some(gene);
+        Ok(())
+    }
+
+    pub fn scratch_bytes(&self) -> u64 {
+        self.payload_len
+    }
+
+    pub fn finish(mut self, output: &Path) -> Result<WriteSummary, IndexError> {
+        self.payload.sync_all()?;
+        drop(self.payload);
+        self.exceptions.sort_by_key(|locus| {
+            (
+                locus.contig.code(),
+                locus.position.get(),
+                locus.gene.numeric(),
+            )
+        });
+        let mut roots = [NONE; 25];
+        let mut tree = Vec::with_capacity(self.segments.len());
+        for code in 1_u8..=25 {
+            let mut indices: Vec<_> = self
+                .segments
+                .iter()
+                .enumerate()
+                .filter_map(|(index, segment)| (segment.contig.code() == code).then_some(index))
+                .collect();
+            indices.sort_by_key(|index| {
+                let segment = &self.segments[*index];
+                (segment.start, segment.end, segment.gene.numeric())
+            });
+            if !indices.is_empty() {
+                roots[usize::from(code - 1)] = usize_u64(
+                    build_spool_tree(&indices, &self.segments, &mut tree),
+                    "tree root index",
+                )?;
+            }
+        }
+        let segment_count = usize_u64(self.segments.len(), "segment count")?;
+        let tree_count = usize_u64(tree.len(), "tree count")?;
+        let exception_count = usize_u64(self.exceptions.len(), "exception count")?;
+        let segment_len = checked_mul_u64(segment_count, SEGMENT_SIZE as u64, "segment length")?;
+        let tree_len = checked_mul_u64(tree_count, TREE_NODE_SIZE as u64, "tree length")?;
+        let exception_len =
+            checked_mul_u64(exception_count, EXCEPTION_SIZE as u64, "exception length")?;
+        let segment_offset = HEADER_SIZE as u64;
+        let tree_offset = checked_add_u64(segment_offset, segment_len, "tree offset")?;
+        let payload_offset = checked_add_u64(tree_offset, tree_len, "payload offset")?;
+        let exception_offset =
+            checked_add_u64(payload_offset, self.payload_len, "exception offset")?;
+        let file_len = checked_add_u64(exception_offset, exception_len, "file length")?;
+        let mut header = vec![0_u8; HEADER_SIZE];
+        header[0..8].copy_from_slice(MAGIC);
+        put_u32(&mut header, 8, VERSION)?;
+        put_u32(&mut header, 12, HEADER_SIZE as u32)?;
+        put_u64(&mut header, 16, file_len)?;
+        put_section(&mut header, 24, segment_offset, segment_len)?;
+        put_section(&mut header, 40, tree_offset, tree_len)?;
+        put_section(&mut header, 56, payload_offset, self.payload_len)?;
+        put_section(&mut header, 72, exception_offset, exception_len)?;
+        put_u64(&mut header, 88, segment_count)?;
+        put_u64(&mut header, 96, tree_count)?;
+        put_u64(&mut header, 104, exception_count)?;
+        for (index, root) in roots.into_iter().enumerate() {
+            put_u64(&mut header, 112 + index * 8, root)?;
+        }
+        let mut file = File::create(output)?;
+        file.write_all(&header)?;
+        let mut directory = Vec::with_capacity(
+            usize::try_from(segment_len + tree_len)
+                .map_err(|_| IndexError::Arithmetic("directory allocation"))?,
+        );
+        for segment in &self.segments {
+            encode_spool_segment(&mut directory, segment)?;
+        }
+        for node in &tree {
+            encode_tree_node(&mut directory, node)?;
+        }
+        file.write_all(&directory)?;
+        io::copy(
+            &mut BufReader::new(File::open(&self.payload_path)?),
+            &mut file,
+        )?;
+        let mut exception_bytes = Vec::with_capacity(
+            usize::try_from(exception_len)
+                .map_err(|_| IndexError::Arithmetic("exception allocation"))?,
+        );
+        for exception in &self.exceptions {
+            encode_exception(&mut exception_bytes, exception)?;
+        }
+        file.write_all(&exception_bytes)?;
+        file.sync_all()?;
+        Ok(WriteSummary {
+            bytes: file_len,
+            loci: self.loci,
+            segments: segment_count,
+            exceptions: exception_count,
+        })
+    }
+}
+
+fn build_spool_tree(
+    indices: &[usize],
+    segments: &[SpoolSegment],
+    nodes: &mut Vec<TreeBuild>,
+) -> usize {
+    let middle = indices.len() / 2;
+    let segment_index = indices[middle];
+    let node_index = nodes.len();
+    nodes.push(TreeBuild {
+        segment: segment_index,
+        left: None,
+        right: None,
+        max_end: segments[segment_index].end,
+        contig: segments[segment_index].contig,
+    });
+    let left = (!indices[..middle].is_empty())
+        .then(|| build_spool_tree(&indices[..middle], segments, nodes));
+    let right = (!indices[middle + 1..].is_empty())
+        .then(|| build_spool_tree(&indices[middle + 1..], segments, nodes));
+    let mut max_end = segments[segment_index].end;
+    if let Some(index) = left {
+        max_end = max_end.max(nodes[index].max_end);
+    }
+    if let Some(index) = right {
+        max_end = max_end.max(nodes[index].max_end);
+    }
+    nodes[node_index].left = left;
+    nodes[node_index].right = right;
+    nodes[node_index].max_end = max_end;
+    node_index
+}
+
+fn encode_spool_segment(bytes: &mut Vec<u8>, segment: &SpoolSegment) -> Result<(), IndexError> {
+    let start = bytes.len();
+    bytes.resize(start + SEGMENT_SIZE, 0);
+    bytes[start] = segment.contig.code();
+    put_u64(bytes, start + 8, segment.gene.numeric())?;
+    put_u32(bytes, start + 16, segment.start)?;
+    put_u32(bytes, start + 20, segment.end)?;
+    put_u32(bytes, start + 24, segment.loci)?;
+    put_u64(bytes, start + 40, segment.payload_rel)?;
+    put_u64(bytes, start + 48, segment.payload_len)?;
+    put_u64(bytes, start + 56, segment.payload_len)?;
+    Ok(())
 }
 
 fn canonicalize(
@@ -625,6 +1132,148 @@ impl IndexReader {
         self.header.file_len
     }
 
+    pub fn segment_count(&self) -> u64 {
+        self.header.segment_count
+    }
+
+    pub fn exception_count(&self) -> u64 {
+        self.header.exception_count
+    }
+
+    /// Prove the writer's canonical section, payload, and segment layout.
+    ///
+    /// Runtime open deliberately accepts ordered, non-overlapping fixed-v1
+    /// sections and payload ranges with padding. Release verification calls
+    /// this stricter method because production bundles are byte-canonical.
+    pub fn verify_canonical_structure(&self) -> Result<(), IndexError> {
+        let sections = [
+            (self.header.segment_offset, self.header.segment_len),
+            (self.header.tree_offset, self.header.tree_len),
+            (self.header.payload_offset, self.header.payload_len),
+            (self.header.exception_offset, self.header.exception_len),
+        ];
+        let mut previous_end = HEADER_SIZE as u64;
+        for (offset, length) in sections {
+            if offset != previous_end {
+                return Err(IndexError::Corrupt("noncanonical section padding"));
+            }
+            previous_end = checked_add_u64(offset, length, "canonical section end")?;
+        }
+        if previous_end != self.header.file_len {
+            return Err(IndexError::Corrupt("noncanonical trailing bytes"));
+        }
+
+        let mut previous_payload_end = 0_u64;
+        let mut previous_segment: Option<SegmentView> = None;
+        for index in 0..self.header.segment_count {
+            let segment = self.segment(index, &mut None)?;
+            if segment.payload_rel != previous_payload_end {
+                return Err(IndexError::Corrupt("noncanonical payload padding"));
+            }
+            previous_payload_end = checked_add_u64(
+                segment.payload_rel,
+                segment.payload_len,
+                "canonical payload end",
+            )?;
+            if previous_segment.is_some_and(|previous| {
+                previous.gene == segment.gene
+                    && previous.contig == segment.contig
+                    && previous.end.checked_add(1) == Some(segment.start)
+            }) {
+                return Err(IndexError::Corrupt("noncanonical adjacent segments"));
+            }
+            previous_segment = Some(segment);
+        }
+        if previous_payload_end != self.header.payload_len {
+            return Err(IndexError::Corrupt("noncanonical unclaimed payload"));
+        }
+        Ok(())
+    }
+
+    /// Exhaustively decode every logical locus in canonical source order.
+    /// This is the offline verification path and intentionally scans payload.
+    pub fn visit_all<E>(
+        &self,
+        mut visitor: impl FnMut(InputLocus) -> Result<(), E>,
+    ) -> Result<DecodedSummary, VisitAllError<E>> {
+        let mut exceptions: BTreeMap<u64, Vec<InputLocus>> = BTreeMap::new();
+        for index in 0..self.header.exception_count {
+            let value = self
+                .exception(index, &mut None)
+                .map_err(VisitAllError::Index)?;
+            exceptions
+                .entry(value.gene.numeric())
+                .or_default()
+                .push(InputLocus::Ambiguous(value));
+        }
+        let mut summary = DecodedSummary {
+            segments: self.header.segment_count,
+            exceptions: self.header.exception_count,
+            ..DecodedSummary::default()
+        };
+        let mut index = 0_u64;
+        while index < self.header.segment_count {
+            let first = self
+                .segment(index, &mut None)
+                .map_err(VisitAllError::Index)?;
+            let gene = first.gene.numeric();
+            let mut gene_loci = Vec::new();
+            while index < self.header.segment_count {
+                let segment = self
+                    .segment(index, &mut None)
+                    .map_err(VisitAllError::Index)?;
+                if segment.gene.numeric() != gene {
+                    break;
+                }
+                for ordinal in 0..segment.loci {
+                    let offset = checked_add_u64(
+                        checked_add_u64(
+                            self.header.payload_offset,
+                            segment.payload_rel,
+                            "payload base",
+                        )?,
+                        checked_mul_u64(u64::from(ordinal), 11, "payload record")?,
+                        "payload record address",
+                    )
+                    .map_err(VisitAllError::Index)?;
+                    let start = usize::try_from(offset)
+                        .map_err(|_| VisitAllError::Index(IndexError::Corrupt("payload offset")))?;
+                    let raw = self.map.get(start..start + 11).ok_or_else(|| {
+                        VisitAllError::Index(IndexError::Corrupt("truncated fixed record"))
+                    })?;
+                    let position = GenomicPosition::new(segment.start + ordinal).map_err(|_| {
+                        VisitAllError::Index(IndexError::Corrupt("payload position"))
+                    })?;
+                    gene_loci.push(InputLocus::Ordinary(
+                        decode_fixed_input(segment.gene, segment.contig, position, raw)
+                            .map_err(VisitAllError::Index)?,
+                    ));
+                }
+                index += 1;
+            }
+            gene_loci.extend(exceptions.remove(&gene).unwrap_or_default());
+            gene_loci.sort_by_key(|locus| match locus {
+                InputLocus::Ordinary(value) => (value.contig.code(), value.position.get(), 0_u8),
+                InputLocus::Ambiguous(value) => (value.contig.code(), value.position.get(), 1_u8),
+            });
+            summary.genes += 1;
+            for locus in gene_loci {
+                summary.loci += 1;
+                match locus {
+                    InputLocus::Ordinary(_) => summary.ordinary_loci += 1,
+                    InputLocus::Ambiguous(_) => {}
+                }
+                visitor(locus).map_err(VisitAllError::Visitor)?;
+            }
+        }
+        if !exceptions.is_empty() {
+            return Err(VisitAllError::Index(IndexError::Corrupt(
+                "exception gene without segment",
+            )));
+        }
+        Ok(summary)
+    }
+
     /// Encoded metadata work performed by structural validation during open.
     pub fn open_metrics(&self) -> LookupMetrics {
         let mut work = Work::default();
@@ -953,6 +1602,29 @@ impl IndexReader {
     }
 }
 
+#[derive(Debug)]
+pub enum VisitAllError<E> {
+    Index(IndexError),
+    Visitor(E),
+}
+
+impl<E> From<IndexError> for VisitAllError<E> {
+    fn from(error: IndexError) -> Self {
+        Self::Index(error)
+    }
+}
+
+impl<E: fmt::Display> fmt::Display for VisitAllError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Index(error) => error.fmt(f),
+            Self::Visitor(error) => error.fmt(f),
+        }
+    }
+}
+
+impl<E: std::error::Error + 'static> std::error::Error for VisitAllError<E> {}
+
 #[derive(Default)]
 struct Work {
     logical_bytes: u64,
@@ -1114,10 +1786,14 @@ fn validate_structure(bytes: &[u8], header: &Header) -> Result<(), IndexError> {
         {
             return Err(IndexError::Corrupt("segment payload range"));
         }
-        previous_payload_end = segment.payload_rel + segment.payload_len;
+        previous_payload_end = checked_add_u64(
+            segment.payload_rel,
+            segment.payload_len,
+            "segment payload end",
+        )?;
     }
-    if previous_payload_end != header.payload_len && header.segment_count != 0 {
-        return Err(IndexError::Corrupt("unclaimed payload bytes"));
+    if previous_payload_end != header.payload_len {
+        return Err(IndexError::Corrupt("unclaimed payload tail"));
     }
 
     for index in 0..header.tree_count {
@@ -1418,6 +2094,51 @@ fn decode_fixed_locus(raw: &[u8], snv: Grch38Snv) -> Result<Option<PangolinScore
     Ok(Some(PangolinScore::new(gain.0, gain.1, loss.0, loss.1)))
 }
 
+fn decode_fixed_input(
+    gene: EnsemblGeneId,
+    contig: Grch38Contig,
+    position: GenomicPosition,
+    raw: &[u8],
+) -> Result<OrdinaryInputLocus, IndexError> {
+    let array: [u8; 11] = raw
+        .try_into()
+        .map_err(|_| IndexError::Corrupt("fixed record width"))?;
+    let bits = array
+        .into_iter()
+        .enumerate()
+        .fold(0_u128, |value, (index, byte)| {
+            value | (u128::from(byte) << (index * 8))
+        });
+    if bits >> 87 != 0 {
+        return Err(IndexError::Corrupt("fixed reserved bit"));
+    }
+    let reference = decode_base((bits & 0x7) as u8)?;
+    let mut alternatives = Vec::with_capacity(3);
+    for (index, alternate) in DnaBase::ALL
+        .into_iter()
+        .filter(|base| *base != reference)
+        .enumerate()
+    {
+        let encoded = ((bits >> (3 + index * 28)) & ((1_u128 << 28) - 1)) as u32;
+        let gain = decode_pair_code((encoded & 0x3fff) as u16)?;
+        let loss = decode_pair_code((encoded >> 14) as u16)?;
+        alternatives.push(InputAlternative {
+            alternate,
+            score: PangolinScore::new(gain.0, gain.1, loss.0, loss.1),
+        });
+    }
+    let alternatives: [InputAlternative; 3] = alternatives
+        .try_into()
+        .map_err(|_| IndexError::Corrupt("fixed alternate width"))?;
+    Ok(OrdinaryInputLocus {
+        gene,
+        contig,
+        position,
+        reference,
+        alternatives,
+    })
+}
+
 fn decode_pair_code(value: u16) -> Result<(ScoreMagnitude, RelativePosition), IndexError> {
     let magnitude = value & 0x7f;
     let position = (value >> 7) & 0x7f;
@@ -1640,6 +2361,7 @@ mod tests {
         let original = path("mutations");
         write_index(&original, &input).expect("write");
         let bytes = fs::read(&original).expect("read");
+        let header = decode_header(&bytes).expect("header");
         for (label, offset, value, expected) in [
             ("magic", 0, b'X', "wrong magic"),
             ("version", 8, 2, "unsupported version"),
@@ -1675,8 +2397,54 @@ mod tests {
         );
         fs::remove_file(outside).expect("remove");
 
+        let padded = path("padded-sections");
+        let mut changed = bytes.clone();
+        let tree_offset = header.tree_offset as usize;
+        changed.insert(tree_offset, 0);
+        for field in [16_usize, 40, 56, 72] {
+            let value = read_u64(&changed, field as u64).expect("header field");
+            changed[field..field + 8].copy_from_slice(&(value + 1).to_le_bytes());
+        }
+        fs::write(&padded, changed).expect("write padded fixed-v1");
+        let reader = IndexReader::open(&padded).expect("cheap open permits section padding");
+        assert!(
+            reader
+                .verify_canonical_structure()
+                .expect_err("release verifier rejects padding")
+                .to_string()
+                .contains("noncanonical section padding")
+        );
+        fs::remove_file(padded).expect("remove");
+
+        let trailing = path("trailing-unsectioned");
+        let mut changed = bytes.clone();
+        changed.push(0);
+        changed[16..24].copy_from_slice(&(header.file_len + 1).to_le_bytes());
+        fs::write(&trailing, changed).expect("write trailing section byte");
+        assert!(
+            IndexReader::open(&trailing)
+                .expect_err("cheap open rejects terminal section tail")
+                .to_string()
+                .contains("trailing unsectioned bytes")
+        );
+        fs::remove_file(trailing).expect("remove");
+
+        let payload_tail = path("unclaimed-payload-tail");
+        let mut changed = bytes.clone();
+        changed.insert(header.exception_offset as usize, 0);
+        changed[16..24].copy_from_slice(&(header.file_len + 1).to_le_bytes());
+        changed[64..72].copy_from_slice(&(header.payload_len + 1).to_le_bytes());
+        changed[72..80].copy_from_slice(&(header.exception_offset + 1).to_le_bytes());
+        fs::write(&payload_tail, changed).expect("write unclaimed payload byte");
+        assert!(
+            IndexReader::open(&payload_tail)
+                .expect_err("cheap open rejects terminal payload tail")
+                .to_string()
+                .contains("unclaimed payload tail")
+        );
+        fs::remove_file(payload_tail).expect("remove");
+
         let invalid_contig = path("contig");
-        let header = decode_header(&bytes).expect("header");
         let mut changed = bytes.clone();
         changed[header.segment_offset as usize] = 0;
         fs::write(&invalid_contig, changed).expect("write contig mutation");

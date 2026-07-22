@@ -1,5 +1,6 @@
 use pangopup_build::{
-    inspect_directory, prepare_benchmark_corpus, prototype_open, prototype_roundtrip,
+    CommandError, build_bundle, inspect_directory, prepare_benchmark_corpus, prototype_open,
+    prototype_roundtrip, verify_bundle,
 };
 use std::{env, path::Path, process::ExitCode};
 
@@ -7,12 +8,18 @@ const USAGE: &str = "Usage: pangopup-build inspect <SOURCE_DIR>\n       pangopup
 
 fn main() -> ExitCode {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
+    if arguments.first().is_some_and(|command| command == "build") {
+        return build_command(&arguments[1..]);
+    }
+    if arguments.first().is_some_and(|command| command == "verify") {
+        return verify_command(&arguments[1..]);
+    }
     match arguments.as_slice() {
         [command, source] if command == "inspect" => {
             let mut stdout = std::io::stdout().lock();
             match inspect_directory(Path::new(source), &mut stdout) {
                 Ok(_) => ExitCode::SUCCESS,
-                Err(error) => fail(&error),
+                Err(error) => legacy_failure("SOURCE_INVALID", &error),
             }
         }
         [command, source, output] if command == "prototype-roundtrip" => {
@@ -30,7 +37,7 @@ fn main() -> ExitCode {
                     );
                     ExitCode::SUCCESS
                 }
-                Err(error) => fail(&error),
+                Err(error) => legacy_failure("SOURCE_INDEX", &error),
             }
         }
         [command, artifact] if command == "prototype-open" => {
@@ -39,7 +46,7 @@ fn main() -> ExitCode {
                     println!("prototype-open format=fixed-11-v1 bytes={bytes} status=valid");
                     ExitCode::SUCCESS
                 }
-                Err(error) => fail(&error),
+                Err(error) => legacy_failure("BUNDLE_INDEX", &error),
             }
         }
         [command, source, output, manifest] if command == "benchmark-corpus" => {
@@ -58,17 +65,82 @@ fn main() -> ExitCode {
                     );
                     ExitCode::SUCCESS
                 }
-                Err(error) => fail(&error),
+                Err(error) => legacy_failure("SOURCE_INVALID", &error),
             }
         }
-        _ => {
-            eprintln!("{USAGE}");
-            ExitCode::from(2)
-        }
+        _ => json_failure(&CommandError::new("CLI_USAGE", USAGE)),
     }
 }
 
-fn fail(error: &dyn std::fmt::Display) -> ExitCode {
-    eprintln!("error: {error}");
-    ExitCode::from(1)
+fn build_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let mut source = None;
+    let mut reference = None;
+    let mut output = None;
+    let mut index = 0;
+    while index < arguments.len() {
+        let target = match arguments[index].to_str() {
+            Some("--source") => &mut source,
+            Some("--reference") => &mut reference,
+            Some("--output") => &mut output,
+            _ => {
+                return json_usage(
+                    "build requires --source, --reference, and --output exactly once",
+                );
+            }
+        };
+        index += 1;
+        let Some(value) = arguments.get(index) else {
+            return json_usage("build option is missing its path value");
+        };
+        if target.replace(value).is_some() {
+            return json_usage("build option was supplied more than once");
+        }
+        index += 1;
+    }
+    let (Some(source), Some(reference), Some(output)) = (source, reference, output) else {
+        return json_usage("build requires --source, --reference, and --output");
+    };
+    match build_bundle(Path::new(source), Path::new(reference), Path::new(output)) {
+        Ok(outcome) => json_success(&outcome),
+        Err(error) => json_failure(&error),
+    }
+}
+
+fn verify_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let [bundle] = arguments else {
+        return json_usage("verify requires exactly one bundle path");
+    };
+    match verify_bundle(Path::new(bundle)) {
+        Ok(outcome) => json_success(&outcome),
+        Err(error) => json_failure(&error),
+    }
+}
+
+fn json_success(value: &impl serde::Serialize) -> ExitCode {
+    match serde_json::to_writer(std::io::stdout().lock(), value) {
+        Ok(()) => {
+            println!();
+            ExitCode::SUCCESS
+        }
+        Err(error) => json_failure(&CommandError::new("IO", error.to_string())),
+    }
+}
+
+fn json_usage(message: &str) -> ExitCode {
+    json_failure(&CommandError::new("CLI_USAGE", message))
+}
+
+fn json_failure(error: &CommandError) -> ExitCode {
+    let mut stderr = std::io::stderr().lock();
+    let _ = serde_json::to_writer(&mut stderr, error);
+    let _ = std::io::Write::write_all(&mut stderr, b"\n");
+    if matches!(error.code, "CLI_USAGE" | "UNSUPPORTED_INPUT") {
+        ExitCode::from(2)
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+fn legacy_failure(code: &'static str, error: &dyn std::fmt::Display) -> ExitCode {
+    json_failure(&CommandError::new(code, format!("error: {error}")))
 }

@@ -81,7 +81,8 @@ decompression from the request path and avoids loading billions of ordinary key
 objects.
 
 The complete-corpus fixed payload projects to about 14.0 GiB before small
-directories and provenance. This is deliberately larger than the 1.589 GiB
+directories and provenance. The certified member is 15,033,158,255 bytes
+(about 14.0 GiB). This is deliberately larger than the 1.589 GiB
 hierarchical sparse candidate: the real-corpus benchmark found fixed lookup
 consistently faster on the equal candidate harness after direct was corrected
 to use ranked zero-copy mmap lookup, and query speed is the first accepted
@@ -95,7 +96,7 @@ A full Pangopup installation uses four versioned data assets:
 
 | Asset | Used for | Original source | Installed form |
 |---|---|---|---|
-| SNV score index | Fast path | Zenodo precomputed scores | Fixed 11-byte mmap file |
+| SNV score index | Fast path | Zenodo precomputed scores | Certified three-file bundle with a fixed 11-byte mmap member |
 | Model weights | Fallback | Upstream Pangolin checkpoints | Verified Rust-runtime representation |
 | GRCh38 sequence | Fallback sequence window and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Compact indexed mmap file |
 | Splice mask | Gene strand, spans, and exon boundaries | GENCODE release 38 annotation | Compact interval/boundary mmap file |
@@ -202,20 +203,29 @@ Implemented today:
   corpus, selecting and hardening the fixed 11-byte private v1 format;
 - deterministic miniature fixed-index writing, structurally checked mmap open,
   exact lookup/exception round trips, and `pangopup-build prototype-roundtrip`;
+- deterministic full-corpus construction through `pangopup-build build`, with
+  an explicit plain/gzip FASTA input, complete GRCh38.p14 reference
+  certification, disk-backed payload/reference scratch, RFC 8785 provenance,
+  and atomic immutable bundle publication;
+- complete offline bundle certification through `pangopup-build verify`,
+  including exact member hashes, canonical index sections and records,
+  reconstructed index/source segment and exception counts, and equality of
+  independent source/decoded logical streams (source direction is retained
+  provenance whose checked total, not split, is reconstructable from fixed-v1);
 - the standalone API, runtime-data, delivery, and performance decisions.
 
-Not implemented yet: the complete-corpus streaming/certified index build, a
-stable public provider trait or lookup result, real CLI lookup, automatic asset
-manager, model runtime, HTTP service, or result cache.
+Not implemented yet: a stable public provider trait or lookup result, real CLI
+lookup, automatic asset manager, model runtime, HTTP service, or result cache.
 
 The development order is:
 
 1. checked source fixture and executable source contract (complete);
 2. measured miniature index writer/reader (complete);
-3. full streaming builder, complete index certification, and CLI;
-4. release packaging and automatic asset installation;
-5. compatible model fallback and compact reference/mask assets;
-6. unified HTTP service and end-to-end performance proof.
+3. full streaming builder and complete index certification (complete);
+4. typed SNV lookup API and CLI;
+5. release packaging and automatic asset installation;
+6. compatible model fallback and compact reference/mask assets;
+7. unified HTTP service and end-to-end performance proof.
 
 See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
 [`architecture/README.md`](architecture/README.md) for the durable design.
@@ -238,6 +248,20 @@ make lint
 make test
 make spec
 ```
+
+Release builders use explicit, read-only inputs and never download data or
+discover a home directory:
+
+```bash skip
+pangopup-build build --source <PANGOLIN_SOURCE_DIR> --reference <GRCH38_FASTA_OR_GZIP> --output <NEW_BUNDLE>
+pangopup-build verify <BUNDLE>
+```
+
+Each successful command writes exactly one JSON line. A bundle contains only
+`manifest.json`, `NOTICE`, and `scores.pgi`; publication never mutates or
+replaces an existing different bundle. Atomic no-replace publication is
+currently Linux-only; other targets return a typed unsupported publication
+failure and remove their staging directory.
 
 Pangopup source is licensed under GPL-3.0-only. Pangolin model/source notices
 and the score dataset's separate CC BY 4.0 attribution are recorded in

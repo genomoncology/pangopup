@@ -1,6 +1,6 @@
 # 003 — Full-corpus index build and offline certification
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -157,9 +157,12 @@ It deliberately stops before the public lookup trait and user-facing query CLI.
 - `verify` rejects missing, extra, substituted, non-regular, or symlink bundle
   members; validates the closed manifest and every member size/hash; then streams
   every index section and proves global ordering, section/tree/reserved-field/
-  count invariants, record decode completion, source totals, overlap index,
-  source/index segment counts, and exception counts. Ordinary reader open remains
-  cheap and is not changed into a full verifier.
+  count invariants, record decode completion, reconstructable source totals,
+  overlap index, source/index segment counts, and exception counts. The source
+  direction split remains provenance whose checked sum is verified against the
+  decoded gene count; canonical fixed-v1 does not preserve enough information to
+  reconstruct the split independently. Ordinary reader open remains cheap and
+  is not changed into a full verifier.
 - Machine output is exactly one JSON line. Successful build emits `status` (`built` or
   `already_present`), `bundle_id`, and all manifest `counts`; successful verify
   emits `status: "verified"`, `bundle_id`, and `members_verified: 2`. Exit 0
@@ -392,8 +395,108 @@ atomic publication; and reproducible full-run/transport evidence.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: `ticket_003_development`
+
+- Added the separate gene-bounded `StreamingIndexWriter`, closed RFC 8785
+  bundle manifest, cheap `BundleOpen`, complete logical decode visitor, explicit
+  reference scratch preparation/certification, typed JSON CLI errors, full
+  verifier, and Linux atomic no-replace publication. Fixed-v1 bytes remain the
+  unchanged 320-byte header plus segment/tree/payload/exception sections.
+- Added synthetic plain/gzip build fixtures, executable build/verify specs, and
+  integration coverage for deterministic/read-only builds, FASTA failures,
+  cleanup, immutable/concurrent publication, closed manifests, missing/extra/
+  substituted/symlink members, outer hashes, recanonicalized inner corruptions,
+  exact NOTICE, reconstructed counts, and scaled disk spooling.
+- Retained the complete non-gate run in
+  `planning/artifacts/003-full-index-build.md`. The remediation recertification
+  used builder source digest
+  `sha256:14b086f124c5fae4a720db7d35b0c120a50372f81bd98265f389e95b13adcf24`,
+  certified all required counts, zero ordinary-reference mismatches, equal
+  4,099,255,665-record logical streams
+  (`sha256:dcec29e84c5f65bd76ffde2be8c7fa312d08e6abdb1e45e024dc0fe8c8da9c31`),
+  bundle ID `sha256:bce0bb49ba8a3f303661967a7a86362da66013fd94c3ae32ed27a9685d3b5260`,
+  and an independently successful full verify. The report explicitly marks all
+  earlier Ticket 003 source/bundle identities superseded.
+- The exact deterministic transport was 1,935,000,209 bytes with SHA-256
+  `3e87d80fdad963ca6ffca646393b8bb3955214b77cd8b7f1782e48d039aba751`;
+  retained evidence recommends split release transport for headroom while
+  preserving installed fixed-v1 semantics. Generated bundles, copies, scratch,
+  timing logs, and the archive were deleted after evidence capture.
+- Remediation developer gates from repository root: `make lint` passed; `make
+  test` passed all workspace tests (including 10 full-bundle integration tests,
+  the dedicated allocator/RSS regression, and explicit handled-cleanup test);
+  `make spec` passed all 25 executable specifications; and the overflow CLI
+  regression passed in both debug and optimized release profiles.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: independent code reviewer — changes required
+
+The reviewer returned nine material findings. Developer dispositions:
+
+1. **Unchecked untrusted count arithmetic.** Remediated: every arithmetic
+   relationship among manifest counts uses `checked_add`/`checked_mul`; overflow
+   returns typed `BUNDLE_COUNTS` JSON. The same subprocess CLI regression passes
+   in debug and optimized release profiles.
+2. **Ticket 002 cheap-open compatibility regression.** Remediated: fixed-v1
+   runtime open again accepts ordered, non-overlapping section and payload
+   ranges with internal gaps while retaining Ticket 002's terminal-coverage
+   rules: trailing unsectioned file bytes and an unclaimed payload tail are
+   rejected during cheap open. Exact terminal-tail mutations cover both rules.
+   The explicit full verifier alone requires the production writer's exact
+   section/payload contiguity and rejects non-maximal adjacent segments. A
+   physical internal-padding test proves the two validation levels.
+3. **Racy portable publication fallback.** Remediated: Linux continues to use
+   `renameat2(RENAME_NOREPLACE)`; non-Linux targets safely return a typed
+   unsupported publication error and never execute existence-check-plus-rename.
+4. **Unreconstructed index segment count and overstated direction proof.**
+   Remediated: complete decode reconstructs canonical index segments from
+   ordinary gene/contig/position adjacency and compares that result with both
+   manifest and fixed-v1 header counts. Source segments remain reconstructable
+   after exceptions are merged. Ascending/descending counts are now explicitly
+   described as source-only provenance: verification checks their sum without
+   claiming it can recover the split from canonical ascending fixed-v1. Any
+   edit changes the canonical manifest bundle identity.
+5. **Incomplete re-signed mutation matrix.** Remediated with valid mutations of
+   tree links, subtree maximum, AVL balance, ordinary reference and score,
+   exception allele and score, physical section padding, and canonical segment
+   boundary semantics. Outer coverage now includes substituted regular and
+   non-regular members in addition to missing/extra/symlink/hash corruption.
+6. **Source provenance hash/parse TOCTOU.** Remediated: each compressed source
+   member is framed, hashed, decompressed, and parsed through one opened file
+   descriptor, and actual bytes read must equal that descriptor's initial
+   metadata length. Reference compression detection, hashing, and parsing also
+   share one opened descriptor and enforce the same length check.
+7. **Bare carriage returns accepted.** Remediated: source TSV and reference
+   FASTA accept LF and CRLF only and reject every bare CR. Plain and gzip FASTA,
+   plus compressed source-member, regressions cover the rule.
+8. **Scale test did not measure memory.** Remediated with a dedicated global
+   allocator/current-and-peak-state plus Linux `/proc/self/statm` RSS regression
+   over 3,000,000 loci and a 33,000,000-byte spool. The reproducible focused run
+   measured 163,840 retained allocator bytes, a 269,472-byte allocator peak
+   delta, and a 339,968-byte RSS delta; thresholds fail on retained-locus or
+   artifact-sized state. Retained evidence no longer presents file-backed mmap
+   RSS as a heap measurement.
+9. **Cleanup relied on silent `Drop`.** Remediated: every handled build result
+   explicitly removes an unpublished staging directory and returns an `IO`
+   failure if cleanup fails. `Drop` remains armed only as a panic/unwind
+   fallback, with a focused cleanup-failure regression.
+
+These are material post-review changes and await return to the same independent
+reviewer. No approval is claimed here.
+
+Follow-up review found one remaining Ticket 002 compatibility blocker: cheap
+open had retained internal padding compatibility but no longer rejected a
+terminal unsectioned file tail or terminal unclaimed payload tail. Both terminal
+coverage checks are restored without moving internal canonical contiguity back
+to startup. Exact cheap-open mutations cover each tail, all gates pass, and the
+full corpus was recertified under the final source identity above. This follow-up
+also awaits the same independent reviewer's approval.
+
+Final re-review: approved with no remaining findings. The same reviewer
+independently confirmed that cheap open permits internal non-overlapping
+padding while rejecting both terminal unsectioned file bytes and terminal
+unclaimed payload bytes; full verification retains canonical contiguity; the
+final builder digest, bundle identity, and transport evidence recompute; all
+generated full-run outputs are absent; and `make lint`, `make test`, and all 25
+specs pass.

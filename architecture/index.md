@@ -189,6 +189,27 @@ A releasable artifact also compares every unique locus with one pinned,
 build-qualified GRCh38 reference and embeds the versioned chromosome/accession
 alias identity and mismatch result.
 
+The shipped builder exposes that contract through:
+
+```text
+pangopup-build build --source <DIR> --reference <FASTA_OR_GZIP> --output <BUNDLE>
+pangopup-build verify <BUNDLE>
+```
+
+Production writing is separate from the bounded prototype API. It canonicalizes
+one complete gene, immediately writes fixed 11-byte records to a disk spool,
+and retains only segment/tree/exception directories in heap. The normalized
+25-accession reference is also disk-backed. Once counts and offsets are final,
+the writer emits the unchanged 320-byte fixed-v1 header and compact directories,
+streams the payload spool, and appends the exception section.
+
+The installed bundle contains exactly `NOTICE`, `manifest.json`, and
+`scores.pgi`. The index member has no provenance extension: the closed RFC 8785
+manifest binds the byte-exact notice, fixed-v1 member, pinned source archive,
+observed extracted members, supplied reference bytes, canonical primary
+sequence set, counts, and independent logical-stream identities. Its exact
+SHA-256 is the bundle identity.
+
 The complete build records source archive size/checksum, row/locus/gene counts,
 format and builder versions, build command, output hashes and sizes, reference
 identity, and CC BY attribution. Corpus counts, bit/byte offsets, offset products,
@@ -196,12 +217,20 @@ and validation arithmetic use `u64`; narrower section-local values are permitted
 only after checked conversion against explicit format bounds. The 4,099,255,665
 rows happen to fit `u32`, but the 8,198,511,330 score/position pairs do not.
 
-Publication depends on the selected physical shape. A one-file bundle uses a new
-staged inode and atomic rename after offline verification. A multi-member bundle
-uses immutable content-addressed members bound by hash into one bundle identity,
-then atomically publishes the verified manifest/pointer (or atomically renames a
-complete staging directory on one filesystem). A reader never combines members
-from different manifests.
+Publication stages the three-file bundle on the destination filesystem, syncs
+every member and the staging directory, completes offline verification, then
+renames the directory atomically and syncs its parent on supported platforms.
+An existing identical fully verified bundle is reused; an invalid or different
+destination is left untouched. A reader never combines members from different
+manifests.
+
+On Linux, publication uses `renameat2(RENAME_NOREPLACE)` and directory `fsync`,
+so a racing destination cannot be overwritten and a successful return includes
+the strongest available directory durability. Other targets return a typed
+unsupported publication failure after verification and explicit staging
+cleanup; they never use an existence preflight followed by a racy rename.
+Release publication remains Linux-qualified until a target-specific atomic
+no-replace directory primitive is implemented.
 
 ## Release transport is not runtime encoding
 
@@ -212,22 +241,35 @@ expands it once, verifies the installed members, then atomically publishes the
 immutable bundle. Runtime lookup maps the expanded fixed-width member and
 never decompresses a query block.
 
-The projected fixed payload is about 14.0 GiB, so release transport will require
-strong compression and likely per-contig splitting under one manifest. The exact
-complete artifact, transport size, and operational practicality remain a later
-release gate. Transport constraints do not add decompression to lookup.
+The certified complete `scores.pgi` is 15,033,158,255 bytes. The exact GNU tar
+1.35 + Zstandard 1.5.5 level-9 single-thread transport is 1,935,000,209 bytes
+(`sha256:3e87d80fdad963ca6ffca646393b8bb3955214b77cd8b7f1782e48d039aba751`).
+That is about 1.80 GiB and too close to GitHub's under-2-GiB per-file ceiling
+for comfortable release headroom. Release packaging should split deterministic
+transport payloads while reassembling the same installed fixed-v1 member;
+transport constraints do not add decompression to lookup.
 
 ## Reader and verification safety
 
 Runtime open performs cheap checks without paging through the payload: magic,
-supported version, declared file length, section bounds/order/alignment, checked
-offset arithmetic, directory counts/order, and embedded bundle/source identity.
+supported version, declared file length, ordered non-overlapping section bounds
+(fixed-v1 internal padding remains compatible while terminal section and payload
+tails must be fully claimed), checked offset arithmetic, directory counts/order,
+plus the external bundle manifest's member names, sizes, format, and provenance
+shape. It does not claim checksum verification.
 
 Lookup validates the exact block or record it touches, including reserved bits,
 allele codes, local bounds, and decode completion. A separate offline `verify`
-command streams every section and proves global ordering, rank/count invariants,
-payload structure, and artifact hash. Open-time validation must not defeat
-selective mmap access by scanning the multi-gigabyte payload.
+command hashes both non-manifest members, checks the embedded notice, requires
+the production writer's exact section/payload contiguity and maximal segment
+boundaries, streams every index section and record, reconstructs ordinary index
+segments plus source segment/gap/exception totals, and requires the decoded
+logical record count/hash to equal the independently computed source-side
+identity. Ascending/descending member counts are source-only provenance: the
+verifier uses checked arithmetic to prove that their sum equals the reconstructed
+gene count, but fixed-v1's canonical ascending representation cannot recover and
+independently verify that split. Open-time validation must not defeat selective
+mmap access by scanning the multi-gigabyte payload.
 
 Mapped files are immutable trusted deployment artifacts. Concurrent in-place
 truncation or mutation can cause an operating-system `SIGBUS` that Rust cannot
@@ -247,6 +289,13 @@ Correctness and performance travel together. The proof includes:
 - separate warm-cache and reproducible cold-I/O methods;
 - p50/p95/p99 latency, throughput, allocations, bytes/pages touched, page faults,
   resident memory, output size, build throughput, and build peak memory.
+
+The production spooler's regression is a separate single-test process with a
+tracking global allocator and, on Linux, `/proc/self/statm` RSS sampling. It
+pushes 3,000 genes / 3,000,000 loci before finalization and compares retained
+and peak allocator state plus RSS growth with the 33,000,000-byte disk spool;
+this detects retaining logical loci or an artifact-sized heap, rather than
+merely asserting that a scratch file grew.
 
 The correctness fixture selects edge cases. Ticket 002 used a deterministic
 stratified real lab corpus for comparative warm selection and instrumented

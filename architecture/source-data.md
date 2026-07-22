@@ -43,11 +43,28 @@ Pangopup therefore uses these terms carefully:
   creators or additional source metadata establish it;
 - compatibility evidence: recorded separately from source provenance.
 
-The builder validates source reference alleles for internal consistency within
-and across source records. That does not establish external reference identity.
-A production certification compares every unique locus to one pinned GRCh38
-reference index, uses an explicit versioned primary-contig alias/accession table,
-and records the resulting identity and mismatch count.
+The production builder now compares every ordinary source locus to the 25
+primary sequences in NCBI RefSeq GRCh38.p14 assembly `GCF_000001405.40`. Its
+explicit alias table maps `chr1`…`chr22`, `chrX`, `chrY`, and `chrM` to the
+build-qualified RefSeq accessions. Source `REF=N` loci remain lossless source
+exceptions and are not claimed as external reference matches. The manifest
+records both the supplied FASTA byte identity and a canonical required-sequence
+set identity, keeping observed compatibility separate from publisher claims.
+
+Plain and ordinary single-member gzip FASTA are accepted as explicit read-only
+inputs. One sequential pass validates IUPAC bytes and accession uniqueness,
+hashes the supplied bytes, and writes only the normalized primary sequences to
+private disk scratch. Extra records are ignored for certification but bound by
+a sorted-accession count and digest. No external `.fai` or `.gzi` is consumed.
+
+The complete certification against the supplied RefSeq GRCh38.p14 genomic
+FASTA found zero ordinary-reference mismatches across 1,366,418,525 ordinary
+gene loci. All 30 source `REF=N` loci were preserved separately. The supplied
+gzip identity is
+`sha256:11912a45a545bf01a10b2a7f10eb7a42924436b4d19b476b1899834fb7ba74a3`;
+the normalized 25-sequence identity is
+`sha256:2a970f2c70fcb5ff4baa179a8d801f8cf7509ca32b86dac789344e9d49927fa4`.
+See the retained [Ticket 003 build report](../planning/artifacts/003-full-index-build.md).
 
 ## License handling
 

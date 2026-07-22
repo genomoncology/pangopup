@@ -20,6 +20,9 @@ use std::{
     str::FromStr,
 };
 
+mod production;
+pub use production::{BuildOutcome, CommandError, VerifyOutcome, build_bundle, verify_bundle};
+
 pub const SOURCE_HEADER: &str = "chrom\tpos\tref\talt\tgain_score\tgain_pos\tloss_score\tloss_pos";
 /// Maximum decompressed header bytes, including an optional line ending.
 pub const MAX_SOURCE_HEADER_BYTES: usize = 128;
@@ -726,8 +729,61 @@ pub fn inspect_member<V: SourceVisitor + ?Sized>(
     gene: EnsemblGeneId,
     visitor: &mut V,
 ) -> Result<FileSummary, InspectMemberError<V::Error>> {
+    inspect_member_inner(path, member, gene, visitor, None)
+}
+
+pub(crate) fn inspect_member_hashed<V: SourceVisitor + ?Sized>(
+    path: &Path,
+    member: &str,
+    gene: EnsemblGeneId,
+    visitor: &mut V,
+    hash: &mut Sha256,
+) -> Result<FileSummary, InspectMemberError<V::Error>> {
+    inspect_member_inner(path, member, gene, visitor, Some(hash))
+}
+
+struct MemberReader<'a> {
+    inner: File,
+    hash: Option<&'a mut Sha256>,
+    bytes: u64,
+}
+
+impl Read for MemberReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let read = self.inner.read(buffer)?;
+        if let Some(hash) = self.hash.as_deref_mut() {
+            hash.update(&buffer[..read]);
+        }
+        self.bytes = self
+            .bytes
+            .checked_add(read as u64)
+            .ok_or_else(|| io::Error::other("source member byte count overflow"))?;
+        Ok(read)
+    }
+}
+
+fn inspect_member_inner<V: SourceVisitor + ?Sized>(
+    path: &Path,
+    member: &str,
+    gene: EnsemblGeneId,
+    visitor: &mut V,
+    mut hash: Option<&mut Sha256>,
+) -> Result<FileSummary, InspectMemberError<V::Error>> {
     let file = File::open(path).map_err(|error| SourceError::member(member, error.to_string()))?;
-    let compressed = BufReader::new(file);
+    let expected_size = file
+        .metadata()
+        .map_err(|error| SourceError::member(member, error.to_string()))?
+        .len();
+    if let Some(hash) = hash.as_deref_mut() {
+        hash.update((member.len() as u64).to_le_bytes());
+        hash.update(member.as_bytes());
+        hash.update(expected_size.to_le_bytes());
+    }
+    let compressed = BufReader::new(MemberReader {
+        inner: file,
+        hash,
+        bytes: 0,
+    });
     let decoder = GzDecoder::new(compressed);
     let mut reader = BufReader::new(decoder);
     let mut line = Vec::with_capacity(MAX_SOURCE_ROW_BYTES);
@@ -744,6 +800,7 @@ pub fn inspect_member<V: SourceVisitor + ?Sized>(
         return Err(SourceError::line(member, 1, "missing source header").into());
     }
     let header = source_text(&line, member, 1)?;
+    validate_line_ending(&line, member, 1)?;
     if strip_line_ending(header) != SOURCE_HEADER {
         return Err(SourceError::line(
             member,
@@ -768,6 +825,7 @@ pub fn inspect_member<V: SourceVisitor + ?Sized>(
             break;
         }
         line_number += 1;
+        validate_line_ending(&line, member, line_number)?;
         let text = source_text(&line, member, line_number)?;
         let row = parse_row(strip_line_ending(text), member, line_number)?;
         state.push(row, member, line_number, visitor)?;
@@ -785,7 +843,31 @@ pub fn inspect_member<V: SourceVisitor + ?Sized>(
         };
         return Err(SourceError::member(member, reason).into());
     }
+    let compressed = compressed.into_inner();
+    if compressed.bytes != expected_size {
+        return Err(SourceError::member(
+            member,
+            "source member changed length while it was being read",
+        )
+        .into());
+    }
     state.finish(member, visitor)
+}
+
+fn validate_line_ending(bytes: &[u8], member: &str, line: u64) -> Result<(), SourceError> {
+    let allowed_cr = bytes.ends_with(b"\r\n").then_some(bytes.len() - 2);
+    if bytes
+        .iter()
+        .enumerate()
+        .any(|(index, byte)| *byte == b'\r' && Some(index) != allowed_cr)
+    {
+        return Err(SourceError::line(
+            member,
+            line,
+            "bare carriage return is not a permitted line ending",
+        ));
+    }
+    Ok(())
 }
 
 fn discover_members(source_dir: &Path) -> Result<Vec<(OsString, PathBuf)>, SourceError> {
