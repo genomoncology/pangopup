@@ -14,6 +14,7 @@ and host-specific proof-store paths are intentionally not retained.
 | Field | Value |
 |---|---|
 | Base Git commit | `1a17a761c435cadc03e7080b7c67e180a4e2c2d1` plus the uncommitted Ticket 005 implementation under test |
+| Approved implementation commit | `4161679b362805b706a5bfd2a8b24a25df5e23fb` |
 | Compiler | `rustc 1.93.1 (01f6ddf75 2026-02-11)`, LLVM 21.1.8, `x86_64-unknown-linux-gnu` |
 | OS | Ubuntu Linux, kernel `6.17.0-35-generic`, x86-64 |
 | Host | AMD Ryzen 7 5825U, 8 cores / 16 threads; 29,340,872,704 bytes RAM; Crucial CT1000P3PSSD8 NVMe |
@@ -193,11 +194,16 @@ heap measurement. SHA-256 and frame checks prove integrity, not publisher
 authentication.
 
 The retained assets are the certified bundle and one canonical transport named
-by the IDs above. The later coordinator step publishes the bounded canonical
-`pangopup.proof-receipt.v1` after inserting the independently approved
-implementation commit and rechecking the builder-source digest. The receipt
-records only relative identity-keyed verification commands; no local path or
-host identity enters committed evidence.
+by the IDs above. After the approved implementation commit, the coordinator
+recomputed the committed builder-source digest, proved it still equals
+`sha256:10fd5d7715a611f9b7f20040887391502535ac7860bc6a1eda2bfdda79682b64`,
+and atomically published the 2,194-byte canonical
+`pangopup.proof-receipt.v1`. The receipt hashes to
+`sha256:9ddae771d200fe73bda5f31f5a04a52227b77c5d3f225dc7ee52294cd9aea475`
+and binds implementation commit
+`4161679b362805b706a5bfd2a8b24a25df5e23fb`. It records only relative
+identity-keyed verification commands; no local path or host identity enters
+committed evidence.
 
 ## Gate
 
