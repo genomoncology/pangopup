@@ -103,6 +103,18 @@ pub struct BundleManifest {
     pub attribution: AttributionManifest,
 }
 
+/// The version fields that select the strict manifest decoder.
+///
+/// This envelope intentionally permits unknown fields: a newer manifest must
+/// be reported as incompatible even when it contains fields that fixed v1 does
+/// not understand. Once both discriminators select v1, `BundleManifest`'s
+/// closed schema remains authoritative.
+#[derive(Deserialize)]
+struct ManifestDiscriminator {
+    schema: String,
+    index_format: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BuilderManifest {
@@ -278,6 +290,14 @@ impl BundleOpen {
             .read_to_end(&mut manifest_bytes)?;
         if manifest_bytes.len() as u64 > MAX_MANIFEST_BYTES {
             return Err(IndexError::Corrupt("manifest size"));
+        }
+        let discriminator: ManifestDiscriminator = serde_json::from_slice(&manifest_bytes)
+            .map_err(|_| IndexError::Corrupt("manifest JSON"))?;
+        if discriminator.schema != BUNDLE_SCHEMA {
+            return Err(IndexError::Incompatible("bundle schema version"));
+        }
+        if discriminator.index_format != INDEX_FORMAT {
+            return Err(IndexError::Incompatible("index format version"));
         }
         let manifest: BundleManifest = serde_json::from_slice(&manifest_bytes)
             .map_err(|_| IndexError::Corrupt("manifest JSON"))?;

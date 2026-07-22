@@ -121,8 +121,8 @@ entry, are:
 
 At 4,096 loci, LZ4 produced 1,834,809,589 bytes (1.709 GiB). The 4,096-locus
 Zstd layout is only 43.7 MB larger than 65,536-locus blocks while touching and
-decompressing far less data on a random miss. It is the current compressed
-candidate, not yet a frozen format. Sizes exclude the small gene/segment/source
+decompressing far less data on a random miss. It was a historical measured
+candidate and is not a supported runtime format. Sizes exclude the small gene/segment/source
 directories and `REF=N` exception table, and use a raw-block fallback when
 compression expands a block.
 
@@ -132,10 +132,10 @@ required measured speed win. See ADR 0006 and the retained benchmark report.
 
 ## Query-oriented structure
 
-The runtime must not open 19,913 source files. A deployment bundle contains one
-or a few immutable index members, a manifest, and attribution. The format ticket
-must compare a monolithic payload with per-contig members; mmap itself does not
-decide that question.
+The runtime does not open 19,913 source files. The shipped deployment bundle
+contains one immutable fixed-v1 index member, a manifest, and attribution.
+Historical candidates included per-contig members, but private v1 is the
+certified monolithic 11-byte representation.
 
 The logical sections are:
 
@@ -158,19 +158,23 @@ predecessor segment, then directly decodes one fixed 11-byte locus record. It
 does not scan all segments belonging to a gene.
 
 A query without a gene needs all matching records present in the pinned source
-archive—not all genes in an unspecified current GENCODE release. Candidate
-contig interval structures must be benchmarked and must document actual
-worst-case behavior; a prefix-maximum array alone does not guarantee
-`O(log n + k)` for arbitrary nested spans.
+archive—not all genes in an unspecified current GENCODE release. The shipped
+reader uses the measured and adversarially tested balanced per-contig interval
+tree, including nested and disjoint interval cases, for `O(log S + K)` lookup.
+Candidate interval-structure benchmarking is historical; a prefix-maximum
+array was not selected because it does not guarantee that bound for arbitrary
+nested spans.
 
 The shipped reader implements this through one long-lived `BundleOpen` provider.
 Its manifest, computed bundle identity, frozen provenance, and mmap reader are
 private after successful construction; offline verification and measurement use
 read-only accessors. Open rejects manifest metadata above 1 MiB before buffer
-allocation and also bounds the subsequent read, then canonical-validates the
-manifest, exact member set and sizes, mmap header/sections, every segment and
-interval node, and every exception. It does not hash members or deliberately
-touch ordinary payload. A filtered lookup is
+allocation and also bounds the subsequent read. It first decodes only the
+schema and index-format discriminator, so a future version with unknown fields
+is typed as incompatible. Supported v1 then uses the strict closed decoder and
+canonical-validates the manifest, exact member set and sizes, mmap
+header/sections, every segment and interval node, and every exception. It does
+not hash members or deliberately touch ordinary payload. A filtered lookup is
 `O(log S + log E)` plus one constant-width decode; unfiltered enumeration is
 `O(log S + K)`. Public sorting adds `O(K log K + A log A)` and owned result
 allocation is `O(K + A)`. Every addressed ordinary record validates all six
@@ -254,11 +258,12 @@ no-replace directory primitive is implemented.
 ## Release transport is not runtime encoding
 
 The fast installed mmap file and the downloaded release asset solve different
-problems. A GitHub release may carry a `.tar.zst` transport archive. The install
-command downloads it to a temporary path, verifies its digest and manifest,
-expands it once, verifies the installed members, then atomically publishes the
-immutable bundle. Runtime lookup maps the expanded fixed-width member and
-never decompresses a query block.
+problems. A future release may carry split `.tar.zst` transport assets. The
+planned install command downloads them to temporary paths, verifies their
+digests and manifest, reassembles and expands once, verifies the installed
+members, then atomically publishes the immutable bundle. This installation
+flow is not implemented today. Runtime lookup already maps an explicitly
+supplied expanded fixed-width member and never decompresses a query block.
 
 The certified complete `scores.pgi` is 15,033,158,255 bytes. The exact GNU tar
 1.35 + Zstandard 1.5.5 level-9 single-thread transport is 1,935,000,209 bytes
@@ -305,7 +310,8 @@ Correctness and performance travel together. The proof includes:
 - malformed-source and mutated-index tests for structural checks;
 - repeated same-block, random-block, gene-filtered, and all-source-overlap queries;
 - direct sparse, Zstd, LZ4, fixed-record, and Tabix comparisons;
-- separate warm-cache and reproducible cold-I/O methods;
+- separate warm-cache measurements and a cold-I/O result only when a
+  reproducible nonresidency method exists;
 - p50/p95/p99 latency, throughput, allocations, bytes/pages touched, page faults,
   resident memory, output size, build throughput, and build peak memory.
 
@@ -319,10 +325,10 @@ merely asserting that a scratch file grew.
 The correctness fixture selects edge cases. Ticket 002 used a deterministic
 stratified real lab corpus for comparative warm selection and instrumented
 logical bytes, mapped page numbers, allocations, and page faults. That corpus is
-smaller than available memory, so it makes no cold-I/O claim. Definitive cold
-testing must use the complete artifact with a documented dataset larger than
-available memory or an isolated uncached device/read method—not merely the first
-query after a build, whose pages are usually already hot. The Ticket 004 host
+smaller than available memory, so it makes no cold-I/O claim. A defensible cold
+measurement requires a dataset larger than available memory or an isolated
+uncached device/read method—not merely the first query after a build, whose
+pages are usually already hot. The Ticket 004 host
 had more available memory than the 14.0 GiB member and no privileged/device
 nonresidency proof, so its retained cold result is `unmeasured`; warm one-open
 library, fresh CLI, open-only, and serialization measurements are reported

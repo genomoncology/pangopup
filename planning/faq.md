@@ -64,9 +64,9 @@ general transcript/protein reference system and is not splice scoring.
 
 ### What reference and annotation data does model fallback need?
 
-The lookup path needs only the sparse score bundle. The model path additionally
-needs the model checkpoints, local GRCh38 DNA bases, and a map of gene strand
-plus exon boundaries. The DNA is pinned NCBI RefSeq GRCh38.p14
+The lookup path needs only the fixed-v1 score bundle. The planned model path
+additionally needs the model checkpoints, local GRCh38 DNA bases, and a map of
+gene strand plus exon boundaries. The DNA is pinned NCBI RefSeq GRCh38.p14
 `GCF_000001405.40`. The boundary map is compiled from the GENCODE annotation
 used by Pangolin's masking behavior. It is a compact Pangopup mmap member, not
 a runtime database.
@@ -82,36 +82,37 @@ aliases, transcripts, proteins, or disease knowledge.
 
 ### Can the large files be GitHub release assets?
 
-Yes. GitHub currently permits up to 1,000 assets per release, requires each
-asset to be under 2 GiB, and states no aggregate release-size or bandwidth
-quota. The measured direct sparse payload is about 1.589 GiB before small
-directories and should be smaller as a transport archive. Pangopup will publish
-separate verified executable, lookup-data, and model assets; installation
-expands the data once so runtime lookup remains decompression-free.
+Yes, but the SNV bundle should be split for transport. GitHub currently permits
+up to 1,000 assets per release, requires each asset to be under 2 GiB, and
+states no aggregate release-size or bandwidth quota. The certified fixed-v1
+member is 15,033,158,255 bytes; its measured tar+Zstandard archive is
+1,935,000,209 bytes, too close to the per-file ceiling for comfortable
+headroom. Deterministic release parts should reassemble the same mmap member.
+Executable, lookup-data, and future model assets remain separately versioned.
 
 ### Does Pangopup install missing assets automatically?
 
-Yes. CLI and service startup resolve a binary-pinned manifest and automatically
-install a missing compatible bundle. Installation downloads to a temporary
-cache path, verifies SHA-256, extracts and verifies members in staging, then
-publishes atomically. Offline and container deployments can prefetch the same
-bundle and prohibit network access.
+Not yet. Today the CLI requires `--bundle <PATH>`, and callers can run
+`pangopup-build verify` explicitly. The accepted target is for CLI and service
+startup to resolve a binary-pinned manifest, download to a temporary cache,
+verify SHA-256, extract and verify in staging, and publish atomically. Offline
+and container prefetch are also target behavior.
 
-### Where are assets installed?
+### Where will managed assets be installed?
 
-On Linux, durable bundles use
+The accepted target uses
 `${XDG_DATA_HOME:-$HOME/.local/share}/pangopup/`. Temporary downloads may use
 `${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/`. The data directory is authoritative;
 it is not disposable cache. Other platforms use their normal application-data
 locations, and `PANGOPUP_DATA_DIR` overrides discovery.
 
-### Does the service run from a FASTA file?
+### Will model fallback run from a FASTA file?
 
-The GRCh38 reference source is distributed by NCBI as FASTA, but raw FASTA is a
-build input. Pangopup compiles its required primary sequence into a compact
-indexed mmap member and distributes that member. Model fallback reads a bounded
+The GRCh38 reference source is distributed by NCBI as FASTA, but raw FASTA will
+be build input. The planned asset builder compiles the required primary
+sequence into a compact indexed mmap member. Model fallback will read a bounded
 sequence window without parsing FASTA or loading the whole reference into heap
-memory.
+memory. None of that model/reference runtime is implemented yet.
 
 ### What latency should we expect?
 
@@ -149,15 +150,17 @@ service.
 
 Exactness is mandatory and lookup speed is the primary optimization objective.
 Resident memory and pages touched come next; compressed download size is third.
-The direct sparse mmap layout is the baseline; compressed and fixed-width
-layouts remain measured comparators.
+The fixed 11-byte mmap layout is the selected and shipped private v1 format.
+Hierarchical sparse, compressed-block, and Tabix layouts are retained only as
+historical measured candidates.
 
 ### How are large artifacts delivered?
 
-As separately versioned GitHub release assets: executable, CC BY sparse lookup
-bundle, GPL model weights, GRCh38 reference member, and GENCODE masking member.
-Compress for transport, verify and expand once at automatic or explicit
-installation, and map the expanded data at runtime.
+The target is separately versioned GitHub release assets: executable, CC BY
+fixed-v1 lookup bundle, GPL model weights, GRCh38 reference member, and GENCODE
+masking member. Split the measured near-limit lookup transport, verify and
+reassemble it once during future automatic or explicit installation, and map
+the expanded data at runtime. That release/install tooling is not shipped yet.
 
 ### What does lookup output look like?
 

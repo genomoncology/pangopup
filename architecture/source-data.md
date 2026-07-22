@@ -81,7 +81,11 @@ The source code’s GPL-3.0 license does not replace the dataset’s CC BY licen
 
 ## Distribution
 
-The transformed sparse index is distributed as a separately named GitHub
-release asset, not as a Git object. Transport compression is permitted because
-installation expands and verifies the direct mmap bundle once; it does not put
-decompression on the lookup path. See [`delivery.md`](delivery.md).
+The transformed fixed 11-byte index is intended for distribution as separately
+named GitHub release assets, not as Git objects. The measured complete bundle
+compressed to 1,935,000,209 bytes, too close to the under-2-GiB per-asset limit
+for comfortable headroom. Transport should therefore be split deterministically
+and reassembled and verified once during installation; runtime lookup still
+maps the unchanged fixed-v1 member and never decompresses a query. Release
+packaging and installation are not implemented yet. See
+[`delivery.md`](delivery.md).

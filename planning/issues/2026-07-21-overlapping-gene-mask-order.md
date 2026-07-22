@@ -12,10 +12,10 @@ iteration order.
 
 ## Why it matters
 
-The sparse SNV index is unaffected because its published values are the source
-truth. Model fallback can diverge from upstream if a Rust implementation makes
-a fresh copy per gene, and can remain accidentally order-dependent if it does
-not.
+The precomputed fixed-v1 SNV lookup is unaffected because its published values
+are the source truth. Model fallback can diverge from upstream if a Rust
+implementation makes a fresh copy per gene, and can remain accidentally
+order-dependent if it does not.
 
 ## Required evidence before model implementation
 

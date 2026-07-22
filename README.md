@@ -1,21 +1,24 @@
 # Pangopup
 
-Pangopup is a standalone GPL-3.0 Rust service for high-performance,
-Pangolin-compatible splice scoring on GRCh38 genomic variants.
+Pangopup is a standalone GPL-3.0 Rust project for high-performance,
+Pangolin-compatible splice scoring on GRCh38 genomic variants. Today it ships
+an exact precomputed-SNV library and CLI. Model inference, automatic asset
+installation, and an HTTP service are planned but not implemented.
 
-It answers each request through one of two paths:
+The target service will answer each request through one of two paths:
 
 1. **SNV lookup:** return an exact precomputed Pangolin result from a compact,
    memory-mapped index.
-2. **Model fallback:** when no lookup record exists, run the bundled Pangolin
-   model against a local GRCh38 sequence window and splice-site annotation.
+2. **Model fallback (not implemented):** when no lookup record exists, run a
+   bundled Pangolin model against a local GRCh38 sequence window and splice-site
+   annotation.
 
 An SNV is a single-nucleotide variant: one reference base replaced by one
 alternate base. The published Zenodo dataset already contains masked Pangolin
 scores for every SNV it covers, so recomputing those values with the neural
 network would be slower and could introduce small numeric differences.
 
-## How one request works
+## How one request works today and in the target service
 
 Pangopup accepts an explicit GRCh38 genomic variant:
 
@@ -29,7 +32,8 @@ Pangopup accepts an explicit GRCh38 genomic variant:
 }
 ```
 
-The service routes it as follows:
+The shipped CLI validates an SNV and performs the left-hand lookup path below.
+The right-hand fallback is the planned routing behavior:
 
 ```text
 GRCh38 chromosome + position + REF + ALT
@@ -92,51 +96,56 @@ record pages needed by a query rather than copying the file into heap.
 
 ## Runtime assets
 
-A full Pangopup installation uses four versioned data assets:
+A lookup-only installation today takes an explicitly supplied certified SNV
+bundle. The target full service will use four versioned assets:
 
 | Asset | Used for | Original source | Installed form |
 |---|---|---|---|
-| SNV score index | Fast path | Zenodo precomputed scores | Certified three-file bundle with a fixed 11-byte mmap member |
-| Model weights | Fallback | Upstream Pangolin checkpoints | Verified Rust-runtime representation |
-| GRCh38 sequence | Fallback sequence window and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Compact indexed mmap file |
-| Splice mask | Gene strand, spans, and exon boundaries | GENCODE release 38 annotation | Compact interval/boundary mmap file |
+| SNV score index | Shipped fast path | Zenodo precomputed scores | Certified three-file bundle with a fixed 11-byte mmap member |
+| Model weights | Planned fallback | Upstream Pangolin checkpoints | Planned verified Rust-runtime representation |
+| GRCh38 sequence | Planned fallback sequence window and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Planned compact indexed mmap file |
+| Splice mask | Planned gene strand, spans, and exon boundaries | GENCODE release 38 annotation | Planned compact interval/boundary mmap file |
 
 NCBI supplies the reference genome sequence; it does not supply the Pangolin
-model. Pangopup publishes a pinned copy or verified conversion of the upstream
-model as its own release asset.
+model. The target release process will publish a pinned copy or verified
+conversion of the upstream model as a separate asset.
 
-The original NCBI reference is downloaded as FASTA when the reference asset is
-built. A normal Pangopup installation downloads the compiled reference member,
-not the raw FASTA. The service therefore performs bounded indexed sequence
-reads rather than parsing FASTA during a request. The same principle applies to
-GENCODE: GTF/gffutils is build input, not a runtime database.
+For the planned model path, the original NCBI reference will be downloaded as
+FASTA when the reference asset is built. A target full installation downloads
+the compiled reference member, not the raw FASTA, and performs bounded indexed
+sequence reads rather than parsing FASTA during a request. The same principle
+applies to GENCODE: GTF/gffutils is build input, not a runtime database.
 
-## Automatic asset installation
+## Planned automatic asset installation
 
-Each Pangopup binary pins a compatible release manifest containing asset URLs,
+This section is the accepted target design, not shipped behavior. Today callers
+pass `--bundle <PATH>` and use `pangopup-build verify` explicitly. A future
+Pangopup binary will pin a compatible release manifest containing asset URLs,
 sizes, SHA-256 digests, format versions, source identities, and licenses.
 
-At service startup Pangopup:
+The target service startup sequence will:
 
-1. resolves its platform data directory and requested asset profile;
-2. takes an installation lock so concurrent processes cannot publish a partial
+1. resolve its platform data directory and requested asset profile;
+2. take an installation lock so concurrent processes cannot publish a partial
    bundle;
-3. reuses a complete compatible bundle when one is already installed;
-4. otherwise downloads missing transport archives to a temporary cache path;
-5. verifies archive size and SHA-256 before extraction;
-6. extracts and validates every member in a staging directory;
-7. atomically publishes the immutable bundle;
-8. memory-maps the installed members, initializes the selected model provider,
-   and only then reports the service ready.
+3. reuse a complete compatible bundle when one is already installed;
+4. otherwise download missing transport archives to a temporary cache path;
+5. verify archive size and SHA-256 before extraction;
+6. extract and validate every member in a staging directory;
+7. atomically publish the immutable bundle;
+8. memory-map the installed members, initialize the selected model provider,
+   and only then report the service ready.
 
-The first start is therefore also a provisioning operation and should expose
-download and verification progress. Later starts use the already installed
-bundle without contacting the network. A failed download or checksum never
-replaces an older complete bundle and never starts with partial data.
+The target first start will therefore also be a provisioning operation and
+should expose download and verification progress. Later starts will use the
+already installed bundle without contacting the network. A failed download or
+checksum will never replace an older complete bundle or start with partial
+data.
 
-Full hashes are checked during installation and by an explicit verification
-command. Ordinary startup performs cheap manifest, size, version, and structural
-checks rather than rereading several gigabytes and defeating fast startup.
+Full hashes will be checked during installation and by an explicit verification
+command. Ordinary startup will perform cheap manifest, size, version, and
+structural checks rather than rereading several gigabytes and defeating fast
+startup.
 
 On Linux, durable assets live under:
 
@@ -154,10 +163,9 @@ The data directory is authoritative and must not be treated as disposable
 cache. macOS and Windows builds use their standard application-data locations.
 `PANGOPUP_DATA_DIR` can override discovery.
 
-Automatic provisioning is the normal service experience. Air-gapped and
-container deployments can preinstall the same assets with `pangopup assets
-install`; an offline mode refuses network access and reports exactly which
-pinned asset is missing.
+Automatic provisioning is intended to become the normal service experience.
+The `pangopup assets install` command, offline mode, and container preinstall
+flow described here are not implemented yet.
 
 ## Performance priorities
 
@@ -181,9 +189,11 @@ under pressure. The process may show a large virtual address mapping while its
 resident working set remains much smaller. Model weights and active inference
 tensors consume ordinary resident memory and are measured separately.
 
-The release archive may use strong compression because download encoding is not
-the runtime encoding. Installation expands it once into the fixed mmap form.
-This deliberately spends disk space to avoid per-query decompression.
+The measured complete bundle compressed to 1,935,000,209 bytes with GNU tar
+1.35 and Zstandard 1.5.5 level 9. That is close to GitHub's under-2-GiB
+per-asset limit, so release transport should be split deterministically and
+reassembled into the same fixed mmap member at installation. Download encoding
+must never put decompression on the query path.
 
 ## Current state
 

@@ -5,8 +5,8 @@ use pangopup_core::{
     RelativePosition, ScoreMagnitude, ScoreProvider,
 };
 use pangopup_index::{
-    BundleManifest, BundleOpen, IndexReader, InputAlternative, InputLocus, OrdinaryInputLocus,
-    StreamingIndexWriter, canonical_manifest_bytes,
+    BundleManifest, BundleOpen, IndexError, IndexReader, InputAlternative, InputLocus,
+    OrdinaryInputLocus, StreamingIndexWriter, canonical_manifest_bytes,
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -829,4 +829,75 @@ fn manifest_is_closed_and_canonical() {
         verify_bundle(&bundle).expect_err("closed manifest").code,
         "BUNDLE_INVALID"
     );
+}
+
+#[test]
+fn manifest_discriminators_precede_the_strict_v1_schema() {
+    let temp = Temp::new();
+    let (source, reference) = prepare_inputs(&temp);
+    let original = temp.path().join("original");
+    build_bundle(&source, &reference, &original).expect("bundle");
+
+    let cases = [
+        (
+            "future-schema",
+            "pangopup.bundle.v2",
+            "pangopup.fixed11.v1",
+            "bundle schema version",
+        ),
+        (
+            "future-format",
+            "pangopup.bundle.v1",
+            "pangopup.fixed11.v2",
+            "index format version",
+        ),
+        (
+            "future-both",
+            "pangopup.bundle.v2",
+            "pangopup.fixed11.v2",
+            "bundle schema version",
+        ),
+    ];
+    for (label, schema, index_format, expected_reason) in cases {
+        let bundle = temp.path().join(label);
+        copy_bundle(&original, &bundle);
+        let manifest_path = bundle.join("manifest.json");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest_path).expect("read original manifest"))
+                .expect("manifest value");
+        let object = value.as_object_mut().expect("manifest object");
+        object.insert("schema".to_owned(), schema.into());
+        object.insert("index_format".to_owned(), index_format.into());
+        object.insert("future_extension".to_owned(), true.into());
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec(&value).expect("future manifest"),
+        )
+        .expect("write future manifest");
+
+        match BundleOpen::open(&bundle).expect_err("future version must be incompatible") {
+            IndexError::Incompatible(reason) => assert_eq!(reason, expected_reason),
+            error => panic!("expected incompatible error, got {error}"),
+        }
+    }
+
+    let supported_unknown = temp.path().join("supported-unknown");
+    copy_bundle(&original, &supported_unknown);
+    let manifest_path = supported_unknown.join("manifest.json");
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest_path).expect("read original manifest"))
+            .expect("manifest value");
+    value
+        .as_object_mut()
+        .expect("manifest object")
+        .insert("future_extension".to_owned(), true.into());
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec(&value).expect("manifest with unknown field"),
+    )
+    .expect("write manifest with unknown field");
+    assert!(matches!(
+        BundleOpen::open(&supported_unknown).expect_err("v1 schema remains closed"),
+        IndexError::Corrupt("manifest JSON")
+    ));
 }

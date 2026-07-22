@@ -1,15 +1,16 @@
 # Frontier
 
-Updated: 2026-07-21
+Updated: 2026-07-22
 
 ## Current boundary
 
-Repository onboarding, the initial architecture, and complete-corpus entropy
-evidence are established. The product is a standalone service. Its canonical
-input is an explicit GRCh38 genomic variant; a gene filter is optional; all
-matching source records are returned by default. Speed leads size, and generated
-lookup/model data ship as verified release assets. Service adapters automatically
-install their binary-pinned asset set into durable platform data storage.
+Repository onboarding, source ingestion, format selection, full-corpus build
+and certification, and typed SNV lookup are established. Pangopup is standalone
+open-source software. Its shipped CLI accepts an explicit GRCh38 SNV and
+optional gene filter and returns all matching source records by default from an
+explicitly supplied fixed-v1 bundle. Speed leads memory and download size.
+Release assets, automatic installation, model fallback, and the HTTP service
+remain future work.
 
 ## Established — pinned source ingestion contract
 
@@ -37,8 +38,10 @@ at 1,024/2,048/4,096 loci, and fair in-process Tabix. Fixed won the accepted
 speed-first priority after direct was corrected to ranked zero-copy mmap lookup,
 and is the only hardened product codec. Its reader maps the
 artifact, opens without a payload-wide scan, uses a balanced overlap tree, and
-validates ordinary payload only when touched. This evidence is comparative and
-warm; definitive cold-I/O waits for the complete artifact.
+validates ordinary payload only when touched. The complete artifact now has
+retained warm open, lookup, CLI, and serialization measurements. Cold I/O
+remains unmeasured because the host provided no defensible way to prove the
+queried pages were nonresident.
 
 ## Established — full streaming build and certification
 
@@ -59,9 +62,12 @@ misses, source-reference ambiguities, mixed results, incompatible bundles, and
 touched-payload corruption distinctly. Full hashing and payload scans remain an
 explicit `pangopup-build verify` operation.
 
-## Later front — reproducible release assets
+## Next front — reproducible release assets
 
-Package the executable and generated data separately. Add explicit install and
+Package the executable and generated data separately. The measured
+1,935,000,209-byte tar+Zstandard lookup archive is too close to GitHub's
+under-2-GiB per-asset ceiling, so split transport deterministically while
+reassembling the unchanged installed fixed-v1 member. Add explicit install and
 verify commands plus automatic first-start installation, immutable manifests,
 checksums, locking, attribution, platform-standard data/cache directories,
 offline operation, and GitHub release publication. Transport compression is
@@ -89,5 +95,5 @@ inference beyond the operating-system page cache.
 - gene descriptions, aliases, disease knowledge, or clinical interpretation;
 - GRCh37 and liftover.
 
-Later fronts remain outcomes, not implementation tickets, until the indexed SNV
-path is correct and measured.
+These fronts are outcome boundaries. Only the next independently reviewed,
+bounded ticket is implementation scope.

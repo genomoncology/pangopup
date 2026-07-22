@@ -3,10 +3,11 @@
 Pangopup is a GPL Rust workspace for a standalone Pangolin-compatible splice
 service. The target product combines exact lookup of published GRCh38 SNV
 scores with model fallback for lookup misses and supported non-SNVs. The
-repository currently contains source ingestion plus a measured miniature
-fixed-index writer and mmap reader; the complete-corpus builder, stable score
-API, asset manager, model runtime, and service are not implemented yet. Read
-`README.md` first.
+repository currently ships the source inspector, deterministic complete-corpus
+builder and verifier, fixed 11-byte mmap reader, typed score-provider API, and
+batch lookup CLI. Automatic asset installation, model inference/fallback, and
+the HTTP service remain target work and are not implemented. Read `README.md`
+first.
 
 ## Repository contract shape
 

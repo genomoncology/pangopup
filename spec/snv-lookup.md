@@ -204,6 +204,10 @@ validated lazily and batch stdout remains transactional.
 ```bash
 cp -a ../target/spec/snv-lookup-contract/bundle ../target/spec/snv-lookup-contract/incompatible
 perl -pi -e 's/pangopup\.bundle\.v1/pangopup.bundle.v2/' ../target/spec/snv-lookup-contract/incompatible/manifest.json
+perl -0pi -e 's/\}\z/,"future_extension":true}/' ../target/spec/snv-lookup-contract/incompatible/manifest.json
+cp -a ../target/spec/snv-lookup-contract/bundle ../target/spec/snv-lookup-contract/incompatible-format
+perl -pi -e 's/pangopup\.fixed11\.v1/pangopup.fixed11.v2/' ../target/spec/snv-lookup-contract/incompatible-format/manifest.json
+perl -0pi -e 's/\}\z/,"future_extension":true}/' ../target/spec/snv-lookup-contract/incompatible-format/manifest.json
 cp -a ../target/spec/snv-lookup-contract/bundle ../target/spec/snv-lookup-contract/invalid-header
 printf X | dd of=../target/spec/snv-lookup-contract/invalid-header/scores.pgi bs=1 seek=0 conv=notrunc status=none
 cp -a ../target/spec/snv-lookup-contract/bundle ../target/spec/snv-lookup-contract/touched-payload
@@ -230,7 +234,15 @@ pangopup lookup --bundle ../target/spec/snv-lookup-contract/incompatible --varia
 ```
 
 ```text expect=bundle-incompatible contains
-{"status":"error","code":"BUNDLE_INCOMPATIBLE"
+{"status":"error","code":"BUNDLE_INCOMPATIBLE","message":"incompatible bundle: bundle schema version"
+```
+
+```bash run id=index-format-incompatible exit=1 stream=stderr
+pangopup lookup --bundle ../target/spec/snv-lookup-contract/incompatible-format --variant GRCh38:chr1:5:A:C
+```
+
+```text expect=index-format-incompatible contains
+{"status":"error","code":"BUNDLE_INCOMPATIBLE","message":"incompatible bundle: index format version"
 ```
 
 ```bash run id=bundle-invalid exit=1 stream=stderr

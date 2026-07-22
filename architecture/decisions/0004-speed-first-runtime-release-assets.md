@@ -1,20 +1,22 @@
 # 0004 — Speed-first runtime and release assets
 
-Status: accepted
+Status: superseded by ADR 0006 for index-format selection; delivery principles retained
 Date: 2026-07-21
 
 ## Decision
 
 After correctness, the optimization order is query performance, resident memory
-and pages touched, then compressed download size. The hierarchical sparse,
-decompression-free mmap representation is the v1 baseline. Benchmarks must
-quantify it against fixed-width and independently compressed layouts, but a
-smaller file alone does not displace it.
+and pages touched, then compressed download size. This decision originally made
+the hierarchical sparse mmap representation a provisional baseline pending
+measurement. ADR 0006 superseded that format choice: the measured fixed 11-byte
+layout is the only supported private v1 format, and sparse layouts remain
+historical candidates. The optimization order remains in force.
 
-Large generated data and model artifacts are delivered through GitHub Releases,
-not Git or Git LFS. They may be compressed for transport and are expanded and
-verified once during automatic or explicit installation. The request path never
-downloads or decompresses an SNV lookup.
+Large generated data and model artifacts are intended for delivery through
+GitHub Releases, not Git or Git LFS. They may be compressed and split for
+transport and will be reassembled, expanded, and verified once during future
+automatic or explicit installation. The asset manager is not implemented. The
+request path never downloads or decompresses an SNV lookup.
 
 ## Consequences
 
@@ -23,5 +25,6 @@ downloads or decompresses an SNV lookup.
   is split by contig without changing the installed lookup format or semantics.
 - Data, model, reference, masking, and executable assets have separate
   identities and notices.
-- Installation is automatic by default, available explicitly for prefetching,
-  and atomic; the core scoring library itself only opens paths.
+- The target installation flow is automatic by default, available explicitly
+  for prefetching, and atomic; the shipped core scoring library only opens
+  paths.

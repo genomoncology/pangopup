@@ -154,18 +154,19 @@ Every result carries enough provenance to identify:
 - masked scores, window size 50;
 - the source Ensembl gene.
 
-## Runtime behavior
+## Target runtime behavior
 
-Before serving, the CLI or HTTP adapter asks the asset manager to ensure one
-binary-pinned compatible bundle. Missing assets are downloaded, verified,
-staged, and atomically installed by default; offline mode fails with a precise
-missing-asset error. The core then opens one immutable bundle. A replacement
-bundle requires a new process.
+Today the CLI opens one explicitly supplied bundle and no HTTP adapter or asset
+manager exists. In the target service, before serving, the CLI or HTTP adapter
+asks the asset manager to ensure one binary-pinned compatible bundle. Missing
+assets are downloaded, verified, staged, and atomically installed by default;
+offline mode fails with a precise missing-asset error. The core then opens one
+immutable bundle. A replacement bundle requires a new process.
 
-Installation performs full archive and member hash verification. Ordinary
-startup performs cheap identity, version, size, and structural checks so it does
-not page through every multi-gigabyte member. An explicit verification command
-owns repeat full hashing.
+The planned installation flow performs full archive and member hash
+verification. Ordinary startup will perform cheap identity, version, size, and
+structural checks so it does not page through every multi-gigabyte member. The
+shipped explicit verification command already owns repeat full hashing.
 
 The operating-system page cache is the first lookup cache; Pangopup does not add
 an application result cache until measurements show a miss it can improve.

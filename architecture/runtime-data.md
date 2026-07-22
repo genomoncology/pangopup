@@ -2,7 +2,7 @@
 
 ## Lookup path
 
-An indexed SNV lookup needs only the Pangopup sparse score bundle. The variant's
+An indexed SNV lookup needs only the Pangopup fixed-v1 score bundle. The variant's
 GRCh38 contig, position, reference, and alternate select the record. The bundle
 already contains the source Ensembl gene identity, masked gain/loss values, and
 their relative positions. It does not need a FASTA, GTF, transcript database,
@@ -13,10 +13,12 @@ therefore fails or misses rather than returning the score for a different
 allele. The full model reference is not loaded merely to repeat that check for
 an indexed SNV.
 
-## Model fallback path
+## Planned model fallback path
 
-Running Pangolin for a lookup miss or non-SNV genuinely needs three additional
-local facts:
+Model fallback is not implemented. Its accepted data boundary requires three
+additional local facts:
+
+Running Pangolin for a lookup miss or non-SNV genuinely needs:
 
 1. **Model weights.** The twelve version-2 checkpoints loaded by the current
    upstream program, or a verified equivalent conversion.
@@ -76,6 +78,7 @@ not silently change upstream behavior while claiming identical Pangolin output.
 - gene descriptions, aliases, disease knowledge, or consequences;
 - PostgreSQL, SQLite, or gffutils as a runtime dependency.
 
-The default complete standalone deployment is therefore the executable, sparse
-score bundle, weights, compact GRCh38 sequence member, and compact Pangolin
-masking member. An explicit lookup-only profile may omit the latter three.
+The shipped standalone lookup deployment is therefore the executable plus the
+fixed-v1 score bundle. The target complete deployment adds weights, a compact
+GRCh38 sequence member, and a compact Pangolin masking member; a future
+lookup-only profile can omit those three.
