@@ -62,32 +62,87 @@ misses, source-reference ambiguities, mixed results, incompatible bundles, and
 touched-payload corruption distinctly. Full hashing and payload scans remain an
 explicit `pangopup-build verify` operation.
 
-## Next front — reproducible release assets
+## Next outcome — deterministic lookup transport
 
-Package the executable and generated data separately. The measured
-1,935,000,209-byte tar+Zstandard lookup archive is too close to GitHub's
-under-2-GiB per-asset ceiling, so split transport deterministically while
-reassembling the unchanged installed fixed-v1 member. Add explicit install and
-verify commands plus automatic first-start installation, immutable manifests,
-checksums, locking, attribution, platform-standard data/cache directories,
-offline operation, and GitHub release publication. Transport compression is
-removed at installation; the lookup path maps the fixed representation.
+Package the executable and generated data separately. A historical
+tar+Zstandard experiment measured 1,935,000,209 bytes and showed that one
+lookup archive leaves too little headroom below GitHub's per-asset ceiling; tar
+is not the accepted lookup transport. Instead compress only the exact
+`scores.pgi` stream as one deterministic Zstandard frame, split it into ordered
+1,000,000,000-byte parts bound by a canonical manifest, and reassemble the
+unchanged installed fixed-v1 bundle. Prove exact pack, verify, and unpack
+behavior and retain full-corpus size and determinism evidence. Transport
+compression is removed at installation; the lookup path continues to map the
+fixed representation.
 
-## Later front — model-backed fallback
+## Following outcome — explicit local installation
 
-Pin the upstream commit and checkpoint hashes, encode the model in a Rust-usable
-runtime, and build compact GRCh38 sequence and GENCODE masking members. Prove
-CPU parity first, including indels and the overlapping-gene mask-order issue.
-Then measure accelerator backends without changing score semantics. Keep the
-precomputed SNV result authoritative whenever it exists.
+Install a caller-supplied, already available transport into an immutable local
+bundle using platform-standard application-data storage, locking, checksums,
+staging, atomic publication, receipts, verified reuse, and offline operation.
+Its implementation contract must be authored and independently reviewed
+against the shipped transport contract before it becomes implementation scope.
 
-## Later front — unified service
+## Later outcome — pinned remote sync and publication
+
+Expose `pangopup assets sync` to resolve an explicitly pinned release manifest,
+resume downloads safely, reject mixed or mutable parts, and feed the same local
+installer. Publish immutable
+lookup and executable assets to GitHub Releases with checksums, notices, source
+identity, reproducible commands, and a clean-machine install/query proof.
+Network sync must never mean an unpinned request for “latest,” and a complete
+installed profile must continue to work without network access.
+
+## Later outcome — upstream compatibility corpus
+
+Before selecting or porting a runtime, inventory the upstream Pangolin tests and
+behavior and retain representative golden cases for SNVs, insertions,
+deletions, delins, strands, masked/unmasked output, overlapping genes,
+boundaries, unsupported inputs, and errors. Pin the upstream source and model
+identities that produced those expectations.
+
+## Later outcome — model/reference/mask assets
+
+Package pinned model checkpoints plus compact, indexed RefSeq GRCh38.p14
+sequence and GENCODE masking members. Builders or conversion tools must be
+reproducible, bounded-memory, independently verifiable, and license-complete.
+The service should not parse raw FASTA/GTF or open gffutils/SQLite at runtime.
+
+## Later outcome — model-backed fallback
+
+Implement the pinned model on CPU and prove the retained compatibility corpus,
+including indels and the overlapping-gene mask-order issue, before optimizing
+or adding routes. Only then measure accelerator backends such as MPS or CUDA
+and alternative runtimes/quantization. Adopt them only with explicit numeric
+tolerances, equal behavior, and measured end-to-end benefit. Keep every
+precomputed SNV hit authoritative whenever it exists.
+
+## Later outcome — lookup-first routing and evidence-gated caching
 
 Try SNV lookup first, route lookup misses and supported non-SNVs to inference
-through one typed API, then add the HTTP adapter and container. Measure
-end-to-end concurrency, startup, memory, and tail latency. Add a persistent
-model-result cache only if those measurements demonstrate useful repeated
-inference beyond the operating-system page cache.
+through one typed API, and report route and asset provenance. Measure repeated
+model workloads before adding a cache. If justified, cache only complete model
+results under a key that includes normalized variant, gene/masking context,
+model checkpoint, reference/mask identity, window, and inference parameters;
+prove bounds, concurrency, corruption handling, and invalidation.
+
+## Later outcome — foreground service and deployment
+
+Add a foreground `pangopup serve` HTTP process with stable batch JSON, bounded
+requests, health/readiness/status endpoints, timeouts, backpressure, and clean
+shutdown. Expose `pangopup status` as the CLI view of the same non-secret
+runtime and asset identities. Add a minimal non-root Docker image and
+documented systemd example.
+Docker, systemd, Kubernetes, or another external manager owns
+start/stop/restart; Pangopup does not become its own process supervisor.
+
+## Later outcome — production and release hardening
+
+Measure concurrency, startup, resident memory, page faults, and tail latency.
+Add structured logs, useful metrics, resource limits, read-only runtime posture,
+dependency/license inventory, SBOM and provenance, signing where practical,
+upgrade/rollback rules, and cleanup of superseded immutable assets. Re-run the
+complete clean-machine acceptance proof for releases.
 
 ## Explicitly outside Pangopup
 
@@ -95,5 +150,6 @@ inference beyond the operating-system page cache.
 - gene descriptions, aliases, disease knowledge, or clinical interpretation;
 - GRCh37 and liftover.
 
-These fronts are outcome boundaries. Only the next independently reviewed,
-bounded ticket is implementation scope.
+These are rolling outcome boundaries, not a ticket backlog or promises about
+unsettled implementation details. Only the next independently authored,
+independently reviewed, bounded ticket is implementation scope.

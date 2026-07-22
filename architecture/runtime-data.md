@@ -49,6 +49,14 @@ bases. GENCODE supplies the gene/exon map required by Pangolin's masking rules
 and by the Ensembl-gene identities used in the precomputed dataset. This does
 not introduce general gene annotation into the public API.
 
+Before these assets or a Rust runtime are selected, Pangopup must pin an
+upstream compatibility corpus. It should inventory upstream tests and retain
+golden SNV, insertion, deletion, delins, plus/minus-strand, masked/unmasked,
+overlapping-gene, boundary, unsupported-input, and error cases together with
+the exact source commit, checkpoints, reference/mask inputs, parameters, and
+numeric environment that produced them. That corpus—not architectural
+similarity—is the acceptance oracle for CPU inference and any later conversion.
+
 ## Reproduction boundary
 
 The precomputed dataset publisher calls its coordinates hg38 and says scores
@@ -63,6 +71,11 @@ separately. Before claiming parity, a retained corpus must compare both routes.
 Small numeric differences with identical masking are more likely to come from
 model/checkpoint or numeric-runtime differences than from reference bases once
 the submitted reference allele has been verified.
+
+CPU compatibility is proved before accelerator selection. MPS, CUDA,
+alternative runtimes, quantization, or other optimizations are accepted only if
+they preserve the defined result/error behavior within explicit retained
+tolerances and improve measured end-to-end performance or resource use.
 
 The current Python implementation also mutates its gain/loss arrays while
 masking each gene. For overlapping genes on the same strand, a later gene may

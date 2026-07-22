@@ -15,11 +15,12 @@ CLI/HTTP structured genomic variant
        -> miss: continue
   -> if supported, run model with mmap reference + masking data
   -> typed gene-specific result(s) with source provenance
-  -> stable text or JSON output
+  -> stable CLI JSONL/table or future HTTP JSON output
 ```
 
-The CLI is the first observable adapter. A future HTTP service calls the same
-Rust API and owns no scoring, normalization, or file-format rules.
+The CLI is the shipped observable adapter: JSON Lines is its stable default and
+exact tab-separated output is available explicitly. A future HTTP service calls
+the same Rust API and owns no scoring, normalization, or file-format rules.
 
 ## Crate ownership
 
@@ -76,7 +77,9 @@ added only when their own observable slices begin. They must consume the same
 core types rather than leak a model runtime, HTTP, or cache types into the
 scoring API. `pangopup-assets` owns shared discovery, download, verification,
 and atomic installation for both executable adapters; `pangopup-core` performs
-no network or home-directory access.
+no network or home-directory access. The future HTTP adapter runs in the
+foreground; process lifecycle belongs to external managers as described in
+[`service.md`](service.md).
 
 ## Query identity and multiplicity
 
@@ -177,16 +180,23 @@ exposing mmap lifetimes. The selected installed profile is decompression-free
 fixed-width mmap; transport compression is removed once at installation and
 never appears on the query path.
 
-## Deliberate first-slice exclusions
+## Planned extensions not yet shipped
 
-- non-SNV inference;
-- model conversion or model execution;
-- SQLite result caching;
-- REST or gRPC;
+- model conversion and CPU execution for supported lookup misses and non-SNVs;
+- lookup-first routing through one typed result/provenance API;
+- application-level model-result caching only if measurements justify it;
+- pinned asset installation and remote sync;
+- foreground HTTP serving plus container and native service-manager
+  integration; and
+- measured accelerator backends only after CPU compatibility is proved.
+
+These extensions must preserve the exact, compact, fast SNV index rather than
+complicate or replace it.
+
+## Permanent non-goals
+
 - GRCh37 or liftover;
 - transcript HGVS, protein HGVS, projection, or normalization;
-- hot reload;
-- threshold-based clinical interpretation.
-
-These are compatible extensions, but none should complicate proof that the SNV
-index is correct, compact, and fast.
+- threshold-based clinical interpretation or general gene annotation; and
+- an internal daemon supervisor or in-process hot reload. External process
+  managers replace a running foreground process when assets or software change.

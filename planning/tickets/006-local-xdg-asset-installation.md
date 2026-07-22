@@ -9,8 +9,11 @@ local installer before adding downloads. This slice proves Linux/XDG path
 resolution, locks, exhaustive first installation, immutable publication, cheap
 trusted reuse, explicit full verification, and offline/container prefetch.
 
-It deliberately has no cache, network, automatic lookup discovery, or mutable
-"current" pointer. It remains dependency-gated until Ticket 005 actually ships.
+It deliberately has no download/transport cache, network, automatic lookup
+discovery, or mutable "current" pointer. It also has no model-result cache:
+that separate optimization remains evidence-gated future work after model
+inference exists. This ticket remains dependency-gated until Ticket 005
+actually ships.
 
 ## Scope
 
@@ -194,12 +197,17 @@ It deliberately has no cache, network, automatic lookup discovery, or mutable
   transport-removal proof. Evidence is not a latency threshold.
 - Update README, delivery/runtime-data architecture, ADR 0005, FAQ, and frontier
   to mark Linux explicit local installation as shipped. Network download,
-  cache, embedded release lock/default, automatic first-start resolution,
-  model assets, garbage collection/repair, other OSes, and HTTP remain future.
-- Excluded: cache, file URL/HTTP/GitHub, retries/resume/proxy/TLS/signing,
-  publication, automatic lookup discovery/install, current pointer/default
-  bundle, removal/repair/GC/downgrade, model/reference/mask/executable assets,
-  self-update, containers beyond offline prefetch/mount documentation, and HTTP.
+  download/transport caching, embedded release lock/default, automatic
+  first-start resolution, model assets, model-result caching, garbage
+  collection/repair, other OSes, and HTTP remain future.
+- Excluded: download/transport cache, model-result cache, file URL/HTTP/GitHub,
+  retries/resume/proxy/TLS/signing, publication, automatic lookup
+  discovery/install, current pointer/default bundle,
+  removal/repair/GC/downgrade, model/reference/mask/executable assets,
+  self-update, containers beyond offline prefetch/mount documentation, and
+  HTTP. Download/transport caching belongs to later network delivery work;
+  model-result caching is a different, evidence-gated optimization after model
+  inference exists and measured workloads justify it.
 
 ## Success Checklist
 
@@ -218,7 +226,8 @@ It deliberately has no cache, network, automatic lookup discovery, or mutable
 ## Decisions
 
 1. Install locally before downloading; the later downloader gets one proven
-   filesystem sink and introduces cache/network policy separately.
+   filesystem sink and introduces download/transport-cache and network policy
+   separately.
 2. Key installed data and locks by canonical bundle ID; transport ID belongs to
    packaging provenance only.
 3. Require bundle IDs and omit a current pointer until a real embedded release
@@ -227,15 +236,18 @@ It deliberately has no cache, network, automatic lookup discovery, or mutable
    no-follow, flock, no-replace rename, fsync, subprocess, and SIGKILL tests.
 5. Trust an immutable manager receipt for cheap reuse; reserve full hashing and
    payload traversal for `--full`, and fail rather than repair corrupt finals.
-6. Omit cache entirely because local parts can stream directly; cache belongs
-   with a later network/resume ticket.
+6. Omit both kinds of cache. Local parts can stream directly, so a
+   download/transport cache belongs with later network/resume work. A
+   model-result cache is unrelated to installation and remains evidence-gated
+   until model inference and representative measurements exist.
 
 ## Dependencies
 
 Ticket 005. This is a dependency-gated design draft, not implementation-ready.
-After Ticket 005 ships, a fresh independent reviewer must reconcile every
-transport type/error/API/fixture assumption before this ticket can become
-`ready`.
+After Ticket 005 ships, a fresh dedicated Ticket 006 author sub-agent must
+adopt and reconcile this draft, or rewrite it, against the shipped transport
+contract. A different read-only ticket-review sub-agent must then approve that
+authored revision before the coordinator may mark it `ready` or dispatch it.
 
 ## Notes
 
@@ -244,20 +256,32 @@ transport type/error/API/fixture assumption before this ticket can become
   exhaustive verification and immutable publication under the trusted base.
 - No external release or network action is authorized.
 
+## Ticket Authorship
+
+Author: pending
+
+This draft predates the current four-sub-agent chain. After Ticket 005 ships,
+a fresh dedicated Ticket 006 author sub-agent must own its substantive text and
+any ticket-review remediation. The coordinator does not author or materially
+reconcile it.
+
 ## Independent Ticket Review
 
-Reviewer: `next_packet_review` (independent, read-only, packet review)
+Reviewer: pending
 
-Result: approved only as a dependency-gated `proposed` design draft. Review
-made installed directories and locks bundle-ID keyed, removed cache/network and
-mutable-current scope, required explicit bundle IDs, selected a Linux/XDG
-dirfd/flock/no-replace/fsync boundary, pinned path/CLI/receipt/mode/trust rules,
-defined one-pass first install versus manifest-only cross-transport reuse, and
-made staging/SIGKILL recovery exact. No material packet finding remains.
+The earlier `next_packet_review` read-only packet review is retained as design
+evidence only. It made installed directories and locks bundle-ID keyed, removed
+network and mutable-current scope, required explicit bundle IDs, selected a
+Linux/XDG dirfd/flock/no-replace/fsync boundary, pinned
+path/CLI/receipt/mode/trust rules, defined one-pass first install versus
+manifest-only cross-transport reuse, and made staging/SIGKILL recovery exact.
+It is not approval in the current ticket chain.
 
-This is not implementation-ready. After Ticket 005 ships, a fresh independent
-reviewer must reconcile every assumed transport type, error, API, receipt, and
-fixture with the actual implementation before changing this status.
+This is not implementation-ready. After Ticket 005 ships and the fresh author
+sub-agent adopts or rewrites the draft, a different fresh read-only reviewer
+must reconcile every assumed transport type, error, API, receipt, and fixture
+with the actual implementation and record approval before changing this
+status.
 
 ## Implementation Evidence
 

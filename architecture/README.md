@@ -17,6 +17,8 @@ the same standalone Rust core.
   standalone lookup and model fallback.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
+- [`service.md`](service.md) — planned lookup-first HTTP boundary, foreground
+  lifecycle, deployment, and operational proof.
 - [`decisions/`](decisions/) — accepted cross-cutting decisions.
 
 Current work, unresolved priorities, and hypotheses belong in

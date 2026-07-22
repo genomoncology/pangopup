@@ -258,19 +258,23 @@ no-replace directory primitive is implemented.
 ## Release transport is not runtime encoding
 
 The fast installed mmap file and the downloaded release asset solve different
-problems. A future release may carry split `.tar.zst` transport assets. The
-planned install command downloads them to temporary paths, verifies their
-digests and manifest, reassembles and expands once, verifies the installed
-members, then atomically publishes the immutable bundle. This installation
-flow is not implemented today. Runtime lookup already maps an explicitly
-supplied expanded fixed-width member and never decompresses a query block.
+problems. The accepted future lookup transport contains a canonical transport
+manifest, exact copies of the installed `manifest.json` and `NOTICE`, and one
+deterministic compressed `scores.pgi` stream cut into ordered exact
+1,000,000,000-byte parts (except the nonempty final part). The planned install
+command verifies the manifest, copied small members, every part, the complete
+compressed stream, and the reconstructed score member before atomically
+publishing the unchanged three-file fixed-v1 bundle. This installation flow is
+not implemented today. Runtime lookup already maps an explicitly supplied
+expanded fixed-width member and never decompresses a query block.
 
 The certified complete `scores.pgi` is 15,033,158,255 bytes. The exact GNU tar
 1.35 + Zstandard 1.5.5 level-9 single-thread transport is 1,935,000,209 bytes
 (`sha256:3e87d80fdad963ca6ffca646393b8bb3955214b77cd8b7f1782e48d039aba751`).
-That is about 1.80 GiB and too close to GitHub's under-2-GiB per-file ceiling
-for comfortable release headroom. Release packaging should split deterministic
-transport payloads while reassembling the same installed fixed-v1 member;
+That historical experiment established the approximate compression scale; tar
+is not the target lookup format. Its roughly 1.80 GiB result is also too close
+to GitHub's under-2-GiB per-file ceiling for comfortable release headroom. The
+accepted score-stream parts reassemble the same installed fixed-v1 member;
 transport constraints do not add decompression to lookup.
 
 ## Reader and verification safety

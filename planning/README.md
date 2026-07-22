@@ -8,9 +8,11 @@ belongs in Rust tests and `../spec/`.
 
 - [`goals.md`](goals.md) — durable outcomes and non-goals.
 - [`faq.md`](faq.md) — settled explanations and open product choices.
-- [`frontier.md`](frontier.md) — current boundary and the few nearby fronts.
+- [`frontier.md`](frontier.md) — rolling dependency-ordered outcome roadmap,
+  not live ticket status or a prewritten backlog.
 - `issues/` — observed problems not yet shaped into work.
-- `tickets/` — one implementation-ready vertical slice at a time.
+- `tickets/` — the sole owner of live work status; one implementation-ready
+  vertical slice at a time.
 - `templates/` — the required ticket structure and review record.
 - `artifacts/` — measurements and evidence that must survive a ticket.
 - `failures/` — durable failure analyses.
@@ -20,10 +22,12 @@ Architecture decisions live in `../architecture/decisions/`.
 
 ## Working rule
 
-Do not create a backlog for the whole product. Select the next smallest slice
-from the frontier only after its input evidence, observable acceptance test, and
-inside-out failure tests are known. File-format work must also state the size and
-performance evidence that can accept or reject it.
+Do not create a ticket backlog for the whole product. The frontier is a rolling
+outcome roadmap: it says what capabilities remain and in what dependency order,
+without pretending their implementation contracts are already known. Select
+the next smallest slice only after its input evidence, observable acceptance
+test, and inside-out failure tests are known. File-format work must also state
+the size and performance evidence that can accept or reject it.
 
 ## Ticket lifecycle
 
@@ -32,17 +36,31 @@ proposed -> independently approved -> ready -> in-progress -> review
          -> independently approved -> complete
 ```
 
-One coordinating agent owns the lifecycle but not the implementation. Three
-different sub-agents provide the independent ticket review, development, and
-adversarial code review. The two reviewers are read-only; only the development
-agent edits product files. Findings and their dispositions are recorded in the
-ticket and returned to the same reviewer. A stage advances only after that
-reviewer records approval.
+One coordinating agent owns the lifecycle but does not author, review, or
+implement. Four distinct sub-agents provide ticket authorship, independent
+ticket review, development, and adversarial code review. The two reviewers are
+read-only. Ticket findings return to the same author and then the same ticket
+reviewer; code findings return to the same developer and then the same code
+reviewer. A stage advances only after its reviewer records approval.
+
+Ticket authors and developers never commit or push. The coordinator alone
+commits and pushes after the applicable independent approval.
 
 The reviewed `ready` ticket is the development agent's complete instruction.
 Do not rely on chat history, sibling tickets, or unstated conventions. After
 code review, material fixes go back to the developer and then back through
-review. Run the three final gates and commit only after review is clear.
+the same review. A material scope change to a `ready` ticket goes back to its
+author and ticket reviewer first. The coordinator may record review identities,
+mechanical command results, and status transitions, but substantive edits stay
+with the responsible author or developer. Run the three final gates and commit
+only after review is clear.
+
+Documentation follows the same proof chain: the ticket names it, the developer
+updates it with the implementation, the code reviewer checks it, and the
+coordinator performs a final stale-claim scan. A material final-gate,
+documentation, or implementation defect returns to the same developer and then
+the same code reviewer. If it reveals a scope defect instead, it returns to the
+same ticket author and ticket reviewer before development resumes.
 
 Active tickets are working instructions, not a permanent release ledger. When
 the reviewed implementation ships, preserve durable behavior in code, tests,

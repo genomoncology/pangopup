@@ -116,28 +116,33 @@ the compiled reference member, not the raw FASTA, and performs bounded indexed
 sequence reads rather than parsing FASTA during a request. The same principle
 applies to GENCODE: GTF/gffutils is build input, not a runtime database.
 
-## Planned automatic asset installation
+## Planned asset delivery and installation
 
 This section is the accepted target design, not shipped behavior. Today callers
 pass `--bundle <PATH>` and use `pangopup-build verify` explicitly. A future
 Pangopup binary will pin a compatible release manifest containing asset URLs,
 sizes, SHA-256 digests, format versions, source identities, and licenses.
 
-The target service startup sequence will:
+The target is built in independently proved layers:
 
-1. resolve its platform data directory and requested asset profile;
-2. take an installation lock so concurrent processes cannot publish a partial
-   bundle;
-3. reuse a complete compatible bundle when one is already installed;
-4. otherwise download missing transport archives to a temporary cache path;
-5. verify archive size and SHA-256 before extraction;
-6. extract and validate every member in a staging directory;
-7. atomically publish the immutable bundle;
-8. memory-map the installed members, initialize the selected model provider,
-   and only then report the service ready.
+1. deterministically package, split, verify, and reconstruct the lookup
+   transport without changing the installed mmap bundle;
+2. install caller-supplied transport files into the platform data directory
+   with locking, staging, checksums, receipts, atomic publication, and verified
+   reuse;
+3. expose `pangopup assets sync` to resolve a pinned remote release manifest
+   and safely resume/download its exact parts through the same installer; and
+4. publish immutable GitHub release assets and prove installation and lookup on
+   a clean supported machine.
 
-The target first start will therefore also be a provisioning operation and
-should expose download and verification progress. Later starts will use the
+After those layers ship, target service startup will resolve its pinned asset
+profile, reuse a complete compatible installation without networking, or invoke
+the same pinned sync operation. It will memory-map installed members,
+initialize the selected model provider, and only then report ready. It will
+never fetch an unpinned “latest” release.
+
+The target first start may therefore also be a provisioning operation and will
+expose download and verification progress. Later starts will use the
 already installed bundle without contacting the network. A failed download or
 checksum will never replace an older complete bundle or start with partial
 data.
@@ -164,8 +169,25 @@ cache. macOS and Windows builds use their standard application-data locations.
 `PANGOPUP_DATA_DIR` can override discovery.
 
 Automatic provisioning is intended to become the normal service experience.
-The `pangopup assets install` command, offline mode, and container preinstall
-flow described here are not implemented yet.
+The local install command, pinned remote sync, offline mode, release
+publication, and container preinstall flow described here are not implemented
+yet.
+
+## Planned service operation
+
+Pangopup will expose one foreground HTTP process, `pangopup serve`, over the
+same typed lookup-first routing API used by the CLI. It will provide stable
+batch JSON, bounded requests, readiness, liveness, and status information.
+`pangopup status` will expose the same non-secret runtime and asset identities
+to command-line operators.
+Docker, systemd, Kubernetes, or another external manager will own process
+start, stop, and restart. Pangopup will not daemonize or implement a second
+process supervisor.
+
+A future minimal container will run as a non-root user, use a read-only runtime
+filesystem, expose a healthcheck, and either contain a verified pinned asset
+profile or mount one read-only. The HTTP service, lifecycle integration, and
+container are not implemented yet.
 
 ## Performance priorities
 
@@ -189,11 +211,13 @@ under pressure. The process may show a large virtual address mapping while its
 resident working set remains much smaller. Model weights and active inference
 tensors consume ordinary resident memory and are measured separately.
 
-The measured complete bundle compressed to 1,935,000,209 bytes with GNU tar
-1.35 and Zstandard 1.5.5 level 9. That is close to GitHub's under-2-GiB
-per-asset limit, so release transport should be split deterministically and
-reassembled into the same fixed mmap member at installation. Download encoding
-must never put decompression on the query path.
+A historical experiment compressed the complete bundle to 1,935,000,209 bytes
+with GNU tar 1.35 and Zstandard 1.5.5 level 9. That measurement established the
+scale but is not the accepted lookup transport. The future transport compresses
+only the exact `scores.pgi` stream as one deterministic Zstandard frame and
+cuts it into ordered 1,000,000,000-byte parts bound by a canonical manifest.
+Installation reconstructs the same fixed mmap member. Download encoding must
+never put decompression on the query path.
 
 ## Current state
 
@@ -229,20 +253,30 @@ Implemented today:
   aliases, optional source-gene filtering, all-overlap results, typed misses,
   and explicit source-reference ambiguities.
 
-Not implemented yet: automatic asset manager, model runtime/fallback, HTTP
-service, or result cache. In this slice a syntactically valid concrete REF that
+Not implemented yet: deterministic release transport, local or remote asset
+management, published release assets, model runtime/fallback, HTTP service,
+container, or result cache. In this slice a syntactically valid concrete REF that
 does not match an ordinary indexed key is `not_found`; runtime FASTA validation
 begins only with the future model/reference slice.
 
-The development order is:
+The rolling outcome order is:
 
 1. checked source fixture and executable source contract (complete);
 2. measured miniature index writer/reader (complete);
 3. full streaming builder and complete index certification (complete);
 4. typed SNV lookup API and CLI (complete);
-5. release packaging and automatic asset installation;
-6. compatible model fallback and compact reference/mask assets;
-7. unified HTTP service and end-to-end performance proof.
+5. deterministic split lookup transport;
+6. explicit local XDG-style installation;
+7. pinned remote sync, GitHub publication, and clean-machine proof;
+8. an upstream Pangolin compatibility corpus;
+9. pinned model, compact RefSeq GRCh38.p14, and compact GENCODE mask assets;
+10. CPU inference parity, followed only then by measured accelerator options;
+11. lookup-first model routing and evidence-gated result caching;
+12. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
+13. observability, security, performance, and release hardening.
+
+These are outcome boundaries rather than a prewritten ticket backlog. Only the
+next independently authored and independently reviewed ticket is active work.
 
 See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
 [`architecture/README.md`](architecture/README.md) for the durable design.
@@ -253,12 +287,24 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
 - `pangopup-index` — private format codec and validated mmap reader;
 - `pangopup-build` — offline source validation and deterministic artifact
   builders;
-- `pangopup-cli` — command-line and asset-management adapter;
+- `pangopup-cli` — shipped lookup command and output adapter; future asset and
+  service commands remain unimplemented;
 - future `pangopup-assets` — shared download, verification, and installation;
 - future `pangopup-model` — model execution behind the core provider contract;
 - future `pangopup-http` — long-lived HTTP adapter over the same core.
 
 ## Development
+
+Every implementation ticket uses four distinct sub-agents: ticket author,
+ticket reviewer, developer, and adversarial code reviewer. Review findings
+return to the same author/reviewer pair or developer/code-reviewer pair. A
+separate coordinator only orchestrates, records mechanical evidence, runs the
+final gate, and commits and pushes independently approved work; ticket authors
+and developers never commit or push. Documentation is named in the ticket,
+implemented with the behavior, reviewed with the code, and checked once more
+for stale claims before completion. A material final-gate or documentation
+finding returns to the same developer and code reviewer; a scope defect returns
+to the same ticket author and ticket reviewer.
 
 ```bash skip
 make lint

@@ -85,18 +85,31 @@ aliases, transcripts, proteins, or disease knowledge.
 Yes, but the SNV bundle should be split for transport. GitHub currently permits
 up to 1,000 assets per release, requires each asset to be under 2 GiB, and
 states no aggregate release-size or bandwidth quota. The certified fixed-v1
-member is 15,033,158,255 bytes; its measured tar+Zstandard archive is
-1,935,000,209 bytes, too close to the per-file ceiling for comfortable
-headroom. Deterministic release parts should reassemble the same mmap member.
-Executable, lookup-data, and future model assets remain separately versioned.
+member is 15,033,158,255 bytes. A historical tar+Zstandard experiment measured
+1,935,000,209 bytes—too close to the per-file ceiling for comfortable headroom,
+and not the accepted format. The future lookup transport compresses only
+`scores.pgi` as one deterministic Zstandard frame and splits it into ordered
+1,000,000,000-byte parts bound by a canonical manifest. Unpack reconstructs the
+same mmap member. Executable, lookup-data, and future model assets remain
+separately versioned.
 
 ### Does Pangopup install missing assets automatically?
 
 Not yet. Today the CLI requires `--bundle <PATH>`, and callers can run
 `pangopup-build verify` explicitly. The accepted target is for CLI and service
-startup to resolve a binary-pinned manifest, download to a temporary cache,
-verify SHA-256, extract and verify in staging, and publish atomically. Offline
-and container prefetch are also target behavior.
+startup to resolve a binary-pinned manifest through the same operation exposed
+by `pangopup assets sync`, download to a temporary cache, verify SHA-256,
+extract and verify in staging, and publish atomically. A local install command
+will also accept transport files supplied by the caller without networking.
+Offline and container prefetch are also target behavior.
+
+### Will asset sync download whatever release is latest?
+
+No. That would make startup irreproducible and allow a mutable remote choice to
+change scoring. The future binary or an explicit user selection pins one
+release-manifest identity, including URLs, sizes, hashes, formats, source
+identities, and licenses. Sync fetches that identity or fails. Publication to
+GitHub Releases and clean-machine testing remain future work.
 
 ### Where will managed assets be installed?
 
@@ -121,6 +134,33 @@ fresh CLI batch, open-only, and serialization-only costs separately. It does
 not project those measurements onto HTTP or model inference. Cold behavior is
 explicitly unmeasured on the development host because neither dataset size nor
 an OS/device procedure proved the queried pages were nonresident.
+
+### Is JSON output still future work?
+
+No. The shipped `pangopup lookup` command already emits stable compact JSON
+Lines by default and exact tab-separated rows with `--format table`. Batch
+validation is transactional: an invalid request prevents partial stdout. The
+future HTTP service will define a separate batch JSON envelope over the same
+typed results; it does not replace or postpone the CLI contract.
+
+### Will Pangopup implement start, stop, restart, and status commands?
+
+The planned server runs in the foreground as `pangopup serve`, and
+`pangopup status` will expose its non-secret health/readiness, software, route,
+and asset identities. Docker, systemd, Kubernetes,
+or another external process manager owns start, stop, and restart. Keeping one
+foreground process avoids building a second supervisor and produces the same
+service behavior in containers and native deployments.
+
+### Will non-SNV inference use a persistent cache?
+
+Only if measurements justify it. The operating-system page cache already helps
+the SNV mmap path, while model results have a more complicated identity. Any
+future model cache key must include the normalized variant, gene/masking
+context, checkpoint, reference and mask identities, window, and inference
+parameters. A ticket must first demonstrate a representative repeated workload
+whose latency or compute cost improves enough to justify memory/disk use,
+locking, eviction, corruption recovery, and invalidation.
 
 ## Settled product choices
 
@@ -157,10 +197,12 @@ historical measured candidates.
 ### How are large artifacts delivered?
 
 The target is separately versioned GitHub release assets: executable, CC BY
-fixed-v1 lookup bundle, GPL model weights, GRCh38 reference member, and GENCODE
-masking member. Split the measured near-limit lookup transport, verify and
-reassemble it once during future automatic or explicit installation, and map
-the expanded data at runtime. That release/install tooling is not shipped yet.
+fixed-v1 lookup transport set, GPL model weights, GRCh38 reference member, and
+GENCODE masking member. The lookup set is canonical metadata, copied small
+bundle members, and deterministic parts of one compressed score stream; it is
+not one tar archive. Verify and reassemble it once during future automatic or
+explicit installation, then map the expanded data at runtime. That
+release/install tooling is not shipped yet.
 
 ### What does lookup output look like?
 
