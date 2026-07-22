@@ -48,7 +48,9 @@ loci, and Tabix remain benchmark-only implementations.
   unique connectivity and complete coverage, strict BST ordering, exact
   subtree maxima, contig ownership, and height balance. It does not scan
   ordinary payload. Lookup validates the exact 11-byte record it touches,
-  including reference, reserved bit, and score/value codes.
+  including reference, reserved bit, and all six score/position pairs before
+  selecting an alternate. Corruption in untouched ordinary records remains
+  lazy and is caught by explicit offline verification.
 - Every count, offset, section end, and count × width calculation uses checked
   arithmetic before conversion or byte access.
 
@@ -84,9 +86,10 @@ Full measurements, method, hardware, manifests, and cold-I/O limits are in
 
 ## Consequences
 
-The complete fixed payload projects to about 14.0 GiB before directories and
-exceptions. Release transport must therefore be compressed and split into
-host-compatible members if necessary; this must not add decompression to a
-query. Ticket 004 must validate complete-artifact size, cold behavior, and
-delivery practicality. If that evidence exposes an operational failure, a new
-ADR may revisit hierarchical direct without making v1 accept multiple formats.
+The complete certified member is 15,033,158,255 bytes (about 14.0 GiB), including
+directories and exceptions. Ticket 004 retained complete-artifact open, lookup,
+CLI, and serialization evidence while leaving cold performance explicitly
+unmeasured because this host could not prove nonresidency. Release transport
+must be compressed and split into host-compatible members if necessary; this
+must not add decompression to a query. Any future format change requires a new
+ADR rather than making v1 accept multiple layouts.

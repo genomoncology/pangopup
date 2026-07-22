@@ -163,6 +163,25 @@ contig interval structures must be benchmarked and must document actual
 worst-case behavior; a prefix-maximum array alone does not guarantee
 `O(log n + k)` for arbitrary nested spans.
 
+The shipped reader implements this through one long-lived `BundleOpen` provider.
+Its manifest, computed bundle identity, frozen provenance, and mmap reader are
+private after successful construction; offline verification and measurement use
+read-only accessors. Open rejects manifest metadata above 1 MiB before buffer
+allocation and also bounds the subsequent read, then canonical-validates the
+manifest, exact member set and sizes, mmap header/sections, every segment and
+interval node, and every exception. It does not hash members or deliberately
+touch ordinary payload. A filtered lookup is
+`O(log S + log E)` plus one constant-width decode; unfiltered enumeration is
+`O(log S + K)`. Public sorting adds `O(K log K + A log A)` and owned result
+allocation is `O(K + A)`. Every addressed ordinary record validates all six
+score/position pairs, even when the caller selects only one alternate.
+
+At a stored `REF=N` coordinate, any syntactically valid concrete REF/ALT query
+returns the same gene-specific ambiguity and never returns the exception's
+scores. Ordinary and exception records from overlapping genes can coexist in
+one sorted result. A concrete REF mismatch against ordinary payload is simply a
+miss in this no-runtime-FASTA slice.
+
 ## Builder contract
 
 `pangopup-build` receives explicit read-only source, reference-certification,
@@ -303,4 +322,8 @@ logical bytes, mapped page numbers, allocations, and page faults. That corpus is
 smaller than available memory, so it makes no cold-I/O claim. Definitive cold
 testing must use the complete artifact with a documented dataset larger than
 available memory or an isolated uncached device/read method—not merely the first
-query after a build, whose pages are usually already hot.
+query after a build, whose pages are usually already hot. The Ticket 004 host
+had more available memory than the 14.0 GiB member and no privileged/device
+nonresidency proof, so its retained cold result is `unmeasured`; warm one-open
+library, fresh CLI, open-only, and serialization measurements are reported
+separately.

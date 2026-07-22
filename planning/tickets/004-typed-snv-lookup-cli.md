@@ -1,6 +1,6 @@
 # 004 — Typed mmap SNV lookup and CLI
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -382,8 +382,99 @@ consistent and implementable against shipped Tickets 001–003.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: `ticket_004_development`
+
+- Added the invariant-preserving owned lookup vocabulary and object-safe
+  `ScoreProvider: Send + Sync` contract to `pangopup-core`, including exact
+  contig parsing. `pangopup-index::BundleOpen` now implements that contract,
+  owns one long-lived mmap plus provenance, classifies incompatibility
+  separately, validates all pairs in an addressed ordinary record, and keeps
+  untouched ordinary payload lazy.
+- Added the transactional `pangopup lookup` CLI with exact GRCh38 tuple and
+  manifest-accession grammar, length and gene validation, one open per batch,
+  all four statuses, byte-stable JSONL/table output, and the closed JSON error
+  and exit-code contract. Added a production-path fixture and
+  `spec/snv-lookup.md` for found-one/many, both gene filters, miss, ambiguity,
+  mixed, 10/100 batches, exact serialization, typed failures, corruption
+  layering, and zero-stdout transactional failure.
+- Code-review remediation put the shipped CLI and benchmark behind one shared
+  renderer and made every one of the benchmark's 1,560 warmup/retained child
+  outputs pass an exact-byte comparison. It also made opened-bundle manifest,
+  identity, index, and frozen provenance state private with read-only access;
+  rejects invalid contig syntax before bundle I/O; bounds manifest reads before
+  allocation; and preserves normal top-level and lookup help/version behavior.
+  Final re-review also moved all timing-vector allocation and initialization
+  before the in-process allocation/fault/RSS baselines and added an
+  empty-operation runtime guard proving the sampler itself reports zero
+  allocations. The full harness was rerun: every lookup/serialization row
+  dropped the exact contaminating 0.01 calls and 16 bytes per batch, with all
+  latency and resource observations replaced from the same consistent run.
+- Added inside-out unit/integration coverage for alias grammar, constructor
+  invariants, deterministic multiplicity, unrequested-pair corruption,
+  untouched-record laziness, open/lookup/verify corruption boundaries, and a
+  barrier-started concurrent `Arc` provider compared with a serial oracle.
+  The final observable matrix exhaustively covers primary and RefSeq aliases,
+  bounds and rejected spellings, all four byte-exact statuses in both formats,
+  multiplicity/final-LF behavior, all 12 concrete pairs at both `REF=N`
+  fixtures with filtering, and manifest/directory/tree/exception corruption,
+  including an oversized sparse manifest rejected before content allocation.
+  Updated the requested README, architecture, ADR, CLI spec, FAQ, and frontier
+  documentation to the shipped lookup and no-runtime-FASTA miss semantics.
+- Fresh current-source production build and independent verify accepted bundle
+  `sha256:3a5d7de6aacf2aada1ff327764e21d5142ad8a534f7f861fb127576a664d5ee2`.
+  It reproduced the pinned 15,033,158,255-byte `scores.pgi` hash
+  `sha256:6fd8eb490e643728f6682fe6fc1910b88641354aaa221781575763c4ca94bf27`,
+  all known corpus counts, and identical 4,099,255,665-record source/decoded
+  digest `sha256:dcec29e84c5f65bd76ffde2be8c7fa312d08e6abdb1e45e024dc0fe8c8da9c31`.
+  The regenerated full bundle and rejected earlier copies were deleted after
+  evidence capture.
+- Retained `planning/artifacts/004-query-manifest.tsv`
+  (`sha256:36644941adbf78419ff9cf5c42ae57e46cca336b1099f9c9e9902d0b30ea8cfa`),
+  `004-full-oracle.jsonl`
+  (`sha256:c93c75bbf61b39f7fd88c868b2fe01eb29117e24c6c09df565275cc709a05119`),
+  and the full-source extractor. A complete new scan of all 19,913 gzip members
+  reproduced the oracle byte-for-byte; 260 requests in 13 one-open CLI groups
+  matched it exactly. After code-review source changes, source/query/index
+  identities remained unchanged, so the retained oracle was not needlessly
+  regenerated; the 260-request comparison was rerun against the final bundle
+  and again passed. Both seeded hit and independently proved miss vectors use
+  the documented `0x50414e47` LCG sample.
+- Retained `planning/artifacts/004-snv-lookup-performance.md`. Warm p50 open was
+  1,167.643 us. Fresh release CLI p50 for filtered 1/10/100 records was
+  2,566.029 / 2,566.490 / 2,897.891 us; one-open lookup-only p50 was
+  0.441 / 5.521 / 44.628 us. The report retains all p50/p95/p99, throughput,
+  allocation, fault, RSS, logical-byte/page, serialization, stress, hardware,
+  compiler, identity, command, and applicability evidence. Cold remains
+  explicitly unmeasured because this host could not prove nonresidency.
+- Deviation disclosed in the report: an initial full run accidentally used the
+  stale pre-ticket release builder. Although it reproduced the pinned index
+  hash, its builder digest/bundle ID were rejected. The builder was rebuilt
+  from current source and the complete full build, verify, oracle, and
+  benchmark workflow was repeated against the accepted identity above; no
+  format change was made.
+- Final gate: `make lint`, `make test`, and `make spec` pass; mustmatch reports
+  61 passing specifications.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `ticket_004_code_review` (independent, read-only)
+
+Initial result: changes required. The reviewer found six issues despite a green
+gate: the serialization benchmark duplicated rather than exercised the shipped
+renderer; opened provider provenance remained publicly mutable; invalid contig
+syntax could be masked by bundle I/O; the manifest cap was checked after an
+unbounded read; the exact output/alias/ambiguity/corruption matrix was
+incomplete; and lookup help was not ordinary CLI help.
+
+First re-review: five findings resolved, one additional evidence defect found.
+The benchmark allocated its 100-sample timing vector after resetting allocation
+and resource counters, contaminating every in-process row by 0.01 calls and 16
+bytes per batch and potentially contaminating fault/RSS observations.
+
+Final result: approved with no remaining findings. The reviewer verified the
+shared production renderer and 1,560 byte comparisons, private frozen provider
+state, pre-I/O syntax validation, bounded manifest reads, exhaustive observable
+and corruption coverage, ordinary help/version behavior, current-source full
+recertification, independently reproduced oracle identities, corrected
+operation-only benchmark accounting with a zero-allocation harness guard,
+artifact deletion, and the final 61-spec gate.

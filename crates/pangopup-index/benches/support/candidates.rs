@@ -1591,7 +1591,7 @@ fn benchmark_direct(
         let timings = measure(iterations, || {
             let opened = IndexReader::open(path).expect("open");
             for (query, gene) in &queries[..count] {
-                black_box(opened.lookup(*query, Some(*gene)).expect("lookup"));
+                black_box(opened.lookup_parts(*query, Some(*gene)).expect("lookup"));
             }
         });
         report(
@@ -1605,7 +1605,7 @@ fn benchmark_direct(
         );
         let timings = measure(iterations, || {
             for (query, gene) in &queries[..count] {
-                black_box(reader.lookup(*query, Some(*gene)).expect("lookup"));
+                black_box(reader.lookup_parts(*query, Some(*gene)).expect("lookup"));
             }
         });
         report(
@@ -1713,27 +1713,35 @@ fn benchmark_special_direct(
         let measured = measure(iterations, || match operation {
             0 => {
                 for (query, gene) in same_block {
-                    black_box(reader.lookup(*query, Some(*gene)).expect("same block"));
+                    black_box(
+                        reader
+                            .lookup_parts(*query, Some(*gene))
+                            .expect("same block"),
+                    );
                 }
             }
             1 => {
                 for (query, gene) in &special.cross_block {
-                    black_box(reader.lookup(*query, Some(*gene)).expect("cross block"));
+                    black_box(
+                        reader
+                            .lookup_parts(*query, Some(*gene))
+                            .expect("cross block"),
+                    );
                 }
             }
             2 => {
                 black_box(
                     reader
-                        .lookup(same_block[0].0, Some(same_block[0].1))
+                        .lookup_parts(same_block[0].0, Some(same_block[0].1))
                         .expect("gene filtered"),
                 );
             }
             3 => {
                 assert_eq!(
                     reader
-                        .lookup(special.overlap, None)
+                        .lookup_parts(special.overlap, None)
                         .expect("overlap")
-                        .records
+                        .0
                         .len(),
                     2
                 );
@@ -1741,9 +1749,9 @@ fn benchmark_special_direct(
             4 => {
                 assert!(
                     reader
-                        .lookup(special.absent.0, Some(special.absent.1))
+                        .lookup_parts(special.absent.0, Some(special.absent.1))
                         .expect("absent")
-                        .records
+                        .0
                         .is_empty()
                 );
             }
@@ -1751,9 +1759,9 @@ fn benchmark_special_direct(
                 let snv = ambiguous_snv(special).expect("ambiguous SNV");
                 assert_eq!(
                     reader
-                        .lookup(snv, Some(special.ambiguous.2))
+                        .lookup_parts(snv, Some(special.ambiguous.2))
                         .expect("ambiguous")
-                        .ambiguities
+                        .1
                         .len(),
                     1
                 );

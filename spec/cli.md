@@ -8,9 +8,10 @@ binary under test:
 pangopup --version | mustmatch like "pangopup 0.1.0"
 ```
 
-Until the first lookup slice lands, help says plainly that score lookup is not
-implemented:
+Help exposes the exact lookup grammar:
 
 ```bash
-pangopup --help | mustmatch like "Score lookup is not implemented yet."
+pangopup --help | rg -F 'pangopup lookup --bundle <PATH> --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT>' | mustmatch like '  pangopup lookup --bundle <PATH> --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table]'
+pangopup lookup --help | rg -F 'pangopup lookup --bundle <PATH> --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT>' | mustmatch like '  pangopup lookup --bundle <PATH> --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table]'
+pangopup lookup --version | mustmatch like "pangopup 0.1.0"
 ```

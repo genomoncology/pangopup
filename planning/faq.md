@@ -115,11 +115,11 @@ memory.
 
 ### What latency should we expect?
 
-The target for a warm library lookup is microseconds; a long-lived local HTTP
-lookup should be sub-millisecond. A cold page fault can take longer, and neural
-model inference is orders of magnitude slower. These remain targets until the
-benchmark gate reports warm/cold percentiles, page faults, allocations, bytes
-touched, and resident memory on named hardware.
+The retained Ticket 004 evidence reports measured warm one-open library lookup,
+fresh CLI batch, open-only, and serialization-only costs separately. It does
+not project those measurements onto HTTP or model inference. Cold behavior is
+explicitly unmeasured on the development host because neither dataset size nor
+an OS/device procedure proved the queried pages were nonresident.
 
 ## Settled product choices
 
@@ -159,10 +159,8 @@ bundle, GPL model weights, GRCh38 reference member, and GENCODE masking member.
 Compress for transport, verify and expand once at automatic or explicit
 installation, and map the expanded data at runtime.
 
-## Remaining design choices
+### What does lookup output look like?
 
-### What should the first output look like?
-
-- **Recommended:** JSON Lines for stable machine use plus a concise human table.
-- JSON only: simplest contract, less pleasant for direct inspection.
-- Tabular only: convenient interactively, fragile for downstream integration.
+JSON Lines is the stable default, with one compact provenance-bearing object per
+request. `--format table` selects exact tab-separated output. Both preserve
+request order and return ordinary gene records before source ambiguities.

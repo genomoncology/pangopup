@@ -1,11 +1,11 @@
 use flate2::{Compression, write::GzEncoder};
 use pangopup_build::{build_bundle, verify_bundle};
 use pangopup_core::{
-    DnaBase, EnsemblGeneId, GenomicPosition, Grch38Contig, PangolinScore, RelativePosition,
-    ScoreMagnitude,
+    DnaBase, EnsemblGeneId, GenomicPosition, Grch38Contig, Grch38Snv, PangolinScore,
+    RelativePosition, ScoreMagnitude, ScoreProvider,
 };
 use pangopup_index::{
-    BundleManifest, IndexReader, InputAlternative, InputLocus, OrdinaryInputLocus,
+    BundleManifest, BundleOpen, IndexReader, InputAlternative, InputLocus, OrdinaryInputLocus,
     StreamingIndexWriter, canonical_manifest_bytes,
 };
 use sha2::{Digest, Sha256};
@@ -14,7 +14,10 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::Command,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc, Barrier,
+        atomic::{AtomicU64, Ordering},
+    },
     thread,
 };
 
@@ -690,6 +693,73 @@ fn concurrent_publication_converges_on_one_immutable_bundle() {
         ("built", "already_present") | ("already_present", "built")
     ));
     verify_bundle(&output).expect("published bundle");
+}
+
+#[test]
+fn opened_provider_is_send_sync_and_concurrent_results_match_serial_oracle() {
+    fn assert_provider<T: ScoreProvider + Send + Sync>() {}
+    assert_provider::<BundleOpen>();
+
+    let temp = Temp::new();
+    let (source, reference) = prepare_inputs(&temp);
+    let output = temp.path().join("lookup-bundle");
+    build_bundle(&source, &reference, &output).expect("build bundle");
+    let provider = Arc::new(BundleOpen::open(&output).expect("open bundle"));
+    let frozen_provenance = provider.provenance().clone();
+    assert_eq!(provider.bundle_id(), frozen_provenance.bundle_id());
+    assert!(std::ptr::eq(provider.provenance(), provider.provenance()));
+    let snv = Grch38Snv::new(
+        "chr1".parse().expect("contig"),
+        GenomicPosition::new(2).expect("position"),
+        DnaBase::C,
+        DnaBase::T,
+    )
+    .expect("SNV");
+    let expected = provider.lookup(snv, None).expect("serial lookup");
+    assert_eq!(
+        expected.provenance().precomputed(),
+        Some(&frozen_provenance)
+    );
+    let barrier = Arc::new(Barrier::new(9));
+    let mut handles = Vec::new();
+    for _ in 0..8 {
+        let provider = Arc::clone(&provider);
+        let barrier = Arc::clone(&barrier);
+        let expected = expected.clone();
+        handles.push(thread::spawn(move || {
+            barrier.wait();
+            for _ in 0..100 {
+                assert_eq!(
+                    provider.lookup(snv, None).expect("concurrent lookup"),
+                    expected
+                );
+            }
+        }));
+    }
+    barrier.wait();
+    for handle in handles {
+        handle.join().expect("lookup worker");
+    }
+}
+
+#[test]
+fn oversized_manifest_is_rejected_before_json_decode() {
+    let temp = Temp::new();
+    let (source, reference) = prepare_inputs(&temp);
+    let output = temp.path().join("oversized-manifest-bundle");
+    build_bundle(&source, &reference, &output).expect("build bundle");
+    File::options()
+        .write(true)
+        .open(output.join("manifest.json"))
+        .expect("open manifest")
+        .set_len(1024 * 1024 + 1)
+        .expect("extend manifest");
+    assert!(
+        BundleOpen::open(&output)
+            .expect_err("oversized manifest must fail")
+            .to_string()
+            .contains("manifest size")
+    );
 }
 
 #[test]

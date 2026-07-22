@@ -346,8 +346,11 @@ dependencies = [
 name = "pangopup-cli"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "pangopup-core",
  "pangopup-index",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

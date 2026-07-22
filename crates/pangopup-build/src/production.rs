@@ -480,7 +480,7 @@ fn build_staged(
 pub fn verify_bundle(path: &Path) -> Result<VerifyOutcome, CommandError> {
     let opened = BundleOpen::open(path)
         .map_err(|error| CommandError::new("BUNDLE_INVALID", error.to_string()))?;
-    for member in &opened.manifest.members {
+    for member in &opened.manifest().members {
         let actual = hash_file(&path.join(&member.path))?;
         if actual != member.sha256 {
             return Err(CommandError::new(
@@ -496,19 +496,19 @@ pub fn verify_bundle(path: &Path) -> Result<VerifyOutcome, CommandError> {
         ));
     }
     opened
-        .index
+        .index()
         .verify_canonical_structure()
         .map_err(|error| CommandError::new("BUNDLE_INDEX", error.to_string()))?;
-    let decoded = decode_reader(&opened.index)?;
-    if decoded.logical != opened.manifest.logical_decoded
-        || opened.manifest.logical_source != opened.manifest.logical_decoded
+    let decoded = decode_reader(opened.index())?;
+    if decoded.logical != opened.manifest().logical_decoded
+        || opened.manifest().logical_source != opened.manifest().logical_decoded
     {
         return Err(CommandError::new(
             "BUNDLE_LOGICAL_MISMATCH",
             "complete decoded logical stream does not match the manifest",
         ));
     }
-    let counts = opened.manifest.counts;
+    let counts = opened.manifest().counts;
     let direction_members = counts
         .ascending_members
         .checked_add(counts.descending_members)
@@ -529,13 +529,13 @@ pub fn verify_bundle(path: &Path) -> Result<VerifyOutcome, CommandError> {
         // its checked total, but not independently recover the split from the
         // canonical ascending fixed-v1 representation.
         || counts.genes != direction_members
-        || opened.manifest.source.observed_member_count != counts.genes
+        || opened.manifest().source.observed_member_count != counts.genes
         || counts.source_segments != decoded.source_segments
         || counts.gap_transitions != decoded.gaps
         || counts.omitted_bases != decoded.omitted_bases
         || counts.index_segments != decoded.index_segments
-        || decoded.index_segments != opened.index.segment_count()
-        || counts.n_ref_loci != opened.index.exception_count()
+        || decoded.index_segments != opened.index().segment_count()
+        || counts.n_ref_loci != opened.index().exception_count()
         || counts.n_ref_loci != decoded.n_ref_loci
         || counts.n_omit_a != decoded.n_omit_a
         || counts.n_omit_t != decoded.n_omit_t
@@ -548,7 +548,7 @@ pub fn verify_bundle(path: &Path) -> Result<VerifyOutcome, CommandError> {
     }
     Ok(VerifyOutcome {
         status: "verified",
-        bundle_id: opened.bundle_id,
+        bundle_id: opened.bundle_id().to_owned(),
         members_verified: 2,
     })
 }

@@ -5,8 +5,9 @@
 
 use memmap2::Mmap;
 use pangopup_core::{
-    DnaBase, EnsemblGeneId, GenomicPosition, Grch38Contig, Grch38Snv, PangolinScore,
-    RelativePosition, ScoreMagnitude,
+    DnaBase, EnsemblGeneId, GeneScoreRecord, GenomicPosition, Grch38Contig, Grch38Snv, LookupError,
+    LookupProvenance, LookupResult, PangolinScore, PrecomputedProvenance, RelativePosition,
+    ScoreMagnitude, ScoreProvider, SourceReferenceAmbiguity,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -14,7 +15,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
     fs::{self, File},
-    io::{self, BufReader, Write},
+    io::{self, BufReader, Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -26,6 +27,7 @@ const TREE_NODE_SIZE: usize = 32;
 const EXCEPTION_SIZE: usize = 40;
 const PAGE_SIZE: u64 = 4096;
 const NONE: u64 = u64::MAX;
+const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 
 pub const INDEX_FORMAT: &str = "pangopup.fixed11.v1";
 pub const BUNDLE_SCHEMA: &str = "pangopup.bundle.v1";
@@ -64,26 +66,10 @@ pub enum InputLocus {
     Ambiguous(AmbiguousInputLocus),
 }
 
-/// One exact gene-specific lookup record.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct GeneScore {
-    pub gene: EnsemblGeneId,
-    pub score: PangolinScore,
-}
-
-/// An ambiguous source-reference record at a queried coordinate.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SourceAmbiguity {
-    pub gene: EnsemblGeneId,
-    pub omitted: DnaBase,
-    pub published_alternates: [DnaBase; 3],
-}
-
-/// Complete private-kernel lookup result.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct LookupResult {
-    pub records: Vec<GeneScore>,
-    pub ambiguities: Vec<SourceAmbiguity>,
+struct RawLookupResult {
+    records: Vec<GeneScoreRecord>,
+    ambiguities: Vec<SourceReferenceAmbiguity>,
 }
 
 /// Instrumentation describes encoded work, not physical storage reads.
@@ -204,9 +190,10 @@ pub struct AttributionManifest {
 
 #[derive(Debug)]
 pub struct BundleOpen {
-    pub manifest: BundleManifest,
-    pub bundle_id: String,
-    pub index: IndexReader,
+    manifest: BundleManifest,
+    bundle_id: String,
+    provenance: PrecomputedProvenance,
+    index: IndexReader,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -222,6 +209,7 @@ pub struct DecodedSummary {
 #[derive(Debug)]
 pub enum IndexError {
     Io(io::Error),
+    Incompatible(&'static str),
     InvalidInput(&'static str),
     Corrupt(&'static str),
     Arithmetic(&'static str),
@@ -231,6 +219,7 @@ impl fmt::Display for IndexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(error) => write!(f, "index I/O failed: {error}"),
+            Self::Incompatible(reason) => write!(f, "incompatible bundle: {reason}"),
             Self::InvalidInput(reason) => write!(f, "invalid logical index input: {reason}"),
             Self::Corrupt(reason) => write!(f, "invalid index: {reason}"),
             Self::Arithmetic(reason) => write!(f, "index arithmetic overflow: {reason}"),
@@ -276,8 +265,18 @@ impl BundleOpen {
         if names != ["NOTICE", "manifest.json", "scores.pgi"] {
             return Err(IndexError::Corrupt("bundle member set"));
         }
-        let manifest_bytes = fs::read(path.join("manifest.json"))?;
-        if manifest_bytes.len() > 1024 * 1024 {
+        let manifest_path = path.join("manifest.json");
+        let manifest_size = fs::metadata(&manifest_path)?.len();
+        if manifest_size > MAX_MANIFEST_BYTES {
+            return Err(IndexError::Corrupt("manifest size"));
+        }
+        let capacity =
+            usize::try_from(manifest_size).map_err(|_| IndexError::Corrupt("manifest size"))?;
+        let mut manifest_bytes = Vec::with_capacity(capacity);
+        File::open(&manifest_path)?
+            .take(MAX_MANIFEST_BYTES + 1)
+            .read_to_end(&mut manifest_bytes)?;
+        if manifest_bytes.len() as u64 > MAX_MANIFEST_BYTES {
             return Err(IndexError::Corrupt("manifest size"));
         }
         let manifest: BundleManifest = serde_json::from_slice(&manifest_bytes)
@@ -292,17 +291,89 @@ impl BundleOpen {
             }
         }
         let index = IndexReader::open(&path.join("scores.pgi"))?;
+        let bundle_id = bundle_id(&manifest_bytes);
+        let provenance = PrecomputedProvenance::new(
+            bundle_id.clone(),
+            manifest.source.doi.clone(),
+            manifest
+                .source
+                .published_archive_md5
+                .strip_prefix("md5:")
+                .ok_or(IndexError::Corrupt("manifest MD5 prefix"))?
+                .to_owned(),
+            manifest.source.masked,
+            manifest.source.window,
+        );
         Ok(Self {
-            bundle_id: bundle_id(&manifest_bytes),
+            bundle_id,
             manifest,
+            provenance,
             index,
         })
+    }
+
+    pub fn resolve_contig(&self, value: &str) -> Option<(Grch38Contig, u32)> {
+        self.manifest.reference.aliases.iter().find_map(|alias| {
+            let contig = alias.contig.parse::<Grch38Contig>().ok()?;
+            let length = u32::try_from(alias.length).ok()?;
+            (value == alias.contig.strip_prefix("chr").unwrap_or(&alias.contig)
+                || value == alias.contig
+                || value == alias.accession)
+                .then_some((contig, length))
+        })
+    }
+
+    pub fn bundle_id(&self) -> &str {
+        &self.bundle_id
+    }
+
+    pub fn provenance(&self) -> &PrecomputedProvenance {
+        &self.provenance
+    }
+
+    /// Read-only manifest access for the offline verifier.
+    pub fn manifest(&self) -> &BundleManifest {
+        &self.manifest
+    }
+
+    /// Read-only index access for the offline verifier.
+    pub fn index(&self) -> &IndexReader {
+        &self.index
+    }
+
+    /// Instrument a benchmark batch without exposing mutable provider state.
+    pub fn lookup_batch_measured(
+        &self,
+        queries: &[(Grch38Snv, Option<EnsemblGeneId>)],
+    ) -> Result<LookupMetrics, IndexError> {
+        self.index.lookup_batch_measured(queries)
+    }
+}
+
+impl ScoreProvider for BundleOpen {
+    fn lookup(
+        &self,
+        snv: Grch38Snv,
+        gene: Option<EnsemblGeneId>,
+    ) -> Result<LookupResult, LookupError> {
+        let raw = self
+            .index
+            .lookup_inner(snv, gene, None)
+            .map_err(|_| LookupError::CorruptProviderData)?;
+        Ok(LookupResult::new(
+            raw.records,
+            raw.ambiguities,
+            LookupProvenance::Precomputed(self.provenance.clone()),
+        ))
     }
 }
 
 fn validate_manifest(manifest: &BundleManifest) -> Result<(), IndexError> {
-    if manifest.schema != BUNDLE_SCHEMA || manifest.index_format != INDEX_FORMAT {
-        return Err(IndexError::Corrupt("bundle compatibility"));
+    if manifest.schema != BUNDLE_SCHEMA {
+        return Err(IndexError::Incompatible("bundle schema version"));
+    }
+    if manifest.index_format != INDEX_FORMAT {
+        return Err(IndexError::Incompatible("index format version"));
     }
     if manifest.members.len() != 2
         || manifest.members[0].path != "NOTICE"
@@ -1071,19 +1142,31 @@ impl IndexReader {
         Ok(Self { map, header })
     }
 
-    pub fn lookup(
+    fn lookup(
         &self,
         snv: Grch38Snv,
         gene: Option<EnsemblGeneId>,
-    ) -> Result<LookupResult, IndexError> {
+    ) -> Result<RawLookupResult, IndexError> {
         self.lookup_inner(snv, gene, None)
     }
 
-    pub fn lookup_measured(
+    /// Low-level lookup used by format benchmarks. Runtime adapters should use
+    /// [`ScoreProvider`] on [`BundleOpen`] so provenance cannot be omitted.
+    pub fn lookup_parts(
         &self,
         snv: Grch38Snv,
         gene: Option<EnsemblGeneId>,
-    ) -> Result<(LookupResult, LookupMetrics), IndexError> {
+    ) -> Result<(Vec<GeneScoreRecord>, Vec<SourceReferenceAmbiguity>), IndexError> {
+        let result = self.lookup_inner(snv, gene, None)?;
+        Ok((result.records, result.ambiguities))
+    }
+
+    #[cfg(test)]
+    fn lookup_measured(
+        &self,
+        snv: Grch38Snv,
+        gene: Option<EnsemblGeneId>,
+    ) -> Result<(RawLookupResult, LookupMetrics), IndexError> {
         let mut work = Work::default();
         let result = self.lookup_inner(snv, gene, Some(&mut work))?;
         Ok((
@@ -1327,10 +1410,7 @@ impl IndexReader {
                         .map_err(|_| IndexError::InvalidInput("ordinary SNV"))?;
                         let result = self.lookup(snv, Some(locus.gene))?;
                         if result.records.as_slice()
-                            != [GeneScore {
-                                gene: locus.gene,
-                                score: alternate.score,
-                            }]
+                            != [GeneScoreRecord::new(locus.gene, alternate.score)]
                             || !result.ambiguities.is_empty()
                         {
                             return Err(IndexError::Corrupt("ordinary round-trip mismatch"));
@@ -1366,8 +1446,8 @@ impl IndexReader {
         snv: Grch38Snv,
         gene: Option<EnsemblGeneId>,
         mut work: Option<&mut Work>,
-    ) -> Result<LookupResult, IndexError> {
-        let mut result = LookupResult::default();
+    ) -> Result<RawLookupResult, IndexError> {
+        let mut result = RawLookupResult::default();
         match gene {
             Some(gene) => self.lookup_gene_segments(snv, gene, &mut result, &mut work)?,
             None => {
@@ -1378,10 +1458,10 @@ impl IndexReader {
             }
         }
         self.lookup_exceptions(snv, gene, &mut result, &mut work)?;
-        result.records.sort_by_key(|record| record.gene.numeric());
+        result.records.sort_by_key(GeneScoreRecord::gene);
         result
             .ambiguities
-            .sort_by_key(|record| record.gene.numeric());
+            .sort_by_key(SourceReferenceAmbiguity::gene);
         Ok(result)
     }
 
@@ -1389,7 +1469,7 @@ impl IndexReader {
         &self,
         snv: Grch38Snv,
         gene: EnsemblGeneId,
-        result: &mut LookupResult,
+        result: &mut RawLookupResult,
         work: &mut Option<&mut Work>,
     ) -> Result<(), IndexError> {
         let target = (gene.numeric(), snv.contig().code(), snv.position().get());
@@ -1423,7 +1503,7 @@ impl IndexReader {
         &self,
         node_index: u64,
         snv: Grch38Snv,
-        result: &mut LookupResult,
+        result: &mut RawLookupResult,
         work: &mut Option<&mut Work>,
     ) -> Result<(), IndexError> {
         if let Some(current) = work.as_deref_mut() {
@@ -1454,7 +1534,7 @@ impl IndexReader {
         &self,
         segment: &SegmentView,
         snv: Grch38Snv,
-        result: &mut LookupResult,
+        result: &mut RawLookupResult,
         work: &mut Option<&mut Work>,
     ) -> Result<(), IndexError> {
         let ordinal = u64::from(snv.position().get() - segment.start);
@@ -1479,10 +1559,9 @@ impl IndexReader {
             .get(start..start + 11)
             .ok_or(IndexError::Corrupt("truncated fixed record"))?;
         if let Some(score) = decode_fixed_locus(raw, snv)? {
-            result.records.push(GeneScore {
-                gene: segment.gene,
-                score,
-            });
+            result
+                .records
+                .push(GeneScoreRecord::new(segment.gene, score));
         }
         Ok(())
     }
@@ -1491,7 +1570,7 @@ impl IndexReader {
         &self,
         snv: Grch38Snv,
         gene: Option<EnsemblGeneId>,
-        result: &mut LookupResult,
+        result: &mut RawLookupResult,
         work: &mut Option<&mut Work>,
     ) -> Result<(), IndexError> {
         if let Some(gene) = gene {
@@ -1520,11 +1599,10 @@ impl IndexReader {
                     exception.gene.numeric(),
                 ) == target
                 {
-                    result.ambiguities.push(SourceAmbiguity {
-                        gene: exception.gene,
-                        omitted: exception.omitted,
-                        published_alternates: exception.alternatives.map(|value| value.alternate),
-                    });
+                    result.ambiguities.push(SourceReferenceAmbiguity::new(
+                        exception.gene,
+                        exception.omitted,
+                    ));
                 }
             }
             return Ok(());
@@ -1548,11 +1626,10 @@ impl IndexReader {
             if (exception.contig.code(), exception.position.get()) != target {
                 break;
             }
-            result.ambiguities.push(SourceAmbiguity {
-                gene: exception.gene,
-                omitted: exception.omitted,
-                published_alternates: exception.alternatives.map(|value| value.alternate),
-            });
+            result.ambiguities.push(SourceReferenceAmbiguity::new(
+                exception.gene,
+                exception.omitted,
+            ));
             index += 1;
         }
         Ok(())
@@ -1655,7 +1732,7 @@ fn decode_header(bytes: &[u8]) -> Result<Header, IndexError> {
         return Err(IndexError::Corrupt("wrong magic"));
     }
     if read_u32(bytes, 8)? != VERSION {
-        return Err(IndexError::Corrupt("unsupported version"));
+        return Err(IndexError::Incompatible("index header version"));
     }
     if read_u32(bytes, 12)? != HEADER_SIZE as u32 {
         return Err(IndexError::Corrupt("wrong header size"));
@@ -2078,6 +2155,13 @@ fn decode_fixed_locus(raw: &[u8], snv: Grch38Snv) -> Result<Option<PangolinScore
     expanded[..11].copy_from_slice(raw);
     let bits = u128::from_le_bytes(expanded);
     let reference = decode_base((bits & 0b111) as u8)?;
+    let mut decoded = [None; 3];
+    for (index, slot) in decoded.iter_mut().enumerate() {
+        let encoded = ((bits >> (3 + index * 28)) & ((1_u128 << 28) - 1)) as u32;
+        let gain = decode_pair_code((encoded & 0x3fff) as u16)?;
+        let loss = decode_pair_code((encoded >> 14) as u16)?;
+        *slot = Some(PangolinScore::new(gain.0, gain.1, loss.0, loss.1));
+    }
     if reference != snv.reference() {
         return Ok(None);
     }
@@ -2088,10 +2172,9 @@ fn decode_fixed_locus(raw: &[u8], snv: Grch38Snv) -> Result<Option<PangolinScore
     let Some(alternate_index) = alternate_index else {
         return Ok(None);
     };
-    let encoded = ((bits >> (3 + alternate_index * 28)) & ((1_u128 << 28) - 1)) as u32;
-    let gain = decode_pair_code((encoded & 0x3fff) as u16)?;
-    let loss = decode_pair_code((encoded >> 14) as u16)?;
-    Ok(Some(PangolinScore::new(gain.0, gain.1, loss.0, loss.1)))
+    decoded[alternate_index]
+        .ok_or(IndexError::Corrupt("fixed alternate decode"))
+        .map(Some)
 }
 
 fn decode_fixed_input(
@@ -2327,8 +2410,43 @@ mod tests {
         .expect("snv");
         let result = reader.lookup(snv, None).expect("lookup");
         assert_eq!(result.records.len(), 2);
-        assert_eq!(result.records[0].score.gain().hundredths(), 35);
+        assert_eq!(result.records[0].score().gain().hundredths(), 35);
         assert_eq!(result.ambiguities.len(), 1);
+        let expected_ambiguity = result.ambiguities.clone();
+        for reference in DnaBase::ALL {
+            for alternate in DnaBase::ALL {
+                if reference == alternate {
+                    continue;
+                }
+                let concrete = Grch38Snv::new(
+                    "chr1".parse().expect("contig"),
+                    GenomicPosition::new(250).expect("position"),
+                    reference,
+                    alternate,
+                )
+                .expect("SNV");
+                assert_eq!(
+                    reader
+                        .lookup(concrete, None)
+                        .expect("concrete lookup")
+                        .ambiguities,
+                    expected_ambiguity,
+                    "{reference}>{alternate}"
+                );
+            }
+        }
+        let ordinary_gene = "ENSG00000000001".parse().expect("ordinary gene");
+        let ambiguity_gene = "ENSG00000000003".parse().expect("ambiguity gene");
+        let ordinary_only = reader
+            .lookup(snv, Some(ordinary_gene))
+            .expect("ordinary filter");
+        assert_eq!(ordinary_only.records.len(), 1);
+        assert!(ordinary_only.ambiguities.is_empty());
+        let ambiguity_only = reader
+            .lookup(snv, Some(ambiguity_gene))
+            .expect("ambiguity filter");
+        assert!(ambiguity_only.records.is_empty());
+        assert_eq!(ambiguity_only.ambiguities, expected_ambiguity);
         let measured = reader.lookup_measured(snv, None).expect("measured").1;
         assert!(measured.logical_bytes_decoded > 0 && measured.unique_mapped_pages_addressed > 0);
         fs::remove_file(path).expect("remove");
@@ -2364,7 +2482,7 @@ mod tests {
         let header = decode_header(&bytes).expect("header");
         for (label, offset, value, expected) in [
             ("magic", 0, b'X', "wrong magic"),
-            ("version", 8, 2, "unsupported version"),
+            ("version", 8, 2, "index header version"),
             ("section", 24, 0, "overlapping or unordered sections"),
             ("count", 88, 3, "segment section length"),
         ] {
@@ -2535,6 +2653,26 @@ mod tests {
                 .contains("fixed score value code")
         );
         fs::remove_file(invalid_score).expect("remove");
+
+        let invalid_unrequested_score = path("unrequested-score");
+        let mut changed = bytes.clone();
+        let mut expanded = [0_u8; 16];
+        expanded[..11].copy_from_slice(&changed[record_start..record_start + 11]);
+        let mut bits = u128::from_le_bytes(expanded);
+        let unrequested_gain_shift = 3 + 28;
+        bits =
+            (bits & !(0x7f_u128 << unrequested_gain_shift)) | (0x7f_u128 << unrequested_gain_shift);
+        changed[record_start..record_start + 11].copy_from_slice(&bits.to_le_bytes()[..11]);
+        fs::write(&invalid_unrequested_score, changed).expect("write unrequested score mutation");
+        let reader = IndexReader::open(&invalid_unrequested_score).expect("payload is lazy");
+        assert!(
+            reader
+                .lookup(first, None)
+                .expect_err("all pairs in an addressed record are validated")
+                .to_string()
+                .contains("fixed score value code")
+        );
+        fs::remove_file(invalid_unrequested_score).expect("remove");
 
         let record = header.payload_offset + segment.payload_rel + 11;
         let corrupt = path("value");

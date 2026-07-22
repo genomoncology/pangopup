@@ -67,7 +67,9 @@ other build-only dependencies stay here and do not enter runtime consumers.
 Owns arguments, narrow genomic-variant input parsing, output rendering, and
 exit codes. It opens one configured Pangopup bundle for the process and reuses
 it for every request in batch or streaming modes. It does not parse source TSV
-files.
+files. The binary and performance harness call the same library renderer, so
+measured JSONL/table serialization is the production byte path rather than a
+benchmark copy.
 
 Future `pangopup-assets`, `pangopup-model`, and `pangopup-http` crates should be
 added only when their own observable slices begin. They must consume the same
@@ -117,10 +119,12 @@ Ensembl gene and masking is gene-specific, so the same genomic allele can have
 several valid score records. Pangopup returns every matching record by default
 and accepts an optional source-gene filter; it never guesses one best gene.
 
-An SNV tries the precomputed index first. A lookup miss or a non-SNV routes to
-the bundled model when that variant shape is supported and the required gene
-context exists. Unsupported shapes and reference mismatches fail with typed
-errors. Every success identifies whether lookup or inference produced it.
+The current CLI slice accepts concrete SNVs only and tries the precomputed index.
+A concrete tuple whose reference does not match an ordinary indexed key is a
+typed-context `not_found` result, because no runtime FASTA is present. A later
+model slice may route misses and supported non-SNVs through pinned reference and
+mask assets; it must define its own reference-mismatch behavior. Every current
+result identifies the precomputed bundle and source provenance.
 
 See [`runtime-data.md`](runtime-data.md) for the small set of standalone assets
 needed by lookup and model execution.
@@ -166,11 +170,11 @@ owns repeat full hashing.
 The operating-system page cache is the first lookup cache; Pangopup does not add
 an application result cache until measurements show a miss it can improve.
 
-Lookups must be deterministic, thread-safe, and allocation-light. Returning a
-small owned score record is preferable to exposing mmap-backed lifetimes across
-the public API. The primary installed profile is decompression-free sparse mmap;
-transport compression is removed once at installation and never appears on the
-query path.
+Lookups are deterministic and thread-safe through one `ScoreProvider: Send +
+Sync`. Results own small sorted record and ambiguity collections rather than
+exposing mmap lifetimes. The selected installed profile is decompression-free
+fixed-width mmap; transport compression is removed once at installation and
+never appears on the query path.
 
 ## Deliberate first-slice exclusions
 

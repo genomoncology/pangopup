@@ -167,12 +167,13 @@ After correctness, Pangopup optimizes in this order:
 2. resident memory and pages touched;
 3. compressed download size.
 
-The raw, warm SNV lookup should operate on the microsecond scale. A long-lived
-local HTTP request should remain sub-millisecond when it is a lookup hit.
-Cold-page faults can take longer, and model inference is orders of magnitude
-more expensive than lookup. These are design targets, not performance claims;
-the release gate will report warm and cold p50/p95/p99 latency, throughput,
-allocations, resident memory, page faults, and bytes touched.
+The Ticket 004 report measures the complete artifact's warm one-open library
+lookup separately from fresh CLI process/open/render/write cost. Cold lookup is
+not inferred from a first post-build request: it remains unmeasured unless an
+OS/device procedure proves the addressed pages were nonresident. No HTTP or
+model latency follows from these lookup measurements. Serialization-only
+measurements invoke the same library renderer as the shipped CLI, with the
+benchmark asserting byte equality against fresh CLI stdout.
 
 Memory mapping does not mean that the index uses literally no RAM. It means the
 operating system loads file pages only as they are touched and can reclaim them
@@ -213,16 +214,22 @@ Implemented today:
   independent source/decoded logical streams (source direction is retained
   provenance whose checked total, not split, is reconstructable from fixed-v1);
 - the standalone API, runtime-data, delivery, and performance decisions.
+- an object-safe, thread-safe typed score provider over one long-lived mmap;
+- transactional `pangopup lookup` JSONL/table batches with strict GRCh38
+  aliases, optional source-gene filtering, all-overlap results, typed misses,
+  and explicit source-reference ambiguities.
 
-Not implemented yet: a stable public provider trait or lookup result, real CLI
-lookup, automatic asset manager, model runtime, HTTP service, or result cache.
+Not implemented yet: automatic asset manager, model runtime/fallback, HTTP
+service, or result cache. In this slice a syntactically valid concrete REF that
+does not match an ordinary indexed key is `not_found`; runtime FASTA validation
+begins only with the future model/reference slice.
 
 The development order is:
 
 1. checked source fixture and executable source contract (complete);
 2. measured miniature index writer/reader (complete);
 3. full streaming builder and complete index certification (complete);
-4. typed SNV lookup API and CLI;
+4. typed SNV lookup API and CLI (complete);
 5. release packaging and automatic asset installation;
 6. compatible model fallback and compact reference/mask assets;
 7. unified HTTP service and end-to-end performance proof.
@@ -248,6 +255,20 @@ make lint
 make test
 make spec
 ```
+
+Open an explicitly supplied certified bundle once and query one or more SNVs:
+
+```bash skip
+pangopup lookup --bundle /path/to/bundle \
+  --variant GRCh38:17:7686072:G:T \
+  --variant GRCh38:NC_000017.11:7686072:G:C \
+  --format jsonl
+```
+
+Accepted contigs are exactly `1`…`22`, `X`, `Y`, `M`, their `chr`-prefixed
+forms, or the 25 exact RefSeq accessions in the opened manifest. Add one
+`--gene ENSG…` to filter the complete batch. JSON Lines is the default;
+`--format table` emits exact tab-separated rows.
 
 Release builders use explicit, read-only inputs and never download data or
 discover a home directory:

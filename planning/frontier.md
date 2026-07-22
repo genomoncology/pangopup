@@ -49,12 +49,15 @@ three-file bundle only after complete offline verification. The canonical
 manifest binds source/reference identities, exact member hashes, corpus counts,
 attribution, and matching independent source/decoded logical-stream digests.
 
-## Active front — typed SNV lookup
+## Established — typed SNV lookup
 
-Open the certified bundle through the cheap path and expose gene-filtered plus
-all-overlap exact SNV lookup through the public typed provider boundary and CLI.
-Keep full member hashing and payload scans explicit rather than adding them to
-ordinary startup.
+The cheap bundle open scans all fixed metadata and exceptions but does not hash
+members or traverse ordinary score payload. One long-lived typed provider owns
+the mmap and safely serves filtered or all-overlap requests. The CLI opens once,
+validates the complete batch, returns exact JSONL or table bytes, and reports
+misses, source-reference ambiguities, mixed results, incompatible bundles, and
+touched-payload corruption distinctly. Full hashing and payload scans remain an
+explicit `pangopup-build verify` operation.
 
 ## Later front — reproducible release assets
 

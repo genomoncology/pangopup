@@ -82,12 +82,24 @@ impl FromStr for Grch38Contig {
             "X" => Ok(Self::X),
             "Y" => Ok(Self::Y),
             "M" => Ok(Self::M),
-            _ => number
-                .parse::<u8>()
-                .ok()
-                .filter(|number| (1..=22).contains(number))
-                .map(Self)
-                .ok_or_else(|| ValueError::InvalidContig(value.to_owned())),
+            _ if matches!(
+                value.as_bytes(),
+                [b'1'..=b'9']
+                    | [b'1', b'0'..=b'9']
+                    | [b'2', b'0'..=b'2']
+                    | [b'c', b'h', b'r', b'1'..=b'9']
+                    | [b'c', b'h', b'r', b'1', b'0'..=b'9']
+                    | [b'c', b'h', b'r', b'2', b'0'..=b'2']
+            ) =>
+            {
+                number
+                    .parse::<u8>()
+                    .ok()
+                    .filter(|number| (1..=22).contains(number))
+                    .map(Self)
+                    .ok_or_else(|| ValueError::InvalidContig(value.to_owned()))
+            }
+            _ => Err(ValueError::InvalidContig(value.to_owned())),
         }
     }
 }
@@ -357,6 +369,183 @@ impl fmt::Display for LossText {
     }
 }
 
+/// One exact, gene-specific score returned by a provider.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GeneScoreRecord {
+    gene: EnsemblGeneId,
+    score: PangolinScore,
+}
+
+impl GeneScoreRecord {
+    pub const fn new(gene: EnsemblGeneId, score: PangolinScore) -> Self {
+        Self { gene, score }
+    }
+
+    pub const fn gene(&self) -> EnsemblGeneId {
+        self.gene
+    }
+
+    pub const fn score(&self) -> PangolinScore {
+        self.score
+    }
+}
+
+/// A published locus whose source reference was `N`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceReferenceAmbiguity {
+    gene: EnsemblGeneId,
+    published_alternates: [DnaBase; 3],
+    omitted_alternate: DnaBase,
+}
+
+impl SourceReferenceAmbiguity {
+    pub fn new(gene: EnsemblGeneId, omitted_alternate: DnaBase) -> Self {
+        let published_alternates = match omitted_alternate {
+            DnaBase::A => [DnaBase::C, DnaBase::G, DnaBase::T],
+            DnaBase::C => [DnaBase::A, DnaBase::G, DnaBase::T],
+            DnaBase::G => [DnaBase::A, DnaBase::C, DnaBase::T],
+            DnaBase::T => [DnaBase::A, DnaBase::C, DnaBase::G],
+        };
+        Self {
+            gene,
+            published_alternates,
+            omitted_alternate,
+        }
+    }
+
+    pub const fn gene(&self) -> EnsemblGeneId {
+        self.gene
+    }
+
+    pub const fn source_reference(&self) -> &'static str {
+        "N"
+    }
+
+    pub const fn published_alternates(&self) -> &[DnaBase; 3] {
+        &self.published_alternates
+    }
+
+    pub const fn omitted_alternate(&self) -> DnaBase {
+        self.omitted_alternate
+    }
+}
+
+/// Identity of the immutable published-score bundle used for a lookup.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PrecomputedProvenance {
+    bundle_id: String,
+    source_doi: String,
+    source_archive_md5: String,
+    masked: bool,
+    window: u32,
+}
+
+impl PrecomputedProvenance {
+    pub fn new(
+        bundle_id: String,
+        source_doi: String,
+        source_archive_md5: String,
+        masked: bool,
+        window: u32,
+    ) -> Self {
+        Self {
+            bundle_id,
+            source_doi,
+            source_archive_md5,
+            masked,
+            window,
+        }
+    }
+
+    pub fn bundle_id(&self) -> &str {
+        &self.bundle_id
+    }
+    pub fn source_doi(&self) -> &str {
+        &self.source_doi
+    }
+    pub fn source_archive_md5(&self) -> &str {
+        &self.source_archive_md5
+    }
+    pub const fn masked(&self) -> bool {
+        self.masked
+    }
+    pub const fn window(&self) -> u32 {
+        self.window
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum LookupProvenance {
+    Precomputed(PrecomputedProvenance),
+}
+
+impl LookupProvenance {
+    pub const fn precomputed(&self) -> Option<&PrecomputedProvenance> {
+        match self {
+            Self::Precomputed(value) => Some(value),
+        }
+    }
+}
+
+/// Complete owned result of one score lookup.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LookupResult {
+    records: Vec<GeneScoreRecord>,
+    source_reference_ambiguities: Vec<SourceReferenceAmbiguity>,
+    provenance: LookupProvenance,
+}
+
+impl LookupResult {
+    pub fn new(
+        mut records: Vec<GeneScoreRecord>,
+        mut source_reference_ambiguities: Vec<SourceReferenceAmbiguity>,
+        provenance: LookupProvenance,
+    ) -> Self {
+        records.sort_by_key(GeneScoreRecord::gene);
+        source_reference_ambiguities.sort_by_key(SourceReferenceAmbiguity::gene);
+        Self {
+            records,
+            source_reference_ambiguities,
+            provenance,
+        }
+    }
+
+    pub fn records(&self) -> &[GeneScoreRecord] {
+        &self.records
+    }
+    pub fn source_reference_ambiguities(&self) -> &[SourceReferenceAmbiguity] {
+        &self.source_reference_ambiguities
+    }
+    pub const fn provenance(&self) -> &LookupProvenance {
+        &self.provenance
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum LookupError {
+    CorruptProviderData,
+}
+
+impl fmt::Display for LookupError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CorruptProviderData => f.write_str("provider data is corrupt"),
+        }
+    }
+}
+
+impl std::error::Error for LookupError {}
+
+pub trait ScoreProvider: Send + Sync {
+    fn lookup(
+        &self,
+        snv: Grch38Snv,
+        gene: Option<EnsemblGeneId>,
+    ) -> Result<LookupResult, LookupError>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -391,13 +580,7 @@ mod tests {
                 .to_string(),
             "chr1"
         );
-        assert_eq!(
-            "chr01"
-                .parse::<Grch38Contig>()
-                .expect("adapter alias")
-                .to_string(),
-            "chr1"
-        );
+        assert!("chr01".parse::<Grch38Contig>().is_err());
         assert!(Grch38Contig::autosome(1).is_ok());
         assert!(Grch38Contig::autosome(23).is_err());
         assert_eq!(
@@ -437,6 +620,98 @@ mod tests {
         assert_eq!(
             LossText(ScoreMagnitude::new(0).expect("valid")).to_string(),
             "0.00"
+        );
+    }
+
+    #[test]
+    fn contig_spellings_are_exact() {
+        for number in 1..=22 {
+            for accepted in [number.to_string(), format!("chr{number}")] {
+                assert!(accepted.parse::<Grch38Contig>().is_ok(), "{accepted}");
+            }
+        }
+        for accepted in ["X", "Y", "M", "chrX", "chrY", "chrM"] {
+            assert!(accepted.parse::<Grch38Contig>().is_ok(), "{accepted}");
+        }
+        for rejected in [
+            "0",
+            "00",
+            "01",
+            "023",
+            "chr0",
+            "chr00",
+            "chr01",
+            "chr023",
+            "x",
+            "y",
+            "m",
+            "chrx",
+            "chry",
+            "chrm",
+            "MT",
+            "chrMT",
+            "Chr1",
+            "CHR1",
+            " chr1",
+            "chr1 ",
+            "23",
+            "chr23",
+            "-1",
+            "+1",
+            "1.0",
+            "NC_000001.11",
+        ] {
+            assert!(rejected.parse::<Grch38Contig>().is_err(), "{rejected}");
+        }
+    }
+
+    #[test]
+    fn public_result_constructor_enforces_gene_order_and_ambiguity_shape() {
+        let first: EnsemblGeneId = "ENSG00000000001".parse().expect("gene");
+        let second: EnsemblGeneId = "ENSG00000000002".parse().expect("gene");
+        let score = PangolinScore::new(
+            ScoreMagnitude::new(0).expect("score"),
+            RelativePosition::new(-50).expect("position"),
+            ScoreMagnitude::new(0).expect("score"),
+            RelativePosition::new(-50).expect("position"),
+        );
+        let provenance = LookupProvenance::Precomputed(PrecomputedProvenance::new(
+            format!("sha256:{}", "0".repeat(64)),
+            "10.5281/zenodo.15649338".to_owned(),
+            "679ef0b50e511b6102b4b88fbf811108".to_owned(),
+            true,
+            50,
+        ));
+        let result = LookupResult::new(
+            vec![
+                GeneScoreRecord::new(second, score),
+                GeneScoreRecord::new(first, score),
+            ],
+            vec![
+                SourceReferenceAmbiguity::new(second, DnaBase::T),
+                SourceReferenceAmbiguity::new(first, DnaBase::A),
+            ],
+            provenance,
+        );
+        assert_eq!(
+            result
+                .records()
+                .iter()
+                .map(GeneScoreRecord::gene)
+                .collect::<Vec<_>>(),
+            [first, second]
+        );
+        assert_eq!(
+            result.source_reference_ambiguities()[0].published_alternates(),
+            &[DnaBase::C, DnaBase::G, DnaBase::T]
+        );
+        assert_eq!(
+            result.source_reference_ambiguities()[1].published_alternates(),
+            &[DnaBase::A, DnaBase::C, DnaBase::G]
+        );
+        assert_eq!(
+            result.source_reference_ambiguities()[0].source_reference(),
+            "N"
         );
     }
 }
