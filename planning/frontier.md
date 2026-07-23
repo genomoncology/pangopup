@@ -11,8 +11,8 @@ optional gene filter and returns all matching source records by default from an
 explicit fixed-v1 bundle or the active Linux user-data installation. Speed
 leads memory and download size. Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
-established. Immutable publication is also complete; remote sync, model
-fallback, and HTTP remain future.
+established. Immutable publication and pinned resumable remote sync are also
+complete; model fallback and HTTP remain future.
 
 ## Established — pinned source ingestion contract
 
@@ -99,15 +99,16 @@ audit. The public `snv-grch38-v1` release contains the exact eight reviewed
 assets, GitHub reports every size/digest and `immutable=true`, and bounded
 unauthenticated reads plus the documented five-file manual path are proved.
 
-## Next outcome — pinned remote sync
+## Established — pinned remote sync
 
-Only after the immutable public release contract has been observed, expose
-`pangopup assets sync` to resolve that explicitly pinned manifest, resume
-downloads safely, reject mixed or mutable parts, and feed the same local
-installer. Network sync must never mean an unpinned request for “latest,” and a
-complete installed profile must continue to work without network access.
+`pangopup assets sync` uses the compiled exact release profile, sequentially
+streams its five reviewed URLs into a private XDG cache, verifies size and
+SHA-256, resumes only through an exact strong-ETag range response, atomically
+publishes a closed cache transport, and feeds the shipped installer. It never
+selects “latest.” Exact active reuse and `--offline` perform no network work;
+lookup remains network-free.
 
-## Later outcome — upstream compatibility corpus
+## Next outcome — upstream compatibility corpus
 
 Before selecting or porting a runtime, inventory the upstream Pangolin tests and
 behavior and retain representative golden cases for SNVs, insertions,

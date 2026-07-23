@@ -5,10 +5,10 @@ service. The target product combines exact lookup of published GRCh38 SNV
 scores with model fallback for lookup misses and supported non-SNVs. The
 repository currently ships the source inspector, deterministic complete-corpus
 builder and verifier, fixed 11-byte mmap reader, typed score-provider API,
-batch lookup CLI, Linux local-user asset installation/discovery, and the
-immutable public `snv-grch38-v1` lookup-data release. Remote asset
-synchronization, model inference/fallback, and the HTTP service remain target
-work and are not implemented. Read `README.md` first.
+batch lookup CLI, Linux local-user asset installation/discovery, the immutable
+public `snv-grch38-v1` lookup-data release, and pinned resumable remote sync.
+Model inference/fallback and the HTTP service remain target work and are not
+implemented. Read `README.md` first.
 
 ## Repository contract shape
 

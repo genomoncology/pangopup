@@ -22,6 +22,7 @@ use std::{
 mod local;
 mod release;
 mod release_upload_linux;
+mod sync;
 
 #[cfg(any(test, feature = "test-read-audit"))]
 thread_local! {
@@ -68,6 +69,7 @@ pub use release::{
 };
 #[cfg(any(test, feature = "test-read-audit"))]
 pub use release_upload_linux::{LeaseBreakTimeTest, PayloadOperation, PayloadTestFaults};
+pub use sync::{CachePathInputs, SyncOutcome, resolve_cache_root, sync_assets};
 
 #[cfg(test)]
 mod install_audit {
@@ -183,6 +185,8 @@ pub enum AssetErrorKind {
     AssetsMissing,
     ReleaseInvalid,
     ReleaseUpload,
+    AssetDownload,
+    AssetTimeout,
 }
 
 impl AssetErrorKind {
@@ -208,6 +212,8 @@ impl AssetErrorKind {
             Self::AssetsMissing => "ASSETS_MISSING",
             Self::ReleaseInvalid => "RELEASE_INVALID",
             Self::ReleaseUpload => "RELEASE_UPLOAD",
+            Self::AssetDownload => "ASSET_DOWNLOAD",
+            Self::AssetTimeout => "ASSET_TIMEOUT",
         }
     }
 }

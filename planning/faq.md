@@ -111,32 +111,30 @@ runtime command and never downloads.
 
 ### Does Pangopup install missing assets automatically?
 
-Local installation is shipped, but automatic remote download is not. Callers
-run `pangopup assets install --transport <DIR>` once; later `pangopup lookup`
-discovers and cheaply reuses the active immutable bundle without `--bundle` or
-network access. `--bundle` remains an override. The immutable public release is
-complete and observed. The later remote target is for
-`pangopup assets sync` to resolve that binary-pinned manifest, resume/download
-to a temporary cache, and pass the verified transport to this installer.
-Download progress and offline/container prefetch remain future. Public-release
-metadata preparation and the immutable eight-asset publication are shipped.
+Explicit remote download is shipped as `pangopup assets sync`. It uses the
+binary-pinned `snv-grch38-v1` profile, safely resumes members into disposable
+XDG cache, and passes only a complete five-file transport to the same installer.
+`--offline` forbids network access and can install a completed cached transport.
+Later `pangopup lookup` discovers and cheaply reuses the active immutable bundle
+without `--bundle` or network access. Lookup does not download implicitly.
+Persistent progress/status and container prefetch remain future.
 
 ### Will asset sync download whatever release is latest?
 
 No. That would make startup irreproducible and allow a mutable remote choice to
-change scoring. The future binary or an explicit user selection pins one
-release-manifest identity, including URLs, sizes, hashes, formats, source
-identities, and licenses. Sync fetches that identity or fails. Immutable
-publication and its bounded public/manual-install proof are complete; remote
-sync remains a separate later slice.
+change scoring. The binary pins one release-profile identity, including literal
+URLs, sizes, hashes, formats, source identities, and licenses. Sync fetches
+exactly that transport or fails; it does not fetch discovery metadata or accept
+a user URL.
 
 ### Where will managed assets be installed?
 
 The shipped Linux installer uses
-`${XDG_DATA_HOME:-$HOME/.local/share}/pangopup/`. Temporary downloads may use
-`${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/`. The data directory is authoritative;
-it is not disposable cache. `PANGOPUP_DATA_DIR` and `--data-dir` override
-discovery. Other-platform support is future work.
+`${XDG_DATA_HOME:-$HOME/.local/share}/pangopup/`. Temporary downloads use
+`${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/`. `PANGOPUP_CACHE_DIR` and
+`--cache-dir` override that disposable location. The data directory is
+authoritative; it is not disposable cache. `PANGOPUP_DATA_DIR` and `--data-dir`
+override durable discovery. Other-platform support is future work.
 
 ### Will model fallback run from a FASTA file?
 
@@ -220,8 +218,8 @@ fixed-v1 lookup transport set, GPL model weights, GRCh38 reference member, and
 GENCODE masking member. The lookup set is canonical metadata, copied small
 bundle members, and deterministic parts of one compressed score stream; it is
 not one tar archive. Verify and reassemble it once during local installation,
-then map the expanded data at runtime. Immutable SNV release publication is
-shipped; remote sync is not. Local pack/verify/unpack and Linux
+then map the expanded data at runtime. Immutable SNV release publication,
+pinned resumable sync, local pack/verify/unpack, and Linux
 install/status/active discovery are shipped.
 
 ### What does lookup output look like?

@@ -1,6 +1,6 @@
 # 008 — Sync the pinned public SNV transport into local installation
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -143,15 +143,20 @@ production index, change lookup behavior, add automatic network access to
   final integrity and semantic-publication boundary. If it returns one of the
   cache-content error kinds (`MANIFEST_INVALID`, `TRANSPORT_INCOMPATIBLE`,
   `PART_SET_INVALID`, `TRANSPORT_HASH_MISMATCH`, `COMPRESSION_INVALID`, or
-  `BUNDLE_INVALID`), sync removes the whole published cached `transport`
-  directory through its held private cache root before returning the original
-  typed failure. It never guesses an offending filename from error prose and
-  never removes or replaces a previously installed bundle. Data-root, lock,
-  output, or unrelated I/O errors leave the completed cache intact.
-- Add a library-level injected sync contract and transport client usable only by
-  tests. Production callers cannot supply a profile, URL, host allowlist, or
-  insecure transport. Library integration tests run against a bounded local
-  scripted HTTP server and miniature transport. A CLI adapter test invokes a
+  `BUNDLE_INVALID`), sync attempts to remove the whole published cached
+  `transport` directory through its held private cache root before returning.
+  Successful eviction returns the original typed installer failure. If eviction
+  itself fails, return that same original error kind with sanitized cleanup
+  context and truthfully leave the cache for a later invocation to retry; never
+  hide cleanup failure or claim removal. Sync never guesses an offending
+  filename from error prose and never removes or replaces a previously
+  installed bundle. Data-root, lock, output, or unrelated I/O errors leave the
+  completed cache intact.
+- Add a private in-module injected sync contract and transport client compiled
+  only under `cfg(test)`. Production and feature-enabled downstream callers
+  cannot supply a profile, URL, host allowlist, or insecure transport. Library
+  tests run against a bounded local scripted HTTP server and miniature
+  transport. A CLI adapter test invokes a
   parameterized in-process runner to prove exact success JSON without adding a
   production flag or environment escape hatch. The ordinary production binary
   remains closed to the compiled profile; executable mustmatch covers exact
@@ -179,7 +184,7 @@ Explicit exclusions:
 
 ## Success Checklist
 
-- A library integration test against the miniature scripted server downloads
+- An in-library test against the miniature scripted server downloads
   the checked test transport and installs it through the shipped installer. An
   in-process CLI adapter test emits the exact compact success JSON for that
   result. Lookup through the resulting active bundle matches the existing
@@ -386,13 +391,159 @@ external host enters tests.
 
 The reviewer approved the revised ticket for development.
 
+Narrow contract re-review: approved, 2026-07-23. During code re-review the
+coordinator corrected the unconditional cache-eviction promise: eviction is
+attempted, and failure preserves the original installer error kind while adding
+sanitized cleanup context and leaving the cache for later retry. The same ticket
+reviewer found this truthful failure rule consistent with the accepted cache-
+authority design and approved implementation remediation to resume.
+
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex sub-agent `ticket_008_developer` (independent; no commit or
+push), 2026-07-23.
+
+- Added the production-only compiled-profile sync boundary in
+  `pangopup-assets`, a rustls-backed ureq 3.2.0 client, strict redirect/encoding
+  handling, phase timeouts, sequential bounded streaming, private cache
+  locking, canonical strong-ETag resume state, no-replace member/directory
+  publication, offline recovery, and installer-owned final validation.
+- Added `pangopup assets sync` grammar, strict cache-root discovery, stable
+  compact success JSON, exact typed failure mapping, and a private injected CLI
+  runner test. Lookup/status retain their no-network behavior.
+- Added in-library unit/fault tests and a real loopback HTTP streaming/stall
+  test that exercise the private miniature contract through the real installer.
+  The first adversarial review found that exposing that seam under the existing
+  downstream `test-read-audit` feature would let a feature-enabled caller
+  supply arbitrary profiles, hosts, and insecure transport. The public seam and
+  its external consumer were removed; only private `cfg(test)` injection
+  remains. No production binary flag, environment override, profile injection,
+  insecure transport, or GitHub contact was added.
+- Replaced pathname-based cache mutation with held directory descriptors,
+  component-by-component `openat2` no-symlink traversal, mode-0700 `mkdirat`,
+  and descriptor-relative create/open/rename/unlink. Tests reject final and
+  intermediate cache-root symlinks and member symlinks without touching their
+  targets. Installer cache-content failures evict through the held descriptor;
+  a cleanup failure preserves the original installer error kind and adds
+  sanitized cleanup context.
+- Closed the response and recovery matrix with exact strong-ETag grammar,
+  changed/missing/weak validators on actual `206` responses, missing/wrong
+  `Content-Range`, `416`, fresh and resumed redirects, malformed/noncanonical
+  resume JSON, invalid partial lengths, and deterministic connect-timeout
+  classification. Discriminating controls prove that wrong declared lengths
+  neither promote a fresh member nor append to a retained resume prefix, that a
+  timeout while `sync_with` owns the cache lock releases it before a successful
+  retry, and that same-root cache and install-lock path failures preserve a
+  valid nonmatching active receipt and bundle. Byte-read audits cover fresh
+  bodies, resumed prefixes, and suffixes.
+- Retained exact dependency, profile, transfer-counter, timeout, fault-window,
+  buffer, release-mode latency, and RSS evidence in
+  `planning/artifacts/008-pinned-remote-snv-sync.md`. The measured miniature
+  transport is 7,948 bytes over four members; fresh sync made four sequential
+  requests, active/offline reuse made zero, and the release-mode active reuse
+  call measured 375,487 ns in the retained final run. These are local miniature
+  measurements, not production-network claims.
+- Regenerated the checked miniature regression fixture with its documented Rust
+  tool because Ticket 008 changed the builder source identity. The request TSV,
+  `scores.pgi`, notice, and all expected query records were unchanged; expected
+  JSON is byte-identical after normalizing only the derived bundle ID. The final
+  miniature bundle is
+  `sha256:9c03f5c7397f2b6203d23a2bc373ddfc345aac1008fe3f77e6cdc0d2715993bf`
+  with builder source
+  `sha256:28d863ac7997ac15cc1ff7e2943d8a2148678a6420c2589701ab19d40dd42e56`.
+- Updated every named durable/user document and added executable
+  `spec/remote-assets.md`. A stale-claim scan found no remaining statement that
+  pinned SNV sync is future or unimplemented; model/HTTP/container/progress
+  work remains correctly future.
+- Focused tests passed:
+  `cargo test --locked -p pangopup-assets sync::tests` (23 tests) and
+  `cargo test --locked -p pangopup-build --test snv_regression_fixture`.
+- Developer gate passed after the final code/doc diff: `make lint`, `make test`,
+  and `make spec`. Normal gates used only checked miniature fixtures and
+  isolated local files; they did not read, hash, rebuild, verify, or download
+  production payload members.
+
+No reviewed-scope deviation is known. The implementation is ready for the
+independent adversarial code review.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex sub-agent `ticket_008_code_review` (independent, read-only)
+
+Initial review: rejected, 2026-07-23.
+
+- **Broad gate failure:** the fixture regeneration test exposed a changed
+  builder provenance identity. Resolved by regenerating only the checked
+  miniature fixture with its documented tool and proving its request corpus,
+  index payload, notice, and normalized expected results unchanged.
+- **Production caller boundary:** the feature-gated public test seam admitted
+  arbitrary profiles, hosts, and insecure transport. Resolved by deleting the
+  public exports and external consumer and retaining injection only inside the
+  module's `cfg(test)` boundary.
+- **Cache traversal and race safety:** cache directories and members were
+  operated on by path after one metadata check. Resolved with descriptor-held,
+  no-follow component traversal and descriptor-relative operations, plus
+  intermediate/final/member symlink controls.
+- **Cleanup error loss:** cache eviction errors were discarded. Resolved by
+  preserving the installer's typed error kind and appending sanitized cleanup
+  context; the injected cleanup-failure test proves the cache is retained.
+- **ETag grammar:** the parser admitted an embedded quote. Resolved with the
+  conservative ASCII grammar, including the valid empty strong tag.
+- **Missing adversarial controls:** added the reviewer's complete `206`/range/
+  `416`, redirect, resume-metadata/length, path-preservation, read-count,
+  connect-timeout, and ETag cases.
+
+Developer remediation is complete and the focused and broad gates are green.
+Re-review by the same independent reviewer: rejected, 2026-07-23.
+
+- **First-use cache race:** bootstrap/profile/member directories were created
+  before the profile lock, so two first syncs could race into `ASSET_IO` instead
+  of one owner and one nonblocking `ASSET_LOCKED` loser. Resolved with
+  race-idempotent root/profile/lock creation, lock-before-working-state order,
+  and a real concurrent absent-cache test: one owner installed while the loser
+  returned `ASSET_LOCKED` without issuing a request.
+- **Unbounded hostile enumeration:** closed-transport validation and cleanup
+  collected every cache entry into a vector. Resolved with callback-based
+  `RawDir` streaming for both validation and unlink, plus a 2,048-entry hostile
+  transport test that leaves the directory empty without a name collection.
+- **Cleanup wording mismatch:** the implementation correctly exposed eviction
+  failure while the reviewed scope incorrectly promised unconditional removal.
+  The coordinator amended Scope to require attempted eviction, original typed
+  failure on success, and the same original kind plus sanitized cleanup context
+  when eviction fails. The same ticket reviewer approved that narrow correction
+  before this remediation resumed.
+
+The second-review remediation is complete, focused and broad gates are green,
+and the diff is ready for the same code reviewer. No code-review approval is
+claimed.
+
+Final re-review by the same independent reviewer: rejected, 2026-07-23.
+
+- **Declared-length controls:** the general wire-failure matrix did not
+  discriminate fresh promotion from resumed-prefix append. Resolved with
+  separate wrong-`Content-Length` cases proving no completed-member promotion
+  on fresh transfer and byte-identical retention of the old prefix on resume.
+- **Timeout lock release:** timeout classification was covered without proving
+  the cache lock owned by `sync_with` was released. Resolved by injecting a
+  timeout through `sync_with`, proving no cache transport or active bundle was
+  published, immediately reacquiring the cache lock nonblocking, and completing
+  a successful retry.
+- **Active preservation:** the prior cache-path case accidentally hit exact-
+  active reuse and never exercised the broken cache. Resolved by installing a
+  second fully valid miniature transport as the nonmatching active bundle. A
+  broken cache root and then a complete cache plus hostile same-root install-
+  lock path both fail while the original active receipt/path reopens unchanged.
+
+The final-review remediation is complete. The focused sync module has 23
+passing tests, fixture regeneration remains byte-exact apart from builder and
+derived bundle identity, and the same reviewer approved the exact final diff on
+2026-07-23. The reviewer independently verified the fresh/resumed declared-
+length controls, timeout-through-`sync_with` lock release and retry, same-root
+active preservation, first-use concurrency, descriptor-relative cache safety,
+bounded directory streaming, cleanup failure visibility, ETag/range/redirect
+behavior, private test seam, exact fixture provenance, every named document,
+23 focused tests, byte-exact fixture regeneration, and all broad gates. No
+remaining material finding or separately scoped issue was identified.
 
 ## External Effect Evidence
 
@@ -400,4 +551,24 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex (`/root`), 2026-07-23
+
+- Re-ran `make lint`: pass. Cargo emitted only the existing informational
+  semver-metadata warning for the pinned `zstd-sys` requirement.
+- Re-ran `make test`: pass, including 45 `pangopup-assets` unit tests, the
+  byte-exact SNV regression regeneration, transport/resource tests, and all
+  workspace tests.
+- Re-ran `make spec`: 111 passed.
+- Re-ran `git diff --check`: pass.
+- Searched `README.md`, `AGENTS.md`, `architecture/`, `planning/`,
+  `release-profiles/`, and `spec/` for stale claims that pinned SNV remote sync
+  is future or unimplemented: none found. Model/reference/mask sync, inference,
+  HTTP, Docker, progress/status, and other explicitly excluded work remain
+  correctly future.
+- Confirmed the worktree contains only Ticket 008 implementation, tests,
+  provenance-only miniature fixture regeneration, its named documentation, and
+  retained evidence. No production asset was read and no network effect is part
+  of this ticket.
+
+Ticket 008 is complete and approved for commit/push, followed by the required
+planning-ticket cleanup commit.

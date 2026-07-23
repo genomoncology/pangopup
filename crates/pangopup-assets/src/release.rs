@@ -48,6 +48,12 @@ const PRODUCTION_RECEIPT_SHA256: &str =
 const PRODUCTION_PROFILE_SHA256: &str =
     "sha256:63f3842ea6cb40ebc0a2b6ca23fba4f35d53f829d96c33f597a2c5bcac238ca6";
 
+pub(crate) fn production_profile()
+-> Result<(&'static [u8], &'static str, ReleaseProfile), AssetError> {
+    let (_, profile) = validate_production_contract()?;
+    Ok((PRODUCTION_PROFILE, PRODUCTION_PROFILE_SHA256, profile))
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProofReceipt {

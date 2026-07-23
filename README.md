@@ -3,9 +3,9 @@
 Pangopup is a standalone GPL-3.0 Rust project for high-performance,
 Pangolin-compatible splice scoring on GRCh38 genomic variants. Today it ships
 an exact precomputed-SNV library and CLI, deterministic local release
-transport tooling, and atomic Linux/XDG installation of a supplied transport.
-Remote asset sync, model inference, and an HTTP service are planned but not
-implemented.
+transport tooling, atomic Linux/XDG installation, and pinned resumable sync of
+the immutable public SNV transport. Model inference and an HTTP service are
+planned but not implemented.
 
 The target service will answer each request through one of two paths:
 
@@ -176,12 +176,21 @@ parent-death protection prevents the direct request from surviving abrupt
 coordinator death.
 This is not a runtime downloader and is never used by lookup or installation.
 
-The runtime installs a caller-supplied transport without networking:
+The runtime can sync the exact binary-pinned public transport or install an
+already available transport without networking:
 
 ```text
+pangopup assets sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
 pangopup assets install --transport <TRANSPORT_DIR> [--data-dir <ABSOLUTE_PATH>]
 pangopup assets status [--data-dir <ABSOLUTE_PATH>]
 ```
+
+`assets sync` never asks GitHub for “latest.” The binary contains the exact
+`snv-grch38-v1` profile: five literal HTTPS URLs, sizes, and SHA-256 digests.
+It downloads sequentially through a bounded buffer, follows only a short
+allowlisted HTTPS redirect chain, and resumes an interrupted member only when
+a strong ETag and exact byte range agree. `--offline` forbids network access
+and can install a previously completed cached transport.
 
 It resolves an explicit data directory, `PANGOPUP_DATA_DIR`, `XDG_DATA_HOME`,
 or `HOME` in that order. Installation holds one nonblocking lock, validates and
@@ -201,10 +210,10 @@ The target is built in independently proved layers:
    locking, staging, checksums, receipts, atomic publication, active selection,
    and cheap verified reuse (shipped);
 3. publish immutable GitHub release assets and prove manual installation,
-   offline restart, and lookup on a clean supported machine; and
+   offline restart, and lookup on a clean supported machine (shipped); and
 4. expose `pangopup assets sync` to resolve that observed pinned release
    manifest and safely resume/download its exact parts through the same
-   installer.
+   installer (shipped).
 
 Publication is blocked unless GitHub immutable releases are enabled and the
 completed release reports `immutable=true`; a mutable release is never a
@@ -212,13 +221,13 @@ fallback. Remote-sync work begins only after that public contract has been
 observed and recorded.
 
 The current lookup CLI resolves and reuses a complete compatible local
-installation without networking. After remote sync ships, target service
-startup can invoke that same pinned installer. It will memory-map installed members,
+installation without networking. A future service provisioning step can invoke
+the same pinned sync/installer boundary. It will memory-map installed members,
 initialize the selected model provider, and only then report ready. It will
 never fetch an unpinned “latest” release.
 
-The target first start may therefore also be a provisioning operation and will
-expose download and verification progress. Later starts will use the
+The target first start may therefore also be a provisioning operation. A
+persistent progress/status surface remains future work. Later starts use the
 already installed bundle without contacting the network. A failed download or
 checksum will never replace an older complete bundle or start with partial
 data.
@@ -242,10 +251,11 @@ ${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/
 ```
 
 The data directory is authoritative and must not be treated as disposable
-cache. `PANGOPUP_DATA_DIR` or `--data-dir` can override discovery. This shipped
-installer is Linux-only; macOS and Windows behavior is not claimed. Remote
-sync, download cache/resume and progress, signatures,
-repair/GC/rollback, and container preinstall remain future work.
+cache. `PANGOPUP_DATA_DIR` or `--data-dir` can override durable discovery;
+`PANGOPUP_CACHE_DIR` or `--cache-dir` can override disposable download storage.
+This shipped installer and sync client are Linux-only; macOS and Windows
+behavior is not claimed. Persistent progress, signatures, repair/GC/rollback,
+and container preinstall remain future work.
 
 ## Planned service operation
 
@@ -334,6 +344,10 @@ Implemented today:
   discovery, private dirfd-relative state, a nonblocking lock, single-stream
   reconstruction, canonical receipts/stage markers, immutable bundles, atomic
   active selection, crash reconciliation, and transport-free score reuse;
+- Linux `pangopup assets sync`, pinned to the compiled `snv-grch38-v1`
+  profile, with sequential bounded TLS downloads, strong-ETag range resume,
+  private atomic cache publication, offline reuse, and the same installer as
+  the final publication boundary;
 - a checked 1,000-request source-derived JSONL regression fixture exercised
   through one real provider open and seven CLI batches;
 - the standalone API, runtime-data, delivery, and performance decisions;
@@ -342,8 +356,8 @@ Implemented today:
   aliases, optional source-gene filtering, all-overlap results, typed misses,
   and explicit source-reference ambiguities.
 
-Not implemented yet: remote asset sync/download, model runtime/fallback, HTTP
-service, container, repair/GC/rollback, or result
+Not implemented yet: model runtime/fallback, HTTP service, container,
+persistent download progress/status, repair/GC/rollback, or result
 cache. In this slice a syntactically valid concrete REF that
 does not match an ordinary indexed key is `not_found`; runtime FASTA validation
 begins only with the future model/reference slice.
@@ -358,7 +372,7 @@ The rolling outcome order is:
 6. explicit local Linux/XDG installation and active discovery (complete);
 7. immutable GitHub publication and bounded public/manual-install proof
    (complete);
-8. pinned remote sync against the observed public release contract;
+8. pinned remote sync against the observed public release contract (complete);
 9. an upstream Pangolin compatibility corpus;
 10. pinned model, compact RefSeq GRCh38.p14, and compact GENCODE mask assets;
 11. CPU inference parity, followed only then by measured accelerator options;
@@ -377,11 +391,12 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
 - `pangopup-core` — public typed vocabulary, routing, and provider capabilities;
 - `pangopup-index` — private format codec and validated mmap reader;
 - `pangopup-assets` — installed-bundle certification, deterministic local
-  transport, and secure Linux local-store/activation state;
+  transport, pinned resumable TLS sync, and secure Linux local-store/activation
+  state;
 - `pangopup-build` — offline source validation and deterministic artifact
   builders plus the thin maintenance CLI adapter;
-- `pangopup-cli` — shipped lookup, local asset install/status, and output
-  adapter; remote sync and service commands remain future;
+- `pangopup-cli` — shipped lookup, pinned asset sync, local install/status, and
+  output adapter; service commands remain future;
 - future `pangopup-model` — model execution behind the core provider contract;
 - future `pangopup-http` — long-lived HTTP adapter over the same core.
 

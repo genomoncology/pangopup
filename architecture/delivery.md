@@ -1,8 +1,7 @@
 # Artifact Delivery
 
 This document records the shipped immutable SNV release, local transport,
-Linux installation, and accepted remote-sync target. The repository does not
-yet implement remote sync/download. The runtime opens either
+Linux installation, and pinned resumable remote sync. The runtime opens either
 an explicitly supplied bundle path or the active receipt-bound bundle in Linux
 user data.
 
@@ -118,22 +117,21 @@ format or installer:
    a documented exact manual-install path; and
 4. pinned remote sync with resumable downloads into the same installer.
 
-The first three stages are shipped. Each later stage
-receives its own coordinator-authored and independently reviewed contract only after the
-preceding transport or installation contract is implemented.
+All four SNV delivery stages are shipped. Later model/reference/mask delivery
+receives its own coordinator-authored and independently reviewed contract.
 
-## Shipped Linux installation and planned remote sync
+## Shipped Linux installation and pinned remote sync
 
-Each future remote distribution embeds or ships a lock manifest for one compatible
-asset set. The target default full profile includes lookup data, model,
-reference, and masking assets; an explicit lookup-only profile omits model
-fallback.
+The binary embeds the canonical `snv-grch38-v1` release profile for one
+compatible lookup asset set. A future full profile will separately identify
+model, reference, and masking assets.
 
 The shipped local command accepts an already available transport:
 
 ```text
 pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]
 pangopup assets status [--data-dir <ABSOLUTE_PATH>]
+pangopup assets sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
 ```
 
 It resolves `--data-dir`, `PANGOPUP_DATA_DIR`, `XDG_DATA_HOME/pangopup`, then
@@ -151,21 +149,31 @@ Reuse validates the receipt, bounded metadata hashes, member shapes and sizes,
 and cheap `BundleOpen` structure without opening transport parts or hashing the
 score payload. Complete semantic certification remains a build-time operation.
 
-The future CLI and HTTP service will obtain the selected remote profile before
-calling this installer. Remote sync must:
+The shipped explicit CLI obtains the selected transport before calling this
+installer. Remote sync:
 
-1. resolve the binary-pinned or explicitly requested asset set, never an
-   unpinned “latest” release;
-2. use the shipped local installation lock;
+1. uses only the binary-pinned asset set, never an unpinned “latest” release;
+2. holds a separate nonblocking cache lock before the installation lock;
 3. reuse a complete compatible local bundle without network access;
-4. otherwise download missing archives to a temporary cache path;
+4. otherwise stream missing members sequentially to private cache state,
+   resuming only on an exact strong-ETag ranged response;
 5. pass the exact local transport directory to the shipped installer.
 
-The future `pangopup assets sync` command will fetch one explicitly pinned
-release manifest and then call the same installer. Offline mode will forbid
-network access and name every missing or incompatible asset. Callers will still
-be able to supply an already installed bundle path. Containers will be able to
-bake the same verified bundle into an image or mount it read-only.
+Cache traversal and mutation stay behind held Linux directory descriptors:
+`openat2` rejects symlinked components, `mkdirat` creates private directories
+as mode 0700, and member publication and eviction are descriptor-relative.
+Bootstrap/profile/lock creation tolerates simultaneous first use; the profile
+lock is acquired before working directories or a published transport are
+inspected or changed. Hostile directory entries are validated and removed as a
+bounded stream rather than collected in memory.
+
+`pangopup assets sync` uses the compiled canonical profile directly; it does
+not fetch a profile, query the GitHub API, or accept an arbitrary URL. Its
+bounded rustls client accepts only the reviewed GitHub and release-download
+hosts over HTTPS and follows at most five explicit redirects. Offline mode
+forbids network access and names every incomplete member. Callers can still
+supply an already available transport. Future containers can bake the same
+verified bundle into an image or mount it read-only.
 
 Current managed storage follows Linux XDG application-data conventions rather
 than Pangolin's Python-package layout. macOS and Windows behavior remains
@@ -174,8 +182,9 @@ performs no download or home-directory discovery.
 
 On Linux, durable installed bundles live under
 `${XDG_DATA_HOME:-$HOME/.local/share}/pangopup/`; transport archives and partial
-downloads may use `${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/`. Installed data
-are not cache: clearing a future download cache must not break a complete installation.
+downloads use `${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/`, with
+`PANGOPUP_CACHE_DIR` and `--cache-dir` overrides. Installed data are not cache:
+clearing the download cache does not break a complete installation.
 
 The explicit local installer does not require a network and is the primitive.
 Remote sync only obtains the exact bytes named by a pinned manifest and then

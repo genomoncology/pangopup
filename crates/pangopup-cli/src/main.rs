@@ -1,6 +1,7 @@
 use pangopup_assets::{
-    AssetError, AssetErrorKind, DataPathInputs, LocalStatus, install_transport, local_status,
-    open_active_bundle, resolve_data_root,
+    AssetError, AssetErrorKind, CachePathInputs, DataPathInputs, LocalStatus, SyncOutcome,
+    install_transport, local_status, open_active_bundle, resolve_cache_root, resolve_data_root,
+    sync_assets,
 };
 use pangopup_cli::{OutputFormat, RenderRequest, render_requests};
 use pangopup_core::{
@@ -8,9 +9,15 @@ use pangopup_core::{
 };
 use pangopup_index::{BundleOpen, IndexError};
 use serde::Serialize;
-use std::{ffi::OsString, io::Write, path::PathBuf, process::ExitCode, str::FromStr};
+use std::{
+    ffi::OsString,
+    io::Write,
+    path::{Path, PathBuf},
+    process::ExitCode,
+    str::FromStr,
+};
 
-const HELP: &str = "Pangopup: exact Pangolin score lookup\n\nUsage:\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets status [--data-dir <ABSOLUTE_PATH>]\n  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table]\n  pangopup --help\n  pangopup --version";
+const HELP: &str = "Pangopup: exact Pangolin score lookup\n\nUsage:\n  pangopup assets sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets status [--data-dir <ABSOLUTE_PATH>]\n  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table]\n  pangopup --help\n  pangopup --version";
 
 struct Arguments {
     bundle: Option<PathBuf>,
@@ -29,6 +36,11 @@ enum Command {
     Status {
         data_dir: Option<OsString>,
     },
+    Sync {
+        offline: bool,
+        data_dir: Option<OsString>,
+        cache_dir: Option<OsString>,
+    },
 }
 
 struct ParsedVariant {
@@ -46,11 +58,14 @@ struct ErrorLine<'a> {
     details: Option<()>,
 }
 
+#[derive(Debug)]
 struct Failure {
     code: &'static str,
     message: String,
     exit: u8,
 }
+
+type SyncRunner = dyn Fn(&Path, Option<&Path>, bool) -> Result<SyncOutcome, AssetError>;
 
 impl Failure {
     fn usage(message: impl Into<String>) -> Self {
@@ -115,6 +130,12 @@ fn main() -> ExitCode {
 }
 
 fn run(raw: &[OsString]) -> Result<Vec<u8>, Failure> {
+    run_with_sync(raw, &|data, cache, offline| {
+        sync_assets(data, cache, offline)
+    })
+}
+
+fn run_with_sync(raw: &[OsString], syncer: &SyncRunner) -> Result<Vec<u8>, Failure> {
     match parse_command(raw)? {
         Command::Lookup(arguments) => run_lookup(arguments),
         Command::Install {
@@ -145,6 +166,17 @@ fn run(raw: &[OsString]) -> Result<Vec<u8>, Failure> {
                     installing,
                 }),
             }
+        }
+        Command::Sync {
+            offline,
+            data_dir,
+            cache_dir,
+        } => {
+            let cache = resolve_cache_root(&CachePathInputs::from_environment(cache_dir))
+                .map_err(map_path_error)?;
+            let root = data_root(data_dir)?;
+            let result = syncer(&root, cache.as_deref(), offline).map_err(map_sync_error)?;
+            json_line(&result)
         }
     }
 }
@@ -233,15 +265,24 @@ fn parse_assets(raw: &[OsString]) -> Result<Command, Failure> {
     let action = raw
         .get(1)
         .and_then(|value| value.to_str())
-        .ok_or_else(|| Failure::usage("assets requires install or status"))?;
+        .ok_or_else(|| Failure::usage("assets requires sync, install, or status"))?;
     let mut data_dir = None;
+    let mut cache_dir = None;
     let mut transport = None;
+    let mut offline = false;
     let mut index = 2;
     while index < raw.len() {
         let option = raw[index]
             .to_str()
             .ok_or_else(|| Failure::usage("arguments must be UTF-8"))?;
         index += 1;
+        if option == "--offline" && action == "sync" {
+            if offline {
+                return Err(Failure::usage("--offline may be supplied once"));
+            }
+            offline = true;
+            continue;
+        }
         let value = raw
             .get(index)
             .ok_or_else(|| Failure::usage(format!("{option} requires a value")))?;
@@ -256,6 +297,11 @@ fn parse_assets(raw: &[OsString]) -> Result<Command, Failure> {
                     return Err(Failure::usage("--transport may be supplied once"));
                 }
             }
+            "--cache-dir" if action == "sync" => {
+                if cache_dir.replace(value.clone()).is_some() {
+                    return Err(Failure::usage("--cache-dir may be supplied once"));
+                }
+            }
             _ => return Err(Failure::usage(format!("unknown assets option {option}"))),
         }
         index += 1;
@@ -267,7 +313,12 @@ fn parse_assets(raw: &[OsString]) -> Result<Command, Failure> {
             data_dir,
         }),
         "status" if transport.is_none() => Ok(Command::Status { data_dir }),
-        _ => Err(Failure::usage("assets requires install or status")),
+        "sync" if transport.is_none() => Ok(Command::Sync {
+            offline,
+            data_dir,
+            cache_dir,
+        }),
+        _ => Err(Failure::usage("assets requires sync, install, or status")),
     }
 }
 
@@ -376,6 +427,21 @@ fn map_status_error(error: AssetError) -> Failure {
         code,
         message: error.to_string(),
         exit: 1,
+    }
+}
+
+fn map_sync_error(error: AssetError) -> Failure {
+    Failure {
+        code: error.kind().code(),
+        message: error.to_string(),
+        exit: if matches!(
+            error.kind(),
+            AssetErrorKind::PathInvalid | AssetErrorKind::PathUnavailable
+        ) {
+            2
+        } else {
+            1
+        },
     }
 }
 
@@ -491,4 +557,60 @@ fn fail(error: &Failure) -> ExitCode {
     let _ = serde_json::to_writer(&mut stderr, &line);
     let _ = stderr.write_all(b"\n");
     ExitCode::from(error.exit)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn injected_sync_adapter_renders_exact_compact_json() {
+        let args = [
+            OsString::from("assets"),
+            OsString::from("sync"),
+            OsString::from("--offline"),
+            OsString::from("--data-dir"),
+            OsString::from("/tmp/pangopup-sync-data"),
+            OsString::from("--cache-dir"),
+            OsString::from("/tmp/pangopup-sync-cache"),
+        ];
+        let bytes = run_with_sync(&args, &|data, cache, offline| {
+            assert_eq!(data, Path::new("/tmp/pangopup-sync-data"));
+            assert_eq!(cache, Some(Path::new("/tmp/pangopup-sync-cache")));
+            assert!(offline);
+            Ok(SyncOutcome {
+                status: "installed",
+                profile: "snv-grch38-v1".to_owned(),
+                bundle_id: "sha256:bundle".to_owned(),
+                transport_id: "sha256:transport".to_owned(),
+                path: PathBuf::from("/tmp/pangopup-sync-data/bundles/bundle/bundle"),
+                downloaded_bytes: 123,
+                resumed_bytes: 45,
+            })
+        })
+        .expect("sync output");
+        assert_eq!(
+            bytes,
+            b"{\"status\":\"installed\",\"profile\":\"snv-grch38-v1\",\"bundle_id\":\"sha256:bundle\",\"transport_id\":\"sha256:transport\",\"path\":\"/tmp/pangopup-sync-data/bundles/bundle/bundle\",\"downloaded_bytes\":123,\"resumed_bytes\":45}\n"
+        );
+    }
+
+    #[test]
+    fn sync_grammar_rejects_duplicates_and_values_for_flags() {
+        for args in [
+            vec!["assets", "sync", "--offline", "--offline"],
+            vec![
+                "assets",
+                "sync",
+                "--cache-dir",
+                "/tmp/a",
+                "--cache-dir",
+                "/tmp/b",
+            ],
+            vec!["assets", "status", "--offline"],
+        ] {
+            let raw: Vec<OsString> = args.into_iter().map(OsString::from).collect();
+            assert!(parse_command(&raw).is_err());
+        }
+    }
 }
