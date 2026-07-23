@@ -1,16 +1,19 @@
 # 009 — Retain a pinned upstream Pangolin compatibility corpus
 
 Status: ready
-Accepted contract identity: `sha256:0fc618afd1073c7592f2aaa8d65eb5d37f719c8da37fe5b7745fe0390ecd2e5d`
+Superseded contract identity: `sha256:0fc618afd1073c7592f2aaa8d65eb5d37f719c8da37fe5b7745fe0390ecd2e5d`
+Accepted revised contract identity: `sha256:c31886f84cbea4144d7bde4573fec6ab1c15ba107694299aacc07dea28c177fd`
 Base revision: `7563f90b7bda4a018833ca89cb628a26aed76c88`
 
 ## Outcome
 
 `pangopup-build compatibility inspect --corpus <DIR>` validates a small,
-self-contained GRCh38 corpus captured from pinned upstream Pangolin 1.0.2 CPU
-execution and independently replays its masking, ordering, maxima, positions,
-and public two-decimal output without Python, PyTorch, model checkpoints, a
-whole reference genome, or a gffutils database.
+self-contained GRCh38 corpus. Its scored cases and eligible rejection
+observations are captured from pinned upstream Pangolin 1.0.2 CPU execution;
+its two unsafe chromosome-boundary rejections are retained as independently
+replayable slice bounds. The inspector replays masking, ordering, maxima,
+positions, public two-decimal output, and rejection rules without Python,
+PyTorch, model checkpoints, a whole reference genome, or a gffutils database.
 
 This establishes the acceptance oracle for later Rust model work. It does not
 implement model inference or rebuild, rescan, verify, download, install, or
@@ -58,12 +61,20 @@ change the shipped SNV index.
   SNV observations. They may seed case selection, but the unknown software,
   checkpoint, FASTA, and annotation identities behind the published Zenodo
   score set mean those values are observations, not the model oracle.
+- The pinned CPython 3.13.5/pyfastx 2.3.1 upstream CLI cannot safely receive
+  the two deliberately out-of-bounds chrM context cases. A recorded capture
+  attempt reached `R05`/`R06` and terminated in the pyfastx native extension
+  before Python could emit a warning. Those two cases therefore exercise the
+  same deterministic slice arithmetic in Rust and are excluded from both
+  unmodified CLI invocations; this native crash is documentary upstream
+  behavior, not a compatibility requirement.
 - No other GenomOncology project is an input, dependency, provenance source, or
   documentation reference for this corpus. Pangopup remains standalone.
 - This is new compatibility infrastructure. The protected invariant is that a
   later runtime cannot claim Pangolin compatibility from architectural
   resemblance or a few rounded maxima; it must be tested against independently
-  captured upstream inputs and outputs.
+  captured upstream inputs and outputs plus the two explicit boundary-rule
+  witnesses.
 
 ## Scope
 
@@ -181,13 +192,16 @@ reinterpretation.
 
 Also retain ordered containing genes and ordered absolute exon start/end
 boundaries, exact masked and unmasked per-gene maxima/positions, and exact
-unmodified-CLI output. `R01`, `R02`, `R03`, `R05`, and `R06` have sufficient
-facts for independent rule replay. `R04` retains the exact empty upstream query
-plus preceding rowid 244405 `ENSG00000126746.18:6666477-6689572(-)` and following
-rowid 244419 `ENSG00000139200.14:6693791-6700815(-)`, database identity, and CLI
-observation. The inspector authenticates it as an observed rejection and does
-not claim a 24-case excerpt independently proves absence from the whole
-annotation.
+unmodified-CLI output for `M01`–`M14`. `R01`, `R02`, and `R03` retain exact
+documentary CLI warnings plus sufficient facts for independent rule replay.
+`R04` retains the exact empty upstream query plus preceding rowid 244405
+`ENSG00000126746.18:6666477-6689572(-)` and following rowid 244419
+`ENSG00000139200.14:6693791-6700815(-)`, database identity, and CLI observation.
+The inspector authenticates it as an observed rejection and does not claim a
+24-case excerpt independently proves absence from the whole annotation.
+`R05` and `R06` retain the exact context-bound witness and a closed documentary
+reason that they were excluded from the unsafe upstream CLI path; Rust
+independently replays their slice arithmetic.
 
 ### Fixed capture identities
 
@@ -270,9 +284,11 @@ wrapper/modification, imports the pinned upstream `compute_score` path only to
 emit raw post-ensemble arrays and observed genes/boundaries. Rust invokes it
 with CUDA disabled and one compute/interop thread. Separately, Rust invokes the
 **unmodified** pinned upstream module as a CLI twice (`-m False` and `-m True`)
-over the same real inputs. Capture fails unless extrema/output derived from the
-helper arrays agree with those independent unmodified CLI files. The helper
-does not serialize the final corpus or supply the expected CLI strings.
+over `M01`–`M14` plus `R01`–`R04`. `R05` and `R06` are never passed to that
+native slice path. Capture fails unless extrema/output derived from the helper
+arrays agree with the independent unmodified CLI files for every scored case,
+and unless the four eligible rejection observations agree. The helper does not
+serialize the final corpus or supply the expected CLI strings.
 
 Capture never downloads an input and never runs in normal gates. Its selected
 input plan and controlled vectors are checked source; the 671 MB capture FASTA,
@@ -299,8 +315,9 @@ deserialization.
   context contract, per-strand raw arrays, ordered genes/boundaries, masked and
   unmasked expected outputs, unmodified CLI strings, and optional exact
   precomputed observations. Rejections contain first operation, sufficient
-  witness, normalized category, and documentary CLI warning. Post-processing
-  records contain the exact vectors and expectations above.
+  witness, normalized category, and the closed tagged documentary upstream
+  evidence defined below. Post-processing records contain the exact vectors
+  and expectations above.
 - `NOTICE` is at most 64 KiB, UTF-8 with LF line endings, terminal LF, and the
   minimum pinned source/license/citation/transformation statements above.
 - Aggregate member bytes are at most 4 MiB. Before allocating a member buffer,
@@ -336,8 +353,11 @@ The closed field layouts are:
   `precomputed` array contains exact source member, gene, score bits, and
   positions and is present only on `M01`–`M04`.
 - A rejection case has `input`, `first_operation`, `normalized_category`,
-  closed tagged `witness`, and `observed_cli`; only `observed_cli` is
-  documentary. A postprocess case has `position`, `distance`, exact bit-string
+  closed tagged `witness`, and closed tagged `upstream_evidence`. The evidence
+  is `{"kind":"cli","warning":<STRING>}` for `R01`–`R04` and
+  `{"kind":"rule_replay","reason":"excluded_from_cli_native_reference_slice_crash"}`
+  for `R05`/`R06`; all upstream evidence is documentary. A postprocess case has
+  `position`, `distance`, exact bit-string
   vectors or scalars, ordered genes/boundaries where applicable, and exact
   expectations. Optional fields and JSON `null` are forbidden; each tagged
   variant has only its named fields.
@@ -474,11 +494,15 @@ mutated copies of the checked fixture when any one of these changes:
 - a required coverage cell; or
 - one normalized rejection category.
 
-The positive control is the frozen upstream-captured corpus. Expected raw
+The positive control is the frozen compatibility corpus. Expected raw
 arrays come through the minimal upstream Python extraction helper, while public
-masked/unmasked strings come through separate unmodified upstream CLI runs.
-The Rust capture orchestrator rejects disagreement between them. Neither
-expectation comes from the Rust inspector or a future Rust model candidate.
+masked/unmasked strings for `M01`–`M14` and documentary observations for
+`R01`–`R04` come through separate unmodified upstream CLI runs. `R05`/`R06`
+come only from independently replayable bounds, because sending them through
+the pinned pyfastx native slice path can terminate the process. The Rust
+capture orchestrator rejects disagreement across every eligible comparison.
+No normative expectation comes from the Rust inspector or a future Rust model
+candidate.
 
 ## Acceptance
 
@@ -606,9 +630,74 @@ exactly the six declared headers in order; sequence lengths 198,295,559,
 133,797,422, 133,275,309, 114,364,328, 83,257,441, and 16,569; no lowercase or
 non-IUPAC sequence lines.
 
-Before the later one-time upstream CPU capture begins, record a separate exact
-command, input identities, process/session identity, progress measure, output,
-completion/failure conditions, and cancellation criteria.
+One-time upstream CPU capture launched 2026-07-23:
+
+- Purpose: produce the exact reviewed 24-case compatibility corpus once, using
+  the Rust capture orchestrator, GPL helper for raw arrays, and separate
+  unmodified upstream masked/unmasked CLI executions.
+- Candidate: reviewed-ready repository `9a35765a16ed3aa61d3cf4a9b9ad2fcfac8d87a7`;
+  implementation diff SHA-256
+  `5bf1a9936521389e57e49a73eb3b378be3d94afbec395e63035b8ee3f7f67315`;
+  `target/debug/pangopup-build` SHA-256
+  `48cd3a26ea1d2229ac0463ab849c3a24c58a8e893a3ca016d472318f15f3ccac`;
+  helper SHA-256
+  `4ba9096e943d47d17242dd748ba6eb7384e28ceacb207be9f57851f48b2497f5`;
+  upstream/source/checkpoint/reference/annotation/runtime identities are the
+  exact fixed values in this contract and passed pre-launch inspection.
+- Command: from `/home/ian/workspace/repos/pangopup`,
+  `target/debug/pangopup-build compatibility capture --upstream /home/ian/foss/Pangolin --python /home/ian/.local/share/uv/tools/pangolin/bin/python --reference-source /home/ian/foss/uta/ncbi-data/genomes/refseq/vertebrate_mammalian/Homo_sapiens/all_assembly_versions/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.fna.gz --assembly-report /home/ian/foss/uta/ncbi-data/genomes/refseq/vertebrate_mammalian/Homo_sapiens/all_assembly_versions/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_assembly_report.txt --reference /home/ian/workspace/data/pangopup-compat-inputs/refseq-grch38p14-compat-six-contigs.fa --annotation-db /home/ian/workspace/data/pangopup-compat-inputs/gencode.v38.annotation.db --annotation-gtf /home/ian/workspace/data/pangopup-compat-inputs/gencode.v38.annotation.gtf.gz --output tests/fixtures/pangolin-compat-v1`.
+- Process/session: paused launch shell PID `949202`, unified exec session
+  `62902`, started `2026-07-23T18:26:34-04:00`; capture starts only after this
+  checkpoint is written and the session receives `GO`.
+- Expected duration: unknown. Progress is child process state plus creation and
+  bounded growth of the uniquely named sibling staging directory; poll with
+  `ps` and `du`, never by rerunning capture.
+- Success: exit zero; atomic final directory contains only `manifest.json`,
+  `cases.jsonl`, and `NOTICE`; immediate Rust inspection returns the exact
+  24/14/6/4/28 summary. Failure is nonzero exit, identity disagreement,
+  helper/CLI disagreement, invalid corpus, or a leftover partial staging tree.
+- Output: `tests/fixtures/pangolin-compat-v1`; session stdout/stderr is the job
+  log. The final path was absent before launch.
+- Cancellation: send `TERM` to process group/PID `949202` or Ctrl-C to session
+  `62902`; remove only the named unpublished sibling staging directory after
+  confirming the process exited. Preserve all fixed source inputs.
+
+The first launch exited in preflight before hashing large inputs, starting a
+model child, or creating staging: the supplied virtual-environment interpreter
+is a symlink to the expected regular executable, while candidate `48cd3a…`
+incorrectly rejected the path itself. No partial corpus exists. That harness
+candidate is obsolete and its evidence is not combined with capture results.
+
+Replacement capture candidate: implementation diff SHA-256
+`b028a139d1814988ddc4794b5a7312456bbd092154621e741ddea4acb0ccd332`;
+binary SHA-256
+`5f48ce8df4019d9ee07ef9dcc1841ad42f83060d6f26b991c0e66b834ba161b0`;
+unchanged helper SHA-256 `4ba9096…`. It resolves and validates the explicit
+interpreter executable, with every scientific input and the exact command,
+working directory, progress, success/failure, output, and cancellation
+contract otherwise unchanged. Paused replacement shell PID `959561`, unified
+exec session `58238`, started `2026-07-23T18:28:43-04:00`; it receives `GO`
+only after this replacement identity is durable. Cancel with `TERM` to PID
+`959561` or Ctrl-C to session `58238`.
+
+The replacement received `GO`, passed every fixed input/source/runtime
+identity, and completed the raw-array helper. Its first independent unmodified
+CLI invocation (`-m False`) then reached the deliberately out-of-bounds chrM
+cases and terminated in native code. The kernel recorded at
+`2026-07-23T18:34:17-04:00` that Python PID `993239` segfaulted in
+`pyfastx.cpython-313-x86_64-linux-gnu.so`. Python exception handling therefore
+cannot make the accepted contract's CLI observation requirement safe for
+`R05`/`R06`. The Rust parent exited nonzero, removed its uniquely named staging
+directory, and did not publish the final corpus. No capture process or partial
+output remains. This scientific-input-compatible candidate is superseded; it
+must not be rerun unchanged or treated as corpus evidence.
+
+That discovered upstream behavior returned this ticket to `proposed`. The
+revised contract excludes only `R05`/`R06` from unmodified CLI execution,
+retains their exact independently replayable bounds, and keeps the independent
+CLI comparison for `M01`–`M14` and `R01`–`R04`. No new capture may start until
+this revision is independently accepted and the implementation is changed to
+match it.
 
 ## Independent design review
 
@@ -653,6 +742,18 @@ vigilance item remains within the accepted wording: capture must prove that the
 module actually imported from the supplied pinned checkout and that its tracked
 source bytes match the pinned commit, not merely accept `git rev-parse HEAD`.
 
+That acceptance is superseded by the native pyfastx crash documented above.
+The same reviewer rejected revised hashes `3b2c994…` and `aef43ff…` because
+generic summary wording still implied CLI evidence for all 24 cases. Those
+findings were accepted and corrected.
+
+Final re-review verdict on exact revised contract
+`c31886f84cbea4144d7bde4573fec6ab1c15ba107694299aacc07dea28c177fd`:
+**ACCEPTED AS READY**. The reviewer confirmed that every execution, schema,
+test, and evidence clause keeps `M01`–`M14`/`R01`–`R04` on the independent CLI
+path while `R05`/`R06` use only exact independently replayable bounds and never
+enter the unsafe native slice path.
+
 ## Adversarial code review
 
 Pending.
@@ -661,8 +762,8 @@ Pending.
 
 | Acceptance clause | Command or evidence | Result |
 |---|---|---|
-| Accepted contract identity and independent design review | Contract `0fc618…`; `ticket_009_design_review` re-review | Pass |
-| Exact 24-case upstream corpus and provenance | Pending | Pending |
+| Accepted contract identity and independent design review | Contract `c31886…`; `ticket_009_design_review` final re-review | Pass |
+| Exact 24-case compatibility corpus and provenance | Pending | Pending |
 | Rust semantic inspector and corruption controls | Pending | Pending |
 | Deterministic capture regeneration | Pending | Pending |
 | Focused offline tests and resource evidence | Pending | Pending |
