@@ -3,7 +3,8 @@
 Status: ready
 Superseded contract identity: `sha256:0fc618afd1073c7592f2aaa8d65eb5d37f719c8da37fe5b7745fe0390ecd2e5d`
 Superseded revised contract identity: `sha256:c31886f84cbea4144d7bde4573fec6ab1c15ba107694299aacc07dea28c177fd`
-Accepted rendering-corrected contract identity: `sha256:b94a93eaeb40e657eb78e68ea680982029e3d345fd8ffe9291fe1c09f85613fc`
+Superseded rendering-corrected contract identity: `sha256:b94a93eaeb40e657eb78e68ea680982029e3d345fd8ffe9291fe1c09f85613fc`
+Accepted typed-array contract identity: `sha256:2adc3ee5563c9651b64c612d3536bba10d3ee11228a780e09f6731269d64e2dd`
 Base revision: `7563f90b7bda4a018833ca89cb628a26aed76c88`
 
 ## Outcome
@@ -36,13 +37,13 @@ change the shipped SNV index.
   `final.<j>.<i>.3.v2`. The corpus must bind each exact filename, order, byte
   size, and SHA-256. The other checkpoint files in the package are outside this
   profile.
-- Although upstream source spells `round(score, 2)`, the pinned NumPy 2.5.1
-  scalar operation returns `np.float32`; the surrounding f-string invokes its
-  empty `__format__`, which exposes the exact rounded binary32 value. The
-  independently executed CLI therefore emits
-  `0.20999999344348907`, not `0.21`, for bits `3e570a3d`. Exact compatibility
-  follows that observed rendering; a friendlier display belongs above this
-  compatibility layer.
+- Although upstream source spells `round(score, 2)`, its result retains the
+  NumPy scalar dtype. For a model-native `np.float32`, the surrounding empty
+  f-string format exposes the rounded binary32 value, so the independent CLI
+  emits `0.20999999344348907`, not `0.21`, for bits `3e570a3d`. A promoted
+  deletion `np.float64` instead renders `-0.05`. Exact compatibility follows
+  these observed dtype-dependent strings; a friendlier display belongs above
+  this compatibility layer.
 - Upstream `compute_score` returns one unmasked loss array and gain array per
   evaluated strand after one-hot encoding, strand reversal, three-checkpoint
   mean, four-tissue minimum/maximum, and indel length reconciliation. Upstream's
@@ -50,6 +51,13 @@ change the shipped SNV index.
   reconciliation leave exactly `100 + len(REF)` values. SNVs and anchored
   insertions therefore have 101 values, while equal-length MNVs and deletions
   retain longer arrays and may report positions through `len(REF) + 49`.
+- Score dtype is shape-dependent upstream. SNVs, equal-length MNVs, and
+  insertions retain model-native `float32`. Deletion reconciliation inserts
+  `np.zeros(ndiff)` without a dtype; NumPy defaults that segment to `float64`,
+  promotes the concatenated alternate array, and consequently returns
+  `float64` loss/gain arrays. The corpus must retain that dtype and its 64-bit
+  values for `M12`–`M14`; narrowing them to `f32` loses numeric and public
+  rendering evidence.
 - Upstream masking mutates the arrays while iterating genes. Its gffutils
   `FeatureDB.region()` query has no explicit `ORDER BY`, so same-strand overlap
   output depends on the exact SQLite bytes and observed gene iteration order.
@@ -118,7 +126,7 @@ SQLite. `both` means Pangolin computes separate `+` and `-` arrays.
 | `P01-same-strand-order` | controlled vector `order-v1` | `+:[GENE_A boundary 99,GENE_B boundary 101]` at position 100, `d=2` | 5 | in-place order mutation |
 | `P02-empty-boundaries` | controlled vector `empty-v1` | `+:[GENE_EMPTY boundaries []]` at position 100, `d=2` | 5 | empty-boundary masking/warning |
 | `P03-first-extremum` | controlled vector `tie-v1` | unmasked at position 100, `d=2` | 5 | first-index extrema |
-| `P04-rounding-signed-zero` | controlled scalar vector `round-v1` | formatting only | 8 scalars | pinned NumPy rounding, expanded `f32`, and signed-zero formatting |
+| `P04-rounding-signed-zero` | controlled typed scalar vector `round-v1` | formatting only | 12 scalars | pinned NumPy dtype-aware rounding/rendering and signed zero |
 
 `REF100` is exactly:
 
@@ -168,8 +176,8 @@ cells map exactly to the corresponding labels in the table. The inspector
 requires all 28 cells and rejects an extra, missing, reordered, or unsupported
 cell.
 
-Controlled `f32` values are stored as exact big-endian display hex for their
-32-bit IEEE-754 bit patterns:
+Controlled numeric values are stored as exact big-endian display hex for their
+IEEE-754 bit patterns. `order-v1`, `empty-v1`, and `tie-v1` are `f32`:
 
 - `order-v1`: gain
   `[3dcccccd,3f4ccccd,3e4ccccd,3f333333,3e99999a]`, loss
@@ -185,23 +193,28 @@ Controlled `f32` values are stored as exact big-endian display hex for their
   `[3dcccccd,3f4ccccd,3f4ccccd,3e4ccccd,00000000]`, loss
   `[bf000000,bdcccccd,bf000000,00000000,00000000]`; unmasked output chooses
   gain position `-1` and loss position `-2`.
-- `round-v1`: bit strings
+- `round-v1`: eight `f32` bit strings
   `[00000000,80000000,3ba3d70a,bba3d70a,3f80a3d7,bf80a3d7,3e570a3d,bc23d70a]`
   render inside upstream's empty-specifier f-string after the expression
   `round(np.float32(value), 2)` as
   `[0.0,-0.0,0.0,-0.0,1.0,-1.0,0.20999999344348907,-0.009999999776482582]`
   in the pinned NumPy environment. The final two controls prevent a Rust
   implementation from incorrectly prettifying the public strings to `0.21`
-  and `-0.01`.
+  and `-0.01`. Four additional `f64` bit strings
+  `[0000000000000000,8000000000000000,3fcae147ae147ae1,bfa999999999999a]`
+  render after `round(np.float64(value), 2)` as
+  `[0.0,-0.0,0.21,-0.05]`. Together, these controls prove dtype-dependent
+  public output.
 
 For every accepted real case retain the exact forward input context. Upstream
 slice coordinates are `context_start_1based = POS - 5,050`, zero-based anchor
 offset `5,050`, and context length `10,100 + len(REF)`. For every evaluated
 strand retain the two `100 + len(REF)` unmasked arrays returned after upstream
-reconciliation. Every finite `f32` is encoded as exactly eight lowercase
-hexadecimal digits representing the numeric 32 bits in network/display order;
-Rust parses the digits to a `u32` and then uses `f32::from_bits` without byte
-reinterpretation.
+reconciliation. Each strand records `dtype = f32` for `M01`–`M11` or
+`dtype = f64` for deletions `M12`–`M14`. Every finite scalar is encoded as
+exactly eight (`f32`) or sixteen (`f64`) lowercase hexadecimal digits in
+network/display order; Rust parses to `u32`/`u64` and uses
+`f32::from_bits`/`f64::from_bits` without byte reinterpretation or narrowing.
 
 Also retain ordered containing genes and ordered absolute exon start/end
 boundaries, exact masked and unmasked per-gene maxima/positions, and exact
@@ -294,7 +307,8 @@ version, or checkpoint profile before inference.
 
 A minimal source-controlled GPL Python helper, clearly marked as a Pangolin
 wrapper/modification, imports the pinned upstream `compute_score` path only to
-emit raw post-ensemble arrays and observed genes/boundaries. Rust invokes it
+emit each raw post-ensemble array's exact NumPy dtype and bits plus observed
+genes/boundaries. Rust invokes it
 with CUDA disabled and one compute/interop thread. Separately, Rust invokes the
 **unmodified** pinned upstream module as a CLI twice (`-m False` and `-m True`)
 over `M01`–`M14` plus `R01`–`R04`. `R05` and `R06` are never passed to that
@@ -359,8 +373,9 @@ The closed field layouts are:
   `coverage: [string]`. A model case then has `input` (`assembly`, `contig`,
   `position: u32`, `ref`, `alt`, `distance: u16`, `allele_shape`), `context`
   (`start_1based: u32`, `anchor_offset: u16`, `bases`, `sha256`), and `strands`
-  in `+` then `-` order when present. Each strand has `strand`, `loss_bits`,
-  `gain_bits`, ordered `genes` (`id`, `boundaries: [u32]`), and `expected`
+  in `+` then `-` order when present. Each strand has `strand`, `dtype`
+  (`f32` or `f64`), `loss_bits`, `gain_bits`, ordered `genes` (`id`,
+  `boundaries: [u32]`), and `expected`
   (`unmasked`, `masked`, `cli_unmasked`, `cli_masked`); each gene expectation
   contains gain/loss bit string and relative `i32` position. The optional
   `precomputed` array contains exact source member, gene, score bits, and
@@ -372,7 +387,9 @@ The closed field layouts are:
   for `R05`/`R06`; all upstream evidence is documentary. A postprocess case has
   `position`, `distance`, exact bit-string
   vectors or scalars, ordered genes/boundaries where applicable, and exact
-  expectations. Optional fields and JSON `null` are forbidden; each tagged
+  expectations. `round-v1` has exactly twelve ordered scalar entries, each
+  `{"dtype":"f32"|"f64","bits":<HEX>,"rendered":<STRING>}`, with token width
+  fixed by dtype. Optional fields and JSON `null` are forbidden; each tagged
   variant has only its named fields.
 
 The fixture contains no checkpoint, whole FASTA, GTF, SQLite database,
@@ -401,11 +418,12 @@ The inspector belongs to `pangopup-build`; it is not exposed by the end-user
 - require the exact twelve-checkpoint profile and all reference, annotation,
   capture-environment, license, coverage, and member identities;
 - validate DNA alphabet, context length, anchor/REF agreement, allele-shape
-  category, strand, exact `100 + len(REF)` array length, relative range
-  `-50..=len(REF)+49`, exact finite `f32` bits, gene order, and absolute exon
-  boundaries;
-- independently replay upstream masking on separate per-strand copies,
-  including same-strand in-place mutation in the recorded SQLite order;
+  category, strand, shape-derived dtype, exact `100 + len(REF)` array length,
+  relative range `-50..=len(REF)+49`, exact finite typed bits, gene order, and
+  absolute exon boundaries;
+- independently replay upstream masking in the recorded dtype on separate
+  per-strand copies, including same-strand in-place mutation in the recorded
+  SQLite order and NumPy's return-second-on-equality signed-zero behavior;
 - independently reproduce NumPy first-index argmin/argmax selection, relative
   positions, and the observed pinned NumPy scalar rendering from raw bits;
 - independently validate the five replayable normalized rejections from their
@@ -463,17 +481,16 @@ mutable branch name are not substitutes.
 ### 2. Raw post-ensemble arrays are the normative numeric observation
 
 Public rendered maxima alone can conceal model or indel-reconciliation drift.
-Retain exact post-ensemble unmasked loss/gain `f32` bits and independently
+Retain exact post-ensemble unmasked loss/gain bits and dtype and independently
 derive masks, maxima, positions, and public output. In the pinned environment,
-Python's `round(np.float32(value), 2)` returns an `np.float32`; upstream then
-places that scalar in an empty-specifier f-string, whose `__format__` exposes
-the rounded binary32 value, so `0.21` becomes `0.20999999344348907`. For finite
-Pangolin scores, replay uses the pinned binary32 multiply/rint/divide result,
-widens that result exactly to `f64`, emits its shortest round-tripping decimal,
-appends `.0` for an integral value, and preserves signed zero. This equivalence
-was checked over the exact controls and 100,000 deterministic finite binary32
-samples in `[-1,1]`; normal gates retain the eight exact discriminating
-controls, not that design-time probe. Replay must not substitute a cosmetic
+Python's `round(np.float32(value), 2)` returns `np.float32`; upstream then places
+that scalar in an empty-specifier f-string, whose `__format__` exposes the
+rounded binary32 value, so `0.21` becomes `0.20999999344348907`. Deletion
+reconciliation instead returns `np.float64`, for which the same source
+expression renders `-0.05`. Replay rounds in the recorded dtype and then
+reproduces that dtype's empty-format output, including signed zero. Normal gates
+retain the twelve exact discriminating controls, not a broad design-time probe.
+Replay must neither narrow `f64` deletion arrays nor substitute a cosmetic
 fixed-two-decimal formatter. Per-checkpoint intermediate
 tensors are not needed for the first CPU acceptance boundary and remain out of
 scope. The later CPU-runtime ticket sets comparison tolerances; this corpus
@@ -509,7 +526,7 @@ for semantic replay. Routine CI stays small, deterministic, offline, and fast.
 Before the corpus is accepted, add tests that fail against independently
 mutated copies of the checked fixture when any one of these changes:
 
-- one raw `f32` bit that changes a maximum;
+- one raw typed-score bit that changes a maximum;
 - one expected masked score or relative position;
 - same-strand gene order or one exon boundary;
 - a context base at the REF anchor;
@@ -540,13 +557,14 @@ candidate.
   excessive entry/member/line/string/context/array/gene/boundary sizes, unknown
   fields, duplicate/missing case and checkpoint IDs, invalid DNA/ref
   anchor/strand, wrong formula-derived context and array lengths, nonfinite or
-  malformed bits, missing provenance/license/coverage, changed gene ordering,
+  malformed or wrong-width bits, shape/dtype disagreement, forbidden `f64` to
+  `f32` narrowing, missing provenance/license/coverage, changed gene ordering,
   and semantic score/position/masking mutations.
 - Tests prove masked and unmasked replay on both strands, same-strand mutation
   order, opposite-strand independence, indel shapes and reconciliation
   observations through the full `-50..=len(REF)+49` relative range, replayable
   versus authenticated-observation rejection behavior, first-index ties, and
-  rounded output.
+  dtype-aware rounded output for both native `f32` and deletion-promoted `f64`.
 - Executable spec covers exact command grammar, valid summary, missing corpus,
   and a semantically corrupted miniature copy. It does not run the capture
   program or contact a network.
@@ -786,6 +804,14 @@ and empty-f-string rendering rule, all eight discriminating controls, the
 inspector/test wording, the retained boundary separation, and the failed
 candidate evidence.
 
+That acceptance is superseded by the deletion dtype promotion observed by the
+next independent CLI comparison. Independent review of the typed-array schema
+and twelve rendering controls returned **ACCEPTED AS READY** for exact contract
+`2adc3ee5563c9651b64c612d3536bba10d3ee11228a780e09f6731269d64e2dd`.
+The same reviewer confirmed the shape-derived dtype mapping, 8/16-digit bits,
+no-narrowing rule, dtype-preserving masking/extrema/rendering, closed P04
+controls, helper/schema contract, negative tests, and failed-candidate evidence.
+
 Revised-contract capture candidate, checkpointed before execution:
 
 - Candidate: accepted revised contract `c31886f…` at reviewed-ready commit
@@ -856,6 +882,38 @@ two-decimal rendering rule and returns the ticket to `proposed`. A further
 capture must wait for independent acceptance of the rendering-corrected
 contract and a regression-tested implementation.
 
+Rendering-corrected capture candidate, checkpointed before execution:
+
+- Accepted contract/commit are `b94a93e…` / `72ba2ed1d8a17e1736aa203a2925243dd2f10a7f`;
+  implementation diff SHA-256
+  `a9caa13b2dd323d2f6c117486488d5f2fb1248d6072cd1ad7dac35d6164b97d9`;
+  binary SHA-256
+  `65074f6d3e0014658347322b32e5312d555f8aa0f605db7bc58b067db6f91fbd`;
+  helper SHA-256 remains `4ba9096…`. The eight-control rendering test first
+  failed with cosmetic `0.21`/`-0.01` versus the required expanded values,
+  then passed after binary32 multiply/rint/divide plus exact widened scalar
+  rendering. All four compatibility unit tests and `cargo check --locked -p
+  pangopup-build` pass. The NumPy signed-zero masking correction remains.
+- All pinned scientific inputs, safe case plan, exact command, absent output,
+  progress, success/failure, and atomic cleanup contracts remain as reviewed.
+  Paused shell PID `1303496`, unified exec session `36555`, started
+  `2026-07-23T19:08:50-04:00`. Cancel with `TERM` to PID `1303496` or Ctrl-C
+  to session `36555`, then remove only its unpublished sibling staging tree
+  after exit. It receives `GO` only after this exact checkpoint is durable and
+  coordinator notification, and will not be rerun after unchanged success.
+
+That candidate received coordinator `GO`, passed preflight and the helper, and
+completed both eligible unmodified CLI invocations. It then failed closed on
+the M12 unmasked field at byte 33: the f32-only helper/Rust path rendered
+`-0.05000000074505806`, while upstream rendered `-0.05`. Source inspection
+proved that deletion reconciliation's default `np.zeros(ndiff)` promotes the
+alternate array and final scores to `float64`; the helper's unconditional f32
+packing had discarded that evidence. Final and staging directories were
+removed, the candidate was not rerun, and no corpus was published. This
+discovery supersedes contract `b94a93e…`'s all-f32 array schema and returns the
+ticket to `proposed`. Another capture must wait for independent acceptance of
+the typed-array contract and a regression-tested implementation.
+
 ## Adversarial code review
 
 Pending.
@@ -864,7 +922,7 @@ Pending.
 
 | Acceptance clause | Command or evidence | Result |
 |---|---|---|
-| Accepted contract identity and independent design review | Contract `b94a93e…`; `ticket_009_design_review` final rendering re-review | Pass |
+| Accepted contract identity and independent design review | Contract `2adc3ee…`; `ticket_009_design_review` typed-array re-review | Pass |
 | Exact 24-case compatibility corpus and provenance | Pending | Pending |
 | Rust semantic inspector and corruption controls | Pending | Pending |
 | Deterministic capture regeneration | Pending | Pending |
