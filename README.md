@@ -119,7 +119,7 @@ the compiled reference member, not the raw FASTA, and performs bounded indexed
 sequence reads rather than parsing FASTA during a request. The same principle
 applies to GENCODE: GTF/gffutils is build input, not a runtime database.
 
-## Shipped local transport and installation
+## Shipped SNV release, local transport, and installation
 
 Pangopup now packages an explicitly supplied certified bundle into canonical
 release-sized files and reconstructs the exact installed bytes:
@@ -154,6 +154,14 @@ transport identities. It atomically emits a byte-identical proof receipt, the
 checked canonical release profile, `SHA256SUMS`, and release notes from bounded
 metadata. This prepares publication; it does not contact GitHub, upload bytes,
 change repository settings, or make the release public.
+
+The reviewed result is published as the immutable
+[`snv-grch38-v1` release](https://github.com/genomoncology/pangopup/releases/tag/snv-grch38-v1).
+Its eight assets include the exact five-file installable transport plus the
+proof receipt, release profile, and `SHA256SUMS`. GitHub reports
+`immutable=true` and server-side SHA-256 digests matching the checked profile.
+The release notes provide the exact five-download manual installation path;
+the three publication-metadata assets stay outside the transport directory.
 
 Publication maintainers have a separate coordinator-only
 `pangopup-build release upload-asset` command. It accepts exactly one reviewed
@@ -236,7 +244,7 @@ ${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/
 The data directory is authoritative and must not be treated as disposable
 cache. `PANGOPUP_DATA_DIR` or `--data-dir` can override discovery. This shipped
 installer is Linux-only; macOS and Windows behavior is not claimed. Remote
-sync, download cache/resume and progress, release publication, signatures,
+sync, download cache/resume and progress, signatures,
 repair/GC/rollback, and container preinstall remain future work.
 
 ## Planned service operation
@@ -320,6 +328,8 @@ Implemented today:
   reconstruction;
 - bounded deterministic `release prepare` metadata for the pinned
   `snv-grch38-v1` public-release contract, without payload-part reads;
+- the public immutable `snv-grch38-v1` eight-asset release with exact
+  server-side digests and a documented five-file manual install path;
 - Linux local `pangopup assets install` and `assets status`, with strict XDG
   discovery, private dirfd-relative state, a nonblocking lock, single-stream
   reconstruction, canonical receipts/stage markers, immutable bundles, atomic
@@ -332,8 +342,8 @@ Implemented today:
   aliases, optional source-gene filtering, all-overlap results, typed misses,
   and explicit source-reference ambiguities.
 
-Not implemented yet: remote asset sync/download, completed public release,
-model runtime/fallback, HTTP service, container, repair/GC/rollback, or result
+Not implemented yet: remote asset sync/download, model runtime/fallback, HTTP
+service, container, repair/GC/rollback, or result
 cache. In this slice a syntactically valid concrete REF that
 does not match an ordinary indexed key is `not_found`; runtime FASTA validation
 begins only with the future model/reference slice.
@@ -346,7 +356,8 @@ The rolling outcome order is:
 4. typed SNV lookup API and CLI (complete);
 5. deterministic split lookup transport (complete);
 6. explicit local Linux/XDG installation and active discovery (complete);
-7. immutable GitHub publication and clean-machine manual proof;
+7. immutable GitHub publication and bounded public/manual-install proof
+   (complete);
 8. pinned remote sync against the observed public release contract;
 9. an upstream Pangolin compatibility corpus;
 10. pinned model, compact RefSeq GRCh38.p14, and compact GENCODE mask assets;

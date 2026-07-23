@@ -1,10 +1,8 @@
 # Ticket 007 public-release hygiene and publication evidence
 
-This file pins the reviewable procedure before any repository visibility,
-immutable-release setting, tag, release, or asset changes. It deliberately
-contains empty completion headings rather than claims about a future commit or
-external result. The retained hygiene result lives outside Git under
-`$PANGOPUP_PUBLICATION_EVIDENCE` until publication is complete.
+This file pins the reviewed procedure and records the redacted result after
+publication. The detailed retained hygiene result lived outside Git under
+`$PANGOPUP_PUBLICATION_EVIDENCE` until the immutable release completed.
 
 ## Pinned hygiene tool
 
@@ -176,9 +174,73 @@ the exact pushed commit whose Actions gate passed.
 
 ## Hygiene completion evidence
 
-Pending coordinator execution after the publication-ready commit is pushed and
-its remote gate is green.
+The publication-ready commit was
+`2fa6b24b15926dfda5ab3cca1d110cf6acb4d52a`; local `HEAD`, remote `main`, and
+GitHub Actions run `30034965591` matched exactly. That run completed
+successfully with checkout, pinned tool setup, `make lint`, `make test`, and
+`make spec` all green.
+
+The checked gitleaks 8.30.1 archive matched the pinned digest above. The
+history scan covered all refreshed branch/tag/pull refs with `--all`: 27
+commits, 2 refs, 605 Git objects, and 3,744,570 bytes produced zero findings.
+
+The private hosted-state copy covered repository settings/topics; branch and
+ruleset state; one workflow and all eight runs; eight safely extracted log ZIPs
+(38 regular members, 515,685 bytes); zero Actions artifacts; issues, pulls,
+comments, discussions, wiki, projects, releases/assets, Pages, deployments,
+environments, webhooks, and deploy keys. The authenticated repository API
+injects a generated `temp_clone_token`; that transport-only credential was
+removed by field name before scanning and no value was retained or printed.
+The owner made the repository public while the credential lacked the separate
+Projects-v2 scope; the resulting public organization search reported no
+Pangopup project and was added to the scan. The final 62-file, 803,144-byte
+hosted-content scan produced zero findings.
+
+The redacted retained result is outside Git at
+`data/pangopup/publication/evidence/audit-2fa6b24.md` relative to the workspace.
+No raw API response, scanner report, Actions ZIP, log, suspected secret, or
+credential was committed.
 
 ## External publication evidence
 
-Pending coordinator-only Phase B.
+The owner made `genomoncology/pangopup` public before coordinator Phase B; the
+coordinator observed `visibility=public` and did not toggle it. No tag or
+release existed at that checkpoint.
+
+The first immutable-release PUT incorrectly supplied an `enabled` body and was
+rejected with HTTP 422 without changing state. The corrected official empty
+PUT succeeded; the required GET returned `enabled=true` and
+`enforced_by_owner=false`.
+
+Draft release `358895554` was created with tag `snv-grch38-v1`, title
+`Pangopup GRCh38 SNV scores v1`, target
+`851f57d6ffb75a2c099a3d1263b1e94b60aad0e8`, and the exact reviewed notes.
+Each expected asset used one reviewed uploader invocation and no retry:
+
+| Asset | Attempts | Bytes | GitHub SHA-256 |
+|---|---:|---:|---|
+| `transport.json` | 1 | 1,266 | `f9b7501087226fb35cbfa66fa9b903cc21eb8bbbacb067363b9eeef487ee9e9a` |
+| `bundle-manifest.json` | 1 | 3,589 | `c4c4162b34a73ecd8c44d379f9e4fbc4e5e07869af1967a6695b8d439d2819b3` |
+| `NOTICE` | 1 | 1,709 | `9b8e898daa53b28cf421f9a59676e920dc5cefb1c23b9d185f75d3cfd4281af7` |
+| `payload.pgi.zst.part0000` | 1 | 1,000,000,000 | `07c1f9a2e33e1a5bd929500eefd00b84764c82d56e3f573c35d380419e4ed42a` |
+| `payload.pgi.zst.part0001` | 1 | 931,687,706 | `87580144fd828676d7adb269059cf2b425b342fe5ccee442888e0b93994adc74` |
+| `proof-receipt.json` | 1 | 2,194 | `9ddae771d200fe73bda5f31f5a04a52227b77c5d3f225dc7ee52294cd9aea475` |
+| `release-profile.json` | 1 | 2,821 | `63f3842ea6cb40ebc0a2b6ca23fba4f35d53f829d96c33f597a2c5bcac238ca6` |
+| `SHA256SUMS` | 1 | 595 | `54c29666c74bb35701d14f10d7d2b2ba3dcadc116a111429274da8aa975dce2e` |
+
+After every invocation, the complete draft inventory was fetched. Every asset
+immediately reported `state=uploaded` with its non-null reviewed digest. The
+exact closed inventory, target, title, and body were rechecked before the draft
+was published once.
+
+The completed release reports `draft=false`, `immutable=true`, the exact tag,
+target, title, body, and eight assets. The public tag resolves to the intended
+Ticket 006 commit. Unauthenticated bounded reads succeeded for the repository,
+release page, `release-profile.json`, `transport.json`,
+`bundle-manifest.json`, `NOTICE`, `proof-receipt.json`, and `SHA256SUMS`; all
+six downloaded small files matched their exact sizes and SHA-256 identities.
+Neither payload part was downloaded. Each local large part was read exactly
+once as its successful upload request body, with no retry.
+
+Public release:
+https://github.com/genomoncology/pangopup/releases/tag/snv-grch38-v1

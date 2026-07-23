@@ -12,11 +12,10 @@ canonical JSON followed by one required LF, and its whole 2,194-byte identity
 is pinned by the profile. The release preparer validates both framing and
 content before copying the bytes.
 
-Profiles are data contracts, not evidence that a remote release exists.
-`pangopup-build release prepare` reproduces the small publication outputs from
-bounded local metadata without opening payload parts or contacting GitHub.
-Public visibility and release publication are coordinator-only external steps
-recorded only after their evidence exists. GitHub immutable releases are a
-mandatory publication precondition, and the completed release must report
-`immutable=true`; a mutable release is not a fallback. The public release must
-be completed and observed before remote-sync behavior is designed against it.
+Profiles are data contracts; remote existence is separately observed. The
+`snv-grch38-v1` contract is now published at its pinned URL with exactly eight
+matching assets and `immutable=true`. `pangopup-build release prepare`
+reproduces the small publication outputs from bounded local metadata without
+opening payload parts or contacting GitHub. A mutable release is not a
+fallback. This observed immutable contract is the input boundary for the next
+remote-sync slice.

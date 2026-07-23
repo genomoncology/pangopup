@@ -1,6 +1,6 @@
 # 007 — Publish the certified GRCh38 SNV transport as a public data release
 
-Status: publication-ready
+Status: complete
 
 ## Why
 
@@ -1001,7 +1001,36 @@ rebuilt, or verified.
 
 ## External Publication Evidence
 
-Coordinator: pending
+Coordinator: Codex `/root`, 2026-07-23
+
+- The owner made the repository public while the final Projects inventory was
+  pending; the coordinator observed that state and did not toggle it.
+- Exact publication-ready commit `2fa6b24b15926dfda5ab3cca1d110cf6acb4d52a`
+  passed GitHub Actions run `30034965591` and the retained pinned hygiene audit:
+  zero Git-history findings and zero hosted-content findings.
+- GitHub immutable releases were enabled and confirmed before draft creation.
+  An initial body-bearing PUT was rejected with HTTP 422 and made no state
+  change; the official empty PUT succeeded and GET returned `enabled=true`.
+- Draft release `358895554` used the exact reviewed tag, Ticket 006 target,
+  title, and notes. All eight assets uploaded in one attempt each. Inventory was
+  fetched after every attempt; every asset reported `uploaded`, its exact size,
+  and its reviewed non-null server-side SHA-256 digest.
+- The exact closed draft was published once. The completed release reports
+  `draft=false`, `immutable=true`, and the exact tag, target, title, body, and
+  eight-asset inventory. The public tag resolves to the pinned Ticket 006
+  commit.
+- Unauthenticated bounded reads succeeded for the repository, release page,
+  profile, transport manifest, bundle manifest, notice, proof receipt, and
+  checksum list. All six downloaded small assets matched exact sizes/digests.
+  Neither payload part was downloaded; each local part was read once as its
+  successful upload body with no retry.
+
+Release:
+https://github.com/genomoncology/pangopup/releases/tag/snv-grch38-v1
+
+Full redacted counts and identities are in
+`planning/artifacts/007-public-snv-release.md`; the detailed retained audit
+receipt remains outside Git.
 
 ## Coordinator Final Check
 
@@ -1024,3 +1053,8 @@ exact five-file installable transport are distinct in user and architecture
 documentation. This exact diff is ready to commit and push; the coordinator
 must require its remote Actions run and pinned public-hygiene audit to pass
 before any visibility or release mutation.
+
+Post-publication current-state documentation now reports the immutable public
+release as shipped and leaves remote sync, model fallback, HTTP, and Docker as
+future work. Final post-effect gates and the cleanup commit are recorded by the
+coordinator after this evidence lands.

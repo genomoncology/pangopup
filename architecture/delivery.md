@@ -1,9 +1,8 @@
 # Artifact Delivery
 
-This document records shipped local transport, Linux installation, and bounded
-preparation of the pinned SNV release metadata plus the accepted remote-delivery
-target. The repository has not yet completed public publication and does not
-implement remote sync/download. The runtime opens either
+This document records the shipped immutable SNV release, local transport,
+Linux installation, and accepted remote-sync target. The repository does not
+yet implement remote sync/download. The runtime opens either
 an explicitly supplied bundle path or the active receipt-bound bundle in Linux
 user data.
 
@@ -45,6 +44,10 @@ copies of the installed bundle manifest and CC BY notice. It does not put the
 three-file bundle in tar and does not alter the reconstructed fixed-v1 member.
 The checked `snv-grch38-v1` release profile fixes the GitHub asset names, sizes,
 digests, and literal immutable-release URLs for those members.
+That contract is published at
+[`snv-grch38-v1`](https://github.com/genomoncology/pangopup/releases/tag/snv-grch38-v1).
+The release reports `immutable=true`; its exact eight names, sizes, and
+server-side SHA-256 digests match the checked profile.
 
 The local representation and commands are shipped now:
 
@@ -111,12 +114,11 @@ format or installer:
 2. local installation of supplied parts with platform-directory discovery,
    locking, staging, checksums, receipts, atomic publication, and verified
    reuse;
-3. immutable GitHub publication plus a clean-machine manual install, offline
-   restart, and representative query proof; and
+3. immutable GitHub publication plus bounded unauthenticated verification and
+   a documented exact manual-install path; and
 4. pinned remote sync with resumable downloads into the same installer.
 
-The first two stages and local preparation for stage three are shipped; the
-external publication effect itself is not complete. Each later stage
+The first three stages are shipped. Each later stage
 receives its own coordinator-authored and independently reviewed contract only after the
 preceding transport or installation contract is implemented.
 

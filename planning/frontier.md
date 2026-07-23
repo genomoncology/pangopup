@@ -11,8 +11,8 @@ optional gene filter and returns all matching source records by default from an
 explicit fixed-v1 bundle or the active Linux user-data installation. Speed
 leads memory and download size. Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
-established. Immutable publication, then remote sync, model fallback, and HTTP
-remain future.
+established. Immutable publication is also complete; remote sync, model
+fallback, and HTTP remain future.
 
 ## Established — pinned source ingestion contract
 
@@ -88,25 +88,18 @@ validation without opening transport parts or scanning `scores.pgi`. A
 source-derived 1,000-request fixture proves the real provider and seven CLI
 batches against a direct-TSV oracle in normal tests and CI.
 
-## Established — pinned SNV publication contract preparation
+## Established — immutable public SNV release
 
 `pangopup-build release prepare` binds the retained production receipt to the
 strict transport inspection result and atomically emits the checked release
 profile, byte-identical proof, checksums, and release notes without opening a
 payload part. CI installs the exact pinned ripgrep needed by the executable
-spec gate, and the public-hygiene procedure is fixed. Public visibility and the
-immutable release remain a coordinator-only external effect after independent
-approval, green pushed CI, and a zero-finding exact-commit audit.
+spec, and the exact publication-ready commit passed the closed public-hygiene
+audit. The public `snv-grch38-v1` release contains the exact eight reviewed
+assets, GitHub reports every size/digest and `immutable=true`, and bounded
+unauthenticated reads plus the documented five-file manual path are proved.
 
-## Next outcome — completed immutable publication
-
-Publish the prepared lookup assets to a GitHub Release with checksums, notices,
-source identity, reproducible commands, and a clean-machine manual
-install/offline/query proof. GitHub immutable releases are mandatory and the
-completed release must report `immutable=true`; mutable publication is not a
-fallback.
-
-## Later outcome — pinned remote sync
+## Next outcome — pinned remote sync
 
 Only after the immutable public release contract has been observed, expose
 `pangopup assets sync` to resolve that explicitly pinned manifest, resume

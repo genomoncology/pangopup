@@ -99,7 +99,8 @@ an explicit transport into Linux XDG data, and `pangopup assets status` reports
 the active state. `pangopup-build release prepare` deterministically generates
 the pinned `snv-grch38-v1` profile, proof copy, checksums, and notes from bounded
 metadata without opening payload parts. None fetches or publishes remote files;
-the external public release is not yet complete. The separate coordinator-only
+the immutable `snv-grch38-v1` release is published separately. The
+coordinator-only
 `pangopup-build release upload-asset` command can stream one exact reviewed
 asset during publication. It executes a sealed GitHub CLI snapshot, seals small
 assets, protects a large payload with a monitored Linux read lease, and bounds
@@ -113,13 +114,12 @@ runtime command and never downloads.
 Local installation is shipped, but automatic remote download is not. Callers
 run `pangopup assets install --transport <DIR>` once; later `pangopup lookup`
 discovers and cheaply reuses the active immutable bundle without `--bundle` or
-network access. `--bundle` remains an override. The immutable public release
-must be completed and observed first. The later remote target is for
+network access. `--bundle` remains an override. The immutable public release is
+complete and observed. The later remote target is for
 `pangopup assets sync` to resolve that binary-pinned manifest, resume/download
 to a temporary cache, and pass the verified transport to this installer.
 Download progress and offline/container prefetch remain future. Public-release
-metadata preparation is shipped; the external publication step is still
-pending coordinator evidence.
+metadata preparation and the immutable eight-asset publication are shipped.
 
 ### Will asset sync download whatever release is latest?
 
@@ -127,8 +127,8 @@ No. That would make startup irreproducible and allow a mutable remote choice to
 change scoring. The future binary or an explicit user selection pins one
 release-manifest identity, including URLs, sizes, hashes, formats, source
 identities, and licenses. Sync fetches that identity or fails. Immutable
-publication and clean-machine manual testing come first; remote sync remains a
-separate later slice.
+publication and its bounded public/manual-install proof are complete; remote
+sync remains a separate later slice.
 
 ### Where will managed assets be installed?
 
@@ -220,9 +220,9 @@ fixed-v1 lookup transport set, GPL model weights, GRCh38 reference member, and
 GENCODE masking member. The lookup set is canonical metadata, copied small
 bundle members, and deterministic parts of one compressed score stream; it is
 not one tar archive. Verify and reassemble it once during local installation,
-then map the expanded data at runtime. Remote release publication and sync are
-not shipped; local pack/verify/unpack and Linux install/status/active discovery
-are shipped.
+then map the expanded data at runtime. Immutable SNV release publication is
+shipped; remote sync is not. Local pack/verify/unpack and Linux
+install/status/active discovery are shipped.
 
 ### What does lookup output look like?
 

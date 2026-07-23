@@ -88,6 +88,6 @@ for comfortable headroom. The shipped local transport is split deterministically
 and can be verified, reconstructed, and installed in Linux user data without
 network access; runtime lookup still maps the unchanged fixed-v1 member and
 never decompresses a query. The pinned release profile, proof receipt,
-checksums, notes generator, and bounded preparation command are implemented,
-but external publication and remote sync are not yet complete. See
+checksums, notes generator, bounded preparation command, and immutable public
+`snv-grch38-v1` release are complete; remote sync is not yet implemented. See
 [`delivery.md`](delivery.md).
