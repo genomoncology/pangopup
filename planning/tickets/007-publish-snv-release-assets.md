@@ -90,6 +90,92 @@ behavior to the Pangopup runtime.
   miniature contract containing their own exact receipt bytes, whole-file
   SHA-256, identities, encoder values, and argv arrays; they do not weaken
   production validation.
+- Add a coordinator-only maintenance command used in Phase B:
+
+  ```text
+  pangopup-build release upload-asset \
+    --transport <TRANSPORT_DIR> \
+    --prepared <PREPARED_DIR> \
+    --gh <ABSOLUTE_PINNED_GH_BINARY> \
+    --release-id <POSITIVE_GITHUB_ID> \
+    --asset <EXACT_ASSET_NAME>
+  ```
+
+  Resolve and validate `--gh` before touching either asset root. The production
+  executable is the official GitHub CLI 2.45.0 Linux amd64 binary: release tag
+  source commit `3ca179bcdeb46b5e54ddc6cad8feb6addf487d7c`, archive
+  `gh_2.45.0_linux_amd64.tar.gz`, archive size 10,716,793 and
+  `sha256:79e89a14af6fc69163aee00e764e86d5809d0c6c77e6f229aebe7a4ed115ee67`,
+  extracted executable size 43,495,424 and
+  `sha256:d4a46368912cfc7b9f0a897a613910e34562ef033fc6029e0bea52c43b440fa4`.
+  Open its root/components without symlinks and the executable itself no-follow;
+  require that held regular File to have the pinned size/digest. Execute that
+  same descriptor, never its pathname, using Linux `execveat(..., AT_EMPTY_PATH)`
+  or the equivalent held `/proc/self/fd/<fd>` ELF execution path. Keep the
+  descriptor valid through child exec and do not resolve `--gh` again. Its `api
+  --input -` sends the supplied reader once with an explicit content length and
+  performs no automatic POST retry.
+
+  Accept only one of the exact eight production asset names and derive its
+  source root/member from that closed set. Open the chosen transport or
+  prepared root with Linux `openat2`/component walking that rejects a symlink
+  root or component, then open the direct member dirfd-relative with
+  `O_NOFOLLOW|O_CLOEXEC` before contract validation. Hold that one File for the
+  rest of the operation; never resolve the selected pathname again. Require a
+  regular file and reviewed `fstat` size. Revalidate bounded transport metadata
+  and the closed four-file prepared directory using dirfd-relative no-follow
+  opens. If the selected asset is small metadata, read/validate its bytes from
+  the held File and rewind that same File; if it is a payload part, inspect only
+  its held-fd metadata. Validation includes byte-exact proof/profile,
+  regenerated notes/checksum bytes, and expected name/size/digest declarations.
+
+  Spawn the pinned executable directly without a shell and with the held File
+  as stdin. The exact argv is:
+
+  ```text
+  gh api
+    https://uploads.github.com/repos/genomoncology/pangopup/releases/<id>/assets?name=<percent-encoded-reviewed-name>
+    --method POST
+    --header Accept:application/vnd.github+json
+    --header X-GitHub-Api-Version:2022-11-28
+    --header Content-Type:application/octet-stream
+    --header Content-Length:<reviewed-size>
+    --input -
+    --jq {"name":.name,"size":.size,"state":.state,"digest":.digest}
+  ```
+
+  Set stdin to the held File, stdout/stderr to pipes, and no TTY. Clear the
+  child environment, copy only `HOME`, `XDG_CONFIG_HOME`, `GH_CONFIG_DIR`,
+  `GH_TOKEN`, `GITHUB_TOKEN`, `SSL_CERT_FILE`, `SSL_CERT_DIR`, `HTTPS_PROXY`,
+  `NO_PROXY`, `LANG`, and `LC_ALL` when present, then force
+  `GH_PROMPT_DISABLED=1`, `GH_PAGER=cat`, `PAGER=cat`, and `NO_COLOR=1`.
+  `GH_DEBUG`, `DEBUG`, `GH_FORCE_TTY`, browser variables, and every unrelated
+  variable are absent. Bound captured stdout and stderr to 64 KiB each; kill
+  and fail closed on overflow. Never echo raw child output.
+
+  Exit 0 plus exactly one closed reduced JSON object is required. Its name and
+  size must equal the reviewed asset, state must be `uploaded`, and digest may
+  be null only pending the mandatory draft-inventory poll; a present digest
+  must exactly equal the reviewed selected-asset `sha256:` identity. A
+  well-formed but different digest fails closed. Emit only Pangopup's own bounded JSON
+  summary. One command performs one child invocation/request and never retries,
+  deletes, or clobbers. Authentication remains owned by `gh`; Pangopup never
+  reads, prints, persists, or places a token in argv.
+
+  Tests inject a fake executable before production-binary enforcement and use
+  miniature data without network. They assert exact argv/URL/header/length,
+  one invocation, byte-exact stdin, bounded output/error behavior, closed
+  response parsing, sanitized environment, and absence of source path or token
+  in argv. A compiled fake-child race replaces/symlinks the `--gh` pathname
+  after validation and proves the originally held executable runs; tests also
+  reject executable-root/component/member symlinks. Asset race hooks cover
+  transport metadata, prepared metadata, and payload
+  members; symlink roots/components/members; and pathname replacement both
+  after the held open but before validation and after validation. The held bytes
+  remain authoritative in every accepted case. They also cover nonregular
+  inputs, fstat-size mismatch, unreviewed names, malformed prepared files,
+  child failure, and zero payload pre-read. Developers/reviewers never invoke
+  this command against GitHub.
 - Pin this release contract:
 
   ```text
@@ -288,11 +374,17 @@ behavior to the Pangopup runtime.
   GET must return `enabled=true`; absence, denial, or conflict blocks release
   creation. Retain only the non-secret enabled/enforced setting evidence.
 - Create one draft release with the pinned tag, title, target commit, and exact
-  reviewed notes. Upload the eight assets. There is no local pre-read, hash,
-  copy, recompression, semantic verification, or redownload of a large part;
-  large bytes are read only as upload request bodies. Upload retries are
-  bounded to two attempts per expected asset and the artifact records attempts
-  and byte counts.
+  reviewed notes. Upload each of the eight assets only through
+  `pangopup-build release upload-asset`; never use pathname-reopening
+  `gh release upload`. There is no local pre-read, hash, copy, link,
+  recompression, semantic verification, or redownload of a large part; large
+  bytes are read only from the held descriptor as upload request bodies.
+  Coordinator retries are bounded to two command invocations per expected
+  asset and the artifact records attempts and byte counts. After every command
+  result—including nonzero exit, bounded-output failure, lost response, or
+  invalid response—the coordinator re-fetches the complete draft inventory
+  before any reuse, deletion, or second invocation. It never assumes a failed
+  client observed a failed server write.
 - Treat the draft as the transaction. On resume, first fetch its exact asset
   inventory. Reuse an expected `uploaded` asset only when name, size, and
   non-null `sha256:` digest match. For an expected asset in `open` state or
@@ -300,7 +392,9 @@ behavior to the Pangopup runtime.
   and retry within the bound. An unexpected asset, ambiguous duplicate,
   changed target/title/body, published release, or exhausted retry stops for
   manual review. Never use `--clobber`; never delete or replace a published
-  asset or tag.
+  asset or tag. A null digest from a successful upload command is accepted only
+  as a pending state for the bounded inventory poll, never as publication
+  evidence. The helper itself never performs inventory, retry, or deletion.
 - Poll the draft asset endpoint a bounded maximum of 120 times per upload until
   `state=uploaded` and `digest` is non-null. Before publication, compare the
   exact closed eight-name set, sizes, and server-reported SHA-256 digests with
@@ -320,7 +414,7 @@ behavior to the Pangopup runtime.
   `planning/faq.md`, and `planning/frontier.md` so Phase A describes exactly
   what is prepared and Phase B changes future/current claims only after the
   external evidence exists.
-- Excluded: `pangopup assets sync`, HTTP clients, download cache/resume,
+- Excluded: `pangopup assets sync`, runtime HTTP clients, download cache/resume,
   clean-machine multi-gigabyte download/install, executable releases, models,
   reference/mask publication, containers, signing/SBOM, history rewrite, and
   any production rebuild/recompression/full verification.
@@ -334,6 +428,10 @@ behavior to the Pangopup runtime.
 - `pangopup-build release prepare` deterministically reproduces the reviewed
   proof copy, profile, SHA list, and notes from bounded metadata while opening
   neither production part.
+- `pangopup-build release upload-asset` validates the exact release/prepared
+  contract, opens one chosen asset no-follow, and streams that same held file
+  into one authenticated child request without reopening its pathname;
+  replacement and symlink-race tests pass without network access.
 - The public `snv-grch38-v1` immutable release targets the Ticket 006 commit,
   contains exactly eight assets, and GitHub reports every reviewed size and
   SHA-256 digest.
@@ -431,9 +529,99 @@ Revision 4: approved. The reviewer independently confirmed the retained byte
 count, final `0a`, canonical 2,193-byte JSON prefix, whole-file identity, and
 the deterministic rejection rules. No new scope blocker was found.
 
+The first adversarial code review found that a later raw `gh release upload`
+would reopen a payload pathname after metadata inspection. A replacement or
+symlink could therefore leak unrelated local bytes into the draft before the
+server digest blocked publication. Revision 5 adds the held-no-follow-file
+`release upload-asset` boundary above and forbids pathname-based upload. This
+material security amendment is pending the same ticket review before the
+developer remediates code-review findings.
+
+Revision 5 was not approved because selected-file open ordering, the `gh`
+process contract, and post-attempt ambiguity handling were incomplete.
+Revision 6 opened the selected dirfd-relative no-follow source before
+validation, used that same held File for validation and child stdin, pinned the
+exact GitHub CLI binary/argv/environment/bounds, and required a complete
+inventory after every attempt before any recovery.
+
+Revision 6 was not approved because the validated GitHub CLI was still executed
+by a reopenable pathname and a present response digest was not compared with
+the reviewed asset digest. Revision 7 executes the held executable descriptor
+and requires exact digest equality.
+
+Revision 7: approved. The reviewer found no remaining blocker in held asset or
+executable security, auth/process behavior, bounded output, fake-child
+testability, exact response validation, inventory/retry semantics, scope, or
+the no-large-preread invariant.
+
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex `/root/ticket_007_developer`, 2026-07-23
+
+Implemented Phase A only. `pangopup-assets` now owns closed canonical parsing
+for the LF-framed proof receipt and no-LF release profile plus a public bounded
+transport inspection result. Inspection reads only `transport.json`,
+`bundle-manifest.json`, and `NOTICE`; it validates payload parts using no-follow
+regular-file name/size metadata. `pangopup-build release prepare` accepts only
+the pinned production receipt/transport contract, creates a private
+same-filesystem stage, and atomically emits the exact proof copy, generated
+byte-identical profile, ordered `SHA256SUMS`, and release notes.
+
+The checked proof is exactly 2,194 bytes and hashes to
+`sha256:9ddae771d200fe73bda5f31f5a04a52227b77c5d3f225dc7ee52294cd9aea475`.
+The canonical no-LF profile is 2,821 bytes and hashes to
+`sha256:63f3842ea6cb40ebc0a2b6ca23fba4f35d53f829d96c33f597a2c5bcac238ca6`.
+Miniature injected-contract preparation was byte-deterministic across two
+outputs. Its input-open audit recorded only the receipt and three small
+transport metadata members and zero payload-part opens. Tests also covered
+missing/multiple/CRLF receipt framing, duplicates, unknown fields,
+noncanonical JSON, pinned-public rejection of a miniature contract,
+well-formed metadata mismatch, symlinked receipt/part, wrong-size part,
+closed member order/URLs, checksum order, notes content, private stage mode,
+output conflict, and stage cleanup.
+
+Focused evidence:
+
+```text
+cargo test --locked -p pangopup-assets release::tests -- --nocapture
+  2 passed
+cargo test --locked -p pangopup-build --test transport -- --nocapture
+  17 passed
+```
+
+Completed local gates on the finished diff:
+
+```text
+make lint  pass
+make test  pass
+make spec  101 passed
+```
+
+Documentation changed with behavior: `README.md`, `architecture/delivery.md`,
+`architecture/source-data.md`, `release-profiles/README.md`,
+`planning/faq.md`, `planning/frontier.md`, all four workflow authorities, and
+the pinned `planning/artifacts/007-public-snv-release.md` audit procedure. CI
+now installs ripgrep 15.2.0 only after verifying the required archive digest.
+
+No repository setting, tag, release, visibility, immutable-release setting, or
+other external state was changed. No production payload part was opened, read,
+hashed, copied, linked, verified, or rebuilt. The coordinator must run the
+production small-output preparation before dispatching adversarial code review.
+
+Coordinator bounded production preparation completed before code-review
+dispatch. It returned `status=prepared`, asset count 8, the pinned transport ID,
+and the pinned bundle ID. The four retained small outputs were:
+
+```text
+SHA256SUMS           595 bytes  sha256:54c29666c74bb35701d14f10d7d2b2ba3dcadc116a111429274da8aa975dce2e
+proof-receipt.json  2194 bytes  sha256:9ddae771d200fe73bda5f31f5a04a52227b77c5d3f225dc7ee52294cd9aea475
+release-notes.md    1594 bytes  sha256:e96a8f702de522292ebb672c6782ecc81b1c134063902de7bc9e38fa78496fb7
+release-profile.json 2821 bytes sha256:63f3842ea6cb40ebc0a2b6ca23fba4f35d53f829d96c33f597a2c5bcac238ca6
+```
+
+The generated proof and profile were byte-identical to their checked-in
+reviewed files. The command used bounded receipt/transport metadata inspection
+and part name/type/size metadata only; it did not open a payload part.
 
 ## Adversarial Code Review
 
