@@ -1,6 +1,6 @@
 # 007 — Publish the certified GRCh38 SNV transport as a public data release
 
-Status: ready
+Status: publication-ready
 
 ## Why
 
@@ -885,6 +885,17 @@ post-owner lease-query injection, and a low-severity transport/release-set docs
 error. Those findings are routed through ticket Revision 11 before developer
 remediation.
 
+Revision 12 implementation: approved. The reviewer independently verified
+orderly `SIGINT`/`SIGTERM` cleanup, both parent-death race windows, restored
+child/parent signal masks, close-on-exec signal state, post-owner lease-query
+failure coverage, and the corrected release-set terminology. All earlier
+sealed-input, content-blind payload, no-pre-read, deadline, response, fixture,
+and immutable-publication boundaries remain sound. Reviewer gates passed:
+focused uploader 12, release parser 3, `make lint`, full `make test`, `make
+spec` 105, and `git diff --check`. The fixture `scores.pgi` remained
+byte-identical and JSONL changes were provenance-only. No network, production
+payload content, GitHub mutation, or external state was accessed.
+
 Revision 10 remediation is ready for the same reviewer. The GitHub CLI source
 is copied into a size/digest-validated sealed memfd and executed with
 `execveat(AT_EMPTY_PATH)`. Every small selected asset is copied into its own
@@ -944,10 +955,72 @@ No repository setting, GitHub state, network endpoint, or other external state
 was touched. No production payload part was opened, read, hashed, copied,
 linked, rebuilt, or verified.
 
+Revision 12 remediation is ready for rereview. Upload supervision now saves the
+calling thread's mask, blocks `SIGINT`, `SIGTERM`, and `SIGIO` together before
+payload lease acquisition, and owns one nonblocking close-on-exec `signalfd`.
+It drains and classifies pending signals immediately before spawn, monitors all
+three during the request, and consumes catchable interruption through the same
+process-group kill, bounded-pipe cancellation, direct-child reap, and lease
+release path as the other fail-closed outcomes. The original parent mask is
+restored on every return after cleanup.
+
+The parent captures its PID before spawn. In the pre-exec boundary, the child
+creates its process group, installs `PR_SET_PDEATHSIG(SIGKILL)`, verifies that
+`getppid()` still equals the captured parent, restores the saved original
+signal mask, and only then calls `execveat` on the sealed CLI snapshot. The
+fake executable proves the three supervised signals are not left blocked and
+the close-on-exec signal descriptor is absent. Subprocess barriers cover parent
+death before and after `PR_SET_PDEATHSIG`; neither case reaches fake `gh`.
+
+Orderly subprocess tests separately deliver `SIGINT` and `SIGTERM` while a
+payload writer is lease-blocked and a same-process-group descendant holds
+stdin and both output pipes. Both cases return a sanitized nonzero interrupted
+result, kill the group, reap the direct child, release the writer only after
+cleanup, and restore the coordinator mask. A pre-spawn pending-interrupt test
+starts no child. Injected post-owner `F_GETLEASE` error and lease-loss cases now
+also fail before child spawn. `architecture/delivery.md` distinguishes the
+eight-file release asset set from its exact five-file installable transport.
+
+Final evidence on the Revision 12 diff:
+
+```text
+cargo test --locked -p pangopup-build --test transport release_upload -- --test-threads=1
+  12 passed
+make lint  pass
+cargo build --locked --package pangopup-build --bin pangopup-build  pass
+make test  pass (29 transport integration tests)
+make spec  105 passed
+git diff --check  pass
+```
+
+The source-identity change was regenerated with the repository's deterministic
+SNV fixture tool, and the byte-exact fixture regeneration test passes. No
+repository setting, GitHub state, network endpoint, or other external state was
+touched. No production payload part was opened, read, hashed, copied, linked,
+rebuilt, or verified.
+
 ## External Publication Evidence
 
 Coordinator: pending
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex `/root`, 2026-07-23
+
+The independently approved diff passed the coordinator's final local gate:
+
+```text
+make lint  pass
+make test  pass (including 29 transport integration tests)
+make spec  105 passed
+cargo build --locked --package pangopup-build --bin pangopup-build  pass
+git diff --check  pass
+```
+
+The current-state scan found only expected pre-publication language: bounded
+release preparation is shipped, while repository visibility, immutable release
+publication, and remote sync remain incomplete. The eight-file release set and
+exact five-file installable transport are distinct in user and architecture
+documentation. This exact diff is ready to commit and push; the coordinator
+must require its remote Actions run and pinned public-hygiene audit to pass
+before any visibility or release mutation.

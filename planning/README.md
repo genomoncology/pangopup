@@ -36,6 +36,20 @@ proposed -> independently approved -> ready -> in-progress -> review
          -> independently approved -> complete
 ```
 
+When the reviewed ticket names a public or irreversible external effect, its
+final segment is instead:
+
+```text
+review -> publication-ready -> commit/push -> green remote gate
+       -> coordinator external effect -> complete -> commit/push -> cleanup
+```
+
+The coordinator generates any production small outputs before code review.
+After approval it pushes the reviewed preparation, waits for that exact
+commit's green remote gate, and completes the ticket's pinned audit before it
+alone performs the effect. Redacted audit and effect evidence enter the later
+completion commit; developers and reviewers never perform external mutations.
+
 One coordinating agent owns the lifecycle and writes one ticket at a time from
 the previous shipped result and rolling frontier; it does not implement product
 code or review its own ticket. Three distinct sub-agents provide independent

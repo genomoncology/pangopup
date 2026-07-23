@@ -2,7 +2,7 @@
 
 use super::{
     AssetError, AssetErrorKind, MAX_FIXED11_BYTES, MAX_JSON_BYTES, MAX_NOTICE_BYTES,
-    VerifiedTransport, decode_parts, inspect_transport, parse_bundle_manifest_bytes,
+    VerifiedTransport, decode_parts, inspect_transport_internal, parse_bundle_manifest_bytes,
     reject_duplicate_json, sha256, valid_sha256,
 };
 use pangopup_index::{BundleOpen, IndexError};
@@ -209,7 +209,7 @@ pub fn install_transport(transport: &Path, data_root: &Path) -> Result<InstallOu
     let root = open_root(data_root, true)?.ok_or_else(|| asset_io("create data root"))?;
     let _lock = acquire_install_lock(&root)?;
     let active_before = read_active_optional_for_install(&root)?;
-    let verified = inspect_transport(transport)?;
+    let verified = inspect_transport_internal(transport)?;
     let bundle_id = verified.manifest.bundle.bundle_id.clone();
     let transport_id = verified.manifest.transport_id.clone();
     let bundles = ensure_private_dir(&root.dir, "bundles", &root)?;

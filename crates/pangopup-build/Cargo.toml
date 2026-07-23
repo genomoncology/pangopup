@@ -24,6 +24,7 @@ memmap2 = "0.9.8"
 noodles-bgzf = "0.48.0"
 noodles-csi = "0.57.0"
 noodles-tabix = "0.63.0"
+pangopup-assets = { path = "../pangopup-assets", features = ["test-read-audit"] }
 zstd = "=0.13.3"
 
 [build-dependencies]

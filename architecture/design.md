@@ -197,7 +197,7 @@ never appears on the query path.
 - model conversion and CPU execution for supported lookup misses and non-SNVs;
 - lookup-first routing through one typed result/provenance API;
 - application-level model-result caching only if measurements justify it;
-- pinned remote asset sync and publication;
+- immutable publication followed by pinned remote asset sync;
 - foreground HTTP serving plus container and native service-manager
   integration; and
 - measured accelerator backends only after CPU compatibility is proved.

@@ -139,6 +139,35 @@ without creating a 15 GB scratch file; unpack additionally runs exhaustive
 fixed-v1 semantic certification before publication. SHA-256 proves integrity,
 not who published the files.
 
+Release maintainers can prepare the pinned public metadata without opening or
+hashing either payload part:
+
+```text
+pangopup-build release prepare \
+  --transport <TRANSPORT_DIR> \
+  --receipt <PROOF_RECEIPT_JSON> \
+  --output <ABSENT_DIR>
+```
+
+The public command accepts only the reviewed `snv-grch38-v1` receipt and
+transport identities. It atomically emits a byte-identical proof receipt, the
+checked canonical release profile, `SHA256SUMS`, and release notes from bounded
+metadata. This prepares publication; it does not contact GitHub, upload bytes,
+change repository settings, or make the release public.
+
+Publication maintainers have a separate coordinator-only
+`pangopup-build release upload-asset` command. It accepts exactly one reviewed
+asset, the prepared and transport directories, a positive release ID, and an
+absolute official GitHub CLI 2.45.0 path. It validates the reviewed CLI bytes
+and executes them from a sealed in-memory snapshot. Small selected assets are likewise
+sealed before validation; a large payload remains content-blind behind a
+monitored Linux read lease until the upload child exits. The one request has a
+21,600-second deadline. `SIGINT`, `SIGTERM`, lease breaks, and deadline failure
+all use process-group kill and direct-child reap cleanup; child-side
+parent-death protection prevents the direct request from surviving abrupt
+coordinator death.
+This is not a runtime downloader and is never used by lookup or installation.
+
 The runtime installs a caller-supplied transport without networking:
 
 ```text
@@ -163,10 +192,16 @@ The target is built in independently proved layers:
 2. install caller-supplied transport files into Linux/XDG data storage with
    locking, staging, checksums, receipts, atomic publication, active selection,
    and cheap verified reuse (shipped);
-3. expose `pangopup assets sync` to resolve a pinned remote release manifest
-   and safely resume/download its exact parts through the same installer; and
-4. publish immutable GitHub release assets and prove installation and lookup on
-   a clean supported machine.
+3. publish immutable GitHub release assets and prove manual installation,
+   offline restart, and lookup on a clean supported machine; and
+4. expose `pangopup assets sync` to resolve that observed pinned release
+   manifest and safely resume/download its exact parts through the same
+   installer.
+
+Publication is blocked unless GitHub immutable releases are enabled and the
+completed release reports `immutable=true`; a mutable release is never a
+fallback. Remote-sync work begins only after that public contract has been
+observed and recorded.
 
 The current lookup CLI resolves and reuses a complete compatible local
 installation without networking. After remote sync ships, target service
@@ -283,6 +318,8 @@ Implemented today:
   unpack`, with canonical metadata, pinned bundled libzstd 1.5.7, exact decimal
   1 GB parts, bounded streaming verification, and byte-identical certified
   reconstruction;
+- bounded deterministic `release prepare` metadata for the pinned
+  `snv-grch38-v1` public-release contract, without payload-part reads;
 - Linux local `pangopup assets install` and `assets status`, with strict XDG
   discovery, private dirfd-relative state, a nonblocking lock, single-stream
   reconstruction, canonical receipts/stage markers, immutable bundles, atomic
@@ -295,7 +332,7 @@ Implemented today:
   aliases, optional source-gene filtering, all-overlap results, typed misses,
   and explicit source-reference ambiguities.
 
-Not implemented yet: remote asset sync/download, published release assets,
+Not implemented yet: remote asset sync/download, completed public release,
 model runtime/fallback, HTTP service, container, repair/GC/rollback, or result
 cache. In this slice a syntactically valid concrete REF that
 does not match an ordinary indexed key is `not_found`; runtime FASTA validation
@@ -309,13 +346,14 @@ The rolling outcome order is:
 4. typed SNV lookup API and CLI (complete);
 5. deterministic split lookup transport (complete);
 6. explicit local Linux/XDG installation and active discovery (complete);
-7. pinned remote sync, GitHub publication, and clean-machine proof;
-8. an upstream Pangolin compatibility corpus;
-9. pinned model, compact RefSeq GRCh38.p14, and compact GENCODE mask assets;
-10. CPU inference parity, followed only then by measured accelerator options;
-11. lookup-first model routing and evidence-gated result caching;
-12. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
-13. observability, security, performance, and release hardening.
+7. immutable GitHub publication and clean-machine manual proof;
+8. pinned remote sync against the observed public release contract;
+9. an upstream Pangolin compatibility corpus;
+10. pinned model, compact RefSeq GRCh38.p14, and compact GENCODE mask assets;
+11. CPU inference parity, followed only then by measured accelerator options;
+12. lookup-first model routing and evidence-gated result caching;
+13. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
+14. observability, security, performance, and release hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the
 next coordinator-authored and independently reviewed ticket is active work.
@@ -386,6 +424,8 @@ pangopup-build verify <BUNDLE>
 pangopup-build transport pack --bundle <BUNDLE> --output <ABSENT_DIR>
 pangopup-build transport verify --transport <TRANSPORT_DIR>
 pangopup-build transport unpack --transport <TRANSPORT_DIR> --output <ABSENT_DIR>
+pangopup-build release prepare --transport <TRANSPORT_DIR> --receipt <PROOF_RECEIPT_JSON> --output <ABSENT_DIR>
+pangopup-build release upload-asset --transport <TRANSPORT_DIR> --prepared <PREPARED_DIR> --gh <ABSOLUTE_PINNED_GH_BINARY> --release-id <POSITIVE_GITHUB_ID> --asset <EXACT_ASSET_NAME>
 ```
 
 Each successful command writes exactly one JSON line. A bundle contains only

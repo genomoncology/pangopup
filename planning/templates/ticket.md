@@ -76,6 +76,24 @@ named documentation file and a check that shipped and future behavior are not
 confused. The ticket may become `complete` and enter final gates only after the
 reviewer records approval.
 
+## External Effect Evidence
+
+Coordinator: not applicable
+
+For the exceptional ticket that names a public or irreversible external
+effect, replace `not applicable` with pending evidence and use this lifecycle:
+
+```text
+review -> publication-ready -> commit/push -> green remote gate
+       -> coordinator external effect -> complete -> commit/push -> cleanup
+```
+
+The coordinator generates production small outputs before code review. After
+approval it pushes the reviewed preparation, requires a green remote gate and
+the pinned audit for that exact commit, performs the named external effect,
+then records only the reviewed redacted evidence here. Developers and
+reviewers never perform the effect.
+
 ## Coordinator Final Check
 
 Coordinator: pending

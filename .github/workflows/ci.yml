@@ -27,6 +27,17 @@ jobs:
           version: "0.8.0"
       - name: Install mustmatch
         run: uv tool install mustmatch==0.1.0
+      - name: Install ripgrep 15.2.0
+        run: |
+          archive=ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz
+          curl --fail --location --silent --show-error \
+            --output "$archive" \
+            "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/$archive"
+          echo "33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c  $archive" \
+            | sha256sum --check --strict
+          tar --extract --gzip --file "$archive"
+          install -m 0755 ripgrep-15.2.0-x86_64-unknown-linux-musl/rg "$HOME/.local/bin/rg"
+          rg --version
       - run: make lint
       - run: make test
       - run: make spec

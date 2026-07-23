@@ -96,25 +96,39 @@ separately versioned.
 The available maintenance commands are `pangopup-build transport pack`,
 `transport verify`, and `transport unpack`. `pangopup assets install` installs
 an explicit transport into Linux XDG data, and `pangopup assets status` reports
-the active state. None fetches or publishes remote files.
+the active state. `pangopup-build release prepare` deterministically generates
+the pinned `snv-grch38-v1` profile, proof copy, checksums, and notes from bounded
+metadata without opening payload parts. None fetches or publishes remote files;
+the external public release is not yet complete. The separate coordinator-only
+`pangopup-build release upload-asset` command can stream one exact reviewed
+asset during publication. It executes a sealed GitHub CLI snapshot, seals small
+assets, protects a large payload with a monitored Linux read lease, and bounds
+the child request to 21,600 seconds with process-group cleanup. Catchable
+interrupts use that same cleanup path, while child-side parent-death protection
+covers abrupt coordinator loss for the direct upload process. It is not a
+runtime command and never downloads.
 
 ### Does Pangopup install missing assets automatically?
 
 Local installation is shipped, but automatic remote download is not. Callers
 run `pangopup assets install --transport <DIR>` once; later `pangopup lookup`
 discovers and cheaply reuses the active immutable bundle without `--bundle` or
-network access. `--bundle` remains an override. The accepted remote target is
-for `pangopup assets sync` to resolve a binary-pinned manifest, resume/download
+network access. `--bundle` remains an override. The immutable public release
+must be completed and observed first. The later remote target is for
+`pangopup assets sync` to resolve that binary-pinned manifest, resume/download
 to a temporary cache, and pass the verified transport to this installer.
-Download progress, offline/container prefetch, and publication remain future.
+Download progress and offline/container prefetch remain future. Public-release
+metadata preparation is shipped; the external publication step is still
+pending coordinator evidence.
 
 ### Will asset sync download whatever release is latest?
 
 No. That would make startup irreproducible and allow a mutable remote choice to
 change scoring. The future binary or an explicit user selection pins one
 release-manifest identity, including URLs, sizes, hashes, formats, source
-identities, and licenses. Sync fetches that identity or fails. Publication to
-GitHub Releases and clean-machine testing remain future work.
+identities, and licenses. Sync fetches that identity or fails. Immutable
+publication and clean-machine manual testing come first; remote sync remains a
+separate later slice.
 
 ### Where will managed assets be installed?
 

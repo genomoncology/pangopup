@@ -1,8 +1,9 @@
 # Artifact Delivery
 
-This document records shipped local transport and Linux installation plus the
-accepted remote-delivery target. The repository does not yet publish generated
-lookup/model assets or implement remote sync/download. The runtime opens either
+This document records shipped local transport, Linux installation, and bounded
+preparation of the pinned SNV release metadata plus the accepted remote-delivery
+target. The repository has not yet completed public publication and does not
+implement remote sync/download. The runtime opens either
 an explicitly supplied bundle path or the active receipt-bound bundle in Linux
 user data.
 
@@ -16,22 +17,25 @@ to the 100 MiB limit, so generated indices and model weights never enter Git
 history or Git LFS.
 
 The initial release family should keep independently versioned concerns
-separate. The SNV lookup is a logical transport set, not one lookup archive:
+separate. The SNV lookup uses one eight-file release asset set whose installable
+transport is the closed five-file subset:
 
 ```text
 pangopup-<version>-<target>.tar.zst
-SNV transport set:
-  transport.json
-  bundle-manifest.json
-  NOTICE
-  payload.pgi.zst.part0000
-  payload.pgi.zst.part0001
-  ...
+SNV release asset set:
+  Installable transport (exactly five files):
+    transport.json
+    bundle-manifest.json
+    NOTICE
+    payload.pgi.zst.part0000
+    payload.pgi.zst.part0001
+  Publication metadata (kept outside the transport directory):
+    proof-receipt.json
+    release-profile.json
+    SHA256SUMS
 pangopup-models-<upstream-version>-<conversion>.tar.zst
 pangopup-reference-grch38p14-<format>.tar.zst
 pangopup-mask-gencode38-<format>.tar.zst
-SHA256SUMS
-release-manifest.json
 ```
 
 The SNV transport compresses only the exact `scores.pgi` byte stream as one
@@ -39,8 +43,8 @@ deterministic Zstandard frame, then cuts that stream into ordered
 1,000,000,000-byte parts. It carries canonical transport metadata plus exact
 copies of the installed bundle manifest and CC BY notice. It does not put the
 three-file bundle in tar and does not alter the reconstructed fixed-v1 member.
-How the future publication manifest namespaces those logical filenames as
-GitHub assets is intentionally left to the publication slice.
+The checked `snv-grch38-v1` release profile fixes the GitHub asset names, sizes,
+digests, and literal immutable-release URLs for those members.
 
 The local representation and commands are shipped now:
 
@@ -48,6 +52,8 @@ The local representation and commands are shipped now:
 pangopup-build transport pack --bundle <BUNDLE> --output <ABSENT_DIR>
 pangopup-build transport verify --transport <TRANSPORT_DIR>
 pangopup-build transport unpack --transport <TRANSPORT_DIR> --output <ABSENT_DIR>
+pangopup-build release prepare --transport <TRANSPORT_DIR> --receipt <PROOF_RECEIPT_JSON> --output <ABSENT_DIR>
+pangopup-build release upload-asset --transport <TRANSPORT_DIR> --prepared <PREPARED_DIR> --gh <ABSOLUTE_PINNED_GH_BINARY> --release-id <POSITIVE_GITHUB_ID> --asset <EXACT_ASSET_NAME>
 ```
 
 Pack first exhaustively certifies the installed bundle. Integrity-only verify
@@ -55,6 +61,32 @@ streams every declared layer and proves the exact decompressed member without
 creating it; it does not authenticate the publisher or prove fixed-v1 semantic
 structure. Unpack writes into unique same-filesystem staging, runs complete
 semantic certification, syncs it, and publishes by Linux no-replace rename.
+Release preparation inspects only the three bounded metadata files and
+no-follow name/type/size metadata for payload parts. It emits the reviewed
+profile, receipt copy, digest list, and release notes atomically; it performs no
+network or publication action and never opens a part.
+The upload command is a coordinator-only publication tool, not runtime remote
+sync. It accepts one of the eight reviewed asset names, validates and executes
+an immutable sealed snapshot of the official GitHub CLI 2.45.0, and streams one
+stable selected source after revalidating both closed local directories. Small
+assets are copied into sealed memfds. Large payloads remain unread by the
+parent and are protected by a monitored Linux read lease, explicit SIGIO
+routing, a final lease check, and zero-offset/content-blind syscall boundary.
+The 21,600-second request deadline kills the child's process group and reaps
+the direct child; lease-break cleanup has a separate five-second ceiling.
+One close-on-exec signal descriptor supervises blocked `SIGINT`, `SIGTERM`, and
+`SIGIO`; pending signals are drained before spawn, and orderly interruption
+uses the same group-kill, direct-reap, and lease-release path. The direct child
+sets a parent-death `SIGKILL`, verifies the parent PID captured before spawn,
+restores the original signal mask, and only then executes the sealed CLI. The
+command never resolves the selected pathname again, invokes a shell, retries,
+or reads credentials itself. The reviewed executable comes from source commit
+`3ca179bcdeb46b5e54ddc6cad8feb6addf487d7c` and the 10,716,793-byte
+`gh_2.45.0_linux_amd64.tar.gz` archive with
+`sha256:79e89a14af6fc69163aee00e764e86d5809d0c6c77e6f229aebe7a4ed115ee67`.
+The command itself requires the extracted executable to be exactly 43,495,424
+bytes with
+`sha256:d4a46368912cfc7b9f0a897a613910e34562ef033fc6029e0bea52c43b440fa4`.
 
 The model archive contains only the exact checkpoints needed by the supported
 inference implementation plus upstream notices and checksums. Keeping concerns
@@ -64,8 +96,10 @@ a version. The reference and mask assets are optional unless model fallback is
 enabled.
 
 Every published asset name is immutable and content-addressed by the release
-manifest. Enable GitHub immutable releases if the repository setting is
-available. Never replace an asset in place; issue a new release and identity.
+manifest. GitHub immutable releases are mandatory: publication is blocked
+unless the repository setting is enabled and the completed release reports
+`immutable=true`. A mutable release is not an acceptable fallback. Never
+replace an asset in place; issue a new release and identity.
 
 ## Delivery stages
 
@@ -77,11 +111,12 @@ format or installer:
 2. local installation of supplied parts with platform-directory discovery,
    locking, staging, checksums, receipts, atomic publication, and verified
    reuse;
-3. pinned remote sync with resumable downloads into the same installer; and
-4. immutable GitHub publication plus a clean-machine install, offline restart,
-   and representative query proof.
+3. immutable GitHub publication plus a clean-machine manual install, offline
+   restart, and representative query proof; and
+4. pinned remote sync with resumable downloads into the same installer.
 
-The first two stages are shipped. Each later stage
+The first two stages and local preparation for stage three are shipped; the
+external publication effect itself is not complete. Each later stage
 receives its own coordinator-authored and independently reviewed contract only after the
 preceding transport or installation contract is implemented.
 

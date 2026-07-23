@@ -1,4 +1,6 @@
-use pangopup_assets::{pack_bundle, unpack_transport, verify_transport};
+use pangopup_assets::{
+    pack_bundle, prepare_release, unpack_transport, upload_release_asset, verify_transport,
+};
 use pangopup_build::{
     CommandError, build_bundle, inspect_directory, prepare_benchmark_corpus, prototype_open,
     prototype_roundtrip, verify_bundle,
@@ -20,6 +22,12 @@ fn main() -> ExitCode {
         .is_some_and(|command| command == "transport")
     {
         return transport_command(&arguments[1..]);
+    }
+    if arguments
+        .first()
+        .is_some_and(|command| command == "release")
+    {
+        return release_command(&arguments[1..]);
     }
     match arguments.as_slice() {
         [command, source] if command == "inspect" => {
@@ -76,6 +84,72 @@ fn main() -> ExitCode {
             }
         }
         _ => json_failure(&CommandError::new("CLI_USAGE", USAGE)),
+    }
+}
+
+fn release_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let Some(action) = arguments.first().and_then(|value| value.to_str()) else {
+        return json_usage("release requires prepare or upload-asset");
+    };
+    match action {
+        "prepare" => {
+            let Ok(values) =
+                parse_exact_flags(&arguments[1..], &["--transport", "--receipt", "--output"])
+            else {
+                return json_usage(
+                    "release prepare requires --transport, --receipt, and --output exactly once",
+                );
+            };
+            match prepare_release(
+                Path::new(values[0]),
+                Path::new(values[1]),
+                Path::new(values[2]),
+            ) {
+                Ok(outcome) => json_success(&outcome),
+                Err(error) => {
+                    json_failure(&CommandError::new(error.kind().code(), error.to_string()))
+                }
+            }
+        }
+        "upload-asset" => {
+            let Ok(values) = parse_exact_flags(
+                &arguments[1..],
+                &[
+                    "--transport",
+                    "--prepared",
+                    "--gh",
+                    "--release-id",
+                    "--asset",
+                ],
+            ) else {
+                return json_usage(
+                    "release upload-asset requires --transport, --prepared, --gh, --release-id, and --asset exactly once",
+                );
+            };
+            let Some(release_id) = values[3]
+                .to_str()
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|value| *value > 0)
+            else {
+                return json_usage("release upload-asset requires a positive decimal --release-id");
+            };
+            let Some(asset) = values[4].to_str() else {
+                return json_usage("release upload-asset requires a UTF-8 --asset name");
+            };
+            match upload_release_asset(
+                Path::new(values[0]),
+                Path::new(values[1]),
+                Path::new(values[2]),
+                release_id,
+                asset,
+            ) {
+                Ok(outcome) => json_success(&outcome),
+                Err(error) => {
+                    json_failure(&CommandError::new(error.kind().code(), error.to_string()))
+                }
+            }
+        }
+        _ => json_usage("release requires prepare or upload-asset"),
     }
 }
 

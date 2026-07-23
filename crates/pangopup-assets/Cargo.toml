@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 build = "build.rs"
 
+[features]
+test-read-audit = []
+
 [dependencies]
 libc = "0.2.188"
 pangopup-index = { path = "../pangopup-index" }

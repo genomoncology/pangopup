@@ -11,7 +11,8 @@ optional gene filter and returns all matching source records by default from an
 explicit fixed-v1 bundle or the active Linux user-data installation. Speed
 leads memory and download size. Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
-established. Remote sync/publication, model fallback, and HTTP remain future.
+established. Immutable publication, then remote sync, model fallback, and HTTP
+remain future.
 
 ## Established — pinned source ingestion contract
 
@@ -87,15 +88,31 @@ validation without opening transport parts or scanning `scores.pgi`. A
 source-derived 1,000-request fixture proves the real provider and seven CLI
 batches against a direct-TSV oracle in normal tests and CI.
 
-## Later outcome — pinned remote sync and publication
+## Established — pinned SNV publication contract preparation
 
-Expose `pangopup assets sync` to resolve an explicitly pinned release manifest,
-resume downloads safely, reject mixed or mutable parts, and feed the same local
-installer. Publish immutable
-lookup and executable assets to GitHub Releases with checksums, notices, source
-identity, reproducible commands, and a clean-machine install/query proof.
-Network sync must never mean an unpinned request for “latest,” and a complete
-installed profile must continue to work without network access.
+`pangopup-build release prepare` binds the retained production receipt to the
+strict transport inspection result and atomically emits the checked release
+profile, byte-identical proof, checksums, and release notes without opening a
+payload part. CI installs the exact pinned ripgrep needed by the executable
+spec gate, and the public-hygiene procedure is fixed. Public visibility and the
+immutable release remain a coordinator-only external effect after independent
+approval, green pushed CI, and a zero-finding exact-commit audit.
+
+## Next outcome — completed immutable publication
+
+Publish the prepared lookup assets to a GitHub Release with checksums, notices,
+source identity, reproducible commands, and a clean-machine manual
+install/offline/query proof. GitHub immutable releases are mandatory and the
+completed release must report `immutable=true`; mutable publication is not a
+fallback.
+
+## Later outcome — pinned remote sync
+
+Only after the immutable public release contract has been observed, expose
+`pangopup assets sync` to resolve that explicitly pinned manifest, resume
+downloads safely, reject mixed or mutable parts, and feed the same local
+installer. Network sync must never mean an unpinned request for “latest,” and a
+complete installed profile must continue to work without network access.
 
 ## Later outcome — upstream compatibility corpus
 

@@ -20,11 +20,54 @@ use std::{
 };
 
 mod local;
+mod release;
+mod release_upload_linux;
+
+#[cfg(any(test, feature = "test-read-audit"))]
+thread_local! {
+    static TEST_INPUT_OPENS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Reset the test-only list of input files opened by bounded asset readers.
+#[doc(hidden)]
+#[cfg(any(test, feature = "test-read-audit"))]
+pub fn test_reset_input_opens() {
+    TEST_INPUT_OPENS.with_borrow_mut(Vec::clear);
+}
+
+/// Return and reset the test-only list of input files opened by asset readers.
+#[doc(hidden)]
+#[cfg(any(test, feature = "test-read-audit"))]
+pub fn test_take_input_opens() -> Vec<String> {
+    TEST_INPUT_OPENS.take()
+}
+
+#[cfg(any(test, feature = "test-read-audit"))]
+fn record_test_input_open(path: &Path) {
+    TEST_INPUT_OPENS.with_borrow_mut(|paths| {
+        paths.push(path.to_string_lossy().into_owned());
+    });
+}
+
+#[cfg(not(any(test, feature = "test-read-audit")))]
+fn record_test_input_open(_path: &Path) {}
 
 pub use local::{
     ActiveBundle, DataPathInputs, InstallOutcome, LocalStatus, active_bundle, install_transport,
     local_status, open_active_bundle, resolve_data_root,
 };
+#[cfg(any(test, feature = "test-read-audit"))]
+pub use release::{
+    BeforeChildSpawnHook, ChildPreExecBarrierPhase, ReleasePreparationContract,
+    ReleaseUploadChildBarrier, ReleaseUploadTestBarrier, ReleaseUploadTestContract,
+    ReleaseUploadTestHooks, prepare_release_with_contract, upload_release_asset_with_contract,
+};
+pub use release::{
+    PrepareReleaseOutcome, ProofReceipt, ReleaseProfile, UploadAssetOutcome, parse_proof_receipt,
+    parse_release_profile, prepare_release, upload_release_asset,
+};
+#[cfg(any(test, feature = "test-read-audit"))]
+pub use release_upload_linux::{LeaseBreakTimeTest, PayloadOperation, PayloadTestFaults};
 
 #[cfg(test)]
 mod install_audit {
@@ -138,6 +181,8 @@ pub enum AssetErrorKind {
     StagingInvalid,
     InstallConflict,
     AssetsMissing,
+    ReleaseInvalid,
+    ReleaseUpload,
 }
 
 impl AssetErrorKind {
@@ -161,6 +206,8 @@ impl AssetErrorKind {
             Self::StagingInvalid => "STAGING_INVALID",
             Self::InstallConflict => "INSTALL_CONFLICT",
             Self::AssetsMissing => "ASSETS_MISSING",
+            Self::ReleaseInvalid => "RELEASE_INVALID",
+            Self::ReleaseUpload => "RELEASE_UPLOAD",
         }
     }
 }
@@ -293,6 +340,49 @@ struct PartDescriptor {
     path: String,
     size: u64,
     sha256: String,
+}
+
+/// Bounded identity information for one transported payload part.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TransportPartInspection {
+    pub ordinal: u16,
+    pub path: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+/// The exact deterministic encoder contract declared by a transport.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TransportCompressionInspection {
+    pub format: String,
+    pub level: i32,
+    pub checksum: bool,
+    pub content_size: bool,
+    pub dictionary: bool,
+    pub workers: u32,
+    pub encoder_crate: String,
+    pub libzstd_version: String,
+}
+
+/// Strict, bounded transport metadata inspected without opening payload parts.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TransportInspection {
+    pub transport_bytes: Vec<u8>,
+    pub transport_sha256: String,
+    pub transport_id: String,
+    pub bundle_manifest_bytes: Vec<u8>,
+    pub bundle_manifest_size: u64,
+    pub bundle_manifest_sha256: String,
+    pub notice_bytes: Vec<u8>,
+    pub notice_size: u64,
+    pub notice_sha256: String,
+    pub bundle_id: String,
+    pub score_size: u64,
+    pub score_sha256: String,
+    pub compressed_size: u64,
+    pub compressed_sha256: String,
+    pub compression: TransportCompressionInspection,
+    pub parts: Vec<TransportPartInspection>,
 }
 
 #[derive(Serialize)]
@@ -591,6 +681,7 @@ pub fn unpack_transport(path: &Path, output: &Path) -> Result<UnpackOutcome, Ass
 
 struct VerifiedTransport {
     manifest: TransportManifest,
+    transport_bytes: Vec<u8>,
     bundle_manifest_bytes: Vec<u8>,
     notice: Vec<u8>,
 }
@@ -599,7 +690,7 @@ fn verify_internal(
     path: &Path,
     reconstructed: Option<&mut File>,
 ) -> Result<VerifiedTransport, AssetError> {
-    let verified = inspect_transport(path)?;
+    let verified = inspect_transport_internal(path)?;
     decode_parts(
         path,
         &verified.manifest,
@@ -608,7 +699,57 @@ fn verify_internal(
     Ok(verified)
 }
 
-fn inspect_transport(path: &Path) -> Result<VerifiedTransport, AssetError> {
+/// Inspect the closed transport set using bounded metadata reads only.
+///
+/// Payload parts are never opened: their names, regular-file shape, and sizes
+/// are checked from no-follow directory metadata.
+pub fn inspect_transport(path: &Path) -> Result<TransportInspection, AssetError> {
+    let verified = inspect_transport_internal(path)?;
+    Ok(transport_inspection_from_verified(verified))
+}
+
+fn transport_inspection_from_verified(verified: VerifiedTransport) -> TransportInspection {
+    let manifest = &verified.manifest;
+    TransportInspection {
+        transport_sha256: sha256(&verified.transport_bytes),
+        transport_bytes: verified.transport_bytes,
+        transport_id: manifest.transport_id.clone(),
+        bundle_manifest_size: manifest.bundle.manifest.size,
+        bundle_manifest_sha256: manifest.bundle.manifest.sha256.clone(),
+        bundle_manifest_bytes: verified.bundle_manifest_bytes,
+        notice_size: manifest.bundle.notice.size,
+        notice_sha256: manifest.bundle.notice.sha256.clone(),
+        notice_bytes: verified.notice,
+        bundle_id: manifest.bundle.bundle_id.clone(),
+        score_size: manifest.bundle.scores.size,
+        score_sha256: manifest.bundle.scores.sha256.clone(),
+        compressed_size: manifest.payload.compressed_size,
+        compressed_sha256: manifest.payload.compressed_sha256.clone(),
+        compression: TransportCompressionInspection {
+            format: manifest.compression.format.clone(),
+            level: manifest.compression.level,
+            checksum: manifest.compression.checksum,
+            content_size: manifest.compression.content_size,
+            dictionary: manifest.compression.dictionary,
+            workers: manifest.compression.workers,
+            encoder_crate: manifest.compression.encoder_crate.clone(),
+            libzstd_version: manifest.compression.libzstd_version.clone(),
+        },
+        parts: manifest
+            .payload
+            .parts
+            .iter()
+            .map(|part| TransportPartInspection {
+                ordinal: part.ordinal,
+                path: part.path.clone(),
+                size: part.size,
+                sha256: part.sha256.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn inspect_transport_internal(path: &Path) -> Result<VerifiedTransport, AssetError> {
     let manifest_bytes = read_bounded(
         &path.join("transport.json"),
         MAX_JSON_BYTES,
@@ -632,6 +773,7 @@ fn inspect_transport(path: &Path) -> Result<VerifiedTransport, AssetError> {
     validate_bundle_metadata(&manifest, &bundle_manifest_bytes, &notice)?;
     Ok(VerifiedTransport {
         manifest,
+        transport_bytes: manifest_bytes,
         bundle_manifest_bytes,
         notice,
     })
@@ -802,6 +944,20 @@ fn validate_directory(path: &Path, manifest: &TransportManifest) -> Result<(), A
             .map_err(|error| input_io("inspect transport entry", error))?;
         if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
             return Err(part_error("transport entries must be regular files"));
+        }
+        let expected_size = match name.as_str() {
+            "transport.json" => None,
+            "bundle-manifest.json" => Some(manifest.bundle.manifest.size),
+            "NOTICE" => Some(manifest.bundle.notice.size),
+            _ => manifest
+                .payload
+                .parts
+                .iter()
+                .find(|part| part.path == name)
+                .map(|part| part.size),
+        };
+        if expected_size.is_some_and(|size| metadata.len() != size) {
+            return Err(part_error("transport entry size does not match metadata"));
         }
         actual.insert(name);
     }
@@ -1657,6 +1813,7 @@ fn open_regular(
     #[cfg(not(unix))]
     let file = File::open(path);
     let file = file.map_err(|error| AssetError::new(io_kind, error.to_string()))?;
+    record_test_input_open(path);
     let metadata = file
         .metadata()
         .map_err(|error| AssetError::new(io_kind, error.to_string()))?;
@@ -1811,6 +1968,16 @@ fn create_stage(output: &Path) -> Result<(PathBuf, StageGuard), AssetError> {
         let path = parent.join(format!(".{name}.pangopup-stage-{suffix}"));
         match fs::create_dir(&path) {
             Ok(()) => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if let Err(error) =
+                        fs::set_permissions(&path, fs::Permissions::from_mode(0o700))
+                    {
+                        let _ = fs::remove_dir(&path);
+                        return Err(output_io("make output staging private", error));
+                    }
+                }
                 return Ok((path.clone(), StageGuard { path, armed: true }));
             }
             Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,

@@ -15,6 +15,20 @@ All three sub-agent identities, findings, dispositions, documentation proof,
 and approvals are recorded in the ticket. Developers never commit or push; the
 coordinator alone does so after independent approval.
 
+A ticket that explicitly includes a public or irreversible external effect
+uses the narrow final lifecycle below:
+
+```text
+review -> publication-ready -> commit/push -> green remote gate
+       -> coordinator external effect -> complete -> commit/push -> cleanup
+```
+
+The coordinator generates production small outputs before code review, pushes
+the independently approved preparation, requires that exact commit's green
+remote gate and pinned audit, and alone performs the effect. Redacted audit and
+effect evidence enter the later completion commit. Developers and reviewers
+never mutate external state.
+
 After independent code-review approval and final gates, the coordinator commits
 and pushes the implementation together with the ticket marked `complete` and
 its evidence. A material final-gate or stale-documentation finding returns to
