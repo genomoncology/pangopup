@@ -56,8 +56,12 @@ behavior to the Pangopup runtime.
   no local path, host identity, credential, or private source content and is
   part of the public release proof.
 - Parse the proof receipt with duplicate-key rejection, `deny_unknown_fields`
-  at every object level, RFC 8785 byte-canonicality, JSON-safe integers, exact
-  array lengths/order, and exact pinned values. The closed v1 shape is:
+  at every object level, JSON-safe integers, exact array lengths/order, and
+  exact pinned values. Its framing is 2,193 bytes of RFC 8785 canonical JSON
+  followed by exactly one LF byte, for 2,194 bytes total. Validate canonicality
+  against the JSON prefix after removing that one required LF; reject a missing
+  LF, CRLF, more than one LF, or any other leading/trailing whitespace. The
+  closed v1 shape is:
 
   ```text
   root: schema, source, reference, bundle, transport, tool, verify
@@ -76,15 +80,16 @@ behavior to the Pangopup runtime.
   verify: bundle, transport (each a nonempty ordered string array)
   ```
 
-  The checked-in production receipt is the complete JSON example and exact
-  production value contract: object keys, field types, array cardinalities and
-  order, encoder values, verification argv values, and every source/reference/
-  bundle/transport identity must match it. The parser belongs to
+  The checked-in production receipt is the complete LF-framed JSON example and
+  exact production value contract: object keys, field types, array cardinalities
+  and order, encoder values, verification argv values, and every
+  source/reference/bundle/transport identity must match it. The parser belongs to
   `pangopup-assets`; the release preparer compares its typed result with the
   same crate's typed transport inspection result. Internal miniature tests use
-  the same closed schema but inject a miniature contract containing their own
-  exact receipt bytes, whole-file SHA-256, identities, encoder values, and argv
-  arrays; they do not weaken production validation.
+  the same closed schema and canonical-JSON-plus-one-LF framing but inject a
+  miniature contract containing their own exact receipt bytes, whole-file
+  SHA-256, identities, encoder values, and argv arrays; they do not weaken
+  production validation.
 - Pin this release contract:
 
   ```text
@@ -408,12 +413,23 @@ commit intended to contain it, publisher hg38 provenance and Pangopup RefSeq
 compatibility were conflated, and the proof-receipt value contract remained
 incomplete.
 
-Revision 3: approved. The pushed-commit audit is now retained outside Git until
-the completion commit; all four lifecycle documents are in scope; source and
-compatibility facts are separate; and the exact canonical production receipt
-is the checked-in schema/value example. The reviewer found no new blocker in
-the parser boundary, CI/hygiene procedure, immutable release contract, manual
-five-file install path, draft recovery, attribution, or large-I/O limits.
+Revision 3 was approved. The pushed-commit audit is now retained outside Git
+until the completion commit; all four lifecycle documents are in scope; source
+and compatibility facts are separate; and the exact canonical production
+receipt is the checked-in schema/value example. The reviewer found no new
+blocker in the parser boundary, CI/hygiene procedure, immutable release
+contract, manual five-file install path, draft recovery, attribution, or
+large-I/O limits.
+
+During development, the exact retained receipt exposed one internal
+contradiction: its reviewed 2,194-byte identity includes a final LF, while its
+RFC 8785 JSON payload without that LF is 2,193 bytes. Revision 4 preserves the
+exact public artifact and makes the parser rule explicit: canonical JSON plus
+exactly one LF.
+
+Revision 4: approved. The reviewer independently confirmed the retained byte
+count, final `0a`, canonical 2,193-byte JSON prefix, whole-file identity, and
+the deterministic rejection rules. No new scope blocker was found.
 
 ## Implementation Evidence
 
