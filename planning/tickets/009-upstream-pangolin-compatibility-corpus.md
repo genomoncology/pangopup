@@ -2,7 +2,8 @@
 
 Status: ready
 Superseded contract identity: `sha256:0fc618afd1073c7592f2aaa8d65eb5d37f719c8da37fe5b7745fe0390ecd2e5d`
-Accepted revised contract identity: `sha256:c31886f84cbea4144d7bde4573fec6ab1c15ba107694299aacc07dea28c177fd`
+Superseded revised contract identity: `sha256:c31886f84cbea4144d7bde4573fec6ab1c15ba107694299aacc07dea28c177fd`
+Accepted rendering-corrected contract identity: `sha256:b94a93eaeb40e657eb78e68ea680982029e3d345fd8ffe9291fe1c09f85613fc`
 Base revision: `7563f90b7bda4a018833ca89cb628a26aed76c88`
 
 ## Outcome
@@ -12,7 +13,7 @@ self-contained GRCh38 corpus. Its scored cases and eligible rejection
 observations are captured from pinned upstream Pangolin 1.0.2 CPU execution;
 its two unsafe chromosome-boundary rejections are retained as independently
 replayable slice bounds. The inspector replays masking, ordering, maxima,
-positions, public two-decimal output, and rejection rules without Python,
+positions, exact pinned NumPy public rendering, and rejection rules without Python,
 PyTorch, model checkpoints, a whole reference genome, or a gffutils database.
 
 This establishes the acceptance oracle for later Rust model work. It does not
@@ -35,6 +36,13 @@ change the shipped SNV index.
   `final.<j>.<i>.3.v2`. The corpus must bind each exact filename, order, byte
   size, and SHA-256. The other checkpoint files in the package are outside this
   profile.
+- Although upstream source spells `round(score, 2)`, the pinned NumPy 2.5.1
+  scalar operation returns `np.float32`; the surrounding f-string invokes its
+  empty `__format__`, which exposes the exact rounded binary32 value. The
+  independently executed CLI therefore emits
+  `0.20999999344348907`, not `0.21`, for bits `3e570a3d`. Exact compatibility
+  follows that observed rendering; a friendlier display belongs above this
+  compatibility layer.
 - Upstream `compute_score` returns one unmasked loss array and gain array per
   evaluated strand after one-hot encoding, strand reversal, three-checkpoint
   mean, four-tissue minimum/maximum, and indel length reconciliation. Upstream's
@@ -110,7 +118,7 @@ SQLite. `both` means Pangolin computes separate `+` and `-` arrays.
 | `P01-same-strand-order` | controlled vector `order-v1` | `+:[GENE_A boundary 99,GENE_B boundary 101]` at position 100, `d=2` | 5 | in-place order mutation |
 | `P02-empty-boundaries` | controlled vector `empty-v1` | `+:[GENE_EMPTY boundaries []]` at position 100, `d=2` | 5 | empty-boundary masking/warning |
 | `P03-first-extremum` | controlled vector `tie-v1` | unmasked at position 100, `d=2` | 5 | first-index extrema |
-| `P04-rounding-signed-zero` | controlled scalar vector `round-v1` | formatting only | 6 scalars | two-decimal and signed-zero formatting |
+| `P04-rounding-signed-zero` | controlled scalar vector `round-v1` | formatting only | 8 scalars | pinned NumPy rounding, expanded `f32`, and signed-zero formatting |
 
 `REF100` is exactly:
 
@@ -178,8 +186,13 @@ Controlled `f32` values are stored as exact big-endian display hex for their
   `[bf000000,bdcccccd,bf000000,00000000,00000000]`; unmasked output chooses
   gain position `-1` and loss position `-2`.
 - `round-v1`: bit strings
-  `[00000000,80000000,3ba3d70a,bba3d70a,3f80a3d7,bf80a3d7]` format at two
-  decimals as `[0.0,-0.0,0.0,-0.0,1.0,-1.0]` in the pinned NumPy environment.
+  `[00000000,80000000,3ba3d70a,bba3d70a,3f80a3d7,bf80a3d7,3e570a3d,bc23d70a]`
+  render inside upstream's empty-specifier f-string after the expression
+  `round(np.float32(value), 2)` as
+  `[0.0,-0.0,0.0,-0.0,1.0,-1.0,0.20999999344348907,-0.009999999776482582]`
+  in the pinned NumPy environment. The final two controls prevent a Rust
+  implementation from incorrectly prettifying the public strings to `0.21`
+  and `-0.01`.
 
 For every accepted real case retain the exact forward input context. Upstream
 slice coordinates are `context_start_1based = POS - 5,050`, zero-based anchor
@@ -394,7 +407,7 @@ The inspector belongs to `pangopup-build`; it is not exposed by the end-user
 - independently replay upstream masking on separate per-strand copies,
   including same-strand in-place mutation in the recorded SQLite order;
 - independently reproduce NumPy first-index argmin/argmax selection, relative
-  positions, and the observed Python/NumPy two-decimal output from raw bits;
+  positions, and the observed pinned NumPy scalar rendering from raw bits;
 - independently validate the five replayable normalized rejections from their
   stored witnesses, authenticate `R04` as an upstream DB/CLI observation with
   bracketing evidence, and never treat exact warning prose, CSV/VCF writing, or
@@ -449,9 +462,19 @@ mutable branch name are not substitutes.
 
 ### 2. Raw post-ensemble arrays are the normative numeric observation
 
-Public two-decimal maxima alone can conceal model or indel-reconciliation
-drift. Retain exact post-ensemble unmasked loss/gain `f32` bits and independently
-derive masks, maxima, positions, and public output. Per-checkpoint intermediate
+Public rendered maxima alone can conceal model or indel-reconciliation drift.
+Retain exact post-ensemble unmasked loss/gain `f32` bits and independently
+derive masks, maxima, positions, and public output. In the pinned environment,
+Python's `round(np.float32(value), 2)` returns an `np.float32`; upstream then
+places that scalar in an empty-specifier f-string, whose `__format__` exposes
+the rounded binary32 value, so `0.21` becomes `0.20999999344348907`. For finite
+Pangolin scores, replay uses the pinned binary32 multiply/rint/divide result,
+widens that result exactly to `f64`, emits its shortest round-tripping decimal,
+appends `.0` for an integral value, and preserves signed zero. This equivalence
+was checked over the exact controls and 100,000 deterministic finite binary32
+samples in `[-1,1]`; normal gates retain the eight exact discriminating
+controls, not that design-time probe. Replay must not substitute a cosmetic
+fixed-two-decimal formatter. Per-checkpoint intermediate
 tensors are not needed for the first CPU acceptance boundary and remain out of
 scope. The later CPU-runtime ticket sets comparison tolerances; this corpus
 preserves the exact observed bits without prematurely declaring bitwise Rust
@@ -754,6 +777,85 @@ test, and evidence clause keeps `M01`–`M14`/`R01`–`R04` on the independent C
 path while `R05`/`R06` use only exact independently replayable bounds and never
 enter the unsafe native slice path.
 
+That acceptance is superseded only for public numeric rendering by the
+independently observed NumPy behavior documented above. Final re-review verdict
+on exact rendering-corrected contract
+`b94a93eaeb40e657eb78e68ea680982029e3d345fd8ffe9291fe1c09f85613fc`:
+**ACCEPTED AS READY**. The same reviewer confirmed the exact binary32 rounding
+and empty-f-string rendering rule, all eight discriminating controls, the
+inspector/test wording, the retained boundary separation, and the failed
+candidate evidence.
+
+Revised-contract capture candidate, checkpointed before execution:
+
+- Candidate: accepted revised contract `c31886f…` at reviewed-ready commit
+  `bc45dc78ed4186f95c87e16194632d5ac8da400f`; implementation diff SHA-256
+  `0434836c888d1cac3904d8b84e3abf84ddc234f421232dc5a78fb866be094a7e`;
+  `target/debug/pangopup-build` SHA-256
+  `bf05d81e7d5dbc0fb74def94e056271a98ba7acd160fb84c48cca856354ee3cf`;
+  unchanged helper SHA-256
+  `4ba9096e943d47d17242dd748ba6eb7384e28ceacb207be9f57851f48b2497f5`.
+  Every pinned upstream/checkpoint/reference/annotation/runtime identity remains
+  the exact accepted value. Three focused rule/rounding tests and `cargo check
+  --locked -p pangopup-build` passed before launch.
+- Command, working directory, input paths, absent output, progress measure,
+  success/failure conditions, and atomic cleanup are exactly the command and
+  contract recorded above. The changed case plan sends only `M01`–`M14` and
+  `R01`–`R04` to each unmodified CLI; `R05`/`R06` are constructed from the
+  closed replay witnesses and never cross the native pyfastx boundary.
+- Process/session: paused shell PID `1115744`, unified exec session `16376`,
+  started `2026-07-23T18:42:59-04:00`. It receives `GO` only after this
+  candidate checkpoint is durable.
+- Cancellation: send `TERM` to PID `1115744` or Ctrl-C to session `16376`;
+  after exit remove only its named unpublished sibling staging directory.
+  Success requires atomic publication, exact self-inspection, and the compact
+  24/14/6/4/28 result. This candidate will not be rerun after unchanged
+  success.
+
+That candidate received `GO`, completed preflight, the raw-array helper, and
+both safe unmodified CLI invocations, then failed closed at the first differing
+semantic comparison: `M02-snv-wrap53-tp53-precomputed`, helper-derived versus
+upstream CLI. It exited one and removed final/staging output. Static inspection
+confirmed plus/minus order and CSV parsing were identical. The exact defect was
+signed-zero tie handling during masking: NumPy `minimum(-0.0,+0.0)` and
+`maximum(-0.0,+0.0)` return the second operand (`00000000`), while Rust
+`f32::min/max` retained the first operand (`80000000`). A deterministic unit
+control failed red with those exact bits, then passed after the replay used
+explicit NumPy-compatible compare-and-return-second-on-tie operations. Failure
+diagnostics now identify masked/unmasked mode, first differing byte, lengths,
+and bounded field prefixes without paths or raw arrays. Candidate `bf05d81…` is
+superseded and was not rerun unchanged.
+
+Signed-zero-remediated capture candidate, checkpointed before execution:
+
+- Accepted revised contract/commit remain `c31886f…` / `bc45dc7…`;
+  implementation diff SHA-256
+  `b944afe0691200a305ce805462fad3a568f79599a8951fccfb30cfda3d5a27b3`;
+  binary SHA-256
+  `2e2698a62abc8e889f4d1022a575d65600e056397f930cc5b14d80834122384f`;
+  helper SHA-256 remains `4ba9096…`. Four compatibility unit tests and
+  `cargo check --locked -p pangopup-build` pass. All scientific inputs,
+  command, absent output, progress, success/failure, and cleanup contracts are
+  unchanged from the accepted safe case plan.
+- Paused shell PID `1225755`, unified exec session `43133`, started
+  `2026-07-23T18:55:53-04:00`. Cancel with `TERM` to PID `1225755` or Ctrl-C
+  to session `43133`, then remove only its unpublished sibling staging tree
+  after exit. It receives `GO` only after this exact candidate is durable and
+  coordinator notification. It will not be rerun after unchanged success.
+
+That candidate received coordinator `GO`, passed preflight and the helper, and
+completed both eligible unmodified CLI invocations. It then failed closed on
+the **unmasked** M02 field at byte 25. Rust rendered `0.21` and `-0.01`; the
+independent CLI rendered `0.20999999344348907` and
+`-0.009999999776482582`. Final and staging directories were removed, and the
+candidate was not rerun. Deterministic checks with the exact pinned interpreter
+proved that `round(np.float32(value), 2)` returns `np.float32` and its empty
+f-string format matches the widened result's decimal representation; no model
+execution was needed for diagnosis. This discovery supersedes contract `c31886f…`'s
+two-decimal rendering rule and returns the ticket to `proposed`. A further
+capture must wait for independent acceptance of the rendering-corrected
+contract and a regression-tested implementation.
+
 ## Adversarial code review
 
 Pending.
@@ -762,7 +864,7 @@ Pending.
 
 | Acceptance clause | Command or evidence | Result |
 |---|---|---|
-| Accepted contract identity and independent design review | Contract `c31886…`; `ticket_009_design_review` final re-review | Pass |
+| Accepted contract identity and independent design review | Contract `b94a93e…`; `ticket_009_design_review` final rendering re-review | Pass |
 | Exact 24-case compatibility corpus and provenance | Pending | Pending |
 | Rust semantic inspector and corruption controls | Pending | Pending |
 | Deterministic capture regeneration | Pending | Pending |
