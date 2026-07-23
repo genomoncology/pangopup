@@ -108,29 +108,63 @@ behavior to the Pangopup runtime.
   `sha256:79e89a14af6fc69163aee00e764e86d5809d0c6c77e6f229aebe7a4ed115ee67`,
   extracted executable size 43,495,424 and
   `sha256:d4a46368912cfc7b9f0a897a613910e34562ef033fc6029e0bea52c43b440fa4`.
-  Open its root/components without symlinks and the executable itself no-follow;
-  require that held regular File to have the pinned size/digest. Execute that
-  same descriptor, never its pathname, using Linux `execveat(..., AT_EMPTY_PATH)`
-  or the equivalent held `/proc/self/fd/<fd>` ELF execution path. Keep the
-  descriptor valid through child exec and do not resolve `--gh` again. Its `api
-  --input -` sends the supplied reader once with an explicit content length and
-  performs no automatic POST retry.
+  Open its root/components without symlinks and the executable itself no-follow.
+  Copy that held source into a Linux `memfd_create(MFD_CLOEXEC |
+  MFD_ALLOW_SEALING)` snapshot, require the snapshot to have the pinned
+  size/digest, then apply `F_SEAL_WRITE | F_SEAL_SHRINK | F_SEAL_GROW |
+  F_SEAL_SEAL` and rewind it. Execute the sealed snapshot, never the source
+  pathname or mutable source descriptor, with `execveat(..., AT_EMPTY_PATH)`.
+  Keep the sealed descriptor valid through child exec and do not resolve
+  `--gh` again. Its `api --input -` sends the supplied reader once with an
+  explicit content length and performs no automatic POST retry.
 
   Accept only one of the exact eight production asset names and derive its
   source root/member from that closed set. Open the chosen transport or
   prepared root with Linux `openat2`/component walking that rejects a symlink
   root or component, then open the direct member dirfd-relative with
   `O_NOFOLLOW|O_CLOEXEC` before contract validation. Hold that one File for the
-  rest of the operation; never resolve the selected pathname again. Require a
-  regular file and reviewed `fstat` size. Revalidate bounded transport metadata
-  and the closed four-file prepared directory using dirfd-relative no-follow
-  opens. If the selected asset is small metadata, read/validate its bytes from
-  the held File and rewind that same File; if it is a payload part, inspect only
-  its held-fd metadata. Validation includes byte-exact proof/profile,
+  rest of the operation; never resolve the selected pathname again. For either
+  large payload part, acquire a Linux read lease on that held read-only file
+  immediately after open and before `fstat` or any contract validation. An
+  existing writer, unsupported lease/filesystem, lease error, or later lease-
+  break notification fails closed; there is no lock-free fallback. On the
+  supervising thread, block `SIGIO` and create its nonblocking `signalfd`
+  before acquiring the lease or creating any helper-owned worker thread.
+  Acquire the lease first while `SIGIO` is blocked; Linux lease acquisition may
+  install its own process owner. Then route notifications explicitly to the
+  supervising thread with `F_SETOWN_EX(F_OWNER_TID, gettid())`, verify the owner
+  with `F_GETOWN_EX`, and finally confirm `F_RDLCK`. The blocked signal covers
+  the brief acquisition-to-routing window.
+  Capture workers inherit the blocked mask. The parent retains the lease while
+  the duplicate descriptor is child stdin and monitors the signal descriptor
+  in the same wait loop as child exit and the monotonic deadline. A break
+  notification starts immediate process-group kill and direct-child reap; the
+  lease is released only afterward. Before accepting a successful child,
+  nonblockingly drain pending lease notifications and require
+  `F_GETLEASE == F_RDLCK`.
+
+  Read `/proc/sys/fs/lease-break-time` before acquisition and fail if it is
+  unavailable, invalid, or does not leave at least ten seconds for cleanup.
+  Lease-break cleanup has a five-second monotonic ceiling, comfortably below
+  that accepted kernel window. The command guarantees fail-closed behavior
+  only while the kernel lease remains held: Linux may forcibly break a lease
+  after its configured window, so failure to kill the upload child inside that
+  window is a fatal condition and cannot honestly guarantee that later bytes
+  stayed frozen. This is a race-safety boundary over the already certified
+  retained inode, not a new content certification: the command still does not
+  pre-read or hash a large part.
+
+  Require a regular file and reviewed `fstat` size. Revalidate bounded
+  transport metadata and the closed four-file prepared directory using
+  dirfd-relative no-follow opens. If the selected asset is small metadata,
+  copy its held bytes into a
+  separate sealed `memfd`, validate that immutable snapshot, rewind it, and use
+  that same sealed snapshot as child stdin. If it is a payload part, inspect
+  only its leased held-fd metadata. Validation includes byte-exact proof/profile,
   regenerated notes/checksum bytes, and expected name/size/digest declarations.
 
-  Spawn the pinned executable directly without a shell and with the held File
-  as stdin. The exact argv is:
+  Spawn the pinned executable directly without a shell and with the selected
+  stable descriptor as stdin. The exact argv is:
 
   ```text
   gh api
@@ -150,8 +184,14 @@ behavior to the Pangopup runtime.
   `NO_PROXY`, `LANG`, and `LC_ALL` when present, then force
   `GH_PROMPT_DISABLED=1`, `GH_PAGER=cat`, `PAGER=cat`, and `NO_COLOR=1`.
   `GH_DEBUG`, `DEBUG`, `GH_FORCE_TTY`, browser variables, and every unrelated
-  variable are absent. Bound captured stdout and stderr to 64 KiB each; kill
-  and fail closed on overflow. Never echo raw child output.
+  variable are absent. Bound captured stdout and stderr to 64 KiB each and
+  bound the complete child request to 21,600 seconds. Tests inject a shorter
+  deadline. On output overflow, deadline, lease break, or any supervision
+  error, send `SIGKILL` to the child's process group, close/drain bounded pipes,
+  wait for and reap the direct child, then release held leases/descriptors and
+  fail closed. Never claim to reap grandchildren: Linux process-group signaling
+  and direct-child reaping are the enforced boundary. Never echo raw child
+  output.
 
   Exit 0 plus exactly one closed reduced JSON object is required. Its name and
   size must equal the reviewed asset, state must be `uploaded`, and digest may
@@ -167,15 +207,37 @@ behavior to the Pangopup runtime.
   one invocation, byte-exact stdin, bounded output/error behavior, closed
   response parsing, sanitized environment, and absence of source path or token
   in argv. A compiled fake-child race replaces/symlinks the `--gh` pathname
-  after validation and proves the originally held executable runs; tests also
+  after validation and proves the originally sealed executable runs; tests also
   reject executable-root/component/member symlinks. Asset race hooks cover
   transport metadata, prepared metadata, and payload
   members; symlink roots/components/members; and pathname replacement both
-  after the held open but before validation and after validation. The held bytes
-  remain authoritative in every accepted case. They also cover nonregular
-  inputs, fstat-size mismatch, unreviewed names, malformed prepared files,
-  child failure, and zero payload pre-read. Developers/reviewers never invoke
-  this command against GitHub.
+  after the held open but before validation and after validation. For small
+  assets the sealed bytes remain authoritative in every accepted case. For
+  payload parts, same-inode overwrite and truncate attempts made after lease
+  acquisition must trigger cancellation, leave the writer blocked until the
+  child is killed and reaped, and never produce an accepted upload result. A
+  pre-existing writer must make lease acquisition fail before child spawn.
+  Injected platform tests also cover `F_SETOWN_EX` failure, `F_GETOWN_EX`
+  failure or mismatch, unavailable/malformed/less-than-ten-second
+  `lease-break-time`, final `F_GETLEASE` loss without a readable notification,
+  and lease-break cleanup exceeding its five-second ceiling. They also cover
+  nonregular inputs, fstat-size mismatch, unreviewed names, malformed prepared
+  files, child failure, a silent child past the injected deadline, and zero payload
+  pre-read. The large-payload owner is a private opaque type that implements
+  neither `Read` nor `Seek` and does not expose `File` or a raw descriptor
+  outside one Linux supervision module. Every operation on that descriptor
+  goes through one closed, injected syscall boundary: no-follow open, lease
+  signal setup/acquire/query/release, `fstat`, `lseek`, duplication into child
+  stdin, and close. There is no content-access operation. The test
+  implementation records the exhaustive production call sequence and fails on
+  any unclassified operation; a source-boundary test rejects direct payload-fd
+  access outside that adapter, including `read`, `pread*`, `readv`, `mmap`,
+  `sendfile`, `splice`, `copy_file_range`, or an `io_uring` path. Immediately
+  before child spawn, also require `lseek(SEEK_CUR) == 0`. A test hook at that
+  boundary asserts the exact allowed operation log and zero offset before the
+  fake child is released to consume stdin. This instrumented syscall boundary,
+  rather than the offset alone, is the direct zero-parent-read proof.
+  Developers/reviewers never invoke this command against GitHub.
 - Pin this release contract:
 
   ```text
@@ -429,9 +491,11 @@ behavior to the Pangopup runtime.
   proof copy, profile, SHA list, and notes from bounded metadata while opening
   neither production part.
 - `pangopup-build release upload-asset` validates the exact release/prepared
-  contract, opens one chosen asset no-follow, and streams that same held file
-  into one authenticated child request without reopening its pathname;
-  replacement and symlink-race tests pass without network access.
+  contract, snapshots small inputs into sealed memfds, holds a kernel read
+  lease over a selected large part, and streams only that stable source into
+  one authenticated child request without reopening its pathname;
+  replacement, same-inode mutation, timeout, cleanup, zero-pre-read, and
+  symlink-race tests pass without network access.
 - The public `snv-grch38-v1` immutable release targets the Ticket 006 commit,
   contains exactly eight assets, and GitHub reports every reviewed size and
   SHA-256 digest.
@@ -467,6 +531,15 @@ behavior to the Pangopup runtime.
 8. **Keep remote sync separate.** This ticket establishes the real public
    contract; the next independently reviewed ticket can implement bounded
    network/cache behavior against it.
+9. **Freeze upload inputs without re-verifying large payloads.** Small inputs
+   become sealed memfds; already-certified multi-gigabyte parts use a fail-
+   closed Linux read lease and child-stdin handoff. This closes in-flight
+   same-inode races without restoring the discarded full-read verifier.
+10. **Bound the upload subprocess.** One request has a six-hour operational
+    ceiling and process-group kill plus direct-child reap cleanup. Lease-break
+    cleanup has a separate five-second ceiling beneath the verified kernel
+    forced-break window. A stuck helper cannot hold an asset lease or
+    coordinator workflow forever.
 
 ## Dependencies
 
@@ -554,6 +627,34 @@ executable security, auth/process behavior, bounded output, fake-child
 testability, exact response validation, inventory/retry semantics, scope, or
 the no-large-preread invariant.
 
+The second adversarial code review found three residual process-boundary gaps.
+A held descriptor still permits an in-place overwrite or truncate of its inode;
+the child had no deadline; and the payload test proved eventual stdin bytes but
+did not observe the pre-spawn offset/read boundary. Revision 8 freezes the
+executable and small assets in sealed memfds, requires a monitored Linux read
+lease for a large part, adds a six-hour production deadline with process-group
+kill/reap cleanup, and makes the zero-parent-read boundary directly auditable.
+This material amendment is pending the same ticket reviewer before development
+continues. The reviewer did not approve the first Revision 8 wording: it did
+not completely route and verify lease notifications, overstated guarantees
+beyond Linux's forced-break window and process reaping, and treated an offset
+plus local counter as proof against offset-preserving reads. Revision 9 adds
+thread-targeted signal setup and final lease checks, a five-second cleanup
+ceiling below a validated kernel window, exact process-group/direct-child
+language, and an exhaustive injected syscall boundary for the no-pre-read
+proof. Revision 9 was not approved because lease acquisition can overwrite a
+preselected signal owner and the new failure branches lacked explicit tests.
+Revision 10 blocks the signal and creates `signalfd`, acquires the lease, then
+sets/verifies the thread owner and reconfirms the lease; it adds injected tests
+for owner setup/readback, kernel-window parsing, silent final lease loss, and
+cleanup-deadline exhaustion.
+
+Revision 10: approved. The reviewer confirmed the lease acquisition/routing
+order is Linux-correct, the blocked signal covers the interim, final success
+rechecks the lease, and every new fail-closed branch has an explicit injected
+test. The process-cleanup and exhaustive zero-pre-read boundaries are
+decision-complete and remain consistent with the ban on large pre-reads.
+
 ## Implementation Evidence
 
 Developer: Codex `/root/ticket_007_developer`, 2026-07-23
@@ -623,9 +724,92 @@ The generated proof and profile were byte-identical to their checked-in
 reviewed files. The command used bounded receipt/transport metadata inspection
 and part name/type/size metadata only; it did not open a payload part.
 
+Remediation after the first adversarial code review implemented all five
+findings under approved Revision 7:
+
+1. Added coordinator-only `release upload-asset`. It validates and holds the
+   pinned official `gh` executable before touching either asset root, opens and
+   holds the selected no-follow member before contract validation, revalidates
+   both closed directories dirfd-relative, and gives that same held File to one
+   shell-free child as stdin. The child contract fixes argv, upload URL,
+   headers, content length, cleared/allowlisted environment, 64 KiB output
+   caps, closed response JSON, and exact present-digest equality. It never
+   retries, deletes, reopens the selected path, or echoes child output.
+2. The public-hygiene procedure now fetches and prunes public branch, tag, and
+   pull-request refs, scans `--log-opts=--all`, and safely extracts Actions log
+   ZIPs with traversal, symlink/nonregular, encryption, duplication, entry, and
+   byte caps before the no-Git scan.
+3. Release-profile parsing now enforces profile/tag, release-page URL,
+   proof-asset, exact semantic member order/names, and member URLs. Production
+   use additionally pins the complete receipt/profile values and the exact
+   2,821-byte profile SHA-256; mutation tests fail closed.
+4. Durable docs now make GitHub immutable releases mandatory with no mutable
+   fallback and order completed, observed publication before remote-sync work.
+5. Generated release notes now contain a copy/paste shell recipe with exactly
+   the five reviewed transport-member URLs and install only that closed
+   directory; proof, profile, and checksum remain outside it.
+
+The compiled fake-child suite proves exact argv, headers, content length,
+single invocation, sanitized environment, byte-exact stdin, null/present
+digest handling, closed-response rejection, nonzero/overflow behavior, and no
+raw child-error disclosure. Race hooks replace the validated executable and
+selected transport metadata, prepared metadata, and payload path both before
+and after validation; the originally held descriptors remain authoritative.
+Executable and asset root/component/member symlinks, wrong size, an unreviewed
+name, malformed/extra prepared state, and mismatched response values fail
+before publication. The payload case reaches only held-fd metadata before the
+fake child consumes stdin.
+
+Focused and full evidence on the remediated diff:
+
+```text
+cargo test -p pangopup-assets release::tests -- --nocapture
+  3 passed
+cargo test -p pangopup-build --test transport release_ -- --nocapture
+  5 passed
+make lint  pass
+make test  pass
+make spec  105 passed
+```
+
+The builder-source identity changed as expected, so the deterministic checked
+SNV regression fixture was regenerated with its own repository tool; its
+byte-exact regeneration test passes. No network or external state was touched,
+and no production payload part was opened, read, hashed, copied, linked,
+verified, or rebuilt.
+
+The earlier production prepared-output list above predates the reviewed
+five-URL notes recipe and is therefore superseded for dispatch purposes.
+`proof-receipt.json`, `release-profile.json`, and `SHA256SUMS` generation are
+unchanged, but `release-notes.md` and its prepared-directory identity must be
+regenerated by the coordinator through the same bounded metadata-only command
+before the next code-review dispatch.
+
+The coordinator preserved that first directory and completed a second bounded
+production preparation before redispatch. It again returned the pinned bundle
+and transport IDs with asset count 8. The checked proof/profile were
+byte-identical and the checksum list was unchanged; the reviewed five-command
+notes recipe produced the only expected change:
+
+```text
+SHA256SUMS            595 bytes  sha256:54c29666c74bb35701d14f10d7d2b2ba3dcadc116a111429274da8aa975dce2e
+proof-receipt.json   2194 bytes  sha256:9ddae771d200fe73bda5f31f5a04a52227b77c5d3f225dc7ee52294cd9aea475
+release-notes.md     2391 bytes  sha256:d82191e1d1dc5f1ecc5c06422aa067426065748083f25a55cf1d5d33f8ef9dae
+release-profile.json 2821 bytes  sha256:63f3842ea6cb40ebc0a2b6ca23fba4f35d53f829d96c33f597a2c5bcac238ca6
+```
+
+The second command again used only bounded small-file inspection and
+part-name/type/size metadata. It did not open a production payload part.
+
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Newton `/root/ticket_007_code_review`
+
+Revision 7 implementation: not approved. The reviewer found that pathname-safe
+descriptors did not prevent same-inode mutation after validation, a silent
+child could run forever, and no test directly observed zero payload reads
+before child spawn. Those findings are routed through ticket Revision 8 before
+developer remediation.
 
 ## External Publication Evidence
 
