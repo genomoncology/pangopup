@@ -67,7 +67,9 @@ other build-only dependencies stay here and do not enter runtime consumers.
 
 Owns the byte-exact notice, exhaustive installed-bundle certification, strict
 SNV transport manifest, pinned Zstandard codec, streaming part verification,
-and atomic local pack/unpack. Dependency direction is `pangopup-core <-
+atomic local pack/unpack, and the Linux local-user store: XDG path resolution,
+dirfd-relative no-follow state, locking, receipts, staging/reconciliation, and
+active selection. Dependency direction is `pangopup-core <-
 pangopup-index <- pangopup-assets <- pangopup-build`. The build CLI is a thin
 adapter over the shared certification and transport APIs. `pangopup-index`
 supplies the sole bounded canonical installed-manifest parser; assets does not
@@ -85,10 +87,9 @@ benchmark copy.
 Future `pangopup-model` and `pangopup-http` crates should be
 added only when their own observable slices begin. They must consume the same
 core types rather than leak a model runtime, HTTP, or cache types into the
-scoring API. The shipped assets crate intentionally has no network,
-home-directory discovery, or managed-install policy; those capabilities extend
-its verified local primitive in later bounded work. `pangopup-core` performs no
-network or home-directory access. The future HTTP adapter runs in the
+scoring API. The shipped assets crate intentionally has no network access; its
+Linux adapter owns home-directory discovery and managed local installation.
+`pangopup-core` performs no network or home-directory access. The future HTTP adapter runs in the
 foreground; process lifecycle belongs to external managers as described in
 [`service.md`](service.md).
 
@@ -170,17 +171,17 @@ Every result carries enough provenance to identify:
 
 ## Target runtime behavior
 
-Today the CLI opens one explicitly supplied bundle and no HTTP adapter or asset
-manager exists. In the target service, before serving, the CLI or HTTP adapter
-asks the asset manager to ensure one binary-pinned compatible bundle. Missing
-assets are downloaded, verified, staged, and atomically installed by default;
-offline mode fails with a precise missing-asset error. The core then opens one
-immutable bundle. A replacement bundle requires a new process.
+Today the CLI opens either one explicitly supplied bundle or the atomically
+selected active Linux installation. Local install/status and active discovery
+are shipped; no HTTP adapter or remote sync exists. In the target service,
+before serving, an adapter asks remote sync to obtain one binary-pinned
+compatible transport and passes it through the same local installer. The core
+then opens one immutable bundle. A replacement bundle requires a new process.
 
-The planned installation flow performs full archive and member hash
-verification. Ordinary startup will perform cheap identity, version, size, and
+The installed flow checks transport and reconstructed hashes while streaming
+once. Ordinary startup performs cheap receipt, identity, version, size, and
 structural checks so it does not page through every multi-gigabyte member. The
-shipped explicit verification command already owns repeat full hashing.
+shipped build-time verification command owns exhaustive semantic scanning.
 
 The operating-system page cache is the first lookup cache; Pangopup does not add
 an application result cache until measurements show a miss it can improve.
@@ -196,7 +197,7 @@ never appears on the query path.
 - model conversion and CPU execution for supported lookup misses and non-SNVs;
 - lookup-first routing through one typed result/provenance API;
 - application-level model-result caching only if measurements justify it;
-- pinned asset installation and remote sync;
+- pinned remote asset sync and publication;
 - foreground HTTP serving plus container and native service-manager
   integration; and
 - measured accelerator backends only after CPU compatibility is proved.

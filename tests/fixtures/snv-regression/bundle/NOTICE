@@ -1,0 +1,45 @@
+Pangopup
+========
+
+Pangopup source code is licensed under GPL-3.0-only.
+
+Pangolin software and model
+---------------------------
+
+Pangopup is a new Rust implementation intended to reproduce and extend the
+behavior of the GPL-3.0 Pangolin project:
+
+  Project: Pangolin
+  Author: Tony Zeng
+  Source: https://github.com/tkzeng/Pangolin
+  Version inspected: 1.0.2
+  License: GNU General Public License version 3
+  Citation: Zeng T, Li YI. Predicting RNA splicing from DNA sequence using
+            Pangolin. Genome Biology 23, 103 (2022).
+
+Pangopup is not yet distributing Pangolin model checkpoints. A release that
+does so must retain the upstream license and notices, identify the exact source
+commit and checkpoint hashes, identify Pangopup's modifications, and provide
+the corresponding preferred source and conversion/build instructions.
+
+Pangolin precomputed scores dataset
+-----------------------------------
+
+Pangopup is designed to transform and query the following separately licensed
+dataset:
+
+  Title: Pangolin precomputed scores
+  Creators: Nils Wagner and Aleksandr Neverov
+  Publisher: Zenodo
+  DOI: 10.5281/zenodo.15649338
+  Source: https://doi.org/10.5281/zenodo.15649338
+  License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+  License text: https://creativecommons.org/licenses/by/4.0/
+
+The Pangopup index is a transformed representation of the source per-gene TSV
+files. Pangopup may reorder, validate, index, and losslessly pack their numeric
+fields for exact lookup. It does not change the source scores.
+
+Distributed index bundles must retain this notice, identify the exact source
+archive checksum, describe the transformation, and state whether further
+changes were made.

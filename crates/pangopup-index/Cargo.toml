@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+test-read-audit = []
+
 [dependencies]
 memmap2 = "0.9.8"
 pangopup-core = { path = "../pangopup-core" }

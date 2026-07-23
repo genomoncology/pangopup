@@ -265,9 +265,11 @@ deterministic compressed `scores.pgi` stream cut into ordered exact
 checks metadata, parts, the complete compressed stream, and reconstructed score
 identity without materializing it. `transport unpack` additionally performs
 exhaustive fixed-v1 certification before atomically publishing the unchanged
-three-file bundle. Managed XDG installation is not implemented today. Runtime
-lookup already maps an explicitly supplied
-expanded fixed-width member and never decompresses a query block.
+three-file bundle. The Linux installer instead verifies the same transport and
+reconstructed score identity in one write stream, publishes a canonical
+receipt and active profile, then performs only cheap open-time validation.
+Runtime lookup maps either that active expanded member or an explicit override
+and never decompresses a query block.
 
 The certified complete `scores.pgi` is 15,033,158,255 bytes. The exact GNU tar
 1.35 + Zstandard 1.5.5 level-9 single-thread transport is 1,935,000,209 bytes
@@ -338,3 +340,9 @@ had more available memory than the 14.0 GiB member and no privileged/device
 nonresidency proof, so its retained cold result is `unmeasured`; warm one-open
 library, fresh CLI, open-only, and serialization measurements are reported
 separately.
+
+Ticket 006 adds a checked source-derived fixture with exactly 1,000 requests
+and independent direct-TSV JSONL expectations. One provider open exercises all
+requests; seven CLI batches cover the shared unfiltered batch and one batch per
+gene filter. This fast semantic corpus protects ordinary development and CI
+without requiring or scanning the retained production index.

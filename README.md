@@ -2,9 +2,10 @@
 
 Pangopup is a standalone GPL-3.0 Rust project for high-performance,
 Pangolin-compatible splice scoring on GRCh38 genomic variants. Today it ships
-an exact precomputed-SNV library and CLI plus deterministic local release
-transport tooling. Model inference, automatic asset installation, and an HTTP
-service are planned but not implemented.
+an exact precomputed-SNV library and CLI, deterministic local release
+transport tooling, and atomic Linux/XDG installation of a supplied transport.
+Remote asset sync, model inference, and an HTTP service are planned but not
+implemented.
 
 The target service will answer each request through one of two paths:
 
@@ -97,8 +98,9 @@ record pages needed by a query rather than copying the file into heap.
 
 ## Runtime assets
 
-A lookup-only installation today takes an explicitly supplied certified SNV
-bundle. The target full service will use four versioned assets:
+A lookup-only installation today can use an explicitly supplied certified SNV
+bundle or the active SNV bundle installed in Linux user data. The target full
+service will use four versioned assets:
 
 | Asset | Used for | Original source | Installed form |
 |---|---|---|---|
@@ -117,7 +119,7 @@ the compiled reference member, not the raw FASTA, and performs bounded indexed
 sequence reads rather than parsing FASTA during a request. The same principle
 applies to GENCODE: GTF/gffutils is build input, not a runtime database.
 
-## Shipped local transport and planned installation
+## Shipped local transport and installation
 
 Pangopup now packages an explicitly supplied certified bundle into canonical
 release-sized files and reconstructs the exact installed bytes:
@@ -137,26 +139,38 @@ without creating a 15 GB scratch file; unpack additionally runs exhaustive
 fixed-v1 semantic certification before publication. SHA-256 proves integrity,
 not who published the files.
 
-Automatic installation remains target behavior. Today callers pass
-`--bundle <PATH>` and use `pangopup-build verify` explicitly. A future
-Pangopup binary will pin a compatible release manifest containing asset URLs,
-sizes, SHA-256 digests, format versions, source identities, and licenses.
+The runtime installs a caller-supplied transport without networking:
+
+```text
+pangopup assets install --transport <TRANSPORT_DIR> [--data-dir <ABSOLUTE_PATH>]
+pangopup assets status [--data-dir <ABSOLUTE_PATH>]
+```
+
+It resolves an explicit data directory, `PANGOPUP_DATA_DIR`, `XDG_DATA_HOME`,
+or `HOME` in that order. Installation holds one nonblocking lock, validates and
+decompresses every transported byte once, publishes an immutable receipt-bound
+bundle, and atomically selects it in `active.json`. It then performs only cheap
+structural `BundleOpen` validation—never a second whole-index scan. Reinstalling
+the same bundle validates its receipt, member shapes and sizes, manifest, and
+cheap-open structure without opening transport parts or hashing `scores.pgi`.
+Lookup discovers this active bundle when `--bundle` is absent; the explicit
+override remains available for development and offline use.
 
 The target is built in independently proved layers:
 
 1. deterministically package, split, verify, and reconstruct the lookup
    transport without changing the installed mmap bundle (shipped);
-2. install caller-supplied transport files into the platform data directory
-   with locking, staging, checksums, receipts, atomic publication, and verified
-   reuse;
+2. install caller-supplied transport files into Linux/XDG data storage with
+   locking, staging, checksums, receipts, atomic publication, active selection,
+   and cheap verified reuse (shipped);
 3. expose `pangopup assets sync` to resolve a pinned remote release manifest
    and safely resume/download its exact parts through the same installer; and
 4. publish immutable GitHub release assets and prove installation and lookup on
    a clean supported machine.
 
-After those layers ship, target service startup will resolve its pinned asset
-profile, reuse a complete compatible installation without networking, or invoke
-the same pinned sync operation. It will memory-map installed members,
+The current lookup CLI resolves and reuses a complete compatible local
+installation without networking. After remote sync ships, target service
+startup can invoke that same pinned installer. It will memory-map installed members,
 initialize the selected model provider, and only then report ready. It will
 never fetch an unpinned “latest” release.
 
@@ -166,15 +180,16 @@ already installed bundle without contacting the network. A failed download or
 checksum will never replace an older complete bundle or start with partial
 data.
 
-Full hashes will be checked during installation and by an explicit verification
-command. Ordinary startup will perform cheap manifest, size, version, and
-structural checks rather than rereading several gigabytes and defeating fast
-startup.
+Transport and reconstructed score hashes are checked in the one installation
+stream. Ordinary status, reuse, and startup perform cheap receipt, manifest,
+size, version, and structural checks rather than rereading several gigabytes.
+Complete semantic certification remains the explicit build-time
+`pangopup-build verify` operation.
 
 On Linux, durable assets live under:
 
 ```text
-${XDG_DATA_HOME:-$HOME/.local/share}/pangopup/bundles/<bundle-id>/
+${XDG_DATA_HOME:-$HOME/.local/share}/pangopup/bundles/<bundle-id>/bundle/
 ```
 
 Temporary downloads may use:
@@ -184,13 +199,10 @@ ${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/
 ```
 
 The data directory is authoritative and must not be treated as disposable
-cache. macOS and Windows builds use their standard application-data locations.
-`PANGOPUP_DATA_DIR` can override discovery.
-
-Automatic provisioning is intended to become the normal service experience.
-The local install command, pinned remote sync, offline mode, release
-publication, and container preinstall flow described here are not implemented
-yet.
+cache. `PANGOPUP_DATA_DIR` or `--data-dir` can override discovery. This shipped
+installer is Linux-only; macOS and Windows behavior is not claimed. Remote
+sync, download cache/resume and progress, release publication, signatures,
+repair/GC/rollback, and container preinstall remain future work.
 
 ## Planned service operation
 
@@ -271,14 +283,20 @@ Implemented today:
   unpack`, with canonical metadata, pinned bundled libzstd 1.5.7, exact decimal
   1 GB parts, bounded streaming verification, and byte-identical certified
   reconstruction;
+- Linux local `pangopup assets install` and `assets status`, with strict XDG
+  discovery, private dirfd-relative state, a nonblocking lock, single-stream
+  reconstruction, canonical receipts/stage markers, immutable bundles, atomic
+  active selection, crash reconciliation, and transport-free score reuse;
+- a checked 1,000-request source-derived JSONL regression fixture exercised
+  through one real provider open and seven CLI batches;
 - the standalone API, runtime-data, delivery, and performance decisions;
 - an object-safe, thread-safe typed score provider over one long-lived mmap;
 - transactional `pangopup lookup` JSONL/table batches with strict GRCh38
   aliases, optional source-gene filtering, all-overlap results, typed misses,
   and explicit source-reference ambiguities.
 
-Not implemented yet: managed local or remote asset installation, published
-release assets, model runtime/fallback, HTTP service, container, or result
+Not implemented yet: remote asset sync/download, published release assets,
+model runtime/fallback, HTTP service, container, repair/GC/rollback, or result
 cache. In this slice a syntactically valid concrete REF that
 does not match an ordinary indexed key is `not_found`; runtime FASTA validation
 begins only with the future model/reference slice.
@@ -290,7 +308,7 @@ The rolling outcome order is:
 3. full streaming builder and complete index certification (complete);
 4. typed SNV lookup API and CLI (complete);
 5. deterministic split lookup transport (complete);
-6. explicit local XDG-style installation;
+6. explicit local Linux/XDG installation and active discovery (complete);
 7. pinned remote sync, GitHub publication, and clean-machine proof;
 8. an upstream Pangolin compatibility corpus;
 9. pinned model, compact RefSeq GRCh38.p14, and compact GENCODE mask assets;
@@ -309,12 +327,12 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
 
 - `pangopup-core` — public typed vocabulary, routing, and provider capabilities;
 - `pangopup-index` — private format codec and validated mmap reader;
-- `pangopup-assets` — installed-bundle certification and deterministic local
-  transport pack/verify/unpack;
+- `pangopup-assets` — installed-bundle certification, deterministic local
+  transport, and secure Linux local-store/activation state;
 - `pangopup-build` — offline source validation and deterministic artifact
   builders plus the thin maintenance CLI adapter;
-- `pangopup-cli` — shipped lookup command and output adapter; future asset and
-  service commands remain unimplemented;
+- `pangopup-cli` — shipped lookup, local asset install/status, and output
+  adapter; remote sync and service commands remain future;
 - future `pangopup-model` — model execution behind the core provider contract;
 - future `pangopup-http` — long-lived HTTP adapter over the same core.
 
@@ -337,7 +355,15 @@ make test
 make spec
 ```
 
-Open an explicitly supplied certified bundle once and query one or more SNVs:
+Install a local transport once, then query its active bundle:
+
+```bash skip
+pangopup assets install --transport /path/to/transport
+pangopup assets status
+pangopup lookup --variant GRCh38:17:7686072:G:T
+```
+
+Or open an explicitly supplied certified bundle as an override:
 
 ```bash skip
 pangopup lookup --bundle /path/to/bundle \

@@ -3,8 +3,9 @@
 Pangopup's target combines exact published Pangolin SNV lookup with compatible
 model inference. The shipped functional runtime answers GRCh38 SNV queries from
 the Wagner/Neverov precomputed dataset through a fixed 11-byte mmap index and
-typed CLI. Model fallback, asset installation, and HTTP remain future work on
-the same standalone Rust core.
+typed CLI, plus Linux local installation and active-bundle discovery. Remote
+sync/publication, model fallback, and HTTP remain future work on the same
+standalone Rust core.
 
 ## Boundaries
 

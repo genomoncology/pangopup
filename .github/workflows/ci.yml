@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust toolchain
+        run: |
+          toolchain=$(sed -nE 's/^channel = "([^"]+)"$/\1/p' rust-toolchain.toml)
+          profile=$(sed -nE 's/^profile = "([^"]+)"$/\1/p' rust-toolchain.toml)
+          components=$(sed -nE 's/^components = \[(.*)\]$/\1/p' rust-toolchain.toml | tr -d '",')
+          install=(rustup toolchain install "$toolchain" --profile "$profile")
+          for component in $components; do
+            install+=(--component "$component")
+          done
+          "${install[@]}"
+          rustup override set "$toolchain"
+          rustup show active-toolchain
+      - name: Install uv 0.8.0
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.8.0"
+      - name: Install mustmatch
+        run: uv tool install mustmatch==0.1.0
+      - run: make lint
+      - run: make test
+      - run: make spec

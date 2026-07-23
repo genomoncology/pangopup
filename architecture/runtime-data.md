@@ -8,6 +8,13 @@ already contains the source Ensembl gene identity, masked gain/loss values, and
 their relative positions. It does not need a FASTA, GTF, transcript database,
 or network call on this path.
 
+On Linux, `pangopup assets install` reconstructs a supplied transport once
+under XDG user data, records its canonical receipt, and atomically selects it
+in `active.json`. Normal lookup discovers that active bundle without a
+`--bundle` argument and performs only cheap manifest/size/structure checks.
+`--bundle` remains an explicit override. Neither path downloads data or scans
+the complete score payload at startup.
+
 The request's reference allele remains part of the key. A wrong reference
 therefore fails or misses rather than returning the score for a different
 allele. The full model reference is not loaded merely to repeat that check for

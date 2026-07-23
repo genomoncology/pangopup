@@ -93,20 +93,20 @@ and not the accepted format. The shipped local lookup transport compresses only
 same mmap member. Executable, lookup-data, and future model assets remain
 separately versioned.
 
-The available commands are `pangopup-build transport pack`, `transport verify`,
-and `transport unpack`. They operate on explicit local paths. They do not fetch,
-publish, or install into an XDG data directory.
+The available maintenance commands are `pangopup-build transport pack`,
+`transport verify`, and `transport unpack`. `pangopup assets install` installs
+an explicit transport into Linux XDG data, and `pangopup assets status` reports
+the active state. None fetches or publishes remote files.
 
 ### Does Pangopup install missing assets automatically?
 
-Not yet. Today the CLI requires `--bundle <PATH>`, and callers can run
-`pangopup-build verify` or the shipped local transport commands explicitly. The
-accepted target is for CLI and service
-startup to resolve a binary-pinned manifest through the same operation exposed
-by `pangopup assets sync`, download to a temporary cache, verify SHA-256,
-extract and verify in staging, and publish atomically. A local install command
-will also accept transport files supplied by the caller without networking.
-Offline and container prefetch are also target behavior.
+Local installation is shipped, but automatic remote download is not. Callers
+run `pangopup assets install --transport <DIR>` once; later `pangopup lookup`
+discovers and cheaply reuses the active immutable bundle without `--bundle` or
+network access. `--bundle` remains an override. The accepted remote target is
+for `pangopup assets sync` to resolve a binary-pinned manifest, resume/download
+to a temporary cache, and pass the verified transport to this installer.
+Download progress, offline/container prefetch, and publication remain future.
 
 ### Will asset sync download whatever release is latest?
 
@@ -118,11 +118,11 @@ GitHub Releases and clean-machine testing remain future work.
 
 ### Where will managed assets be installed?
 
-The accepted target uses
+The shipped Linux installer uses
 `${XDG_DATA_HOME:-$HOME/.local/share}/pangopup/`. Temporary downloads may use
 `${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/`. The data directory is authoritative;
-it is not disposable cache. Other platforms use their normal application-data
-locations, and `PANGOPUP_DATA_DIR` overrides discovery.
+it is not disposable cache. `PANGOPUP_DATA_DIR` and `--data-dir` override
+discovery. Other-platform support is future work.
 
 ### Will model fallback run from a FASTA file?
 
@@ -205,10 +205,10 @@ The target is separately versioned GitHub release assets: executable, CC BY
 fixed-v1 lookup transport set, GPL model weights, GRCh38 reference member, and
 GENCODE masking member. The lookup set is canonical metadata, copied small
 bundle members, and deterministic parts of one compressed score stream; it is
-not one tar archive. Verify and reassemble it once during future automatic or
-explicit installation, then map the expanded data at runtime. That
-release publication and managed-installation tooling is not shipped yet; the
-local pack/verify/unpack transport primitive is shipped.
+not one tar archive. Verify and reassemble it once during local installation,
+then map the expanded data at runtime. Remote release publication and sync are
+not shipped; local pack/verify/unpack and Linux install/status/active discovery
+are shipped.
 
 ### What does lookup output look like?
 

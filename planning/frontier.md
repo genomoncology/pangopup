@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-07-22
+Updated: 2026-07-23
 
 ## Current boundary
 
@@ -8,9 +8,10 @@ Repository onboarding, source ingestion, format selection, full-corpus build
 and certification, and typed SNV lookup are established. Pangopup is standalone
 open-source software. Its shipped CLI accepts an explicit GRCh38 SNV and
 optional gene filter and returns all matching source records by default from an
-explicitly supplied fixed-v1 bundle. Speed leads memory and download size.
-Deterministic local transport is also established. Release publication,
-automatic installation, model fallback, and the HTTP service remain future work.
+explicit fixed-v1 bundle or the active Linux user-data installation. Speed
+leads memory and download size. Deterministic local transport, atomic install,
+status, active discovery, cheap reuse, and the fast 1,000-case regression are
+established. Remote sync/publication, model fallback, and HTTP remain future.
 
 ## Established — pinned source ingestion contract
 
@@ -75,13 +76,16 @@ semantically certified atomic unpack now implement that boundary. Transport
 compression is removed at installation; the lookup path continues to map the
 fixed representation.
 
-## Next outcome — explicit local installation
+## Established — Linux local installation and fast semantic regression
 
-Install a caller-supplied, already available transport into an immutable local
-bundle using platform-standard application-data storage, locking, checksums,
-staging, atomic publication, receipts, verified reuse, and offline operation.
-Its implementation contract must be written by the coordinator and independently reviewed
-against the shipped transport contract before it becomes implementation scope.
+`pangopup assets install` consumes a caller-supplied transport under one
+nonblocking lock, streams reconstruction once into private no-follow staging,
+publishes immutable receipt-bound bundles, and atomically replaces the active
+profile. Status probes the lock without waiting; lookup is lock-free and uses
+the last active bundle. Reuse performs bounded metadata and cheap structural
+validation without opening transport parts or scanning `scores.pgi`. A
+source-derived 1,000-request fixture proves the real provider and seven CLI
+batches against a direct-TSV oracle in normal tests and CI.
 
 ## Later outcome — pinned remote sync and publication
 

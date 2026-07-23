@@ -3,13 +3,13 @@
 Status: accepted
 Date: 2026-07-21
 
-Implementation status: target design; no asset manager, automatic installer,
-or XDG discovery is shipped yet. The current CLI requires an explicit bundle
-path.
+Implementation status: Linux local installation, XDG discovery, canonical
+receipts, active selection, and cheap reuse are shipped for caller-supplied
+transport files. Pinned remote sync and automatic download remain future.
 
 ## Decision
 
-The future CLI and HTTP service will automatically install a binary-compatible
+The future remote-sync CLI and HTTP service will automatically obtain a binary-compatible
 asset bundle when it is absent. The binary will pin an immutable manifest with
 exact URLs, sizes, SHA-256 digests, format versions, source identities, and
 licenses. It will never ask GitHub for an unpinned "latest" asset.
@@ -19,11 +19,12 @@ directory, not the cache directory, as the authority. On Linux this will be
 `${XDG_DATA_HOME:-$HOME/.local/share}/pangopup/`. Downloads and partial archives
 may use `${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/`.
 
-Installation will take a lock, verify transport and extracted members, and
-publish atomically. Reused startup will perform cheap compatibility and
-structural checks. Full rehashing will be an explicit verification operation.
-Offline mode and an explicit preinstall command will use the same manifest and
-validation path.
+The shipped local installer takes one nonblocking root lock, verifies transport
+and reconstructed bytes in one stream, publishes an immutable receipt-bound
+bundle, and atomically replaces `active.json`. Reuse and startup perform cheap
+compatibility and structural checks. Complete semantic scanning stays in the
+build-time verifier. Future remote sync and offline/container prefetch use the
+same local installation boundary.
 
 ## Consequences
 

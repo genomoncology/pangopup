@@ -8,10 +8,11 @@ binary under test:
 pangopup --version | mustmatch like "pangopup 0.1.0"
 ```
 
-Help exposes the exact lookup grammar:
+Help exposes the exact local-assets and lookup grammar:
 
 ```bash
-pangopup --help | rg -F 'pangopup lookup --bundle <PATH> --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT>' | mustmatch like '  pangopup lookup --bundle <PATH> --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table]'
-pangopup lookup --help | rg -F 'pangopup lookup --bundle <PATH> --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT>' | mustmatch like '  pangopup lookup --bundle <PATH> --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table]'
+pangopup --help | rg -F 'pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]' | mustmatch like '  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]'
+pangopup --help | rg -F 'pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>]' | mustmatch like '  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table]'
+pangopup lookup --help | rg -F 'pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>]' | mustmatch like '  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table]'
 pangopup lookup --version | mustmatch like "pangopup 0.1.0"
 ```

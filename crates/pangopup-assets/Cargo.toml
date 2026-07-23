@@ -21,6 +21,7 @@ zstd-sys = { version = "=2.0.16+zstd.1.5.7", default-features = false }
 
 [dev-dependencies]
 flate2 = "1.1.5"
+pangopup-index = { path = "../pangopup-index", features = ["test-read-audit"] }
 
 [lints]
 workspace = true

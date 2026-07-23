@@ -1,6 +1,6 @@
 # 006 — Install and reuse the SNV index from Linux XDG storage
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -115,9 +115,17 @@ is introduced by this ticket.
   prove each compressed byte is consumed once, no score-member read occurs
   between completed write and cheap open, and reuse opens no transport part.
 - Publish the staged `<B>` directory with a same-filesystem no-replace rename,
-  but first apply final modes, `sync_all` each of `scores.pgi`, `NOTICE`,
-  `manifest.json`, and `receipt.json`, and fsync the staged `bundle/` and `<B>/`
-  directories. After rename, fsync the bundles directory, sync
+  but first apply final modes to all installed files and the inner `bundle/`
+  directory, `sync_all` each of `scores.pgi`, `NOTICE`, `manifest.json`, and
+  `receipt.json`, and fsync the staged `bundle/` and `<B>/` directories. Keep
+  the enclosing `<B>` mode `0700` for the cross-parent rename because Linux
+  rejects moving a mode-`0555` directory. Immediately after rename, use the
+  already-held `<B>` directory handle to change it to final mode `0555`, fsync
+  `<B>`, and fsync the bundles directory before touching the active profile. A
+  crash in this narrow post-rename/pre-chmod window leaves the valid marked
+  stage and a complete inactive mode-`0700` final; reconciliation may finish
+  only that marker-bound chmod/fsync operation. A mode-`0700` final without the
+  exact owned stage marker is `INSTALL_CONFLICT` and is never repaired. Then sync
   `active.candidate.json` inside the marked nonce stage, atomically rename that
   file over root `active.json`, and fsync the root directory. A crash before
   bundle rename leaves only a removable marked stage. A crash after bundle
@@ -407,14 +415,181 @@ Approval re-review: APPROVED. The reviewer reopened the current file after the
 marker-last cleanup correction and reported no residual material findings. The
 ticket is decision-complete, internally consistent, and ready for development.
 
+Implementation amendment: while implementing on Linux, the developer proved
+that cross-parent rename of the enclosing staged `<B>` fails with `EACCES` once
+that directory is mode `0555`. The coordinator changed only the reviewed mode
+ordering: files and inner directory are final and durable first; `<B>` remains
+`0700` for rename, becomes `0555` through its held handle immediately after,
+and is durable before activation. Exact marker-bound recovery for a crash in
+that window is now specified. Same-reviewer approval: APPROVED. The reviewer
+confirmed the writable directory exists only while private/inactive, the held-
+handle chmod and fsync precede activation, marker-bound recovery is safe, and
+unmarked mode-`0700` finals fail closed.
+
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex `/root/ticket_006_developer`, 2026-07-23
+
+Implementation outcome:
+
+- Added the Linux local-user store to `pangopup-assets`: strict path
+  precedence/validation, effective-uid and mode checks, one opened root
+  directory handle, component-relative no-follow operations, nonblocking
+  `flock`, canonical receipt/profile/stage schemas, marked reconciliation,
+  one-stream transport reconstruction, immutable no-replace publication,
+  held-handle final-mode durability, atomic activation, cheap active/reuse
+  validation, and best-effort post-commit cleanup. Install/status/lookup never
+  invoke `certify_bundle`, `visit_all`, or another complete score pass.
+- Added `pangopup assets install`, `pangopup assets status`, implicit active
+  lookup, the explicit bundle override, the complete requested JSON/error
+  boundary, and transactional stdout. Manual and executable tests confirmed
+  reuse while the transport payload part was mode `000`.
+- Added unit/integration coverage for path precedence and failure, canonical
+  closed JSON, private state shape/modes, one-pass counted compressed reads,
+  direct transition from completed score write to cheap open, part-free reuse,
+  locking/status, valid and markerless reconciliation, malformed-stage
+  preservation, unsafe root state, symlink rejection, install/status/lookup,
+  corruption, and mutual exclusion. The focused executable contract at
+  `spec/local-assets.md` passed 12/12 blocks.
+- Added the exact source-derived 970+30 fixture at
+  `tests/fixtures/snv-regression/` (bundle
+  `sha256:5d90c69bb9220fbbbc2dd30fcf6cd0c1f88037d891fb79fe7e01df5d9f08c624`).
+  Its direct strict-TSV generator does not call the reader, provider, or
+  renderer. A reproduction test rebuilds every fixture file and compares byte
+  identities. One real provider open passed all 1,000 expectations, and all
+  seven CLI batches matched their complete oracle subsets; the focused run
+  completed in 0.04 seconds. A third CLI regression proves non-UTF-8 lookup
+  `--data-dir` values reach `PATH_INVALID`, not `CLI_USAGE`.
+- Added the exact `snv_regression` benchmark target and retained
+  `planning/artifacts/006-local-install-and-regression.md`. The required
+  benchmark command passed and reported fresh open/process plus warm
+  1/10/100/1,000 batches, p50/p95/p99, results, allocation calls/bytes, page
+  faults, RSS caveat, and output bytes without a timing gate or cold claim.
+- Added `.github/workflows/ci.yml`: Linux, exact Rust `1.93.1` minimal profile
+  with the pinned `clippy` and `rustfmt` components from `rust-toolchain.toml`,
+  full-commit-pinned `astral-sh/setup-uv`, uv `0.8.0`,
+  `mustmatch==0.1.0`, and only the three repository gates. It uses no
+  production credentials or production assets.
+
+Documentation changed:
+
+- User/executable: `README.md`, `spec/cli.md`, and `spec/local-assets.md`.
+- Durable architecture: `architecture/runtime-data.md`,
+  `architecture/delivery.md`, `architecture/design.md`,
+  `architecture/index.md`, `architecture/source-data.md`,
+  `architecture/README.md`, ADR 0004, and ADR 0005.
+- Planning/evidence: `planning/faq.md`, `planning/frontier.md`, and
+  `planning/artifacts/006-local-install-and-regression.md`.
+
+Verification evidence on the final review diff:
+
+- `cargo test --locked -p pangopup-assets --lib -- --test-threads=1` — 19
+  passed, including the counted one-pass audit, every named durability
+  fault/crash window, candidate recovery/discard, exact wrapper modes,
+  two-phase reconciliation, post-commit cleanup success, and local-write
+  `ASSET_IO` classification.
+- `cargo test --locked -p pangopup-index --lib
+  held_member_open_survives_bundle_path_rename` — passed; handle-based open
+  succeeded after the original bundle path ceased to exist.
+- `cargo test --locked -p pangopup-build --test local_install` — 2 passed.
+- `cargo test --locked -p pangopup-build --test snv_regression_fixture` — 1
+  byte-exact regeneration test passed.
+- `cargo test --locked -p pangopup-cli --test snv_regression` — 3 passed
+  (1,000 provider expectations, seven CLI batches, and non-UTF-8 data path).
+- `cargo bench --locked --package pangopup-cli --bench snv_regression` —
+  passed; retained non-gating results are in the named artifact.
+- `make lint` — passed (`cargo fmt --check`; clippy all targets with warnings
+  denied).
+- `make test` — passed across the workspace.
+- `make spec` — 92 passed.
+- `git diff --check` — passed. Public implementation/docs/fixtures contain no
+  absolute developer path or internal-project reference. The retained
+  production bundle/transport was not touched, rebuilt, moved, hashed, or
+  scanned.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex `/root/ticket_006_code_review`, 2026-07-23
+
+Initial result: NOT APPROVED. All nine findings were treated as material and
+resolved on the same intended diff:
+
+1. **Mutable wrapper reuse.** Ordinary reuse and active discovery now require
+   the enclosing `<B>` wrapper to be exactly `0555`; an unmarked `0700`
+   wrapper returns `INSTALL_CONFLICT`. Only a fully preflighted marker-bound
+   crash stage may accept `0700`, and recovery uses its held descriptor to
+   chmod `0555`, fsync the wrapper, and fsync `bundles/` before activation.
+2. **Incomplete pre-publication durability.** Each member receives its final
+   mode before its file fsync. The marker file, nonce directory, `.staging`,
+   active candidate, candidate directory, inner bundle, wrapper, and payload
+   receive the required fsyncs before the bundle rename.
+3. **Reconciliation mutated before validation and could fail after commit.**
+   Reconciliation is now a read-only preflight of every staging child followed
+   by mutation. Recovered active rename plus root fsync is its sole commit;
+   every cleanup afterward is best effort, and committed recovery returns
+   `reused` even when cleanup is injected to fail.
+4. **Ambient absolute reopens and mount traversal.** Every path below the held
+   root uses `openat2` with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS |
+   RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV`, so bind mounts are rejected even
+   when their `st_dev` matches. Directory enumeration uses held-descriptor
+   `getdents`, not `/proc/self/fd`. `BundleOpen::open_members` and
+   `IndexReader::open_file` consume verified held files, including implicit
+   CLI lookup; a rename test proves the old absolute path is not reopened.
+5. **CI did not install the pin.** CI now explicitly installs Rust `1.93.1`,
+   profile `minimal`, and components `clippy,rustfmt`, exactly matching
+   `rust-toolchain.toml`, before the three gates.
+6. **Wrong error boundaries.** Injected local score-destination failure is
+   remapped from generic decoder `OUTPUT_IO` to `ASSET_IO`; lookup preserves a
+   non-UTF-8 `--data-dir` until strict path resolution returns `PATH_INVALID`.
+7. **Stale CLI benchmark and percentile ambiguity.** Every benchmark run now
+   rebuilds the current CLI artifact. Percentiles use and document the
+   nearest-rank `ceil(p*n)-1` rule; the retained report was regenerated.
+8. **Missing deterministic crash coverage.** The test-only fault matrix covers
+   every marker/candidate/member/wrapper chmod and fsync boundary, both
+   renames, root fsync, pre-publication discard, marker-bound recovery,
+   unmarked `0700`, read-only all-child preflight, counted one-pass score
+   construction, and successful commit despite cleanup failure.
+9. **Stale/malformed documentation.** `AGENTS.md` now lists shipped Linux local
+   installation/discovery, and the malformed distribution paragraph in
+   `architecture/source-data.md` is corrected.
+
+First remediation re-review: NOT APPROVED with two residual findings. Both are
+resolved without broadening the ticket:
+
+1. **Recovery erased installed-state error boundaries.** Reconciliation now
+   propagates `validate_installed` unchanged. Receipt/member mismatches remain
+   `ASSET_STATE_INVALID`; only marker/stage defects and marker-to-receipt
+   identity conflicts are `STAGING_INVALID`; fixed-index structural failures,
+   including corrupted scores magic, are `INSTALL_CONFLICT`. A marker-bound
+   recovery test asserts both installed-state and conflict codes.
+2. **The score-read proof inferred absence from adjacent events.** The index
+   now exposes a feature-gated test-only logical-read counter at the actual
+   header, segment, tree, and exception decode points. Installation audit
+   snapshots assert exactly zero score bytes at completed write and again at
+   `CheapOpenStart`, then a positive counted total only after cheap structural
+   open completes. The former event-adjacency assertion was removed.
+
+Same-reviewer second re-review: APPROVED with no residual findings. The
+reviewer confirmed both residual fixes, reran their focused cases, and verified
+that every previously approved durability, confinement, fixture, CI, benchmark,
+documentation, and hygiene remediation remains intact. No production asset was
+touched or scanned.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex `/root`, 2026-07-23
+
+- Independent ticket review and its implementation-order amendment are
+  approved.
+- Independent adversarial code review approved the final remediation diff with
+  no residual findings.
+- Coordinator `make lint` passed.
+- Coordinator `make test` passed across the workspace, including 19 asset
+  unit/fault tests, byte-exact regeneration, and all 1,000 lookup cases.
+- Coordinator `make spec` passed: 92/92.
+- `git diff --check` passed. The stale-claim/public-hygiene scan found no local
+  absolute paths or internal-project references outside this ticket's own
+  explicit hygiene instruction.
+- The checked-in regression oracle is exactly 1,000 lines; its largest member
+  is 491,629 bytes. No production bundle or transport was touched, scanned, or
+  added.

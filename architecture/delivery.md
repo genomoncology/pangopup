@@ -1,9 +1,10 @@
 # Artifact Delivery
 
-This document records shipped local transport and the accepted managed-delivery
-target. The repository does not yet publish generated lookup/model assets and
-does not yet implement an asset manager, automatic installation, or XDG
-discovery. The shipped runtime opens an explicitly supplied bundle path.
+This document records shipped local transport and Linux installation plus the
+accepted remote-delivery target. The repository does not yet publish generated
+lookup/model assets or implement remote sync/download. The runtime opens either
+an explicitly supplied bundle path or the active receipt-bound bundle in Linux
+user data.
 
 ## GitHub Releases
 
@@ -80,58 +81,74 @@ format or installer:
 4. immutable GitHub publication plus a clean-machine install, offline restart,
    and representative query proof.
 
-The first stage is shipped. Each later stage
+The first two stages are shipped. Each later stage
 receives its own coordinator-authored and independently reviewed contract only after the
 preceding transport or installation contract is implemented.
 
-## Planned installation
+## Shipped Linux installation and planned remote sync
 
-Each future distribution embeds or ships a lock manifest for one compatible
+Each future remote distribution embeds or ships a lock manifest for one compatible
 asset set. The target default full profile includes lookup data, model,
 reference, and masking assets; an explicit lookup-only profile omits model
 fallback.
 
-The future CLI and HTTP service will ensure the selected profile before opening
-the runtime. The shared asset manager should:
+The shipped local command accepts an already available transport:
+
+```text
+pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]
+pangopup assets status [--data-dir <ABSOLUTE_PATH>]
+```
+
+It resolves `--data-dir`, `PANGOPUP_DATA_DIR`, `XDG_DATA_HOME/pangopup`, then
+`HOME/.local/share/pangopup`; present invalid values fail rather than falling
+through. One nonblocking root lock serializes installation. A marked private
+stage receives each decompressed byte once while transport and reconstructed
+hashes are checked. Files are synced and published with no-replace rename, a
+canonical receipt binds the immutable directory, and `active.json` is replaced
+atomically. Crash reconciliation removes only same-filesystem, effective-uid
+owned, no-follow marked stages. Published bundles are never overwritten or
+deleted. Status is lock-free apart from a nonblocking probe; lookup never takes
+the install lock.
+
+Reuse validates the receipt, bounded metadata hashes, member shapes and sizes,
+and cheap `BundleOpen` structure without opening transport parts or hashing the
+score payload. Complete semantic certification remains a build-time operation.
+
+The future CLI and HTTP service will obtain the selected remote profile before
+calling this installer. Remote sync must:
 
 1. resolve the binary-pinned or explicitly requested asset set, never an
    unpinned “latest” release;
-2. take a per-bundle installation lock;
+2. use the shipped local installation lock;
 3. reuse a complete compatible local bundle without network access;
 4. otherwise download missing archives to a temporary cache path;
-5. verify size and SHA-256 before extraction;
-6. extract into a sibling staging directory;
-7. verify the inner manifest, member sizes, formats, and hashes;
-8. atomically publish the completed immutable directory.
+5. pass the exact local transport directory to the shipped installer.
 
-The future `pangopup assets install` command will install caller-supplied parts.
 The future `pangopup assets sync` command will fetch one explicitly pinned
 release manifest and then call the same installer. Offline mode will forbid
 network access and name every missing or incompatible asset. Callers will still
 be able to supply an already installed bundle path. Containers will be able to
 bake the same verified bundle into an image or mount it read-only.
 
-Default managed storage will follow the operating system's application-data convention
-rather than Pangolin's current Python-package layout: XDG data storage on Linux,
-Application Support on macOS, and the equivalent known folder on Windows. An
-explicit CLI flag or environment variable will override discovery. The core library
-accepts paths and performs no download or home-directory discovery.
+Current managed storage follows Linux XDG application-data conventions rather
+than Pangolin's Python-package layout. macOS and Windows behavior remains
+unimplemented. The core scoring library accepts already resolved paths and
+performs no download or home-directory discovery.
 
-On Linux, durable installed bundles will live under
+On Linux, durable installed bundles live under
 `${XDG_DATA_HOME:-$HOME/.local/share}/pangopup/`; transport archives and partial
 downloads may use `${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/`. Installed data
-will not be cache: clearing the cache must not break a complete installation.
+are not cache: clearing a future download cache must not break a complete installation.
 
 The explicit local installer does not require a network and is the primitive.
 Remote sync only obtains the exact bytes named by a pinned manifest and then
 calls that installer. A complete installed profile remains usable offline even
 if the remote release is unavailable.
 
-Full hashes will be mandatory during installation and explicit verification.
-Ordinary startup will validate the trusted manifest identity, sizes, format
-versions, and structures without rereading every byte. This will keep startup
-cheap and avoid loading the whole mapped corpus merely to prove it has not
-changed.
+Transport and reconstructed hashes are mandatory in the single install stream.
+Ordinary startup validates receipt/manifest identity, sizes, format versions,
+and structures without rereading every byte. This keeps startup cheap and
+avoids loading the whole mapped corpus merely to prove it has not changed.
 
 ## Historical compression evidence and shipped transport
 

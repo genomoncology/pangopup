@@ -14,6 +14,8 @@ use serde::{
     de::{MapAccess, SeqAccess, Visitor},
 };
 use sha2::{Digest, Sha256};
+#[cfg(feature = "test-read-audit")]
+use std::cell::Cell;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
@@ -21,6 +23,28 @@ use std::{
     io::{self, BufReader, Read, Write},
     path::{Path, PathBuf},
 };
+
+#[cfg(feature = "test-read-audit")]
+thread_local! {
+    static TEST_SCORE_READ_BYTES: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Reset the test-only logical score-read counter used by installation audits.
+#[cfg(feature = "test-read-audit")]
+pub fn test_reset_score_read_bytes() {
+    TEST_SCORE_READ_BYTES.set(0);
+}
+
+/// Return test-only logical score bytes inspected by cheap structural opens.
+#[cfg(feature = "test-read-audit")]
+pub fn test_score_read_bytes() -> usize {
+    TEST_SCORE_READ_BYTES.get()
+}
+
+#[cfg(feature = "test-read-audit")]
+fn record_test_score_read(bytes: usize) {
+    TEST_SCORE_READ_BYTES.set(TEST_SCORE_READ_BYTES.get().saturating_add(bytes));
+}
 
 const MAGIC: &[u8; 8] = b"PNGPIDX1";
 const VERSION: u32 = 1;
@@ -418,14 +442,42 @@ impl BundleOpen {
         if manifest_bytes.len() as u64 > MAX_MANIFEST_BYTES {
             return Err(IndexError::Corrupt("manifest size"));
         }
-        let manifest = parse_bundle_manifest_bytes(&manifest_bytes)?;
+        let notice = File::open(path.join("NOTICE"))?;
+        let scores = File::open(path.join("scores.pgi"))?;
+        Self::open_members(&manifest_bytes, &notice, &scores)
+    }
+
+    /// Cheap-open an already verified set of immutable bundle member handles.
+    ///
+    /// This is the descriptor-relative counterpart to [`Self::open`]. Callers
+    /// that enforce their own directory/member-set policy can avoid reopening
+    /// trusted files through ambient absolute paths.
+    pub fn open_members(
+        manifest_bytes: &[u8],
+        notice: &File,
+        scores: &File,
+    ) -> Result<Self, IndexError> {
+        if manifest_bytes.len() as u64 > MAX_MANIFEST_BYTES {
+            return Err(IndexError::Corrupt("manifest size"));
+        }
+        let manifest = parse_bundle_manifest_bytes(manifest_bytes)?;
+        let notice_metadata = notice.metadata()?;
+        let scores_metadata = scores.metadata()?;
+        if !notice_metadata.file_type().is_file() || !scores_metadata.file_type().is_file() {
+            return Err(IndexError::Corrupt("bundle member is not a regular file"));
+        }
         for member in &manifest.members {
-            if fs::metadata(path.join(&member.path))?.len() != member.size {
+            let actual = match member.path.as_str() {
+                "NOTICE" => notice_metadata.len(),
+                "scores.pgi" => scores_metadata.len(),
+                _ => return Err(IndexError::Corrupt("manifest members")),
+            };
+            if actual != member.size {
                 return Err(IndexError::Corrupt("bundle member size"));
             }
         }
-        let index = IndexReader::open(&path.join("scores.pgi"))?;
-        let bundle_id = bundle_id(&manifest_bytes);
+        let index = IndexReader::open_file(scores)?;
+        let bundle_id = bundle_id(manifest_bytes);
         let provenance = PrecomputedProvenance::new(
             bundle_id.clone(),
             manifest.source.doi.clone(),
@@ -1266,11 +1318,16 @@ impl IndexReader {
     /// subsequent byte access is bounds-checked and explicitly decoded.
     pub fn open(path: &Path) -> Result<Self, IndexError> {
         let file = File::open(path)?;
+        Self::open_file(&file)
+    }
+
+    /// Map and validate an already-open immutable index file.
+    pub fn open_file(file: &File) -> Result<Self, IndexError> {
         // SAFETY: The deployment contract requires an immutable, unmodified
         // inode for the lifetime of this mapping. No mapped byte is interpreted
         // until the structural checks below pass, and no native struct casts
         // are performed.
-        let map = unsafe { Mmap::map(&file) }.map_err(IndexError::Io)?;
+        let map = unsafe { Mmap::map(file) }.map_err(IndexError::Io)?;
         let header = decode_header(&map)?;
         validate_structure(&map, &header)?;
         Ok(Self { map, header })
@@ -1862,6 +1919,8 @@ fn decode_header(bytes: &[u8]) -> Result<Header, IndexError> {
     if bytes.len() < HEADER_SIZE {
         return Err(IndexError::Corrupt("truncated header"));
     }
+    #[cfg(feature = "test-read-audit")]
+    record_test_score_read(HEADER_SIZE);
     if bytes.get(0..8) != Some(MAGIC.as_slice()) {
         return Err(IndexError::Corrupt("wrong magic"));
     }
@@ -2162,6 +2221,8 @@ fn decode_segment_view(bytes: &[u8], offset: u64) -> Result<SegmentView, IndexEr
     let slice = bytes
         .get(start..start + SEGMENT_SIZE)
         .ok_or(IndexError::Corrupt("truncated segment"))?;
+    #[cfg(feature = "test-read-audit")]
+    record_test_score_read(SEGMENT_SIZE);
     if slice[1..8].iter().any(|byte| *byte != 0) {
         return Err(IndexError::Corrupt("segment reserved bytes"));
     }
@@ -2191,6 +2252,8 @@ fn decode_tree_view(bytes: &[u8], offset: u64) -> Result<TreeView, IndexError> {
     let slice = bytes
         .get(start..start + TREE_NODE_SIZE)
         .ok_or(IndexError::Corrupt("truncated tree node"))?;
+    #[cfg(feature = "test-read-audit")]
+    record_test_score_read(TREE_NODE_SIZE);
     if slice[29..32].iter().any(|byte| *byte != 0) {
         return Err(IndexError::Corrupt("tree reserved bytes"));
     }
@@ -2209,6 +2272,8 @@ fn decode_exception(bytes: &[u8], offset: u64) -> Result<AmbiguousInputLocus, In
     let slice = bytes
         .get(start..start + EXCEPTION_SIZE)
         .ok_or(IndexError::Corrupt("truncated exception"))?;
+    #[cfg(feature = "test-read-audit")]
+    record_test_score_read(EXCEPTION_SIZE);
     if slice[5..8]
         .iter()
         .chain(slice[20..24].iter())
@@ -2506,6 +2571,28 @@ mod tests {
                 })
             })
             .collect()
+    }
+
+    #[test]
+    fn held_member_open_survives_bundle_path_rename() {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("tests/fixtures/snv-regression/bundle");
+        let original = path("held-members");
+        fs::create_dir(&original).expect("temporary bundle");
+        for name in ["NOTICE", "manifest.json", "scores.pgi"] {
+            fs::copy(source.join(name), original.join(name)).expect("copy bundle member");
+        }
+        let manifest = fs::read(original.join("manifest.json")).expect("manifest bytes");
+        let notice = File::open(original.join("NOTICE")).expect("notice handle");
+        let scores = File::open(original.join("scores.pgi")).expect("score handle");
+        let moved = original.with_extension("moved");
+        fs::rename(&original, &moved).expect("rename bundle after handles open");
+
+        let opened = BundleOpen::open_members(&manifest, &notice, &scores)
+            .expect("held handles do not reopen the old path");
+        assert_eq!(opened.bundle_id(), bundle_id(&manifest));
+        fs::remove_dir_all(moved).expect("temporary cleanup");
     }
 
     #[test]

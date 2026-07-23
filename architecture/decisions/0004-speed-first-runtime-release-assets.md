@@ -17,9 +17,10 @@ GitHub Releases, not Git or Git LFS. The shipped local SNV transport carries
 a canonical manifest, exact copies of the small installed members, and one
 deterministic compressed `scores.pgi` stream cut into ordered exact
 1,000,000,000-byte parts except for its final part. Explicit local unpack
-verifies and reconstructs the unchanged fixed-v1 bundle once. The managed asset
-installer is not implemented. The request path never downloads or decompresses
-an SNV lookup.
+verifies and reconstructs the unchanged fixed-v1 bundle once. The shipped Linux
+installer streams that transport into an immutable XDG-data bundle, atomically
+selects it, and reuses it with cheap structural validation. The request path
+never downloads or decompresses an SNV lookup.
 
 ## Consequences
 

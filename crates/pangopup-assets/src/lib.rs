@@ -19,6 +19,91 @@ use std::{
     rc::Rc,
 };
 
+mod local;
+
+pub use local::{
+    ActiveBundle, DataPathInputs, InstallOutcome, LocalStatus, active_bundle, install_transport,
+    local_status, open_active_bundle, resolve_data_root,
+};
+
+#[cfg(test)]
+mod install_audit {
+    use std::cell::RefCell;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum Event {
+        CompressedRead(usize),
+        ScoreWriteComplete(usize),
+        CheapOpenStart(usize),
+        CheapOpenComplete(usize),
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum FaultPoint {
+        MarkerChmod,
+        MarkerSync,
+        StageSync,
+        StagingSync,
+        CandidateChmod,
+        CandidateSync,
+        CandidateStageSync,
+        ScoreWrite,
+        ScoreChmod,
+        ScoreSync,
+        NoticeChmod,
+        NoticeSync,
+        ManifestChmod,
+        ManifestSync,
+        ReceiptChmod,
+        ReceiptSync,
+        BundleChmod,
+        BundleSync,
+        WrapperSync,
+        PayloadSync,
+        PrepublishStageSync,
+        BundleRename,
+        PublishedWrapperChmod,
+        PublishedWrapperSync,
+        BundlesSync,
+        ActiveRename,
+        RootSync,
+        CleanupAfterCommit,
+    }
+
+    thread_local! {
+        static EVENTS: RefCell<Vec<Event>> = const { RefCell::new(Vec::new()) };
+        static FAULT: RefCell<Option<FaultPoint>> = const { RefCell::new(None) };
+    }
+
+    pub fn record(event: Event) {
+        EVENTS.with_borrow_mut(|events| events.push(event));
+    }
+
+    pub fn take() -> Vec<Event> {
+        EVENTS.take()
+    }
+
+    pub fn set_fault(point: FaultPoint) {
+        FAULT.set(Some(point));
+    }
+
+    pub fn hit(point: FaultPoint) {
+        if FAULT.with_borrow(|fault| *fault == Some(point)) {
+            FAULT.set(None);
+            panic!("simulated installer crash at {point:?}");
+        }
+    }
+
+    pub fn fail(point: FaultPoint) -> bool {
+        if FAULT.with_borrow(|fault| *fault == Some(point)) {
+            FAULT.set(None);
+            true
+        } else {
+            false
+        }
+    }
+}
+
 pub const NOTICE: &[u8] = include_bytes!("../../../NOTICE");
 pub const NOTICE_SHA256: &str =
     "sha256:9b8e898daa53b28cf421f9a59676e920dc5cefb1c23b9d185f75d3cfd4281af7";
@@ -45,6 +130,14 @@ pub enum AssetErrorKind {
     BundleInvalid,
     OutputConflict,
     UnsupportedPlatform,
+    PathInvalid,
+    PathUnavailable,
+    AssetLocked,
+    AssetIo,
+    AssetStateInvalid,
+    StagingInvalid,
+    InstallConflict,
+    AssetsMissing,
 }
 
 impl AssetErrorKind {
@@ -60,6 +153,14 @@ impl AssetErrorKind {
             Self::BundleInvalid => "BUNDLE_INVALID",
             Self::OutputConflict => "OUTPUT_CONFLICT",
             Self::UnsupportedPlatform => "UNSUPPORTED_PLATFORM",
+            Self::PathInvalid => "PATH_INVALID",
+            Self::PathUnavailable => "PATH_UNAVAILABLE",
+            Self::AssetLocked => "ASSET_LOCKED",
+            Self::AssetIo => "ASSET_IO",
+            Self::AssetStateInvalid => "ASSET_STATE_INVALID",
+            Self::StagingInvalid => "STAGING_INVALID",
+            Self::InstallConflict => "INSTALL_CONFLICT",
+            Self::AssetsMissing => "ASSETS_MISSING",
         }
     }
 }
@@ -498,6 +599,16 @@ fn verify_internal(
     path: &Path,
     reconstructed: Option<&mut File>,
 ) -> Result<VerifiedTransport, AssetError> {
+    let verified = inspect_transport(path)?;
+    decode_parts(
+        path,
+        &verified.manifest,
+        reconstructed.map(|file| file as &mut dyn Write),
+    )?;
+    Ok(verified)
+}
+
+fn inspect_transport(path: &Path) -> Result<VerifiedTransport, AssetError> {
     let manifest_bytes = read_bounded(
         &path.join("transport.json"),
         MAX_JSON_BYTES,
@@ -519,7 +630,6 @@ fn verify_internal(
         AssetErrorKind::BundleInvalid,
     )?;
     validate_bundle_metadata(&manifest, &bundle_manifest_bytes, &notice)?;
-    decode_parts(path, &manifest, reconstructed)?;
     Ok(VerifiedTransport {
         manifest,
         bundle_manifest_bytes,
@@ -704,7 +814,7 @@ fn validate_directory(path: &Path, manifest: &TransportManifest) -> Result<(), A
 fn decode_parts(
     path: &Path,
     manifest: &TransportManifest,
-    output: Option<&mut File>,
+    output: Option<&mut dyn Write>,
 ) -> Result<(), AssetError> {
     let failure = Rc::new(RefCell::new(None));
     let reader = PartReader::new(path, &manifest.payload, Rc::clone(&failure));
@@ -783,7 +893,7 @@ fn copy_decoded_limited(
     input: &mut impl Read,
     expected_size: u64,
     hash: &mut Sha256,
-    mut output: Option<&mut File>,
+    mut output: Option<&mut dyn Write>,
 ) -> Result<u64, AssetError> {
     let mut decoded = 0_u64;
     let mut buffer = vec![0_u8; 128 * 1024];
@@ -1157,6 +1267,8 @@ impl Read for PartReader<'_> {
                 .total
                 .checked_add(read as u64)
                 .ok_or_else(|| self.fail(manifest_error("compressed size overflow")))?;
+            #[cfg(test)]
+            install_audit::record(install_audit::Event::CompressedRead(read));
             return Ok(read);
         }
     }

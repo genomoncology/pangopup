@@ -85,7 +85,8 @@ The transformed fixed 11-byte index is intended for distribution as separately
 named GitHub release assets, not as Git objects. The measured complete bundle
 compressed to 1,935,000,209 bytes, too close to the under-2-GiB per-asset limit
 for comfortable headroom. The shipped local transport is split deterministically
-and can be verified and reassembled explicitly; runtime lookup still maps the
-unchanged fixed-v1 member and never decompresses a query. Release publication
-and managed installation are not implemented yet. See
+and can be verified, reconstructed, and installed in Linux user data without
+network access; runtime lookup still maps the unchanged fixed-v1 member and
+never decompresses a query. Remote publication and sync are not implemented
+yet. See
 [`delivery.md`](delivery.md).

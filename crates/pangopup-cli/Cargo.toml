@@ -11,6 +11,7 @@ name = "pangopup"
 path = "src/main.rs"
 
 [dependencies]
+pangopup-assets = { path = "../pangopup-assets" }
 pangopup-core = { path = "../pangopup-core" }
 pangopup-index = { path = "../pangopup-index" }
 serde = { version = "1.0.228", features = ["derive"] }
@@ -21,6 +22,10 @@ libc = "0.2.188"
 
 [[bench]]
 name = "snv_lookup"
+harness = false
+
+[[bench]]
+name = "snv_regression"
 harness = false
 
 [lints]
