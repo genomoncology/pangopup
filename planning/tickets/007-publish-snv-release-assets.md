@@ -128,8 +128,9 @@ behavior to the Pangopup runtime.
   immediately after open and before `fstat` or any contract validation. An
   existing writer, unsupported lease/filesystem, lease error, or later lease-
   break notification fails closed; there is no lock-free fallback. On the
-  supervising thread, block `SIGIO` and create its nonblocking `signalfd`
-  before acquiring the lease or creating any helper-owned worker thread.
+  supervising thread, establish the combined blocked-signal/`signalfd`
+  supervision described below before acquiring the lease or creating any
+  helper-owned worker thread.
   Acquire the lease first while `SIGIO` is blocked; Linux lease acquisition may
   install its own process owner. Then route notifications explicitly to the
   supervising thread with `F_SETOWN_EX(F_OWNER_TID, gettid())`, verify the owner
@@ -178,7 +179,8 @@ behavior to the Pangopup runtime.
     --jq {"name":.name,"size":.size,"state":.state,"digest":.digest}
   ```
 
-  Set stdin to the held File, stdout/stderr to pipes, and no TTY. Clear the
+  Set stdin to the selected sealed or leased stable descriptor, stdout/stderr
+  to pipes, and no TTY. Clear the
   child environment, copy only `HOME`, `XDG_CONFIG_HOME`, `GH_CONFIG_DIR`,
   `GH_TOKEN`, `GITHUB_TOKEN`, `SSL_CERT_FILE`, `SSL_CERT_DIR`, `HTTPS_PROXY`,
   `NO_PROXY`, `LANG`, and `LC_ALL` when present, then force
@@ -192,6 +194,34 @@ behavior to the Pangopup runtime.
   fail closed. Never claim to reap grandchildren: Linux process-group signaling
   and direct-child reaping are the enforced boundary. Never echo raw child
   output.
+
+  The coordinator must not orphan an authenticated request when interrupted.
+  Before acquiring a payload lease, and in all cases before spawning the child
+  or any capture worker, the supervising thread saves its signal mask, blocks
+  `SIGINT` and `SIGTERM` together with the lease's `SIGIO`, and creates one
+  nonblocking `signalfd` monitoring all three. Capture workers inherit that
+  mask. Drain and classify pending signals immediately before child spawn; an
+  already-pending interrupt or lease break starts no child. Receipt of
+  `SIGINT` or `SIGTERM` enters the same
+  process-group `SIGKILL`, pipe cancellation, direct-child reap, and lease-
+  release path as deadline failure, then restores the original mask and returns
+  a sanitized nonzero interrupted result. Every normal/error return restores
+  the original mask after child cleanup.
+
+  Create the signal descriptor with `SFD_NONBLOCK | SFD_CLOEXEC`. As defense
+  against abrupt parent death that cannot run cleanup, capture the expected
+  parent PID in the parent before `fork`/`spawn` and pass that value into the
+  child pre-exec closure. The child creates its own process group, calls
+  `prctl(PR_SET_PDEATHSIG, SIGKILL)`, then requires `getppid()` still equals
+  the parent-captured PID; mismatch exits without executing `gh`. After those
+  steps succeed, restore the parent's original signal mask in the child
+  immediately before `execveat`, so the sealed `gh` process does not inherit
+  blocked `SIGINT`, `SIGTERM`, or `SIGIO`. This closes the parent-death race for
+  the direct upload child. Do not
+  overclaim that `PR_SET_PDEATHSIG` reaps or independently protects arbitrary
+  grandchildren; orderly `SIGINT`/`SIGTERM` handling kills the complete child
+  process group, while abrupt uncatchable parent death guarantees the direct
+  child receives `SIGKILL`.
 
   Exit 0 plus exactly one closed reduced JSON object is required. Its name and
   size must equal the reviewed asset, state must be `uploaded`, and digest may
@@ -219,7 +249,8 @@ behavior to the Pangopup runtime.
   pre-existing writer must make lease acquisition fail before child spawn.
   Injected platform tests also cover `F_SETOWN_EX` failure, `F_GETOWN_EX`
   failure or mismatch, unavailable/malformed/less-than-ten-second
-  `lease-break-time`, final `F_GETLEASE` loss without a readable notification,
+  `lease-break-time`, the post-owner `F_GETLEASE` error/loss branch before child
+  spawn, final `F_GETLEASE` loss without a readable notification,
   and lease-break cleanup exceeding its five-second ceiling. They also cover
   nonregular inputs, fstat-size mismatch, unreviewed names, malformed prepared
   files, child failure, a silent child past the injected deadline, and zero payload
@@ -237,6 +268,17 @@ behavior to the Pangopup runtime.
   boundary asserts the exact allowed operation log and zero offset before the
   fake child is released to consume stdin. This instrumented syscall boundary,
   rather than the offset alone, is the direct zero-parent-read proof.
+  A subprocess integration test starts the real coordinator command around a
+  fake child plus same-process-group descendant holding stdin and both pipes,
+  sends the coordinator `SIGINT` and `SIGTERM` in separate cases, and proves a
+  nonzero coordinator result, group termination, direct-child reap, writer
+  release, and no surviving request. A separate abrupt-parent-death test proves
+  the `PR_SET_PDEATHSIG` plus `getppid` guard kills or prevents the direct fake
+  upload child. The injected abrupt-death case includes a pre-exec barrier held
+  by the test driver: the driver kills the coordinator before allowing the
+  child to call `PR_SET_PDEATHSIG`, proving the parent-captured PID check stops
+  execution even when death happens in that earliest window. It separately
+  covers death after `PR_SET_PDEATHSIG` and does not claim descendant coverage.
   Developers/reviewers never invoke this command against GitHub.
 - Pin this release contract:
 
@@ -440,7 +482,8 @@ behavior to the Pangopup runtime.
   `pangopup-build release upload-asset`; never use pathname-reopening
   `gh release upload`. There is no local pre-read, hash, copy, link,
   recompression, semantic verification, or redownload of a large part; large
-  bytes are read only from the held descriptor as upload request bodies.
+  bytes are read only by the child from its duplicate of the leased descriptor
+  as upload request bodies.
   Coordinator retries are bounded to two command invocations per expected
   asset and the artifact records attempts and byte counts. After every command
   result—including nonzero exit, bounded-output failure, lost response, or
@@ -540,6 +583,10 @@ behavior to the Pangopup runtime.
     cleanup has a separate five-second ceiling beneath the verified kernel
     forced-break window. A stuck helper cannot hold an asset lease or
     coordinator workflow forever.
+11. **Treat coordinator interruption as upload cancellation.** Catchable
+    termination signals go through the normal group-kill/reap/release path;
+    child-side parent-death protection covers abrupt parent loss for the direct
+    upload process. Neither path may report or leave an accepted request.
 
 ## Dependencies
 
@@ -654,6 +701,27 @@ order is Linux-correct, the blocked signal covers the interim, final success
 rechecks the lease, and every new fail-closed branch has an explicit injected
 test. The process-cleanup and exhaustive zero-pre-read boundaries are
 decision-complete and remain consistent with the ban on large pre-reads.
+
+The Revision 10 implementation rereview closed the original three findings but
+found that placing `gh` in its own process group without coordinator signal
+handling could orphan an authenticated request on Ctrl-C or termination. It
+also found no injected test for the post-owner lease query and one misleading
+documentation label that called all eight release assets the installable
+transport. Revision 11 adds supervised `SIGINT`/`SIGTERM`, child-side
+`PR_SET_PDEATHSIG` with the parent-PID race check, exact integration/fault
+tests, and requires `architecture/delivery.md` to distinguish the eight-file
+release asset set from the five-file installable transport. Revision 11 was not
+approved because it could capture an already-reparented PID inside the child
+and would carry the parent's blocked signals through exec. Revision 12 captures
+the expected PID in the parent before spawn, uses a pre-protection death-barrier
+test, requires `SFD_CLOEXEC`, and restores the original child signal mask
+immediately before `execveat`.
+
+Revision 12: approved. The reviewer confirmed both sides of the parent-death
+race are covered, child setup happens in the safe order, the original signal
+mask is restored only immediately before sealed execution, and
+`SFD_CLOEXEC` prevents descriptor leakage. The abrupt-death limitation is
+accurate and the interruption contract is decision-complete.
 
 ## Implementation Evidence
 
@@ -810,6 +878,71 @@ descriptors did not prevent same-inode mutation after validation, a silent
 child could run forever, and no test directly observed zero payload reads
 before child spawn. Those findings are routed through ticket Revision 8 before
 developer remediation.
+
+Revision 10 implementation: not approved. The original findings were closed,
+but the reviewer found a high-severity coordinator-interruption orphan, missing
+post-owner lease-query injection, and a low-severity transport/release-set docs
+error. Those findings are routed through ticket Revision 11 before developer
+remediation.
+
+Revision 10 remediation is ready for the same reviewer. The GitHub CLI source
+is copied into a size/digest-validated sealed memfd and executed with
+`execveat(AT_EMPTY_PATH)`. Every small selected asset is copied into its own
+sealed memfd before validation. A selected payload is instead owned by the new
+private Linux boundary in `release_upload_linux.rs`; the opaque type exposes no
+`File` or raw fd and implements neither `Read` nor `Seek`.
+
+The payload boundary blocks `SIGIO`, creates a nonblocking `signalfd`, validates
+`lease-break-time >= 10`, opens no-follow, acquires the read lease, then
+sets/reads back `F_OWNER_TID` and reconfirms `F_RDLCK` in the approved order.
+Only classified boundary operations can fstat, query offset, duplicate child
+stdin, poll/drain the lease signal, perform the final lease query, release, and
+close. Immediately before spawn the exact injected operation log contains no
+content access and `lseek(SEEK_CUR)` is zero. A source-boundary test rejects
+payload access through `read`, `pread*`, `readv`, `mmap`, `sendfile`, `splice`,
+`copy_file_range`, or `io_uring` escape paths.
+
+The child uses a separate process group and a 21,600-second production
+deadline. Tests inject short deadlines. Supervision continues until both the
+direct child and both nonblocking bounded output readers finish, so a
+same-group descendant cannot hold a pipe open indefinitely after the direct
+child exits. Overflow, deadline, lease break, or supervision failure cancels
+the readers, sends process-group `SIGKILL`, and reaps the direct child before
+the lease is released. Cleanup is checked against the five-second ceiling;
+success nonblockingly drains lease notifications and reconfirms `F_RDLCK`.
+
+Focused tests use only miniature data and a compiled fake executable. They
+prove sealed gh and all six small selected assets survive same-inode overwrite
+or truncate; a pre-existing writer blocks lease acquisition; payload overwrite
+and truncate attempts remain blocked until cancellation, process-group kill,
+direct-child reap, and lease release; the allowed pre-spawn log and zero offset
+are exact; and no parent payload content operation occurs. Injected tests cover
+`F_SETOWN_EX` failure, `F_GETOWN_EX` failure/mismatch, unavailable, malformed,
+and nine-second kernel windows, silent final lease loss, and cleanup-deadline
+exhaustion. The descendant-held-pipe test proves the injected request deadline
+kills the group while the direct child is reaped.
+
+Final evidence on the Revision 10 diff:
+
+```text
+cargo test --locked -p pangopup-build --test transport release_upload -- --nocapture
+  8 passed
+make lint  pass
+make test  pass (25 transport integration tests)
+make spec  105 passed
+git diff --check  pass
+```
+
+The builder-source identity changed as expected, and the repository's
+deterministic SNV regression generator refreshed the checked fixture; its
+byte-exact regeneration test passes. Durable uploader documentation now
+describes sealed CLI/small snapshots, the content-blind leased payload,
+21,600-second deadline, process-group kill/direct-child reap, and five-second
+lease cleanup rather than mutable held descriptors.
+
+No repository setting, GitHub state, network endpoint, or other external state
+was touched. No production payload part was opened, read, hashed, copied,
+linked, rebuilt, or verified.
 
 ## External Publication Evidence
 
