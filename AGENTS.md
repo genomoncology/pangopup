@@ -66,27 +66,25 @@ freeze a byte layout from intuition: first pin a checked-in miniature source
 fixture, then compare candidate layouts using the same queries and exactness
 corpus. Preserve source attribution and provenance in every produced bundle.
 
-Every ticket follows this four-sub-agent chain, coordinated by an agent that
-does not author, review, or implement the ticket:
+Every ticket follows one coordinator-authored, three-sub-agent chain. The
+coordinator writes one self-contained `proposed` ticket from
+[`planning/templates/ticket.md`](planning/templates/ticket.md), using the
+shipped result of the previous ticket and the rolling frontier. It does not
+prewrite a backlog. The independent stages are:
 
-1. **Independent ticket authorship.** A ticket-author sub-agent writes one
-   self-contained `proposed` ticket from
-   [`planning/templates/ticket.md`](planning/templates/ticket.md). It names the
-   observable outcome, scope, hard decisions, dependencies, tests, performance
-   proof, documentation changes, and exact gates.
-2. **Independent ticket review.** A different read-only sub-agent reviews scope,
+1. **Independent ticket review.** A read-only sub-agent reviews scope,
    assumptions, dependencies, acceptance criteria, failure cases, and fit with
    the frontier. The reviewer does not edit files. The coordinator records and
-   routes every material finding to the same author for a change or evidence,
-   then returns the revision to the same reviewer. Only after that reviewer
+   resolves every material finding in the ticket, then returns the revision to
+   the same reviewer. Only after that reviewer
    records approval may the coordinator mark the ticket `ready`, commit and
    push the reviewed ticket, and begin development.
-3. **Independent development.** A third sub-agent receives the reviewed ticket
+2. **Independent development.** A fresh sub-agent receives the reviewed ticket
    and repository, marks it `in-progress`, implements only that scope, runs
    focused tests, records implementation evidence, and marks it `review`. It
    does not commit or push.
-4. **Independent code review.** A fourth sub-agent, different from the author,
-   ticket reviewer, and developer, reviews the actual diff and tests read-only.
+3. **Independent code review.** A third sub-agent, different from the ticket
+   reviewer and developer, reviews the actual diff and tests read-only.
    It checks format safety, exactness, corrupt-input handling, unnecessary
    allocation, accidental full scans, source/license drift, performance proof,
    and scope creep. The developer resolves or explicitly rebuts every material
@@ -95,27 +93,27 @@ does not author, review, or implement the ticket:
    spec` gates run. Record the completed review evidence in the ticket, mark it
    `complete`, and commit and push the coherent implementation outcome.
 
-The coordinator and all four sub-agents are separate roles. The coordinator
-only orchestrates the chain, records mechanical evidence, runs final gates, and
-commits and pushes independently approved work; it does not make substantive
-ticket or product edits. Never ask an agent to review its own ticket or
-implementation. Ticket findings return to the same author and then the same
-ticket reviewer. Code findings return to the same developer and then the same
-code reviewer. A material change to a reviewed-ready ticket returns to its
-original author and reviewer before development continues. Reviews happen
+The coordinator and all three sub-agents are separate roles. The coordinator
+owns ticket authorship and remediation, orchestrates the chain, records
+evidence, runs final gates, and commits and pushes independently approved work;
+it does not implement product code or review its own ticket. Never ask an agent
+to review its own implementation. Ticket findings return to the coordinator
+and then the same ticket reviewer. Code findings return to the same developer
+and then the same code reviewer. A material change to a reviewed-ready ticket
+returns to the coordinator and ticket reviewer before development continues. Reviews happen
 sequentially on the same intended diff; extra branches or worktrees are used
 only for real concurrent work or isolation.
 
-Ticket authors also do not commit or push. The coordinator is the only role
-that commits and pushes, and only after the applicable reviewer approves.
+Developers do not commit or push. The coordinator is the only role that commits
+and pushes, and only after the applicable reviewer approves.
 
 Documentation is part of the implementation, not cleanup. Each ticket names
 the durable and user-facing documents it changes. The developer updates them,
 the code reviewer reviews them against behavior, and the coordinator checks
 them for stale future/current claims before final gates. Any material final-gate
 or stale-documentation finding returns to the same developer and then the same
-code reviewer. If it exposes a scope defect, return the ticket to the same
-author and ticket reviewer before continuing development.
+code reviewer. If it exposes a scope defect, return the ticket to the
+coordinator and same ticket reviewer before continuing development.
 
 The reviewed-ready ticket is committed before development. The final
 implementation commit includes the `complete` ticket with its implementation

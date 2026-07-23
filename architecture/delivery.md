@@ -81,7 +81,7 @@ format or installer:
    and representative query proof.
 
 The first stage is shipped. Each later stage
-receives its own independently authored and reviewed contract only after the
+receives its own coordinator-authored and independently reviewed contract only after the
 preceding transport or installation contract is implemented.
 
 ## Planned installation

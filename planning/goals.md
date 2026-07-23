@@ -36,18 +36,19 @@ The program is complete when:
   shipped system accurately and the complete lint/test/spec gate is green.
 
 The program advances through small dependency-ordered tickets, not a frozen
-backlog. Each ticket is authored, ticket-reviewed, implemented, and
-code-reviewed by four distinct sub-agents. Findings return through the same
-author/reviewer pair for planning or developer/code-reviewer pair for product
-work. The separate coordinator only orchestrates, records mechanical evidence,
-runs final gates, and commits and pushes approved outcomes. Documentation is
-named in each ticket and passes through implementation, code review, and the
-coordinator's final stale-claim check with the code.
+backlog. The coordinator writes one ticket at a time after reconciling the
+previous shipped outcome with the rolling frontier. Three distinct sub-agents
+then ticket-review, implement, and code-review it. Findings return through the
+coordinator/reviewer pair for planning or developer/code-reviewer pair for
+product work. The coordinator records evidence, runs final gates, and commits
+and pushes approved outcomes. Documentation is named in each ticket and passes
+through implementation, code review, and the coordinator's final stale-claim
+check with the code.
 
 A material final-gate or stale-documentation finding returns to the same
 developer and code reviewer. If that finding exposes defective scope rather
-than implementation, it returns to the same ticket author and ticket reviewer.
-Ticket authors and developers never commit or push.
+than implementation, it returns to the coordinator and same ticket reviewer.
+Developers never commit or push.
 
 ## Durable outcomes
 

@@ -80,7 +80,7 @@ fixed representation.
 Install a caller-supplied, already available transport into an immutable local
 bundle using platform-standard application-data storage, locking, checksums,
 staging, atomic publication, receipts, verified reuse, and offline operation.
-Its implementation contract must be authored and independently reviewed
+Its implementation contract must be written by the coordinator and independently reviewed
 against the shipped transport contract before it becomes implementation scope.
 
 ## Later outcome — pinned remote sync and publication
@@ -151,5 +151,5 @@ complete clean-machine acceptance proof for releases.
 - GRCh37 and liftover.
 
 These are rolling outcome boundaries, not a ticket backlog or promises about
-unsettled implementation details. Only the next independently authored,
+unsettled implementation details. Only the next coordinator-authored,
 independently reviewed, bounded ticket is implementation scope.

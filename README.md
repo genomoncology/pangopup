@@ -300,7 +300,7 @@ The rolling outcome order is:
 13. observability, security, performance, and release hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the
-next independently authored and independently reviewed ticket is active work.
+next coordinator-authored and independently reviewed ticket is active work.
 
 See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
 [`architecture/README.md`](architecture/README.md) for the durable design.
@@ -320,16 +320,16 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
 
 ## Development
 
-Every implementation ticket uses four distinct sub-agents: ticket author,
-ticket reviewer, developer, and adversarial code reviewer. Review findings
-return to the same author/reviewer pair or developer/code-reviewer pair. A
-separate coordinator only orchestrates, records mechanical evidence, runs the
-final gate, and commits and pushes independently approved work; ticket authors
-and developers never commit or push. Documentation is named in the ticket,
+The coordinator writes one ticket at a time from the previous shipped result
+and rolling frontier. Three distinct sub-agents then provide independent ticket
+review, development, and adversarial code review. Findings return to the
+coordinator/ticket-reviewer pair or developer/code-reviewer pair. The
+coordinator runs the final gate and commits and pushes independently approved
+work; developers never commit or push. Documentation is named in the ticket,
 implemented with the behavior, reviewed with the code, and checked once more
 for stale claims before completion. A material final-gate or documentation
 finding returns to the same developer and code reviewer; a scope defect returns
-to the same ticket author and ticket reviewer.
+to the coordinator and same ticket reviewer.
 
 ```bash skip
 make lint

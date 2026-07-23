@@ -36,31 +36,31 @@ proposed -> independently approved -> ready -> in-progress -> review
          -> independently approved -> complete
 ```
 
-One coordinating agent owns the lifecycle but does not author, review, or
-implement. Four distinct sub-agents provide ticket authorship, independent
+One coordinating agent owns the lifecycle and writes one ticket at a time from
+the previous shipped result and rolling frontier; it does not implement product
+code or review its own ticket. Three distinct sub-agents provide independent
 ticket review, development, and adversarial code review. The two reviewers are
-read-only. Ticket findings return to the same author and then the same ticket
+read-only. Ticket findings return to the coordinator and then the same ticket
 reviewer; code findings return to the same developer and then the same code
 reviewer. A stage advances only after its reviewer records approval.
 
-Ticket authors and developers never commit or push. The coordinator alone
-commits and pushes after the applicable independent approval.
+Developers never commit or push. The coordinator alone commits and pushes after
+the applicable independent approval.
 
 The reviewed `ready` ticket is the development agent's complete instruction.
 Do not rely on chat history, sibling tickets, or unstated conventions. After
 code review, material fixes go back to the developer and then back through
-the same review. A material scope change to a `ready` ticket goes back to its
-author and ticket reviewer first. The coordinator may record review identities,
-mechanical command results, and status transitions, but substantive edits stay
-with the responsible author or developer. Run the three final gates and commit
-only after review is clear.
+the same review. A material scope change to a `ready` ticket goes back to the
+coordinator and ticket reviewer first. The coordinator records review
+identities, ticket revisions, mechanical command results, and status
+transitions. Run the three final gates and commit only after review is clear.
 
 Documentation follows the same proof chain: the ticket names it, the developer
 updates it with the implementation, the code reviewer checks it, and the
 coordinator performs a final stale-claim scan. A material final-gate,
 documentation, or implementation defect returns to the same developer and then
 the same code reviewer. If it reveals a scope defect instead, it returns to the
-same ticket author and ticket reviewer before development resumes.
+coordinator and same ticket reviewer before development resumes.
 
 Active tickets are working instructions, not a permanent release ledger. When
 the reviewed implementation ships, preserve durable behavior in code, tests,

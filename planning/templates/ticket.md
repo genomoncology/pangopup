@@ -38,22 +38,23 @@ Ticket IDs or `None`.
 - Exact commands, fixture/source constraints, and public-repository hygiene.
 - Evidence shown here is illustrative unless explicitly named as an artifact.
 
-## Ticket Authorship
+## Coordinator Authorship
 
-Author: pending
+Coordinator: pending
 
-The author is a dedicated sub-agent, not the coordinator. It owns substantive
-ticket text and every remediation requested during ticket review. It does not
-commit or push.
+The coordinator writes this ticket from the previous shipped outcome and the
+rolling frontier. It owns substantive ticket-review remediation but does not
+implement product code or approve its own ticket.
 
 ## Independent Ticket Review
 
 Reviewer: pending
 
-Record findings and the author's disposition before changing status to `ready`.
-Every material response returns to the same author and then this same reviewer,
-who must record approval before dispatch. The reviewer is read-only. Author,
-reviewer, developer, and code reviewer must be four distinct sub-agents.
+Record findings and the coordinator's disposition before changing status to
+`ready`. Every material response returns to the coordinator and then this same
+reviewer, who must record approval before dispatch. The reviewer is read-only.
+Ticket reviewer, developer, and code reviewer must be three distinct
+sub-agents.
 
 ## Implementation Evidence
 
@@ -80,8 +81,9 @@ reviewer records approval.
 Coordinator: pending
 
 Record final `make lint`, `make test`, and `make spec` results plus a
-documentation stale-claim scan. The coordinator only orchestrates, records
-mechanical evidence, and commits and pushes approved work; it does not perform
-substantive authorship or implementation. A material final-gate or documentation
-finding returns to the same developer and code reviewer; a scope defect returns
-to the same ticket author and ticket reviewer.
+documentation stale-claim scan. The coordinator authors and remediates the
+ticket, orchestrates the independent stages, records evidence, and commits and
+pushes approved work; it does not implement product code or review its own
+ticket. A material final-gate or documentation finding returns to the same
+developer and code reviewer; a scope defect returns to the coordinator and same
+ticket reviewer.

@@ -1,287 +1,411 @@
-# 006 — Linux XDG local installation and verified reuse
+# 006 — Install and reuse the SNV index from Linux XDG storage
 
-Status: proposed
+Status: ready
 
 ## Why
 
-After Ticket 005 ships deterministic split transport, Pangopup needs a safe
-local installer before adding downloads. This slice proves Linux/XDG path
-resolution, locks, exhaustive first installation, immutable publication, cheap
-trusted reuse, explicit full verification, and offline/container prefetch.
+Ticket 005 shipped a deterministic, release-sized transport for the already
+built and certified 15,033,158,255-byte SNV index. The next useful slice is to
+install those local transport files once, remember the active bundle, and let
+ordinary lookup use it without a 15 GB rescan or an explicit `--bundle` on
+every command.
 
-It deliberately has no download/transport cache, network, automatic lookup
-discovery, or mutable "current" pointer. It also has no model-result cache:
-that separate optimization remains evidence-gated future work after model
-inference exists. This ticket remains dependency-gated until Ticket 005
-actually ships.
+The former Ticket 006 draft made exhaustive validation and a public `--full`
+verification path part of routine installation. That conflicts with the
+current product decision. Transfer hashes protect the bytes; cheap structural
+open protects runtime safety; a bounded source-derived regression corpus proves
+that lookup returns the expected answers. No routine whole-index semantic scan
+is introduced by this ticket.
 
 ## Scope
 
-- Extend Ticket 005's `pangopup-assets` crate with Linux installation and
-  discovery. Reuse its manifest, transport verification, extraction, and
-  errors; do not duplicate those paths. Keep side effects out of
-  `pangopup-core`, `pangopup-index`, and `ScoreProvider`.
-- Linux is the only operationally supported platform in this ticket. Use real
-  Linux directory handles, `openat`/`O_NOFOLLOW` (or stronger beneath/no-symlink
-  resolution), advisory `flock`, `renameat2(RENAME_NOREPLACE)`, and required
-  file/directory `fsync`. Other-platform path computation may have unit tests,
-  but no macOS/Windows locking, durability, or atomicity claim ships.
-- Resolve the data root in exact order:
-  1. explicit `--data-dir`, which must be a nonempty absolute UTF-8 path;
-  2. `PANGOPUP_DATA_DIR`, which if present must be nonempty, absolute UTF-8 or
-     fails `PATH_INVALID` (it never silently falls through);
-  3. nonempty absolute UTF-8 `XDG_DATA_HOME`, otherwise ignore empty/relative
-     XDG per its specification and try HOME;
-  4. nonempty absolute UTF-8 `HOME` plus `.local/share/pangopup`;
+- Extend `pangopup-assets` with a Linux local asset store and keep filesystem,
+  transport, receipt, locking, and activation logic out of `pangopup-core` and
+  `pangopup-index`.
+- Resolve the complete data root in this order:
+  1. explicit `--data-dir <ABSOLUTE_PATH>`;
+  2. nonempty absolute `PANGOPUP_DATA_DIR`;
+  3. nonempty absolute `XDG_DATA_HOME` plus `/pangopup`;
+  4. nonempty absolute `HOME` plus `/.local/share/pangopup`;
   5. otherwise fail `PATH_UNAVAILABLE`.
-  Only the `XDG_DATA_HOME` and HOME-derived defaults append `pangopup`.
-  `--data-dir` and `PANGOPUP_DATA_DIR` already name the complete root.
-  Non-Unicode relevant environment values fail
-  `PATH_INVALID`. No path becomes relative/current-directory implicitly.
-- Trust boundary: an explicit/environment/default base may exist only as a real
-  directory owned by the effective uid and not group/world writable, or the
-  manager creates it and its `pangopup` descendants mode `0700`. Reject
-  symlinked/non-directory/untrusted base components. Beneath the opened trusted
-  base dirfd, every lookup/open/create/rename is relative, no-follow, and cannot
-  escape via rename/symlink races. Tests use real temporary Linux filesystems;
-  inject only failpoints and a monotonic clock, not a fake filesystem. A
-  root-owned read-only container mount is not an install root in this slice;
-  use its verified bundle through explicit `--bundle`, or preinstall as the
-  runtime euid.
-- Exact installed layout, where `<B>` is the 64 lowercase hex from canonical
-  installed `bundle_id` (prefix stripped):
+  Empty, relative, or non-UTF-8 explicit/environment paths fail
+  `PATH_INVALID`; they never fall through or become relative to the current
+  directory. Tests isolate every environment variable and never use the real
+  user data directory.
+- The data root is a private local-user trust boundary. Create it mode `0700`;
+  if it exists, require a real directory owned by the effective uid with no
+  group/world write bits. Open it once as a directory handle and perform every
+  operation below it relative to that handle with no-follow semantics. Reject
+  symlinked/non-directory lock, state, staging, bundle, receipt, and member
+  paths. Data-root metadata and locks are mode `0600`; staging directories are
+  `0700`; installed members and receipts are `0444`; published bundle
+  directories are `0555`. Never traverse mount points or links during cleanup.
+- Use this installed layout, where `<B>` is the 64 lowercase hexadecimal
+  portion of the bundle ID:
 
   ```text
   <data>/bundles/<B>/bundle/{NOTICE,manifest.json,scores.pgi}
   <data>/bundles/<B>/receipt.json
-  <data>/.locks/<B>.lock
-  <data>/.staging/<B>/<nonce>/{marker.json,payload/...}
+  <data>/active.json
+  <data>/.install.lock
+  <data>/.staging/<random>/...
   ```
 
-  Installed data and the lock are keyed only by `bundle_id`; a repackaged
-  `transport_id` never duplicates 15 GB or acquires a different destination
-  lock. There is no mutable current pointer and no optional selection.
-- Add exact commands:
+  `receipt.json` binds schema `pangopup.install-receipt.v1`, bundle ID,
+  transport ID, and the three installed member descriptors. `active.json`
+  binds schema `pangopup.active-profile.v1` and bundle ID. Both are strict,
+  RFC 8785 canonical JSON with no timestamps or host-specific fields. Every
+  identity is exactly `sha256:` plus 64 lowercase hexadecimal characters;
+  every integer is in `0..=2^53-1`. Their complete logical objects are:
 
   ```text
-  pangopup assets install --manifest <LOCAL_TRANSPORT_JSON>
-    [--data-dir <ABS_DIR>] [--lock-timeout-seconds <0..3600>]
-  pangopup assets path --bundle-id sha256:<64-lower-hex>
-    [--data-dir <ABS_DIR>]
-  pangopup assets verify --bundle-id sha256:<64-lower-hex> [--full]
-    [--data-dir <ABS_DIR>]
+  receipt.json = {
+    schema: "pangopup.install-receipt.v1",
+    bundle_id: <sha256>,
+    transport_id: <sha256>,
+    members: [
+      {path:"bundle/NOTICE", size:<u53>, sha256:<sha256>},
+      {path:"bundle/manifest.json", size:<u53>, sha256:<sha256>},
+      {path:"bundle/scores.pgi", size:<u53>, sha256:<sha256>}
+    ]
+  }
+  active.json = {
+    schema: "pangopup.active-profile.v1",
+    bundle_id: <sha256>
+  }
   ```
 
-  `install` always requires one local regular Ticket 005 manifest and returns
-  its exact bundle ID/path. Declared parts are required and opened only when the
-  final bundle is absent; cheap reuse requires no part files. `path` and
-  `verify` always require a bundle ID. `pangopup lookup --bundle` is unchanged.
-- Success is compact, LF-terminated JSON, empty stderr, exit 0, exact key order:
-  - install: `status` (`installed` or `reused`), bundle_id,
-    requested_transport_id, installed_from_transport_id, path;
-  - path: `status=ready`, bundle_id, path;
-  - verify: `status=verified`, `mode` (`cheap` or `full`), bundle_id, path.
-  Failures write no stdout and the existing compact error object with closed
-  codes. `CLI_USAGE`, `INVALID_ID`, `PATH_INVALID`, and `PATH_UNAVAILABLE` exit
-  2. `DATA_IO`, `LOCK_TIMEOUT`, `TRANSPORT_INVALID`, `BUNDLE_INVALID`,
-  `INSTALL_CONFLICT`, and `STAGING_INVALID` exit 1. Messages are noncontractual;
-  `details` is exactly null in this slice; code/details and zero-stdout behavior
-  are contractual.
-- Lock with `flock(LOCK_EX|LOCK_NB)` on the no-follow regular lock-file handle,
-  retrying against a monotonic deadline. Default timeout is 3600 seconds; 0 means
-  one attempt; maximum 3600. After acquisition, write/sync diagnostic holder
-  metadata (schema, bundle ID, pid, Linux process start ticks) but treat the
-  kernel lock—not metadata—as ownership. Process death releases the lock; a
-  stale lock file is safely reused/truncated only after acquiring it. Never
-  steal a live lock. Same-bundle installers converge subject to timeout;
-  different bundle IDs use different locks.
-- Install ordering is exact. First boundedly parse/canonical-validate only the
-  supplied transport manifest, including its self-derived transport ID, to get
-  requested transport ID and bundle ID; do not read parts yet. Lock that bundle
-  ID and reconcile marked stale staging. If the final bundle passes the trusted
-  cheap-reuse boundary below, return `reused` without opening any part. Its
-  immutable receipt's original transport remains
-  `installed_from_transport_id`; the supplied manifest is reported separately
-  as `requested_transport_id`, and transport mismatch is allowed when bundle ID
-  matches. If final is absent, use one combined shared-library pass: stream-
-  verify parts/compressed/archive/provenance while extracting once into data-root
-  staging, then exhaustively verify that same staged bundle. Never call Ticket
-  005 scratch `verify` and unpack a second copy.
-- After first-install exhaustive verification, write this exact strict JCS
-  receipt (all JSON numbers use `0..=2^53-1`; member order is fixed):
+  Unknown, missing, duplicate, reordered member, noncanonical, or trailing
+  content is invalid. Array member order is exactly the order above; RFC 8785
+  owns serialized object-member order.
+- Each stage is `.staging/<32-lowercase-hex-nonce>/` with a mode-`0400`
+  `marker.json` binding schema `pangopup.install-stage.v1`, nonce, effective
+  uid, bundle ID, and transport ID, plus `payload/` containing the prospective
+  `<B>` directory and `active.candidate.json` containing the prospective active
+  profile. Its strict RFC 8785 object is exactly
+  `{schema:"pangopup.install-stage.v1",nonce:<32-lower-hex>,euid:<u53>,bundle_id:<sha256>,transport_id:<sha256>}`
+  with the same identity/integer rules as the receipt. While holding the install lock, reconciliation may remove a
+  direct stage child only when it is a same-filesystem, effective-uid-owned real
+  directory whose strict no-follow marker matches its directory name and
+  intended identities. A malformed/unowned stage returns `STAGING_INVALID` and
+  is not touched.
+- Add these exact public commands to the `pangopup` executable:
 
   ```text
-  schema: "pangopup.install-receipt.v1"
-  bundle_id: "sha256:" + 64 lowercase hex
-  installed_from_transport_id: "sha256:" + 64 lowercase hex
-  bundle_schema: "pangopup.bundle.v1"
-  index_format: "pangopup.fixed11.v1"
-  members: exactly [
-    {path:"bundle/NOTICE", size:safe_json_u64, sha256:sha256},
-    {path:"bundle/manifest.json", size:safe_json_u64, sha256:sha256},
-    {path:"bundle/scores.pgi", size:safe_json_u64, sha256:sha256}
-  ]
+  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]
+  pangopup assets status [--data-dir <ABSOLUTE_PATH>]
+  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>]
+    --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...]
+    [--gene <ENSG>] [--format jsonl|table]
   ```
 
-  Paths are resolved beneath the staged/final `<B>` dirfd. It has no
-  timestamp/host field. Installed members and receipt are regular no-follow,
-  uid equals euid, exact mode `0444`; lock files are regular mode `0600`;
-  ownership markers are regular mode `0400`; staging wrappers/payload are mode
-  `0700` until publication; final `<B>` and `bundle` directories are mode
-  `0555`. Sync members, receipt, payload/wrapper and parent directories, then
-  publish only the payload `<B>` directory with no-replace rename; fsync source
-  and destination parent dirfds after rename; unlink the exact still-open/
-  no-follow-validated `marker.json`; `rmdir` the now-empty wrapper; and fsync
-  `.staging/<B>` plus the bundles parent again before success.
-- If the final directory already exists, do not mutate it. Reuse only when its
-  strict receipt is canonical, requested bundle ID/declared member sizes/modes
-  match, the small installed `manifest.json` is rehashed and its digest equals
-  bundle ID, files are
-  immutable regular no-follow files, and cheap `BundleOpen` structural/
-  compatibility validation succeeds. This trust model assumes a manager-owned,
-  immutable publication plus receipt. Cheap reuse intentionally does not hash
-  same-size `NOTICE` or ordinary payload and may not detect post-install local
-  tampering; `verify --full` hashes every receipt member and runs exhaustive
-  verification. A conflicting/corrupt final directory returns
-  `INSTALL_CONFLICT` and is left untouched; repair/removal is deferred.
-- `path` uses the same cheap receipt/open boundary. `verify --full` detects
-  same-size post-install corruption. Neither command needs Ticket 005 parts.
-  Clearing or moving the original local transport after installation cannot
-  affect path/verify/explicit-bundle lookup.
-- Staging ownership and interruption are exact. Each install creates a
-  cryptographically random 128-bit lowercase-hex nonce directory with `mkdirat`
-  no-replace beneath `.staging/<B>`. That wrapper contains mode-0400
-  `marker.json` binding schema, bundle ID, nonce, and euid plus mode-0700
-  `payload/`; extraction, `bundle/`, and `receipt.json` exist only in payload.
-  Publish only payload to `bundles/<B>`, perform the post-rename fsyncs, unlink
-  the validated marker, remove the then-empty wrapper, and fsync the staging
-  parent, so the ownership marker never enters final content. Ordinary injected failures clean
-  their wrapper. SIGKILL may leave only unpublished staging. On the
-  next operation holding the same bundle lock, cleanup removes every direct real
-  nonce directory owned by euid whose no-follow marker exactly matches directory
-  name/bundle, whether or not a receipt was already written; `.staging` is never
-  a published location, so cleanup always restarts rather than resumes. It never follows links,
-  crosses mounts, or removes unrelated/malformed entries (which cause
-  `STAGING_INVALID`). One crash-safe exception applies under the same bundle
-  lock: an exact expected-prefix, real, same-device, euid-owned nonce wrapper
-  with no marker may be removed only if no-follow dirfd enumeration proves it
-  completely empty. A markerless wrapper containing any entry remains
-  `STAGING_INVALID`. Published `<data>/bundles` is never cleanup input.
-  SIGKILL after publish but before fsync/marker cleanup leaves a valid final plus
-  marked wrapper; the next operation under the bundle lock validates/fsyncs the
-  final directory entry, unlinks marker, removes wrapper, fsyncs changed parent
-  directories, and then applies normal cheap reuse.
-- Add a checked small production build+Ticket005 transport fixture. Specs with
-  isolated HOME/environment and real subprocesses cover every path precedence/
-  invalidity case, exact JSON/errors, install/path/cheap/full verify, removal of
-  original transport, idempotent reuse across a different transport ID for the
-  same bundle with requested/installed provenance distinguished and no part
-  reads, corrupt receipt/final conflict, same-size payload/NOTICE tamper
-  (cheap trust disclosure and full detection), live lock/timeout/process death,
-  same/different-bundle concurrency, permissions/symlinks/rename races,
-  failpoints before each sync/rename plus post-rename/pre-fsync and marker/
-  wrapper cleanup, SIGKILL at staged checkpoints, and safe next-run
-  reconciliation, including kill after marker unlink/before rmdir and removal
-  of only the proven-empty markerless wrapper.
-- Add one valid Ticket005 transport totaling at least 64 MiB (therefore one
-  canonical final part), plus a lower-level bounded-chain iterator test over
-  1000 small synthetic regular handles that is not called a valid transport.
-  A Linux subprocess tracking allocator and `/proc/self/fd` regression must
-  enforce <=16 MiB peak allocator delta and <=8 additional open FDs during the
-  valid install and synthetic iterator, independent of aggregate bytes/handle
-  count. Prove cheap reuse does not open parts, hash NOTICE/scores, or
-  traverse ordinary payload. Retain
-  `planning/artifacts/006-local-install-performance.md` with install/reuse/
-  cheap/full-verify latency, allocations, peak RSS/fault caveat, bytes read and
-  written, staging apparent-byte high-water, contention/timeout results, and
-  transport-removal proof. Evidence is not a latency threshold.
-- Update README, delivery/runtime-data architecture, ADR 0005, FAQ, and frontier
-  to mark Linux explicit local installation as shipped. Network download,
-  download/transport caching, embedded release lock/default, automatic
-  first-start resolution, model assets, model-result caching, garbage
-  collection/repair, other OSes, and HTTP remain future.
-- Excluded: download/transport cache, model-result cache, file URL/HTTP/GitHub,
-  retries/resume/proxy/TLS/signing, publication, automatic lookup
-  discovery/install, current pointer/default bundle,
-  removal/repair/GC/downgrade, model/reference/mask/executable assets,
-  self-update, containers beyond offline prefetch/mount documentation, and
-  HTTP. Download/transport caching belongs to later network delivery work;
-  model-result caching is a different, evidence-gated optimization after model
-  inference exists and measured workloads justify it.
+  An explicit `--bundle` preserves the shipped development/offline override and
+  is mutually exclusive with `--data-dir`. Without `--bundle`, lookup resolves
+  the active installed bundle. The existing lookup result bytes remain
+  unchanged.
+- `assets install` obtains one data-root lock, validates the closed Ticket 005
+  transport manifest and member set, streams each compressed byte once while
+  checking declared hashes and reconstructing the exact bundle in private
+  staging, accumulates the installed `scores.pgi` SHA-256 during that same
+  decompression/write stream, hashes `NOTICE` and `manifest.json` from the
+  already bounded in-memory bytes used to write them, and runs only
+  `BundleOpen::open` structural/compatibility validation afterward. It must not
+  call `certify_bundle`, `visit_all`, `pangopup-build verify`, or otherwise
+  traverse or rehash the decompressed payload a second time. Test-only counted readers
+  prove each compressed byte is consumed once, no score-member read occurs
+  between completed write and cheap open, and reuse opens no transport part.
+- Publish the staged `<B>` directory with a same-filesystem no-replace rename,
+  but first apply final modes, `sync_all` each of `scores.pgi`, `NOTICE`,
+  `manifest.json`, and `receipt.json`, and fsync the staged `bundle/` and `<B>/`
+  directories. After rename, fsync the bundles directory, sync
+  `active.candidate.json` inside the marked nonce stage, atomically rename that
+  file over root `active.json`, and fsync the root directory. A crash before
+  bundle rename leaves only a removable marked stage. A crash after bundle
+  rename but before active rename leaves a complete inactive immutable bundle
+  plus an owned candidate; the next install validates the final bundle and
+  activates the candidate only when the new request has the same bundle and
+  transport identities. A different new request deletes the validated stale
+  candidate, retains the published old bundle as inactive, cleans the marked
+  stage, and proceeds. A crash after active rename leaves a valid active bundle; the next install
+  cleans the remaining marker/wrapper and returns `reused`. No recovery path
+  deletes or overwrites a published bundle.
+- After the active rename and root fsync form the durable commit point, normal
+  cleanup removes the now-empty `payload/`, unlinks the matching marker, removes
+  the nonce wrapper, and fsyncs `.staging`. Cleanup after that commit point is
+  best-effort: failure does not turn a durably installed/active result into an
+  error, and the next install retries reconciliation. Reconciliation examines
+  every direct staging child by its own marker identities and may remove any
+  valid stale Pangopup stage, including one for a different bundle/transport
+  than the current request; it never requires the marker to match the current
+  install. Order cleanup as: remove empty `payload/`, unlink the marker, remove
+  the wrapper, fsync `.staging`. The only markerless reconciliation exception is
+  a direct nonce-shaped, same-filesystem, effective-uid-owned real wrapper whose
+  no-follow enumeration proves it completely empty; remove that wrapper with
+  `rmdir`. A markerless wrapper containing anything is `STAGING_INVALID` and is
+  untouched. Before the commit point, cleanup failure is `ASSET_IO` and nothing
+  becomes active.
+- Installation takes `flock(LOCK_EX|LOCK_NB)` on the no-follow regular
+  `.install.lock` and immediately fails `ASSET_LOCKED` when another installer
+  owns it; there is no timeout or waiting loop. Lookup is lock-free and keeps
+  using the last atomically published active bundle during an install. Status
+  probes the lock nonblockingly only to report `installing`; it never waits or
+  reads staging. Reinstalling the same bundle cheaply validates its receipt,
+  manifest, sizes, regular-file shape, and `BundleOpen`, then returns `reused`
+  without opening transport parts or hashing `scores.pgi`. Installing another
+  valid bundle publishes it immutably and moves the active profile atomically;
+  old bundles remain available. Garbage collection and rollback commands are
+  later work.
+- Successful stdout is one compact LF-terminated JSON object with stable key
+  order and empty stderr:
+  - install: `status` (`installed` or `reused`), `bundle_id`, `transport_id`,
+    `path`;
+  - ready status: `status=ready`, `bundle_id`, `transport_id`, `path`,
+    `installing` (`true` or `false`);
+  - installing without an active bundle: `status=installing`, `data_dir`;
+  - missing status: `status=missing`, `data_dir` and exit 0.
+  Every successful install/ready `path` is the absolute three-member bundle
+  path `<data>/bundles/<B>/bundle`, never the enclosing `<B>` receipt directory.
+  Failures emit the existing compact error object on stderr and no stdout.
+  Preserve Ticket 005's transport error codes. Add `PATH_INVALID` and
+  `PATH_UNAVAILABLE` as usage/configuration errors with exit 2, plus
+  `ASSET_LOCKED`, `ASSET_IO`, `ASSET_STATE_INVALID`, `STAGING_INVALID`, and
+  `INSTALL_CONFLICT` as operational errors with exit 1. Lookup without an
+  active bundle fails `ASSETS_MISSING` with exit 1. The closed command matrix is:
+
+  | Condition | `assets install` | `assets status` | implicit lookup |
+  |---|---|---|---|
+  | no root or no `active.json` | proceed/create | missing, exit 0 | `ASSETS_MISSING`, exit 1 |
+  | another installer, no active | `ASSET_LOCKED`, exit 1 | installing, exit 0 | `ASSETS_MISSING`, exit 1 |
+  | another installer, valid active | `ASSET_LOCKED`, exit 1 | ready + `installing=true`, exit 0 | use active |
+  | valid active, unlocked | install/reuse | ready + `installing=false`, exit 0 | use active |
+  | malformed/nonregular active, missing selected bundle, receipt/member mismatch | `ASSET_STATE_INVALID`, exit 1 before replacement | `ASSET_STATE_INVALID`, exit 1 | `ASSET_STATE_INVALID`, exit 1 |
+  | structurally incompatible selected bundle | `INSTALL_CONFLICT`, exit 1 | existing `BUNDLE_INCOMPATIBLE`, exit 1 | existing `BUNDLE_INCOMPATIBLE`, exit 1 |
+  | other data-root I/O | `ASSET_IO`, exit 1 | `ASSET_IO`, exit 1 | `ASSET_IO`, exit 1 |
+  | malformed/unowned staging | `STAGING_INVALID`, exit 1 | ignored | ignored |
+
+  Status reports the current immutable active state and the lock probe; it does
+  not validate or expose the in-progress candidate. `--bundle` and `--data-dir`
+  are mutually exclusive; supplying both is `CLI_USAGE` exit 2. There is no
+  precedence between them.
+- Add a checked-in source-derived regression fixture containing exactly 1,000
+  deterministic SNV requests and their expected gene-specific score records.
+  Its source is the six existing attributed Zenodo excerpts under
+  `tests/fixtures/pangolin-precompute/`, sorted by filename with rows kept in
+  file order. Select 970 filtered hit requests by round-robin across the six
+  files, skipping `REF=N` rows, skipping the six fixed filtered requests below,
+  and skipping a file after exhaustion; each request uses that row's exact
+  gene, contig, position, REF, ALT, score, and positions. Append 30 fixed edge
+  requests in this order: 12 unfiltered requests for the four lowest genomic
+  WRAP53/TP53 overlapping loci (`chr17:7686072..7686075`) and their three
+  published ALTs; six alternating
+  WRAP53/TP53 filtered requests (all three ALTs at chr17:7686072 filtered to
+  ENSG00000141499, then all three at chr17:7686073 filtered to
+  ENSG00000141510); six unfiltered REF=N ambiguity requests
+  (`chr10:114306066 A>{C,G,T}` and `chr12:122093260 T>{A,C,G}`); and six
+  deterministic misses (`chr10:1 A>C`, `chr10:1 A>G`, `chr12:1 A>C`,
+  `chr12:1 A>G`, `chr13:1 A>C`, and `chr17:1 A>C`). If an intended
+  edge candidate is not valid in the pinned excerpts, the coordinator and
+  ticket reviewer—not the developer alone—must amend this selection contract.
+- Generate expected JSONL by a direct strict TSV parser/join that implements the
+  documented centi-score and overlap rules without calling `BundleOpen`,
+  `ScoreProvider`, `render_requests`, or reading the generated bundle. Generate
+  the small fixed-v1 bundle independently from the closure of source loci
+  needed by those requests: include all three published ALT rows and every
+  source gene in the six excerpts at each selected genomic locus, so an
+  unfiltered query cannot be made falsely single-gene by fixture selection.
+  Commit both under `tests/fixtures/snv-regression/` with provenance and a
+  regeneration test/tool that reproduces their byte identities exactly. This
+  prevents the code under test from blessing its own output. Normal tests must
+  not require the downloaded raw corpus or retained 15 GB bundle.
+- Open the small bundle once and run all 1,000 expectations through the real
+  `ScoreProvider` path in one Rust integration test. The current CLI has one
+  batch-wide `--gene`, so exercise the same corpus through seven CLI batches:
+  one batch for all unfiltered requests and one batch for each of the six gene
+  filters. Compare each group's complete JSONL against the direct-TSV oracle
+  subset in original per-group order; do not add a new per-request input format
+  in this ticket. Retain
+  a non-gating timing report in
+  `planning/artifacts/006-local-install-and-regression.md`. Add a fixed-fixture
+  `snv_regression` bench invoked exactly as
+  `cargo bench --locked --package pangopup-cli --bench snv_regression`; it
+  reports fresh open/process behavior plus warm 1, 10, 100, and 1,000 request
+  batches. Do not call page-cache state cold unless the harness controls
+  residency. The report includes lookup/result counts, p50/p95/p99, allocation
+  calls/bytes, page faults, RSS caveat, and output bytes. Timing is non-gating;
+  the ordinary semantic regression target is about two seconds on the current
+  development machine, but correctness CI must not use a hardware-specific
+  wall-clock assertion.
+- Add a minimal GitHub Actions workflow that installs the repository's pinned
+  Rust toolchain from `rust-toolchain.toml`, pins the setup-uv action by full
+  commit with uv `0.8.0`, installs `mustmatch==0.1.0` using `uv tool install`,
+  then runs only `make lint`, `make test`, and `make spec` on Linux. It must use
+  checked-in small fixtures, have no production-asset credentials, and never
+  download the production dataset or production index.
+- Add the executable outside-in contract at `spec/local-assets.md` and the CI
+  workflow at `.github/workflows/ci.yml`.
+- Update `README.md`, `architecture/runtime-data.md`, `architecture/delivery.md`,
+  `architecture/design.md`, `architecture/index.md`, `architecture/source-data.md`,
+  `architecture/README.md`, ADR 0004, ADR 0005, `planning/faq.md`, and
+  `planning/frontier.md` to mark local Linux installation, active-bundle
+  discovery, cheap reuse, and the fast regression corpus as shipped. Keep
+  remote sync/publication, download progress, HTTP, containers, models,
+  inference, and model-result caching explicitly future.
+- Excluded: network access, GitHub release publication, download cache/resume,
+  signatures, general repair/GC/rollback, macOS/Windows support claims,
+  reference/model/mask assets, model inference, HTTP, Docker, and any new
+  whole-index verifier.
 
 ## Success Checklist
 
-- Local Ticket005 parts install exhaustively and atomically to the exact Linux
-  layout under a per-bundle kernel lock; same bundle IDs deduplicate regardless
-  of transport ID and different IDs do not serialize.
-- Exact path semantics, machine output/error contract, lock timeout, receipt,
-  no-follow filesystem boundary, failpoint/SIGKILL lifecycle, and conflict
-  behavior are observable with real-process specs.
-- Cheap reuse is explicitly receipt/immutability trust, avoids payload scans,
-  and requires no transport; full verify detects same-size tampering.
-- Scaled tests prove bounded heap/FD use and retained evidence characterizes
-  resource/lock behavior without claiming network or other-platform support.
-- `make lint`, `make test`, and `make spec` pass.
+- A local Ticket 005 transport installs atomically into an isolated Linux XDG
+  root, becomes active, and is reused without transport files or a payload
+  scan.
+- Lookup without `--bundle` returns byte-identical existing JSONL/table output
+  from the active bundle; the explicit bundle override remains compatible.
+- Status distinguishes missing, ready, corrupt/conflicting, and locked states
+  with stable machine-readable behavior.
+- Unit/integration/spec coverage proves path precedence, invalid paths,
+  transport corruption, interrupted publication, concurrency, idempotent reuse,
+  active-profile atomicity, symlink/non-regular rejection, absence of a second
+  payload pass, and transactional stdout.
+- Exactly 1,000 checked-in source-derived expectations pass through the library
+  and batched CLI using only a small checked-in bundle. The retained benchmark
+  reports open and 1/10/100/1,000 request behavior without becoming a flaky CI
+  threshold.
+- GitHub CI and local `make lint`, `make test`, and `make spec` pass without the
+  production dataset or retained production asset.
 
 ## Decisions
 
-1. Install locally before downloading; the later downloader gets one proven
-   filesystem sink and introduces download/transport-cache and network policy
-   separately.
-2. Key installed data and locks by canonical bundle ID; transport ID belongs to
-   packaging provenance only.
-3. Require bundle IDs and omit a current pointer until a real embedded release
-   lock/default and update policy exist.
-4. Scope atomicity and threat-model claims to Linux/XDG and use real dirfd,
-   no-follow, flock, no-replace rename, fsync, subprocess, and SIGKILL tests.
-5. Trust an immutable manager receipt for cheap reuse; reserve full hashing and
-   payload traversal for `--full`, and fail rather than repair corrupt finals.
-6. Omit both kinds of cache. Local parts can stream directly, so a
-   download/transport cache belongs with later network/resume work. A
-   model-result cache is unrelated to installation and remains evidence-gated
-   until model inference and representative measurements exist.
+1. **Prove answers with a bounded corpus, not a whole-index rerun.** A complete
+   payload traversal is expensive and duplicates build-time certification.
+   Options were exhaustive install validation, sampled runtime validation, or
+   transfer integrity plus a checked-in semantic corpus. Use the third: hashes
+   establish exact bytes, cheap open establishes format safety, and 1,000
+   representative cases establish observable lookup behavior.
+2. **Install and activate one default profile now.** Requiring `--bundle` is
+   explicit but unsuitable for automatic service startup; scanning installed
+   directories makes selection ambiguous. Use a strict atomically replaced
+   `active.json`, while retaining `--bundle` as the explicit override.
+3. **Keep installed data in XDG data, not cache.** The 15 GB mmap file is
+   authoritative durable data; cache cleanup must not remove it. Only later
+   partial network downloads belong in XDG cache.
+4. **Serialize installation with one root lock.** Per-bundle plus activation
+   locks allow more concurrency but complicate crash ordering for an operation
+   performed rarely. One lock makes bundle publication and active-profile
+   change a single understandable transaction without affecting lookup.
+5. **Stream installation once.** Calling existing exhaustive unpack is easy but
+   rereads the 15 GB result. Refactor shared transport decoding so the local
+   installer checks every transported byte while writing once and then performs
+   cheap structural open only. Builder certification remains a build-time tool,
+   not a startup/install habit.
+6. **Use real source excerpts but a tiny runtime fixture.** Tests against the
+   production mmap would be realistic but non-portable and tempting to rescan.
+   A deterministic 1,000-query fixed-v1 fixture preserves real published score
+   values while keeping tests self-contained and fast.
+7. **Linux first.** Linux/XDG is the current service and container target.
+   Pretending atomic/durability behavior is portable would weaken the contract;
+   macOS/Windows behavior is a later measured slice.
+8. **CI verifies code, not production delivery.** The normal gate uses only
+   checked-in fixtures. Clean-machine production asset publication and download
+   proof belongs to the next remote-sync ticket.
 
 ## Dependencies
 
-Ticket 005. This is a dependency-gated design draft, not implementation-ready.
-After Ticket 005 ships, a fresh dedicated Ticket 006 author sub-agent must
-adopt and reconcile this draft, or rewrite it, against the shipped transport
-contract. A different read-only ticket-review sub-agent must then approve that
-authored revision before the coordinator may mark it `ready` or dispatch it.
+Ticket 005, shipped by commits `4161679` and `80eaaba`.
 
 ## Notes
 
-- Tests must never inspect/mutate the developer's real HOME/XDG tree.
-- Local transport is untrusted input; the trusted boundary begins only after
-  exhaustive verification and immutable publication under the trusted base.
-- No external release or network action is authorized.
+- The retained production bundle and transport under the workspace data area
+  are inputs for later publication. Do not rebuild, move, rewrite, hash-scan, or
+  delete them for this ticket.
+- `pangopup-build verify` remains a builder/certification tool, but this ticket
+  does not invoke it from install, status, lookup, tests, or CI and does not add
+  a public `assets verify --full` command.
+- The source excerpts already carry the Zenodo DOI, archive identity, selection
+  description, and CC BY 4.0 attribution. Preserve those notices in the new
+  regression fixture.
+- Existing specs are canonical for lookup JSON, contig aliases, batch ordering,
+  exit behavior, and transactionality. Do not silently change them.
+- The exact gate is `make lint`, `make test`, and `make spec`; there is no
+  `make check`. Public files must contain no absolute developer paths or
+  GenomOncology-internal software references. Evidence in this ticket is
+  instructional and is not itself a benchmark result.
+- If an appropriate shared transport decoder or fixture writer already exists,
+  reuse it; otherwise define it within the owning crate rather than copying
+  codec logic into the CLI.
 
-## Ticket Authorship
+## Coordinator Authorship
 
-Author: pending
+Coordinator: Codex `/root`, 2026-07-23
 
-This draft predates the current four-sub-agent chain. After Ticket 005 ships,
-a fresh dedicated Ticket 006 author sub-agent must own its substantive text and
-any ticket-review remediation. The coordinator does not author or materially
-reconcile it.
+This ticket replaces the pre-Ticket-005 draft and incorporates Ian's explicit
+decisions: preserve the built asset, remove routine exhaustive verification,
+use a fast representative JSONL suite, and create tickets one at a time from
+the previous result and full roadmap.
 
 ## Independent Ticket Review
 
-Reviewer: pending
+Reviewer: `/root/ticket_006_design_review`
 
-The earlier `next_packet_review` read-only packet review is retained as design
-evidence only. It made installed directories and locks bundle-ID keyed, removed
-network and mutable-current scope, required explicit bundle IDs, selected a
-Linux/XDG dirfd/flock/no-replace/fsync boundary, pinned
-path/CLI/receipt/mode/trust rules, defined one-pass first install versus
-manifest-only cross-transport reuse, and made staging/SIGKILL recovery exact.
-It is not approval in the current ticket chain.
+First review: NOT APPROVED.
 
-This is not implementation-ready. After Ticket 005 ships and the fresh author
-sub-agent adopts or rewrites the draft, a different fresh read-only reviewer
-must reconcile every assumed transport type, error, API, receipt, and fixture
-with the actual implementation and record approval before changing this
-status.
+1. The Linux trust/crash contract was underspecified. Resolved by defining the
+   private effective-uid-owned root, dirfd-relative no-follow operations,
+   modes, strict stage marker, safe cleanup boundary, exact publish/fsync
+   ordering, and before/after-rename recovery states.
+2. Status and errors were incomplete. Resolved with a closed command/condition
+   matrix, exact lock probing, JSON states, added error codes, and explicit
+   mutual exclusion of `--bundle`/`--data-dir`.
+3. The oracle risked circular generation. Resolved with an exact 970+30
+   selection, direct-TSV expected-output path forbidden from using runtime
+   lookup/rendering, and byte-reproducible independent bundle generation.
+4. The one-pass claim lacked proof. Resolved by accumulating the score hash in
+   the decompression/write pass and requiring counted-I/O tests for install and
+   reuse.
+5. Lock behavior was unresolved. Resolved as immediate nonblocking flock,
+   lock-free lookup, and nonblocking status reporting.
+6. Performance evidence was unnamed. Resolved with the exact retained artifact,
+   benchmark target/command, workloads, metrics, and page-cache wording.
+7. CI dependencies were not pinned. Resolved with Linux, the pinned repository
+   toolchain, commit-pinned setup-uv configured for uv 0.8.0, and
+   `mustmatch==0.1.0`.
+8. Scope was large. Retained as one coherent vertical slice after bounding the
+   filesystem state machine and independent regression fixture; CI is only the
+   existing three gates and all production/network work remains excluded.
+
+Second review: NOT APPROVED.
+
+1. One mixed CLI batch was impossible because `--gene` is batch-wide. Resolved
+   by requiring one unfiltered and six per-gene batches without expanding the
+   shipped input grammar.
+2. Successful stage cleanup was incomplete. Resolved with an exact post-commit
+   unlink/rmdir/fsync sequence, success after the durable commit point, and
+   identity-based reconciliation of stale stages from any prior request.
+3. Several durable documents were unnamed. Resolved by naming every known stale
+   architecture page plus `spec/local-assets.md` and
+   `.github/workflows/ci.yml`.
+4. Receipt/profile schemas were incomplete. Resolved with complete logical
+   objects, exact identities, integer bounds, paths, member order, canonical
+   serialization, and strict rejection rules; the stage marker is equally
+   pinned.
+
+Third review: NOT APPROVED.
+
+1. Pre-publication data durability was incomplete. Resolved by applying final
+   modes, syncing all four files, and fsyncing both staged directories before
+   the bundle rename.
+2. The active candidate could be stranded at the root. Resolved by placing it
+   in the marked nonce stage and defining same-request activation versus
+   different-request discard during reconciliation.
+3. `path` was ambiguous. Resolved as the absolute
+   `<data>/bundles/<B>/bundle` directory.
+4. Two stale architecture pages were missing. Resolved by adding
+   `architecture/source-data.md` and ADR 0004 to the implementation list.
+
+Approval re-review: APPROVED. The reviewer reopened the current file after the
+marker-last cleanup correction and reported no residual material findings. The
+ticket is decision-complete, internally consistent, and ready for development.
 
 ## Implementation Evidence
 
@@ -290,3 +414,7 @@ Developer: pending
 ## Adversarial Code Review
 
 Reviewer: pending
+
+## Coordinator Final Check
+
+Coordinator: pending
