@@ -1,7 +1,8 @@
 # 011 — Ship the production GRCh38 reference bundle and provider
 
 Status: ready
-Accepted contract identity: `sha256:c763eab142754e921981943b7c7dc8702f41097146abde08b35e69be12eedffc`
+Accepted v1 format/build contract identity: `sha256:c763eab142754e921981943b7c7dc8702f41097146abde08b35e69be12eedffc`
+Replacement v2 lifecycle contract identity: `sha256:df8eb54b29c54b8431fd261e44de3de42c15e1e77aad7d88348b498877d85620`
 Base revision: `a11de87a27c2f23d6a9fa14637f2273e567608ab`
 
 ## Why
@@ -367,34 +368,29 @@ unit test calculates this set without reading candidate payload bytes.
 
 ## Acceptance and retained qualification
 
-Focused tests, then normal gates, must remain full-data-free. Once the distinct
-code reviewer records `qualification-ready` with no Major finding, the
-coordinator launches one full retained job against that exact code/source/
-harness identity under:
+Focused tests and normal gates remain full-data-free. The original v1 contract
+authorized exactly one full retained build under:
 
 ```text
 /home/ian/workspace/data/pangopup-reference-production-011/<contract-id>/
 ```
 
-`qualification-input.json` is canonical and hashes the release executable,
-builder source inventory, production profile, source/report, compatibility
-corpus, and benchmark workload; its SHA-256 is `contract-id`. Preflight requires
-at least 5 GiB free, absent output, no equivalent active job, and matching
-reviewed diff. Retain `command.txt`, PID/session, stdout JSONL, separate empty
-application stderr, `/usr/bin/time -v` resource log, progress samples from the
-staging member and `/proc/<pid>/{status,io}`, bundle, benchmark report, pinned
-Rust-Zstandard measurement, and all relevant identities. The exact launch uses
-the release `pangopup-build reference build --profile
-refseq-grch38p14-primary-v1` with the pinned absolute input paths and absent
-bundle output.
+That build has already succeeded as contract `1303432912…15b01` after the
+required code-review gate. Its canonical input, exact command, PID/progress
+checkpoint, stdout, empty stderr, `/usr/bin/time -v` log, heap report, and
+atomically published bundle are preserved. It used release `pangopup-build
+reference build --profile refseq-grch38p14-primary-v1` with the pinned source
+and report and reproduced every full-source identity. These paragraphs are
+historical evidence, not authorization to launch another build. Another full
+reference build is prohibited.
 
-Cancellation sends `TERM` to the process group, waits and records the exit, and
-preserves logs/orphan stage. Do not automatically clean/retry. Preserve a
-failure and retry only after recording the cause or changing code, assign a new
-contract ID, and return any material contract change to the design reviewer.
-Never rerun an unchanged successful or failed candidate merely for confidence.
+The v1 cancellation/preservation contract sent `TERM` to the process group,
+waited and recorded the exit, and preserved logs or an orphan stage. That rule
+was followed. Never rerun that successful build or the failed v1 qualification
+candidate merely for confidence.
 
-The retained result passes only if:
+The combined preserved build plus remaining v2 reuse qualification passes only
+if:
 
 - exact 25 sequences, `3088286401` bases, 680 extras and both established
   digests reproduce; all 14 literal contexts match;
@@ -413,6 +409,259 @@ Missing a threshold leaves the ticket incomplete. Bounded remediation returns
 to the same developer/reviewer. A layout, threshold, or other contract change
 returns the ticket to proposed and the same design reviewer.
 
+### Preserved-build qualification replacement
+
+The first retained build succeeded under v1 contract
+`1303432912d9ddf9d56805d8e5956553340fa499b3b252dae44f8218fd815b01`,
+but its qualification harness failed before any workload or Zstandard work
+because narrow Serde projections rejected unrelated fields in the exact
+authenticated corpus. The failure and successful build are immutable retained
+evidence. The parser remediation is full-data-free; another full reference
+build is prohibited.
+
+The replacement qualification uses a new JCS-canonical input with schema
+`pangopup-reference-qualification-reuse-input-v2`. Duplicate and unknown
+fields are rejected. Its SHA-256 is the new qualification contract ID. Every
+file identity has the existing closed `{bytes:u64,sha256:sha256}` shape. The
+closed input shape is:
+
+```text
+schema, profile,
+source, assembly_report,
+prior_build: {
+  contract_id, qualification_input, build_command,
+  builder_executable, builder_source_sha256,
+  builder_stdout, builder_stderr, builder_heap_report,
+  builder_resource_log, bundle_id, manifest, notice, reference_member
+},
+prior_failure: {
+  benchmark_executable, harness_source_sha256, qualification_command,
+  qualification_report, qualification_stderr, qualification_resource_log
+},
+replacement: {
+  benchmark_executable, harness_source_sha256, source_inventory_sha256,
+  corpus, rust_version,
+  workload:{rounds,warmups_per_round,operations_per_round,quantile}
+}
+```
+
+The replacement CLI is exact and maintenance-only:
+
+```text
+pangopup-reference-benchmark \
+  --reuse-input <canonical-v2.json> \
+  --prior-root <retained-v1-root> \
+  --corpus <cases.jsonl> \
+  --output <absent-v2-contract-root>
+```
+
+`replacement.source_inventory_sha256` is the existing length-framed builder
+source-inventory contract from `pangopup-build/build.rs`: root `Cargo.toml`,
+`Cargo.lock`, root `NOTICE`, the Cargo manifests and all Rust sources in
+`pangopup-core`, `pangopup-index`, `pangopup-assets`, and `pangopup-build`.
+The running replacement executable's compiled-in inventory identity must equal
+that field. It therefore binds the reader, qualification evaluator,
+dependencies/lockfile, and harness—not only the benchmark source file.
+
+`prior-root` resolves only the fixed retained paths named by the v1 layout.
+Open the absolute root component-by-component as held directory descriptors;
+reject symlinked components and use `openat2` with `RESOLVE_BENEATH |
+RESOLVE_NO_SYMLINKS` where available, or equivalent component-wise
+`openat(O_NOFOLLOW)` behavior. Every fixed child is opened relative to those
+held descriptors with `O_NOFOLLOW|O_CLOEXEC`, proven regular, and retained for
+the operation. The harness never mutates v1 evidence. Before opening/timing the
+bundle it must:
+
+Apply the same component-wise no-symlink held-open rule to `--reuse-input`,
+`--corpus`, and the `--output` parent. Read the v2 input and corpus from the
+same held regular-file descriptors that are authenticated and parsed.
+
+1. Authenticate the prior v1 input as canonical and as contract
+   `1303432912d9ddf9d56805d8e5956553340fa499b3b252dae44f8218fd815b01`,
+   and prove that it bound the retained old builder/source/report/corpus/
+   workload/benchmark/harness identities.
+2. Authenticate the old builder executable and prove the manifest's builder
+   source identity is `prior_build.builder_source_sha256`.
+3. Authenticate the exact three bundle members, manifest identity, and bundle
+   ID against v2 before reader open.
+4. Parse canonical build stdout and prove it agrees with the manifest/member
+   hashes, 25 sequences, `3088286401` bases, the established logical digest,
+   and 14 contexts.
+5. Prove builder stderr is empty; authenticate and parse the canonical heap
+   report plus `/usr/bin/time -v` resource log; require successful build exit.
+6. Prove the prior report is empty; authenticate prior failure command,
+   benchmark, harness, stderr, and resource evidence; require stderr to be
+   exactly `reference benchmark failed: corpus case\n` and resource exit 1.
+7. Authenticate the running executable through a held `/proc/self/exe`
+   descriptor, its compiled source-inventory identity, harness source, and the
+   exact corpus against the replacement identities. The old failed benchmark
+   is evidence only and is never executed again.
+8. Run and enforce the unchanged v1 performance, allocation, heap, page,
+   member-size, and pinned-Zstandard thresholds.
+
+Small evidence and corpus files are bounded, read exactly once from their held
+descriptors into authenticated byte buffers, then parsed from those same
+buffers; the harness never hashes one path and reopens it to parse. A
+feature-gated qualification reader is constructed from the authenticated held
+manifest bytes and held `reference.pgr` descriptor, not from a reopened bundle
+path. The descriptor remains live for all timing and pinned-Zstandard work.
+Zstandard reads a duplicate of that held descriptor, never the pathname. After
+all measurements, re-check the same descriptor's device, inode, size, and
+complete SHA-256; any mutation or mismatch fails the run. NOTICE and manifest
+receive the same before/after held-identity treatment. This feature-gated
+constructor is qualification-only and does not change the normal provider API.
+
+The final report is JCS-canonical, has no trailing newline, and uses the closed
+schema `pangopup-reference-production-qualification-reuse-v2`:
+
+```text
+schema, qualification_contract_id, prior_build_contract_id, passed,
+identities: {
+  source, assembly_report,
+  prior_build: {
+    qualification_input, build_command, builder_executable,
+    builder_source_sha256, builder_stdout, builder_stderr,
+    builder_heap_report, builder_resource_log, bundle_id,
+    manifest, notice, reference_member
+  },
+  prior_failure: {
+    benchmark_executable, harness_source_sha256, qualification_command,
+    qualification_report, qualification_stderr, qualification_resource_log
+  },
+  replacement: {
+    benchmark_executable, harness_source_sha256, source_inventory_sha256,
+    corpus, rust_version
+  }
+},
+logical, method, performance, storage, resources, host,
+mmap_rss_interpretation
+```
+
+The nested `logical`, `method`, `performance`, `storage`, `resources`, and
+`host` shapes are exactly the v1 `Report` shapes already implemented. Every
+field shown is required; duplicate/unknown fields fail deserialization. A
+test deserializes the emitted report into this closed type, rejects one
+unknown and one duplicate field at each new nesting level, reserializes with
+JCS, and requires byte equality. `qualification_contract_id`,
+`prior_build_contract_id`, `prior_build.bundle_id`, every scalar source/
+harness/inventory digest, and every `Identity.sha256` are explicitly
+`sha256:` plus 64 lowercase hex digits.
+
+The final `--output` path must have a basename equal to the v2 contract digest
+without the `sha256:` prefix, its parent must exist, and both it and the report
+must be absent. The harness creates a mode-0700 private same-parent stage named
+`.<contract-id>.qualification-stage-<pid>-<counter>`. It retains the canonical
+v2 input, canonical command JSON, copied replacement executable/source,
+canonical resource JSON, empty stderr, and final report in that stage. On
+success it fsyncs every file and the stage, publishes the stage to the exact
+contract root with `renameat2(RENAME_NOREPLACE)` (or equivalent atomic
+no-replace), then fsyncs the parent. Existing or concurrent output is an error.
+
+On failure the harness writes canonical failure evidence and publishes the
+stage without replacement as
+`.<contract-id>.qualification-failed-<pid>-<counter>`, syncs the parent, and
+leaves the successful contract root absent. An injected publication test proves
+concurrent no-replace, success sync, failure preservation, and that v1 root
+bytes are unchanged. The successful v1 bundle/build evidence remains only in
+its original root and is referenced by identity; v2 never copies or rewrites
+the 772 MB member. Normal tests use only miniature evidence.
+
+The successful root contains exactly these seven regular, non-symlink files
+and the one `candidate/` directory; no other entry is permitted:
+
+```text
+reuse-input.json
+command.json
+qualification-report.json
+qualification-resource.json
+qualification.stderr.log
+candidate/pangopup-reference-benchmark
+candidate/pangopup-reference-benchmark.rs
+```
+
+`qualification.stderr.log` is zero bytes. `reuse-input.json` is the exact v2
+input. The executable is mode `0555`; other files are `0444` after staging.
+`command.json` is canonical closed schema
+`pangopup-reference-qualification-command-v2` with required fields
+`working_directory:string` and `argv:[string;9]`; argv is exactly the program
+plus the four ordered flag/value pairs shown in the replacement CLI.
+`qualification-resource.json` is canonical closed schema
+`pangopup-reference-qualification-resource-v2` with required unsigned integer
+fields `started_unix_seconds`, `elapsed_ns`, `maximum_rss_bytes`,
+`minor_faults`, `major_faults`, `user_cpu_ns`, and `system_cpu_ns`, plus
+`outcome`, whose closed values are
+`"qualification-passed-before-publication"|"preflight-failed"|
+"measurement-failed"|"publication-failed"`. A success root requires the
+first value; a failure root requires the value corresponding to its phase.
+
+The final report's top-level `identities` additionally contains this exact
+closed field:
+
+```text
+retained: {
+  reuse_input, command, resource, stderr,
+  benchmark_executable, harness_source
+}
+```
+
+Each value is an `Identity`, and together they bind every retained success
+member except the report that contains them. They must agree with the v2
+contract/current executable/source identities where duplicated. A test rejects
+an extra/missing root entry, wrong mode/type, and an identity mismatch.
+
+A failure root contains exactly the same seven paths plus `failure.json`;
+`qualification-report.json` is either zero bytes or the complete canonical
+passed-but-unpublished report if only final publication failed.
+`qualification.stderr.log` contains exactly one redacted stable error line.
+`failure.json` is canonical closed schema
+`pangopup-reference-qualification-failure-v2` with required fields:
+
+```text
+qualification_contract_id, prior_build_contract_id,
+phase:"preflight"|"measurement"|"publication",
+code:string, message:string,
+report_state:"empty"|"complete_unpublished",
+evidence: {
+  reuse_input, command, resource, stderr, report,
+  benchmark_executable, harness_source
+}
+```
+
+Every evidence value is an `Identity` and binds every other failure-root file.
+The code/message are path-redacted and bounded to 64/256 ASCII bytes. Failure
+publication first fsyncs the evidence and stage, atomically publishes without
+replacement to the failure name, and fsyncs the parent. If even failure
+publication cannot complete, the private stage remains preserved and the
+process reports its exact path; it is never deleted or relabeled as success.
+
+The known retained v1 identities that the v2 input must bind are:
+
+```text
+qualification-input.json 1029 1303432912d9ddf9d56805d8e5956553340fa499b3b252dae44f8218fd815b01
+command.txt 1409 6c43e18dc6c4ca9839a3a72c5ed2f0d365cadc6a53e8442b9ef2027add54600e
+candidate/pangopup-build 5167976 5d503b9dc8e9968e83d7657ac9cf617474c854d13a8f756803757aaab33ed7dc
+builder.stdout.jsonl 577 d3a3aa536452484b911f0f64fdf4794c1595963e52810deabbd308604cbd45c2
+builder.stderr.log 0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+builder-heap-report.json 118 eb035a24de0f1a8bc23e316c06be3529803a30e8dfac284f21f71ed5cfd00204
+builder-resource.log 1641 0fbafdceb9541fc866fdb55a51c6b35b14b341df157544d1a2c4da68f53622b3
+bundle/manifest.json 3719 7c28334e1829505863ff77dba78c4cbc0d8ebe655f68c30ad70ab4fdc36adc5f
+bundle/NOTICE 793 1e3ce49d78cd9089407c54ce92a9e6d3adb92a9f3267185ba9ea64df8a588499
+bundle/reference.pgr 772091760 cdec4b6230c3b660b658f71e11cb79d760d74f906873e81dc53ba7347ee3da82
+candidate/pangopup-reference-benchmark 1777632 11adc18be7ee659b08ab79a62d83102ec87585e33d38db75054ac0dc25a71072
+candidate/pangopup-reference-benchmark.rs 26804 e359876ab8e7a8b06761ec03c3df4f9bbe60f427db7f8c85c0374c007c2b0a21
+qualification-command.txt 1598 4641bb9420eca169d60fd89a6afe3c7f32dedc594a04baf76c549a1d7519ef38
+qualification-report.json 0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+qualification.stderr.log 40 0a4dbf073617ad47c4a525e31559a8c240296259b70e8b858080562008dc9cb2
+qualification-resource.log 1823 c5d8349995dc2099104c8dd597fe0c766e7b1f8e4404be7424d7c5b099d07256
+```
+
+All hashes in the v2 JSON carry the `sha256:` prefix. The v2 input also binds
+the already-pinned source/report identities and prior builder-source digest
+`2215dabe7c5e81bde9254a7aa8979c78322647d6a5de803976266d9422ea1d8f`.
+Only the same design reviewer may accept this revised lifecycle contract; then
+the same developer implements it and the same code reviewer must return
+qualification-ready before the replacement run.
+
 ## Dependencies
 
 - Ticket 010 and ADR 0009: complete.
@@ -423,19 +672,24 @@ returns the ticket to proposed and the same design reviewer.
 
 - Pre-existing user changes: none; base was clean and matched `origin/main`.
 - Coordinator-authored file: this ticket only before readiness.
-- Implementer changes: pending distinct development sub-agent.
+- Implementer changes: v1 implementation and parser remediation complete;
+  bounded v2 reuse implementation pending the same developer after design
+  acceptance.
 - Generated artifacts: checked miniature files in git; full bundle/logs remain
   under the retained data path and never enter git.
 - Concurrent unrelated work: none observed.
-- Ticket reviewer: `/root/ticket_011_design_review` (read-only; accepted).
-- Developer: pending and must differ from reviewer/coordinator.
-- Code reviewer: pending and must differ from reviewer/developer/coordinator.
+- Ticket reviewer: `/root/ticket_011_design_review` (read-only; v1 accepted,
+  v2 lifecycle re-review pending).
+- Developer: `/root/ticket_011_developer` (v1/parser complete; v2 pending;
+  distinct from reviewer/coordinator).
+- Code reviewer: `/root/ticket_011_code_review` (read-only; distinct from
+  reviewer/developer/coordinator).
 
 ## Independent Ticket Review
 
 Reviewer: `/root/ticket_011_design_review`
 
-Verdict: `ACCEPTED AS READY`; no Major or Minor findings against proposed-file
+V1 verdict: `ACCEPTED AS READY`; no Major or Minor findings against proposed-file
 SHA-256 `c763eab142754e921981943b7c7dc8702f41097146abde08b35e69be12eedffc`
 at the named base and dependencies.
 
@@ -446,20 +700,158 @@ review around the retained job, size/memory thresholds, and exact production
 page calculation. The exact durable file faithfully serialized that contract,
 remained reference-only, and introduced no contradiction or scope creep.
 
+V2 lifecycle review identity: pending. The first v2 proposal at SHA-256
+`d5e430106c5e7f200ab464cee64af97629e67e8bea24c19ef6dd5dcbe352b8f9`
+was `REJECT` with six Major findings: stale full-build authorization, missing
+replacement source-inventory binding, hash/reopen substitution windows,
+unclosed report shape, stale review identity, and unprotected v2 output
+publication. The reviewer again explicitly prohibited another full reference
+build. The revised proposal closes those findings above and awaits the same
+reviewer; no v2 implementation or run is authorized until acceptance.
+
+The second v2 proposal at SHA-256
+`7bd7c444d48cd2df9c964fe183f9ceea52f3b037c42d8ef93de43c7c24f74e77`
+was also `REJECT`: one historical code-review paragraph still authorized the
+old full job, and success/failure evidence filenames and JSON schemas were not
+closed. Those gaps are now replaced by the explicit current path and exact
+member/schema/receipt contract above. The reviewer otherwise accepted the
+source inventory, held-descriptor, same-byte, revalidation, report, and
+no-replace design.
+
+V2 lifecycle verdict: `ACCEPTED AS READY` with no Major or Minor findings
+against proposed-file SHA-256
+`df8eb54b29c54b8431fd261e44de3de42c15e1e77aad7d88348b498877d85620`.
+The same reviewer found the reuse path decision-complete, identity-bound,
+TOCTOU-resistant, atomically preserved, and implementable without invented
+policy. Another full reference build is prohibited; only the v2 reuse
+qualification may run after implementation and code-review approval.
+
 ## Implementation Evidence
 
-Developer: pending
+Developer: `/root/ticket_011_developer`
+
+Implemented the accepted production format and provider boundary in
+`pangopup-core`/`pangopup-index`, the authenticated streaming builder and
+private certifier in `pangopup-build`, the exact maintenance CLI, the retained
+qualification harness, registered miniature inputs, executable specs, and the
+named architecture/user/planning documentation. The builder compiles and
+identity-checks the 220,071-byte compatibility corpus, so production
+certification does not depend on a runtime source checkout. No production
+FASTA build had started at the initial implementation handoff. The later single
+reviewer-authorized build is preserved under the exact contract recorded
+below; it has not been repeated.
+
+Exact current-candidate focused evidence:
+
+- `cargo clippy --locked -p pangopup-core -p pangopup-index -p pangopup-build
+  --all-targets --all-features -- -D warnings` — passed after remediation.
+- `cargo test --locked -p pangopup-index --lib --all-features` — 18 passed,
+  including an actual packed decode spanning a 4096-byte mmap page.
+- `cargo test --locked -p pangopup-build --lib --test reference --test
+  reference_resources --all-features` — 36 passed (22 library, 13 reference,
+  1 resource). This covers exact mini provider/builds,
+  plain/gzip payload equivalence, strict aliases and provenance, bounds without
+  destination mutation, zero dense reads on open, exact packed reads,
+  the closed structural corruption matrix, dense-substitution integrity
+  separation, held no-follow input authentication and bounds, read-only input,
+  concurrent no-replace, durable rollback, zero-copy allocations, heap
+  ceilings/reporting, qualification threshold failures, maintenance lookup,
+  and the independent production page prediction.
+- `cargo test --locked -p pangopup-build --bin
+  pangopup-reference-benchmark --features reference-qualification` — 2 passed;
+  the exact authenticated corpus produces 14 projected contexts, unrelated
+  fields are accepted, and missing/mistyped consumed fields are rejected.
+- `PATH="$PWD/target/debug:$PATH" mustmatch test spec/reference.md` after the
+  normal debug build — 20 passed, including the complete grammar/redaction
+  additions.
+- `git diff --check` — passed.
+
+Before the final portability-only corpus embedding and failed-build negative
+control, the full-data-free workspace gates also passed: `make lint`, `make
+test`, and `make spec` (`131 passed`), with the standalone reference spec at `8
+passed`. Those are provisional implementation evidence; repository policy
+requires the coordinator to rerun the exact final gates only after independent
+code review.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `/root/ticket_011_code_review`
 
-The code review has two recorded verdicts. First, the reviewer must find the
-implementation and miniature evidence qualification-ready before the
-coordinator starts the retained full job. After the developer records retained
-evidence and documentation, the same reviewer reviews the final diff and proof
-before acceptance and explicitly answers whether a major separately scoped
-issue was revealed.
+First qualification-readiness verdict: `REJECT`; no separately scoped major
+issue was revealed. The reviewer reported three Major and two Minor findings:
+
+1. **Major — missing discriminating controls.** Remediated inside Ticket 011
+   with generic report/FASTA malformed, duplicate, missing, reordered, and
+   resource-limit controls; malformed/trailing gzip identity rejection;
+   read-only/symlink inputs; concurrent no-replace; injected rollback; expanded
+   header/directory/run/truncation corruption matrix; an actual packed mmap
+   page crossing; and full maintenance CLI grammar/redaction specs.
+2. **Major — parse before authentication and unbounded hostile gzip work.**
+   Remediated by no-follow held descriptors, full byte authentication before
+   decompression, post-use descriptor identity checks, and registered decoded
+   byte/record/accession/line/run ceilings. Sets/vectors cannot grow beyond the
+   profile record ceiling.
+3. **Major — insufficient retained qualification evidence.** Remediated with
+   opt-in canonical builder heap evidence and a feature-gated harness that
+   authenticates the canonical contract, binaries, source inventories,
+   source/report, and corpus, then records actual logs and bundle members in
+   its output report; measures open heap/dense reads,
+   allocations, pages, RSS/faults, installed and pinned Rust-Zstandard sizes;
+   records host and mmap/RSS interpretation; and refuses every failed accepted
+   threshold through one tested evaluator.
+4. **Minor — no-follow race.** Closed by opening source/report with
+   `O_NOFOLLOW|O_CLOEXEC`, retaining the descriptors, and checking identity
+   before and after use.
+5. **Minor — rollback not durably re-synced.** Closed by syncing the parent
+   again after removal; an injected first-sync failure proves two sync calls
+   and absence of both stage and output.
+
+Initial qualification-readiness re-review verdict: `QUALIFICATION-READY`; no Major or
+Minor findings remain and no major separately scoped issue was revealed. The
+reviewer reran all-feature Clippy, the 18 index tests, the 36 build/reference/
+resource tests, a release all-bin feature build, and `git diff --check`, then
+authorized the single identity-bound retained full build without relaxing the
+one-run preservation rules.
+
+The retained build then succeeded, but qualification failed immediately on the
+exact-corpus projection bug described above. After bounded parser remediation,
+the same reviewer returned `PARSER-READY`, found no separately scoped issue,
+prohibited another full build, and required the reuse-specific v2 input above.
+Because that is a material qualification lifecycle change, the ticket returned
+to `proposed` for the same design reviewer before v2 implementation.
+
+The authorized production build under contract
+`1303432912d9ddf9d56805d8e5956553340fa499b3b252dae44f8218fd815b01`
+succeeded and remains preserved. The separate qualification harness then
+failed before workload execution with `reference benchmark failed: corpus
+case`: after authenticating the exact pinned corpus, its consumed-field serde
+projections rejected unrelated real-case fields. No timing, Zstandard, or
+threshold result was produced, and the old harness identity must not be rerun.
+
+Bounded disposition: remove unknown-field denial only from the three narrow
+case projections; serde still requires and types every consumed field and the
+outer reader still requires the exact corpus byte length/SHA before projection.
+The benchmark binary test now invokes that real authenticated path over the
+checked-in corpus, proves 14 M contexts and representative exact fields, and
+separately rejects missing `contig` plus wrong `start_1based`/`bases` types.
+
+Replacement-identity analysis is recorded in the artifact. The preserved
+build can technically be reused without weakening its source, manifest, or
+builder checks. But v1 qualification input does not pre-bind the exact old
+bundle/log evidence; those hashes currently enter only the output report. An
+honest preferred no-rebuild replacement therefore requires reviewer-approved
+v2 input fields for the old contract ID, manifest/bundle/members, build stdout,
+heap/resource logs, and old builder identity, together with the repaired new
+benchmark/harness identity. No replacement run is authorized under v1.
+
+Historically, the reviewer found the v1 implementation and miniature evidence
+qualification-ready before the one retained full build; that build is complete
+and must not recur. The current path is: the same developer implements only the
+v2 reuse contract, the same code reviewer returns `qualification-ready`, and
+the coordinator runs only the v2 preserved-build reuse qualification. After
+the developer records that retained evidence and documentation, the same
+reviewer reviews the final diff/proof before acceptance and explicitly answers
+whether a major separately scoped issue was revealed.
 
 ## External Effect Evidence
 
@@ -470,13 +862,13 @@ implementation evidence, not release publication or deployment.
 
 | Acceptance clause | Command or evidence | Result |
 |---|---|---|
-| Exact mini build/reader/corruption controls | pending focused Rust tests | pending |
-| Maintenance JSON behavior | pending `make spec` reference spec | pending |
-| Full source correctness and identity | retained qualification | pending |
+| Exact mini build/reader/corruption controls | focused index/build/benchmark/reference/resource Rust tests | 56 passed on remediated candidate |
+| Maintenance JSON behavior | `spec/reference.md` | 20 passed on remediated candidate |
+| Full source correctness and identity | retained build contract `1303432912d9ddf9d56805d8e5956553340fa499b3b252dae44f8218fd815b01` | passed: 25 sequences / 3,088,286,401 bases / 14 contexts / exact logical digest |
 | Query speed/pages/allocations | retained M01–M14 benchmark | pending |
-| Open/builder memory and artifact sizes | tests plus retained resource report | pending |
-| Documentation/current-future boundary | named docs plus stale-claim scan | pending |
-| Repository gates | `make lint`, `make test`, `make spec` | pending |
+| Open/builder memory and artifact sizes | resource/threshold tests plus retained build | builder heap 1,201,871 and member 772,091,760 passed; open/query/Zstandard pending |
+| Documentation/current-future boundary | named docs plus stale-claim scan | implemented; independent review pending |
+| Repository gates | `make lint`, `make test`, `make spec` | provisional pass before final bounded remediation; exact final rerun pending review |
 
 ## Coordinator Final Check
 
