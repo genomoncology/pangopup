@@ -6,7 +6,8 @@ scores with model fallback for lookup misses and supported non-SNVs. The
 repository currently ships the source inspector, deterministic complete-corpus
 builder and verifier, fixed 11-byte mmap reader, typed score-provider API,
 batch lookup CLI, Linux local-user asset installation/discovery, the immutable
-public `snv-grch38-v1` lookup-data release, and pinned resumable remote sync.
+public `snv-grch38-v1` lookup-data release, pinned resumable remote sync, and a
+strict frozen upstream compatibility corpus with a bounded offline inspector.
 Model inference/fallback and the HTTP service remain target work and are not
 implemented. Read `README.md` first.
 
@@ -36,8 +37,10 @@ There is no `make check`. Run all three gates before committing.
 - `crates/pangopup-index` owns the private format codec, cheap open-time
   structural validation, mmap lifecycle, checked byte decoding, and lookup.
 - `crates/pangopup-build` owns gzip/TSV ingestion, full-source validation,
-  deterministic writing, and offline certification. Builder-only dependencies
-  must not enter runtime consumers.
+  deterministic writing, offline certification, and compatibility-corpus
+  capture/inspection. The checked corpus is replayed offline; normal gates must
+  never invoke its expensive Python/model capture path. Builder-only
+  dependencies must not enter runtime consumers.
 - `crates/pangopup-cli` adapts command-line strings and output to the typed API;
   it contains no scoring or index logic.
 - `architecture/` records durable boundaries and accepted decisions.

@@ -20,6 +20,7 @@ use std::{
     str::FromStr,
 };
 
+pub mod compatibility;
 mod production;
 pub use production::{BuildOutcome, CommandError, VerifyOutcome, build_bundle, verify_bundle};
 

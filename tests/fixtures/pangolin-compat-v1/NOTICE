@@ -1,0 +1,25 @@
+Pangopup compatibility corpus notice
+
+Pangolin 1.0.2 source and model checkpoints
+Copyright (C) Tony Zeng and Pangolin contributors
+Source: https://github.com/tkzeng/Pangolin/tree/5cf94b8db938c658391b4305cd7ce33297d44ff7
+License: GNU General Public License v3.0 only (GPL-3.0-only)
+Citation: Zeng T, Li YI. Predicting RNA splicing from DNA sequence using Pangolin. Genome Biology (2022).
+
+NCBI RefSeq GRCh38.p14 sequence
+Source: https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.fna.gz
+Assembly report: https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_assembly_report.txt
+Policy and acknowledgment/disclaimer: https://www.ncbi.nlm.nih.gov/home/about/policies/
+
+GENCODE release 38 annotation
+Upstream database: https://www.dropbox.com/sh/6zo0aegoalvgd9f/AADOhGYJo8tbUhpscp3wSFj6a/gencode.v38.annotation.db?dl=1
+Source: https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_38/gencode.v38.annotation.gtf.gz
+Checksums: https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_38/MD5SUMS
+Release: https://www.gencodegenes.org/human/release_38.html
+Data access: https://www.gencodegenes.org/pages/data_access.html
+Citation guidance: https://www.gencodegenes.org/pages/citing_gencode.html
+
+Pangopup transformed reference sequence names, uppercased and retained bounded
+sequence contexts, and transformed selected GENCODE gene/exon facts into this
+small compatibility corpus. The corpus retains observed model arrays and does
+not contain the model checkpoints, whole reference, GTF, or SQLite database.

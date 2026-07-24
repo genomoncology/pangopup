@@ -4,8 +4,9 @@ Pangopup is a standalone GPL-3.0 Rust project for high-performance,
 Pangolin-compatible splice scoring on GRCh38 genomic variants. Today it ships
 an exact precomputed-SNV library and CLI, deterministic local release
 transport tooling, atomic Linux/XDG installation, and pinned resumable sync of
-the immutable public SNV transport. Model inference and an HTTP service are
-planned but not implemented.
+the immutable public SNV transport. It also ships a frozen, independently
+captured upstream compatibility corpus for future model work. Model inference
+and an HTTP service are planned but not implemented.
 
 The target service will answer each request through one of two paths:
 
@@ -118,6 +119,26 @@ FASTA when the reference asset is built. A target full installation downloads
 the compiled reference member, not the raw FASTA, and performs bounded indexed
 sequence reads rather than parsing FASTA during a request. The same principle
 applies to GENCODE: GTF/gffutils is build input, not a runtime database.
+
+## Upstream compatibility oracle
+
+Future inference implementations are tested against
+`tests/fixtures/pangolin-compat-v1`, a 227,060-byte offline corpus captured from
+Pangolin 1.0.2 commit `5cf94b8`. Its 24 cases retain exact GRCh38 contexts,
+typed raw model arrays, masked and unmasked results, overlap order, rejection
+witnesses, and dtype-aware public rendering. Deletion arrays remain `f64` just
+as upstream produces them; other supported shapes remain `f32`.
+
+Maintainers validate it without Python, PyTorch, model weights, FASTA, GTF,
+SQLite, or network access:
+
+```text
+pangopup-build compatibility inspect --corpus tests/fixtures/pangolin-compat-v1
+```
+
+The expensive `compatibility capture` command is a provenance tool, not a
+routine test or runtime path. Normal gates replay the frozen arrays in Rust and
+deliberately do not rerun the model.
 
 ## Shipped SNV release, local transport, and installation
 
@@ -354,7 +375,12 @@ Implemented today:
 - an object-safe, thread-safe typed score provider over one long-lived mmap;
 - transactional `pangopup lookup` JSONL/table batches with strict GRCh38
   aliases, optional source-gene filtering, all-overlap results, typed misses,
-  and explicit source-reference ambiguities.
+  and explicit source-reference ambiguities;
+- the strict `pangopup-compat-v1` upstream oracle: 14 scored cases, six
+  rejection cases, four controlled post-processing cases, exact pinned source
+  identities, complete independently fixed controlled vectors, and a bounded
+  offline semantic inspector. Future capture re-authenticates the live GPL
+  helper and every imported upstream Python module immediately before use.
 
 Not implemented yet: model runtime/fallback, HTTP service, container,
 persistent download progress/status, repair/GC/rollback, or result
@@ -373,7 +399,7 @@ The rolling outcome order is:
 7. immutable GitHub publication and bounded public/manual-install proof
    (complete);
 8. pinned remote sync against the observed public release contract (complete);
-9. an upstream Pangolin compatibility corpus;
+9. an upstream Pangolin compatibility corpus (complete);
 10. pinned model, compact RefSeq GRCh38.p14, and compact GENCODE mask assets;
 11. CPU inference parity, followed only then by measured accelerator options;
 12. lookup-first model routing and evidence-gated result caching;
@@ -393,8 +419,8 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
 - `pangopup-assets` — installed-bundle certification, deterministic local
   transport, pinned resumable TLS sync, and secure Linux local-store/activation
   state;
-- `pangopup-build` — offline source validation and deterministic artifact
-  builders plus the thin maintenance CLI adapter;
+- `pangopup-build` — offline source validation, deterministic artifact
+  builders, and the bounded compatibility-corpus capture/inspection adapter;
 - `pangopup-cli` — shipped lookup, pinned asset sync, local install/status, and
   output adapter; service commands remain future;
 - future `pangopup-model` — model execution behind the core provider contract;

@@ -59,13 +59,17 @@ bases. GENCODE supplies the gene/exon map required by Pangolin's masking rules
 and by the Ensembl-gene identities used in the precomputed dataset. This does
 not introduce general gene annotation into the public API.
 
-Before these assets or a Rust runtime are selected, Pangopup must pin an
-upstream compatibility corpus. It should inventory upstream tests and retain
-golden SNV, insertion, deletion, delins, plus/minus-strand, masked/unmasked,
-overlapping-gene, boundary, unsupported-input, and error cases together with
-the exact source commit, checkpoints, reference/mask inputs, parameters, and
-numeric environment that produced them. That corpus—not architectural
-similarity—is the acceptance oracle for CPU inference and any later conversion.
+Pangopup now pins that boundary in `tests/fixtures/pangolin-compat-v1`. The
+227,060-byte corpus contains 14 scored genomic cases, six rejection cases, and
+four controlled post-processing cases captured from source commit `5cf94b8`
+and twelve exact checkpoints. It retains exact RefSeq GRCh38.p14 contexts,
+GENCODE v38 gene/exon facts, typed raw arrays, masked and unmasked output,
+overlapping-gene order, and rejection witnesses. Its Rust inspector replays the
+semantics offline. This corpus—not architectural similarity—is the acceptance
+oracle for CPU inference and any later conversion. Its controlled vectors and
+expectations are fixed independently from replay, and its future capture path
+authenticates the live helper and all imported upstream Python modules before
+execution.
 
 ## Reproduction boundary
 
@@ -77,7 +81,7 @@ RefSeq GRCh38.p14, so the reference is compatible over that checked region; it
 does not prove the publisher used the same FASTA.
 
 Pangopup therefore versions the lookup artifact and the fallback model artifact
-separately. Before claiming parity, a retained corpus must compare both routes.
+separately. Before claiming parity, the checked corpus must compare both routes.
 Small numeric differences with identical masking are more likely to come from
 model/checkpoint or numeric-runtime differences than from reference bases once
 the submitted reference allele has been verified.
@@ -88,10 +92,10 @@ they preserve the defined result/error behavior within explicit retained
 tolerances and improve measured end-to-end performance or resource use.
 
 The current Python implementation also mutates its gain/loss arrays while
-masking each gene. For overlapping genes on the same strand, a later gene may
-therefore observe an array already masked for an earlier gene. The Rust fallback
-must test this case and expose a clearly versioned compatibility policy; it must
-not silently change upstream behavior while claiming identical Pangolin output.
+masking each gene. The strict compatibility profile retains observed SQLite
+gene order and proves that a later same-strand gene sees earlier mutations. A
+Rust fallback claiming this profile must preserve that behavior; an improved
+independent-per-gene policy requires a separately named profile.
 
 ## What Pangopup deliberately does not ship
 

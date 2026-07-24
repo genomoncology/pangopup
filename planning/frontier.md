@@ -12,7 +12,8 @@ explicit fixed-v1 bundle or the active Linux user-data installation. Speed
 leads memory and download size. Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
 established. Immutable publication and pinned resumable remote sync are also
-complete; model fallback and HTTP remain future.
+complete. The strict upstream Pangolin compatibility corpus is established;
+model/reference/mask assets, inference, and HTTP remain future.
 
 ## Established — pinned source ingestion contract
 
@@ -108,15 +109,23 @@ publishes a closed cache transport, and feeds the shipped installer. It never
 selects “latest.” Exact active reuse and `--offline` perform no network work;
 lookup remains network-free.
 
-## Next outcome — upstream compatibility corpus
+## Established — upstream compatibility corpus
 
-Before selecting or porting a runtime, inventory the upstream Pangolin tests and
-behavior and retain representative golden cases for SNVs, insertions,
-deletions, delins, strands, masked/unmasked output, overlapping genes,
-boundaries, unsupported inputs, and errors. Pin the upstream source and model
-identities that produced those expectations.
+`pangopup-compat-v1` freezes 24 exact cases from Pangolin 1.0.2 commit
+`5cf94b8`: 14 scored SNV/MNV/insertion/deletion cases, six closed rejection
+cases, and four controlled post-processing cases. Exact checkpoint, RefSeq
+GRCh38.p14, GENCODE v38, helper, and numeric-environment identities are bound
+to the corpus. Normal gates use a bounded Rust inspector to replay typed raw
+arrays, masking order, extrema, positions, and rendering without model assets.
+The profile records helper inference at forced PyTorch `1/1` separately from
+the auxiliary unmodified CLI witness's observed `1/16` execution.
+Complete controlled vectors are pinned independently of replay. Future capture
+authenticates the live helper and all tracked imported Pangolin Python modules,
+and its atomic publisher distinguishes unpublished cleanup from a reported
+post-publication parent-sync failure. The one-time capture is not a routine
+validation command.
 
-## Later outcome — model/reference/mask assets
+## Next outcome — model/reference/mask assets
 
 Package pinned model checkpoints plus compact, indexed RefSeq GRCh38.p14
 sequence and GENCODE masking members. Builders or conversion tools must be

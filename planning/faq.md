@@ -54,6 +54,20 @@ zero reference mismatches against RefSeq GRCh38.p14 primary chromosomes, but the
 publisher does not identify the exact FASTA or GENCODE release. Pangopup can say
 GRCh38 and pin the archive checksum; it should not invent missing provenance.
 
+### What proves a future model is Pangolin-compatible?
+
+The checked `pangopup-compat-v1` corpus, not a claim that the network has the
+same architecture. It binds Pangolin 1.0.2 source commit `5cf94b8`, twelve
+checkpoint hashes, the exact RefSeq GRCh38.p14 sequence source, GENCODE v38
+masking inputs, and the pinned CPU numeric environment. Its 24 cases preserve
+typed raw arrays plus independently observed CLI output. Normal tests replay
+those semantics in Rust; they do not rerun Python or the neural network.
+The manifest distinguishes the normative helper's forced PyTorch `1/1` thread
+profile from the auxiliary unmodified CLI's observed `1/16` profile instead of
+claiming the whole capture used one setting. Controlled vectors and their
+expected values are pinned independently of replay, and future capture hashes
+the live helper plus every imported upstream Pangolin Python module before use.
+
 ### Does Pangopup need HGVS or transcript projection?
 
 No. Pangopup is standalone and accepts an already identified GRCh38 genomic

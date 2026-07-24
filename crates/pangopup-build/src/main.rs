@@ -2,8 +2,10 @@ use pangopup_assets::{
     pack_bundle, prepare_release, unpack_transport, upload_release_asset, verify_transport,
 };
 use pangopup_build::{
-    CommandError, build_bundle, inspect_directory, prepare_benchmark_corpus, prototype_open,
-    prototype_roundtrip, verify_bundle,
+    CommandError, build_bundle,
+    compatibility::{CaptureArguments, capture_corpus, inspect_corpus},
+    inspect_directory, prepare_benchmark_corpus, prototype_open, prototype_roundtrip,
+    verify_bundle,
 };
 use std::{env, path::Path, process::ExitCode};
 
@@ -28,6 +30,12 @@ fn main() -> ExitCode {
         .is_some_and(|command| command == "release")
     {
         return release_command(&arguments[1..]);
+    }
+    if arguments
+        .first()
+        .is_some_and(|command| command == "compatibility")
+    {
+        return compatibility_command(&arguments[1..]);
     }
     match arguments.as_slice() {
         [command, source] if command == "inspect" => {
@@ -84,6 +92,55 @@ fn main() -> ExitCode {
             }
         }
         _ => json_failure(&CommandError::new("CLI_USAGE", USAGE)),
+    }
+}
+
+fn compatibility_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let Some(action) = arguments.first().and_then(|value| value.to_str()) else {
+        return json_usage("compatibility requires inspect or capture");
+    };
+    match action {
+        "inspect" => {
+            let Ok(values) = parse_exact_flags(&arguments[1..], &["--corpus"]) else {
+                return json_usage("compatibility inspect requires --corpus exactly once");
+            };
+            match inspect_corpus(Path::new(values[0])) {
+                Ok(outcome) => json_success(&outcome),
+                Err(error) => json_failure(&error),
+            }
+        }
+        "capture" => {
+            let flags = [
+                "--upstream",
+                "--python",
+                "--reference-source",
+                "--assembly-report",
+                "--reference",
+                "--annotation-db",
+                "--annotation-gtf",
+                "--output",
+            ];
+            let Ok(values) = parse_exact_flags(&arguments[1..], &flags) else {
+                return json_usage(
+                    "compatibility capture requires --upstream, --python, --reference-source, --assembly-report, --reference, --annotation-db, --annotation-gtf, and --output exactly once",
+                );
+            };
+            let capture = CaptureArguments {
+                upstream: Path::new(values[0]).to_owned(),
+                python: Path::new(values[1]).to_owned(),
+                reference_source: Path::new(values[2]).to_owned(),
+                assembly_report: Path::new(values[3]).to_owned(),
+                reference: Path::new(values[4]).to_owned(),
+                annotation_db: Path::new(values[5]).to_owned(),
+                annotation_gtf: Path::new(values[6]).to_owned(),
+                output: Path::new(values[7]).to_owned(),
+            };
+            match capture_corpus(&capture) {
+                Ok(outcome) => json_success(&outcome),
+                Err(error) => json_failure(&error),
+            }
+        }
+        _ => json_usage("compatibility requires inspect or capture"),
     }
 }
 

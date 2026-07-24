@@ -5,7 +5,9 @@ model inference. The shipped functional runtime answers GRCh38 SNV queries from
 the Wagner/Neverov precomputed dataset through a fixed 11-byte mmap index and
 typed CLI, plus Linux local installation, active-bundle discovery, the
 immutable public `snv-grch38-v1` release, and pinned resumable remote sync.
-Model fallback and HTTP remain future work on the same standalone Rust core.
+The checked `pangopup-compat-v1` oracle now fixes upstream model and
+post-processing behavior. Model fallback and HTTP remain future work on the
+same standalone Rust core.
 
 ## Boundaries
 
@@ -16,6 +18,8 @@ Model fallback and HTTP remain future work on the same standalone Rust core.
   reference evidence, and CC BY obligations.
 - [`runtime-data.md`](runtime-data.md) — the exact local assets needed for
   standalone lookup and model fallback.
+- [`decisions/0008-strict-upstream-compatibility-profile.md`](decisions/0008-strict-upstream-compatibility-profile.md)
+  — the frozen source/model/numeric profile and order-sensitive replay policy.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)
