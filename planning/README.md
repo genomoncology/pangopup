@@ -11,6 +11,7 @@ belongs in Rust tests and `../spec/`.
 - [`frontier.md`](frontier.md) — rolling dependency-ordered outcome roadmap,
   not live ticket status or a prewritten backlog.
 - `issues/` — observed problems not yet shaped into work.
+- `reviews/` — dated repository-wide audits and their evidence-backed findings.
 - `tickets/` — the sole owner of live work status; one implementation-ready
   vertical slice at a time.
 - `templates/` — the required ticket structure and review record.

@@ -65,11 +65,13 @@ Developers never commit or push.
    lookup and model fallback require no external application, database, or
    network service.
 5. **Compatible model fallback.** Lookup misses and supported non-SNV variants
-   run through versioned model, reference, and masking assets with measured
-   parity against the upstream implementation.
+   run through versioned model, reference, and masking assets with an explicit
+   genomic-allele/normalization identity and measured parity against the
+   upstream implementation.
 6. **Operationally simple delivery.** Immutable executable, lookup, model,
-   reference, and masking assets are separately versioned, downloaded
-   automatically when missing, verified, installed atomically, and opened once.
+   reference, and masking assets are separately versioned and verified. One
+   pinned compatibility profile downloads missing members and atomically
+   selects a coherent installed tuple, which the process opens once.
 7. **License-complete packaging.** GPL source/model obligations and the score
    dataset's CC BY attribution are explicit, separate, and retained in every
    applicable release artifact.

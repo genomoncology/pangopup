@@ -166,22 +166,52 @@ All 25-contig logical identities remain unchanged. The original full build and
 both failed qualification roots are preserved; no second full build occurred.
 Reference transport/XDG/release is not part of this outcome.
 
-## Current outcome — production model and mask assets
+## Current outcome — exact GENCODE mask semantics and format selection
 
-Package the pinned Pangolin checkpoints plus a compact GENCODE masking member.
-Builders or conversion tools must be reproducible, bounded-memory,
-independently verifiable, and license-complete. Model admission must require
-the exact established reference profile/format/assembly/digest. The service
-should not parse raw FASTA/GTF or open gffutils/SQLite at runtime.
+Pin the complete behavior that a compact GENCODE v38 masking member must
+preserve before freezing its production layout. The source contract must bind
+the exact GTF and upstream gffutils database, retain versioned GENCODE gene
+identity including `_PAR_Y` copies, and reproduce Pangolin's effective
+`(gene_start,gene_end]` membership. The upstream SQLite query has no `ORDER BY`,
+so a database hash alone is insufficient: one authenticated
+Python/gffutils/SQLite observation environment must emit the canonical ordered
+all-gene export. That order is observable because upstream Pangolin mutates
+shared arrays while processing same-strand genes. A checked miniature and one
+retained full-source inventory must compare plausible mmap layouts against that
+export: exactness first, then lookup speed, resident memory/pages, and compressed
+size. Runtime code must not require raw GTF, SQLite, or gffutils.
 
-## Later outcome — model-backed fallback
+This is the Ticket 012 boundary. It selects and records a mask representation;
+it does not harden a production mask bundle, package checkpoints, or run the
+model.
 
-Implement the pinned model on CPU and prove the retained compatibility corpus,
-including indels and the overlapping-gene mask-order issue, before optimizing
-or adding routes. Only then measure accelerator backends such as MPS or CUDA
-and alternative runtimes/quantization. Adopt them only with explicit numeric
-tolerances, equal behavior, and measured end-to-end benefit. Keep every
-precomputed SNV hit authoritative whenever it exists.
+## Next outcome — production mask bundle and provider
+
+Harden only the selected mask representation as an immutable, independently
+verifiable bundle and typed point-query provider. The builder must be
+reproducible, bounded-memory, license-complete, and use an artifact-specific
+source fingerprint so unrelated tooling changes do not churn its identity.
+Production open must use held no-follow members and must not scan the complete
+payload. Transport, XDG installation, public release, and model execution stay
+separate.
+
+## Later outcome — CPU runtime, safe model representation, and inference
+
+Choose the CPU tensor runtime together with the checkpoint representation
+rather than converting weights before a consumer exists. Authenticate every
+raw checkpoint before parsing; pin tensor names, shapes, dtypes, ordering, and
+per-tensor identities; define numeric tolerance and public-rendering acceptance;
+and add discriminating internal goldens beyond the end-to-end corpus. Then
+implement CPU inference against explicit compatible reference, mask, and model
+paths and prove the retained compatibility corpus. The supported non-SNV input
+and normalization contract must be explicit before it becomes a public or
+cache identity.
+
+Only after CPU compatibility is established should Pangopup measure
+accelerator backends such as MPS or CUDA, alternative runtimes, or
+quantization. Adopt one only with the same defined behavior and measured
+end-to-end benefit. Keep every precomputed SNV hit authoritative whenever it
+exists.
 
 ## Later outcome — lookup-first routing and evidence-gated caching
 
@@ -191,6 +221,17 @@ model workloads before adding a cache. If justified, cache only complete model
 results under a key that includes normalized variant, gene/masking context,
 model checkpoint, reference/mask identity, window, and inference parameters;
 prove bounds, concurrency, corruption handling, and invalidation.
+
+## Later outcome — one compatible installed runtime profile
+
+Define one immutable compatibility profile that binds the independently
+versioned SNV, model, reference, and mask identities. Install each asset into a
+private immutable store, then atomically select the coherent tuple rather than
+four unrelated active pointers. Prove offline restart, rollback, partial-
+upgrade failure, bounded provisioning/cancellation, durable non-secret
+progress, and descriptor-held read-only opens. This outcome also transports
+and publishes the already qualified reference without rebuilding it. It must
+precede production HTTP readiness.
 
 ## Later outcome — foreground service and deployment
 
@@ -209,6 +250,10 @@ Add structured logs, useful metrics, resource limits, read-only runtime posture,
 dependency/license inventory, SBOM and provenance, signing where practical,
 upgrade/rollback rules, and cleanup of superseded immutable assets. Re-run the
 complete clean-machine acceptance proof for releases.
+
+Before the next public model, reference, executable, or container publication,
+close the recorded release-process and repository-security issues. Those
+issues do not block local mask-format selection.
 
 ## Explicitly outside Pangopup
 

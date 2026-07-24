@@ -1,6 +1,6 @@
 # Overlapping-gene mask order
 
-Status: open
+Status: promoted to Ticket 012 on 2026-07-24
 
 ## Observation
 
@@ -17,11 +17,31 @@ are the source truth. Model fallback can diverge from upstream if a Rust
 implementation makes a fresh copy per gene, and can remain accidentally
 order-dependent if it does not.
 
-## Required evidence before model implementation
+## Evidence already established
 
-- Construct an overlapping same-strand fixture with different exon boundaries.
-- Record current Python output and annotation iteration order.
-- Determine whether the published precompute contains observable examples.
-- Version the chosen behavior. Prefer exact upstream compatibility for a
-  compatibility provider; any corrected independent-gene policy must be named
-  differently and must not claim byte-for-byte Pangolin parity.
+Ticket 009 constructed a controlled same-strand overlap vector, captured the
+pinned Python behavior and database order, and accepted the strict behavior as
+profile `pangolin-1.0.2-5cf94b8-grch38-v1` in ADR 0008. A corrected independent-
+gene policy still requires a separately named profile.
+
+That evidence proves the behavior but not the complete production data. The
+retained compatibility artifact explicitly says it does not contain an
+all-gene masking-order representation.
+
+## Remaining contract promoted to Ticket 012
+
+- Inventory every same-strand overlap and every distinct effective
+  `(gene_start,gene_end]` point-query gene order in the exact pinned GENCODE v38
+  gffutils database.
+- Because the upstream query has no SQL `ORDER BY`, authenticate and record the
+  Python/gffutils/SQLite observation environment and freeze a canonical ordered
+  export rather than treating the database hash alone as an ordering contract.
+- Define the versioned gene identity and ordered logical stream that a compact
+  mask member must preserve.
+- Prove the compiled candidates against the database over the complete logical
+  domain, not only selected examples.
+- Retain a full-source digest and overlap/order summary so later production
+  hardening cannot silently sort genes by identifier or coordinate.
+
+The reviewed Ticket 012 is the live owner of this remaining work. This issue is
+no longer a second implementation queue.
