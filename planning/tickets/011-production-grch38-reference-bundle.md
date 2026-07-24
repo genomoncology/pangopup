@@ -1,6 +1,6 @@
 # 011 — Ship the production GRCh38 reference bundle and provider
 
-Status: ready
+Status: complete
 Accepted v1 format/build contract identity: `sha256:c763eab142754e921981943b7c7dc8702f41097146abde08b35e69be12eedffc`
 Replacement v2 lifecycle contract identity: `sha256:df8eb54b29c54b8431fd261e44de3de42c15e1e77aad7d88348b498877d85620`
 Base revision: `a11de87a27c2f23d6a9fa14637f2273e567608ab`
@@ -672,15 +672,15 @@ qualification-ready before the replacement run.
 
 - Pre-existing user changes: none; base was clean and matched `origin/main`.
 - Coordinator-authored file: this ticket only before readiness.
-- Implementer changes: v1 implementation and parser remediation complete;
-  bounded v2 reuse implementation pending the same developer after design
-  acceptance.
+- Implementer changes: v1 implementation, parser remediation, and bounded v2
+  reuse implementation complete by the same developer against the accepted
+  `df8eb54b…85620` lifecycle contract; awaiting adversarial code review.
 - Generated artifacts: checked miniature files in git; full bundle/logs remain
   under the retained data path and never enter git.
 - Concurrent unrelated work: none observed.
-- Ticket reviewer: `/root/ticket_011_design_review` (read-only; v1 accepted,
-  v2 lifecycle re-review pending).
-- Developer: `/root/ticket_011_developer` (v1/parser complete; v2 pending;
+- Ticket reviewer: `/root/ticket_011_design_review` (read-only; v1 and accepted
+  v2 lifecycle contract reviewed).
+- Developer: `/root/ticket_011_developer` (v1/parser/v2 implementation complete;
   distinct from reviewer/coordinator).
 - Code reviewer: `/root/ticket_011_code_review` (read-only; distinct from
   reviewer/developer/coordinator).
@@ -700,7 +700,7 @@ review around the retained job, size/memory thresholds, and exact production
 page calculation. The exact durable file faithfully serialized that contract,
 remained reference-only, and introduced no contradiction or scope creep.
 
-V2 lifecycle review identity: pending. The first v2 proposal at SHA-256
+V2 lifecycle review history: the first v2 proposal at SHA-256
 `d5e430106c5e7f200ab464cee64af97629e67e8bea24c19ef6dd5dcbe352b8f9`
 was `REJECT` with six Major findings: stale full-build authorization, missing
 replacement source-inventory binding, hash/reopen substitution windows,
@@ -766,6 +766,36 @@ Exact current-candidate focused evidence:
   additions.
 - `git diff --check` — passed.
 
+The accepted v2 reuse path is now implemented without touching or copying the
+retained production bundle. The exact four-flag maintenance CLI validates the
+closed canonical reuse contract and known v1 identities; opens input, corpus,
+prior-root components, fixed evidence, and output parent without following
+symlinks; parses the same authenticated buffers; constructs the qualification
+reader and Zstandard stream from held descriptors; rechecks device/inode/size
+and full SHA-256 after measurement; and atomically publishes only small synced
+success/failure evidence without replacement. The running executable binds the
+complete compiled builder source inventory.
+
+Final v2 developer evidence before code review:
+
+- all-feature Clippy over core/index/build and all targets — passed;
+- index library — 18 passed;
+- build library/reference/resource suites — 37 passed, including a held
+  qualification reader that survives complete bundle-path substitution;
+- feature-gated replacement benchmark — 17 passed, covering the exact corpus,
+  closed canonical report/failure receipts, held-descriptor substitution and
+  mutation, immutable read-only evidence, exact resource/phase wire values,
+  exact success members/modes, concurrent no-replace, failure preservation,
+  compiled inventory binding, read-once semantic buffers, total late-failure
+  sealing, exact preserved-stage reporting, success-report byte authentication,
+  descriptor-relative failure repair through concurrent path substitution, and
+  direct success/failure inventory/type/mode/every-identity negative controls;
+- executable reference spec — 20 passed;
+- `git diff --check` — passed.
+
+Neither the v1 nor v2 production qualification was run. The retained v1 root
+remained read-only, and no full build was started.
+
 Before the final portability-only corpus embedding and failed-build negative
 control, the full-data-free workspace gates also passed: `make lint`, `make
 test`, and `make spec` (`131 passed`), with the standalone reference spec at `8
@@ -776,6 +806,262 @@ code review.
 ## Adversarial Code Review
 
 Reviewer: `/root/ticket_011_code_review`
+
+First v2 implementation review verdict: `REJECT`; no separately scoped major
+issue was revealed. The reviewer returned four bounded findings, now
+remediated for re-review:
+
+1. **Total failure lifecycle.** Every operation after private-stage creation is
+   now inside one result boundary. Initial retention, preflight, measurement,
+   descriptor revalidation, resource/report work, stage validation, and
+   success no-replace errors all enter one repair/seal/publish function. If
+   that function cannot publish failure evidence, it returns
+   `STAGE_PRESERVED` with the exact private stage path. Six injected late-point
+   controls plus failure-name exhaustion and actual success no-replace prove
+   the funnel.
+2. **Read-once small evidence.** Every bounded small retained file and the
+   corpus now own the single buffer read for authentication. All semantic
+   checks borrow that buffer; held descriptors remain for the required final
+   metadata/full-hash pass. A descriptor-pass counter proves five repeated
+   semantic parses perform one read pass.
+3. **Publication negatives.** Direct success and failure validators now reject
+   extra/missing members, wrong type, wrong mode, and every retained/evidence
+   identity mismatch. The failure validator also proves exact modes, canonical
+   receipt/resource/report state, stderr, and phase/outcome agreement.
+4. **Planning overclaim.** `planning/frontier.md` now distinguishes the
+   established full build from still-pending query/open/Zstandard
+   qualification; the artifact and this ticket retain the same boundary.
+
+Remediation focused evidence: all-feature Clippy passed; index library 18;
+build library/reference/resource 37; benchmark 15; reference spec 20; diff
+check passed. Neither production qualification path ran and retained v1
+evidence was not modified.
+
+Second v2 implementation re-review verdict: `REJECT`; accepted policy and
+scope remain unchanged. The reviewer returned two additional bounded findings,
+now remediated for the same reviewer:
+
+1. **Success report authentication.** Success validation now opens
+   `qualification-report.json` relative to the held stage descriptor, reads one
+   authenticated buffer, requires a closed canonical parse, and requires those
+   exact bytes to equal the canonical in-memory report before the single
+   validate-and-publish path may rename the stage. Direct changed, truncated,
+   pretty/noncanonical, duplicate-key, and unknown-field controls prove no
+   success root is published.
+2. **Descriptor-relative failure repair.** Failure reset no longer enumerates
+   or deletes through mutable `stage.path`. It inventories held directory
+   descriptors with `rustix::fs::Dir`, opens child/candidate directories with
+   `O_NOFOLLOW`, binds device/inode, and removes members only with relative
+   `unlinkat`. Before publication or preserved-path reporting, the stage's
+   current parent entry is rebound from the held parent descriptor and held
+   stage device/inode. Concurrent rename/substitution controls prove the
+   substitute tree remains byte-for-byte untouched, a successful failure root
+   reports its actual published path, and exhausted failure publication reports
+   the actual preserved renamed path.
+
+Second remediation focused evidence: all-feature Clippy passed; index library
+18; build library/reference/resource 37; benchmark 17; reference spec 20; diff
+check passed. No production or full-build path ran, and retained v1 evidence
+was not modified.
+
+Final v2 qualification-readiness verdict: `QUALIFICATION-READY`; no Major or
+Minor findings remain and no separately scoped major issue was revealed. The
+same reviewer reran the 17 feature-gated benchmark tests, feature-gated Clippy,
+and `git diff --check`; accepted the 3,000-plus-line binary as cohesive for this
+one-shot maintenance purpose; and authorized exactly one v2 preserved-build
+reuse qualification. Another full reference build remains prohibited.
+
+That authorized candidate, contract
+`9f22e22e41972db56fbca6d8cbf6367ef756c355f0e3dcec783e11a99660cc8b`,
+ran exactly once and failed closed during measurement with code `THRESHOLD`.
+Its exact immutable failure root is
+`.9f22e22e41972db56fbca6d8cbf6367ef756c355f0e3dcec783e11a99660cc8b.qualification-failed-2232586-0`.
+The resource receipt records 17,009,988,205 elapsed ns and 20,766,720 maximum
+RSS bytes, but the old failure message was only `qualification threshold
+failed`; the precise failed class and observed value were discarded. Therefore
+no query, open, allocation, page, storage, or threshold performance result may
+be inferred from that run, and neither it nor another candidate is authorized
+to run merely to diagnose it.
+
+Bounded post-qualification remediation preserves every predicate, limit,
+evaluation order, and failure schema. The evaluator now returns a structured
+first-failure class and one stable ASCII message of at most 256 bytes. Stable
+order is logical sequence, logical extras, latency, allocations, heap, storage,
+then pages. Each message carries all observed/limit values for its compound
+class; logical identity text is exact when valid and safely replaced by
+length/content digest when malformed, while an oversized hostile page vector
+is represented by length and its exact u64-big-endian content digest. This
+fully identifies the first actionable blocker from one candidate without a
+diagnostic rerun and without adding a report to measurement failures. At that
+boundary, the next observable candidate remained pending the same review and
+explicit coordinator authorization; its later run is recorded below.
+
+The same reviewer rejected the first observability implementation because its
+256-byte guarantee relied on `debug_assert!` and was false for maximal public
+`u64` values combined with an invalid identity. The repaired wire grammar uses
+compact unambiguous logical tokens:
+
+- `logical-sequence b=<observed>/<limit> s=<observed>/<limit> c=<observed>/<limit>`;
+- `logical-extras n=<observed>/<limit> s=<observed>/<limit>`.
+
+Every ordinary class message is construction-bounded across the full public
+measurement domain. The common constructor also enforces the invariant in
+release builds: any unexpectedly non-ASCII or overlong formatted diagnostic
+becomes `<class> diagnostic_len=<bytes> diagnostic_sha256=sha256:<digest>`.
+This is a content identity, not ambiguous truncation. Exact maximal-`u64`,
+large invalid-identity, 4,096-value page-vector, and forced constructor-fallback
+controls prove every evaluator rejection is ASCII and at most 256 bytes; a
+benchmark control publishes the maximal logical diagnostic through the closed
+failure schema with an empty report.
+
+Construction-bound remediation evidence: all-feature Clippy passed; index
+library 18; build library/reference/resource 39; feature-gated benchmark 18;
+reference spec 20; diff check passed. No qualification, production build,
+candidate run, or other production-data path ran, and neither retained root
+was modified.
+
+Observable-replacement qualification-readiness verdict:
+`QUALIFICATION-READY`; no Major or Minor finding and no separately scoped
+major issue. The same reviewer confirmed construction-enforced ASCII/256-byte
+diagnostics across the full public measurement domain, unchanged predicates,
+limits, and first-failure order, and successful maximal-message failure
+sealing. Exactly one new observable v2 reuse candidate is authorized. Another
+full reference build remains prohibited.
+
+That observable candidate, contract
+`09ea27dde9169eb214b6d3a7abc1de7b139c1883fb0112573959a8a56be88887`,
+ran exactly once and failed closed on the first actionable class, latency. Its
+exact immutable failure root is
+`.09ea27dde9169eb214b6d3a7abc1de7b139c1883fb0112573959a8a56be88887.qualification-failed-2390227-0`.
+The closed receipt records p50 `7485/5586 ns` and p95 `11984/6100 ns`; because
+latency is evaluated before allocations, heap, storage, and pages, no result
+for any later class may be inferred. The v1 format, production member, and
+accepted limits remain unchanged.
+
+The failed run does not retain adequate environment evidence to compare its
+timings directly with Ticket 010. Ticket 010's selected result ran on CPU 0 on
+an AMD Ryzen 7 5825U under the `powersave` governor and Linux
+`6.17.0-35-generic`; the v2 receipt retains neither an affinity assertion nor
+host/governor/kernel evidence. The `5586/6100 ns` limits are arithmetically 25%
+above Ticket 010's `4469/4880 ns` headline (with the fractional p50 reduced to
+the recorded integer); that is an inference about the limit choice, not proof
+that the measurements are comparable. The workloads both use five rounds, 20 warmups,
+10,000 cyclic M01–M14 operations, nearest-rank per-round quantiles, and median
+round headlines. V2 additionally verifies all 14 cases before every round,
+where Ticket 010 performed its exactness preflight before the retained timing
+rounds. That difference warms relevant pages and cannot justify claiming that
+the v2 failure measures a worse cold path. Any future coordinator-authorized
+candidate must pin CPU 0 and durably record affinity plus CPU, governor, and
+kernel evidence before interpreting a timing comparison.
+
+There is nevertheless one concrete code regression independent of those
+environment limits. Ticket 010's selected decoder handled an unaligned prefix,
+copied four decoded bases from a lookup table for every aligned packed byte,
+then handled the tail. Production `decode_packed` instead repeated checked
+position arithmetic, division, bounds lookup, and table selection for every
+base in every roughly 10.1-kilobase M context. Qualification's
+`test-read-audit` feature also performed a thread-local counter update for
+every timed query even though the harness consumed that counter only after
+open.
+
+The bounded remediation ports the selected aligned decoder without changing
+the bytes or provider API and prevalidates all input before writing so corrupt
+data preserves the caller's destination. Dense-read evidence is now an
+explicit constructor result derived from the constructor's mmap ranges; normal
+and timed `copy_window` execute the same production path without audit work.
+Tests compare the optimized decoder directly with the old scalar reference for
+every start across a 1,024-base bounded vector and lengths 1–33, explicitly
+cover all four start alignments, short/group/tail shapes, a packed 4,096-byte
+page crossing, ambiguity overlap shapes, corrupt/bounds preservation,
+concurrent copies, and zero allocation. These are correctness and regression
+controls, not performance evidence. At that boundary no performance
+improvement was claimed; the later retained qualification below supplies the
+acceptance evidence.
+
+Decoder/audit remediation focused evidence: all-feature Clippy passed; index
+library 22; build library/reference/resource 40 (24/15/1); feature-gated
+benchmark 18; executable reference spec 20; formatting and diff checks passed.
+No qualification, candidate, production build, or benchmark workload ran, and
+the retained production member and both failure roots were not modified.
+
+The same reviewer then returned `QUALIFICATION-READY` for exactly one
+optimized, CPU0-pinned preserved-build reuse candidate. Contract
+`edaee0374147b70a5259a4a2f0f4120914232f018531391e9625438fd2db35af`
+ran once and passed every unchanged v2 predicate. Its exact retained success
+root is
+`/home/ian/workspace/data/pangopup-reference-production-011/edaee0374147b70a5259a4a2f0f4120914232f018531391e9625438fd2db35af/`;
+launcher stdout and stderr are both empty. The canonical report records:
+
+- latency p50/p95 `1864/2084 ns`, below `5586/6100 ns`;
+- zero allocation calls and zero allocation bytes;
+- open peak Rust heap `16060` bytes and zero dense bytes read during open;
+- benchmark maximum RSS `20938752` bytes and minor/major faults `4738/0`;
+- installed bundle `772096272` bytes, including the unchanged `772091760`-byte
+  reference member;
+- pinned Rust-Zstandard size `656781805` bytes;
+- the exact eight dense pages, per-case page-count sum 20, 25 contigs,
+  `3088286401` bases, 14 contexts, 680 ignored records, and the unchanged
+  sequence/extra-accession digests.
+
+The retained v1 build and both immutable failure roots remain preserved. No
+second full reference build occurred. This success qualifies the existing v1
+format and provider; it does not change the format, asset bytes, thresholds, or
+the separate model/mask/transport scope.
+
+Final gate review then returned one bounded Major finding: the Ticket 011
+compiled source-inventory change made the checked 1,000-request SNV regression
+fixture non-reproducible. A fresh deterministic generation differed in exactly
+10 identity-bearing files and nowhere else. The builder source identity changed
+from `a2c05be644b2bc36d10257ee848c5b556b6f9a217e177a6edc4b7220ebdb9133`
+to the qualified
+`eac8d37ea69d8680d9a834dc4848382a4257f00a668a6c6cdcbc58db71fe81c7`;
+the fixture bundle ID consequently changed from
+`3126d856f11f1715a0246f3b953a89408e0de7c2fbec825832ac638194463275`
+to `cf0ed402d0a6c84241f87d9e77270fd8b4850f6b19a3523670b044749127c598`.
+
+Remediation used the fixture's documented deterministic generator with the
+checked `pangolin-precompute` source and a fresh absent output under `/tmp`.
+Complete file-set and byte comparison proved that payload, requests, source,
+reference, and NOTICE bytes were identical. Removing only
+`builder.source_sha256` made the old/new manifests identical; substituting only
+the old bundle ID with the new ID made every other drifted file identical. The
+checked fixture replaced only:
+
+- `README.md` and `bundle/manifest.json`;
+- `expected.jsonl` and `expected/unfiltered.jsonl`;
+- `expected/ENSG00000010610.jsonl`, `expected/ENSG00000141499.jsonl`,
+  `expected/ENSG00000141510.jsonl`, `expected/ENSG00000169129.jsonl`,
+  `expected/ENSG00000175727.jsonl`, and
+  `expected/ENSG00000185974.jsonl`.
+
+The full checked/generated trees then compared byte-exactly. Production
+reference data and retained qualification evidence were not touched, and no
+production build, qualification, or benchmark ran. Exact remediation evidence:
+
+- `cargo run --locked --package pangopup-build --bin
+  pangopup-regression-fixture -- tests/fixtures/pangolin-precompute
+  /tmp/pangopup-ticket011-regression.7GPFBx/generated` — passed into an absent
+  output;
+- complete inventory plus byte comparison — exactly the 10 files above
+  differed before replacement and the complete trees were byte-exact after;
+- `cargo test --locked -p pangopup-build --test snv_regression_fixture` — 1
+  passed;
+- `cargo test --locked -p pangopup-cli --test snv_regression` — 3 passed,
+  including all 1,000 provider expectations and all seven CLI batches;
+- `git diff --check` — passed.
+
+The same reviewer rechecked this bounded remediation and the complete diff,
+then returned final `ACCEPT`: no Major or Minor findings remained and no major
+issue was revealed for a separately scoped future ticket.
+
+Optimized-decoder qualification-readiness verdict: `QUALIFICATION-READY`; no
+Major or Minor finding and no separately scoped major issue. The same reviewer
+verified upfront corruption safety, exact Ticket 010 prefix/four-base/tail
+semantics, unchanged ambiguity/API/format behavior, the normal unaudited query
+path, constructor-only audit evidence, exhaustive equivalence/page/ambiguity/
+concurrency/zero-allocation controls, and honest documentation. Exactly one
+new CPU-0-pinned observable reuse candidate is authorized; another full build
+remains prohibited.
 
 First qualification-readiness verdict: `REJECT`; no separately scoped major
 issue was revealed. The reviewer reported three Major and two Minor findings:
@@ -846,12 +1132,11 @@ benchmark/harness identity. No replacement run is authorized under v1.
 
 Historically, the reviewer found the v1 implementation and miniature evidence
 qualification-ready before the one retained full build; that build is complete
-and must not recur. The current path is: the same developer implements only the
-v2 reuse contract, the same code reviewer returns `qualification-ready`, and
-the coordinator runs only the v2 preserved-build reuse qualification. After
-the developer records that retained evidence and documentation, the same
-reviewer reviews the final diff/proof before acceptance and explicitly answers
-whether a major separately scoped issue was revealed.
+and must not recur. The optimized v2 preserved-build reuse qualification is now
+green. The same reviewer accepted the final diff and retained proof with no
+Major or Minor findings and reported no separately scoped major issue. The
+already-planned model/checkpoint and GENCODE mask packaging outcome remains the
+next frontier item; it was not a defect discovered by this review.
 
 ## External Effect Evidence
 
@@ -862,20 +1147,20 @@ implementation evidence, not release publication or deployment.
 
 | Acceptance clause | Command or evidence | Result |
 |---|---|---|
-| Exact mini build/reader/corruption controls | focused index/build/benchmark/reference/resource Rust tests | 56 passed on remediated candidate |
+| Exact mini build/reader/corruption controls | focused index/build/benchmark/reference/resource Rust tests | aligned decoder equivalence and focused reader controls pass: index 22, build/reference/resource 40, benchmark 18 |
 | Maintenance JSON behavior | `spec/reference.md` | 20 passed on remediated candidate |
 | Full source correctness and identity | retained build contract `1303432912d9ddf9d56805d8e5956553340fa499b3b252dae44f8218fd815b01` | passed: 25 sequences / 3,088,286,401 bases / 14 contexts / exact logical digest |
-| Query speed/pages/allocations | retained M01–M14 benchmark | pending |
-| Open/builder memory and artifact sizes | resource/threshold tests plus retained build | builder heap 1,201,871 and member 772,091,760 passed; open/query/Zstandard pending |
-| Documentation/current-future boundary | named docs plus stale-claim scan | implemented; independent review pending |
-| Repository gates | `make lint`, `make test`, `make spec` | provisional pass before final bounded remediation; exact final rerun pending review |
+| Query speed/pages/allocations | retained M01–M14 benchmark | optimized contract `edaee0…35af` passed: p50/p95 `1864/2084 ns`, zero allocations, exact eight pages / sum 20 |
+| Open/builder memory and artifact sizes | retained build and optimized v2 report | passed: builder heap 1,201,871; open heap 16,060; dense-open reads 0; member 772,091,760; installed 772,096,272; pinned Zstandard 656,781,805 bytes |
+| Documentation/current-future boundary | named docs plus stale-claim scan | retained success recorded; independent review accepted with no findings |
+| Repository gates | `make lint`, `make test`, `make spec` | final coordinator rerun passed; executable specs 143 passed |
 
 ## Coordinator Final Check
 
-Coordinator: pending
-
-After final independent approval, inspect the complete diff/artifact inventory,
-close this trace, run all three gates, mark this ticket complete, commit/push the
-coherent outcome, then remove this live ticket in an immediate cleanup commit
-and push. Mark production reference established and leave model/mask packaging
-as the next unresolved frontier outcome without drafting another ticket.
+Coordinator: complete. The complete diff and retained artifact inventory were
+audited after independent acceptance. The final coordinator gate passed
+`make lint`, `make test`, and `make spec` (`143 passed`), followed by
+`git diff --check`. The retained production member remains unchanged and no
+second full build or additional qualification run occurred. Production
+reference is established; model/checkpoint plus GENCODE mask packaging remains
+the next unresolved frontier outcome, with no Ticket 012 drafted here.

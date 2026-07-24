@@ -22,6 +22,7 @@ use std::{
 
 pub mod compatibility;
 mod production;
+pub mod reference;
 pub mod reference_candidates;
 pub use production::{BuildOutcome, CommandError, VerifyOutcome, build_bundle, verify_bundle};
 

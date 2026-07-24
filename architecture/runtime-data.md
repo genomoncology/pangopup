@@ -23,10 +23,11 @@ therefore fails or misses rather than returning the score for a different
 allele. The full model reference is not loaded merely to repeat that check for
 an indexed SNV.
 
-## Planned model fallback path
+## Model fallback assets
 
 Model fallback is not implemented. Its accepted data boundary requires three
-additional local facts:
+additional local facts; the second is now implemented as a provider and build
+artifact, but is not yet installed or routed into inference:
 
 Running Pangolin for a lookup miss or non-SNV genuinely needs:
 
@@ -59,9 +60,11 @@ The closed comparison used uppercase ASCII, exact four-bit IUPAC, and two-bit
 ACGT plus exact ambiguity runs in one common mmap container. The retained
 six-contig result selected `acgt2-rle-v1` by speed: headline p50/p95 were
 4,469/4,880 ns versus 16,272/18,366 for ASCII and 34,267/41,522 for IUPAC4.
-A checked miniature proves symbol, boundary, corruption, and logical-page
-behavior in normal tests. These remain benchmark codecs, not a shipped
-reference asset; the selected payload still needs full production hardening.
+A checked 25-contig miniature proves symbol, boundary, corruption, allocation,
+and logical-page behavior in normal tests. The production `PGRREF01` bundle is
+not a benchmark container: cheap open validates bounded structure and all
+ambiguity runs, while private build certification decodes every base and checks
+the manifest-bound member hashes and compatibility contexts.
 
 RefSeq and GENCODE have different roles here. RefSeq supplies the GRCh38 DNA
 bases. GENCODE supplies the gene/exon map required by Pangolin's masking rules

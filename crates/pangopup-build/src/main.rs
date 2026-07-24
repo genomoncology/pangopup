@@ -5,10 +5,70 @@ use pangopup_build::{
     CommandError, build_bundle,
     compatibility::{CaptureArguments, capture_corpus, inspect_corpus},
     inspect_directory, prepare_benchmark_corpus, prototype_open, prototype_roundtrip,
+    reference::{build_reference_bundle, inspect_reference_bundle, reference_window},
     reference_candidates::{inspect_candidates, prepare_candidates},
     verify_bundle,
 };
-use std::{env, path::Path, process::ExitCode};
+use serde::Serialize;
+use std::{
+    alloc::{GlobalAlloc, Layout, System},
+    env, fs,
+    path::Path,
+    process::ExitCode,
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+};
+
+struct PeakAllocator;
+static HEAP_CURRENT: AtomicU64 = AtomicU64::new(0);
+static HEAP_PEAK: AtomicU64 = AtomicU64::new(0);
+static HEAP_TRACK: AtomicBool = AtomicBool::new(false);
+
+fn heap_add(size: usize) {
+    let current = HEAP_CURRENT.fetch_add(size as u64, Ordering::SeqCst) + size as u64;
+    if HEAP_TRACK.load(Ordering::SeqCst) {
+        HEAP_PEAK.fetch_max(current, Ordering::SeqCst);
+    }
+}
+
+unsafe impl GlobalAlloc for PeakAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: delegate the unchanged request to the system allocator.
+        let pointer = unsafe { System.alloc(layout) };
+        if !pointer.is_null() {
+            heap_add(layout.size());
+        }
+        pointer
+    }
+
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+        HEAP_CURRENT.fetch_sub(layout.size() as u64, Ordering::SeqCst);
+        // SAFETY: pointer and layout are the matching allocation pair.
+        unsafe { System.dealloc(pointer, layout) };
+    }
+
+    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        // SAFETY: delegate the unchanged old pair and requested size.
+        let replacement = unsafe { System.realloc(pointer, layout, new_size) };
+        if !replacement.is_null() {
+            if new_size >= layout.size() {
+                heap_add(new_size - layout.size());
+            } else {
+                HEAP_CURRENT.fetch_sub((layout.size() - new_size) as u64, Ordering::SeqCst);
+            }
+        }
+        replacement
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: PeakAllocator = PeakAllocator;
+
+#[derive(Serialize)]
+struct ReferenceHeapReport {
+    schema: &'static str,
+    allocator: &'static str,
+    peak_outstanding_bytes: u64,
+}
 
 const USAGE: &str = "Usage: pangopup-build inspect <SOURCE_DIR>\n       pangopup-build prototype-roundtrip <SOURCE_DIR> <OUTPUT>\n       pangopup-build prototype-open <ARTIFACT>\n       pangopup-build benchmark-corpus <SOURCE_DIR> <OUTPUT> <SELECTED_MANIFEST>";
 
@@ -19,6 +79,12 @@ fn main() -> ExitCode {
     }
     if arguments.first().is_some_and(|command| command == "verify") {
         return verify_command(&arguments[1..]);
+    }
+    if arguments
+        .first()
+        .is_some_and(|command| command == "reference")
+    {
+        return reference_command(&arguments[1..]);
     }
     if arguments
         .first()
@@ -99,6 +165,189 @@ fn main() -> ExitCode {
             }
         }
         _ => json_failure(&CommandError::new("CLI_USAGE", USAGE)),
+    }
+}
+
+fn reference_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let Some(action) = arguments.first().and_then(|value| value.to_str()) else {
+        return reference_failure(
+            "reference",
+            "CLI_USAGE",
+            "reference requires build, inspect, or window",
+            2,
+        );
+    };
+    match action {
+        "build" => {
+            let Ok(values) = parse_exact_flags(
+                &arguments[1..],
+                &["--profile", "--source", "--assembly-report", "--output"],
+            ) else {
+                return reference_failure(
+                    "reference.build",
+                    "CLI_USAGE",
+                    "reference build arguments are invalid",
+                    2,
+                );
+            };
+            let Some(profile) = values[0].to_str() else {
+                return reference_failure(
+                    "reference.build",
+                    "CLI_USAGE",
+                    "reference profile is invalid",
+                    2,
+                );
+            };
+            let heap_report = env::var_os("PANGOPUP_REFERENCE_HEAP_REPORT");
+            let heap_baseline = HEAP_CURRENT.load(Ordering::SeqCst);
+            if heap_report.is_some() {
+                HEAP_PEAK.store(heap_baseline, Ordering::SeqCst);
+                HEAP_TRACK.store(true, Ordering::SeqCst);
+            }
+            let result = build_reference_bundle(
+                profile,
+                Path::new(values[1]),
+                Path::new(values[2]),
+                Path::new(values[3]),
+            );
+            HEAP_TRACK.store(false, Ordering::SeqCst);
+            if let Some(path) = heap_report {
+                let peak = HEAP_PEAK
+                    .load(Ordering::SeqCst)
+                    .saturating_sub(heap_baseline);
+                if write_reference_heap_report(Path::new(&path), peak).is_err() {
+                    return reference_failure("reference.build", "IO", "reference I/O failed", 1);
+                }
+            }
+            match result {
+                Ok(value) => reference_json(&value, 0),
+                Err(error) => reference_command_error("reference.build", &error),
+            }
+        }
+        "inspect" => {
+            let Ok(values) = parse_exact_flags(&arguments[1..], &["--bundle"]) else {
+                return reference_failure(
+                    "reference.inspect",
+                    "CLI_USAGE",
+                    "reference inspect arguments are invalid",
+                    2,
+                );
+            };
+            match inspect_reference_bundle(Path::new(values[0])) {
+                Ok(value) => reference_json(&value, 0),
+                Err(error) => reference_command_error("reference.inspect", &error),
+            }
+        }
+        "window" => {
+            let Ok(values) = parse_exact_flags(
+                &arguments[1..],
+                &["--bundle", "--contig", "--start", "--length"],
+            ) else {
+                return reference_failure(
+                    "reference.window",
+                    "CLI_USAGE",
+                    "reference window arguments are invalid",
+                    2,
+                );
+            };
+            let Some(alias) = values[1]
+                .to_str()
+                .filter(|value| valid_reference_alias(value))
+            else {
+                return reference_failure(
+                    "reference.window",
+                    "CLI_USAGE",
+                    "reference contig is invalid",
+                    2,
+                );
+            };
+            let Some(start) = values[2]
+                .to_str()
+                .and_then(|value| value.parse::<u32>().ok())
+                .filter(|value| *value > 0)
+            else {
+                return reference_failure(
+                    "reference.window",
+                    "CLI_USAGE",
+                    "reference start is invalid",
+                    2,
+                );
+            };
+            let Some(length) = values[3]
+                .to_str()
+                .and_then(|value| value.parse::<usize>().ok())
+                .filter(|value| (1..=1_048_576).contains(value))
+            else {
+                return reference_failure(
+                    "reference.window",
+                    "CLI_USAGE",
+                    "reference length is invalid",
+                    2,
+                );
+            };
+            match reference_window(Path::new(values[0]), alias, start, length) {
+                Ok(value) => reference_json(&value, 0),
+                Err(error) => reference_command_error("reference.window", &error),
+            }
+        }
+        _ => reference_failure("reference", "CLI_USAGE", "reference action is invalid", 2),
+    }
+}
+
+fn write_reference_heap_report(path: &Path, peak: u64) -> Result<(), ()> {
+    let bytes = serde_jcs::to_vec(&ReferenceHeapReport {
+        schema: "pangopup-reference-builder-heap-v1",
+        allocator: "rust-system-outstanding",
+        peak_outstanding_bytes: peak,
+    })
+    .map_err(|_| ())?;
+    let mut file = fs::File::options()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|_| ())?;
+    use std::io::Write;
+    file.write_all(&bytes)
+        .and_then(|_| file.sync_all())
+        .map_err(|_| ())
+}
+
+fn valid_reference_alias(value: &str) -> bool {
+    if value.parse::<pangopup_core::Grch38Contig>().is_ok() {
+        return true;
+    }
+    (1_u8..=25).any(|code| {
+        pangopup_core::Grch38Contig::from_code(code)
+            .ok()
+            .is_some_and(|contig| pangopup_index::reference::required_accession(contig) == value)
+    })
+}
+
+fn reference_command_error(command: &'static str, error: &CommandError) -> ExitCode {
+    let code = match error.code {
+        "CLI_USAGE" => "CLI_USAGE",
+        "REFERENCE_INPUT" => "REFERENCE_INPUT",
+        "REFERENCE_BUNDLE" => "REFERENCE_BUNDLE",
+        "REFERENCE_WINDOW" => "REFERENCE_WINDOW",
+        "ALREADY_EXISTS" => "ALREADY_EXISTS",
+        _ => "IO",
+    };
+    reference_failure(
+        command,
+        code,
+        reference_error_message(code),
+        u8::from(code == "CLI_USAGE") + 1,
+    )
+}
+
+fn reference_error_message(code: &str) -> &'static str {
+    match code {
+        "CLI_USAGE" => "reference command arguments are invalid",
+        "REFERENCE_INPUT" => "reference input is invalid",
+        "REFERENCE_BUNDLE" => "reference bundle is invalid",
+        "REFERENCE_WINDOW" => "reference window is invalid",
+        "ALREADY_EXISTS" => "reference output already exists",
+        _ => "reference I/O failed",
     }
 }
 

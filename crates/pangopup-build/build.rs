@@ -2,9 +2,21 @@ use sha2::{Digest, Sha256};
 use std::{
     env, fs,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 fn main() {
+    let rustc = env::var_os("RUSTC").expect("rustc path");
+    let rustc_version = Command::new(rustc)
+        .arg("--version")
+        .output()
+        .expect("run rustc --version");
+    assert!(rustc_version.status.success(), "rustc --version failed");
+    let rustc_version = String::from_utf8(rustc_version.stdout).expect("rustc version UTF-8");
+    println!(
+        "cargo:rustc-env=PANGOPUP_RUSTC_VERSION={}",
+        rustc_version.trim()
+    );
     let crate_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest directory"));
     let workspace = crate_dir.join("../..");
     let mut paths = vec![

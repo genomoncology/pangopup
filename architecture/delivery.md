@@ -121,10 +121,10 @@ All four SNV delivery stages are shipped. Later model/reference/mask delivery
 receives its own coordinator-authored and independently reviewed contract.
 
 Retained evidence selected the `acgt2-rle-v1` reference payload by speed from
-three exact mmap candidates on the pinned six-contig RefSeq input. That result
-may feed a later production bundle, XDG installation, or release asset only
-after full production hardening; benchmark files themselves are not runtime
-assets.
+three exact mmap candidates on the pinned six-contig RefSeq input. It now feeds
+a separate production `PGRREF01` bundle and provider. The benchmark files are
+still not runtime assets. Reference XDG installation, transport, and release
+publication remain separately reviewed future work.
 
 ## Shipped Linux installation and pinned remote sync
 

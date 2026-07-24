@@ -2,7 +2,8 @@
 
 Pangopup is a standalone GPL-3.0 Rust project for high-performance,
 Pangolin-compatible splice scoring on GRCh38 genomic variants. Today it ships
-an exact precomputed-SNV library and CLI, deterministic local release
+an exact precomputed-SNV library and CLI, a production mmap GRCh38 reference
+provider and authenticated builder, deterministic local release
 transport tooling, atomic Linux/XDG installation, and pinned resumable sync of
 the immutable public SNV transport. It also ships a frozen, independently
 captured upstream compatibility corpus for future model work. Model inference
@@ -107,18 +108,38 @@ service will use four versioned assets:
 |---|---|---|---|
 | SNV score index | Shipped fast path | Zenodo precomputed scores | Certified three-file bundle with a fixed 11-byte mmap member |
 | Model weights | Planned fallback | Upstream Pangolin checkpoints | Planned verified Rust-runtime representation |
-| GRCh38 sequence | Planned fallback sequence window and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Planned production-hardening of the selected `acgt2-rle-v1` mmap payload |
+| GRCh38 sequence | Shipped provider for fallback sequence windows and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Certified `PGRREF01` two-bit/ambiguity-run mmap bundle |
 | Splice mask | Planned gene strand, spans, and exon boundaries | GENCODE release 38 annotation | Planned compact interval/boundary mmap file |
 
 NCBI supplies the reference genome sequence; it does not supply the Pangolin
 model. The target release process will publish a pinned copy or verified
 conversion of the upstream model as a separate asset.
 
-For the planned model path, the original NCBI reference will be downloaded as
-FASTA when the reference asset is built. A target full installation downloads
-the compiled reference member, not the raw FASTA, and performs bounded indexed
-sequence reads rather than parsing FASTA during a request. The same principle
+The reference maintenance builder accepts the exact pinned NCBI FASTA and
+assembly report, selects the 25 required assembled molecules, certifies every
+decoded base and the frozen model contexts, and publishes an immutable
+three-file bundle. Runtime code memory-maps `reference.pgr` and copies only the
+requested window into caller-owned memory. Delivery and XDG installation of
+this separate asset remain future work; a target full installation downloads
+the compiled bundle, not the raw FASTA. The same principle
 applies to GENCODE: GTF/gffutils is build input, not a runtime database.
+
+The normal test path builds the checked synthetic profile:
+
+```text
+pangopup-build reference build --profile pangopup-reference-mini-v1 \
+  --source tests/fixtures/reference-production-mini/source.fa.gz \
+  --assembly-report tests/fixtures/reference-production-mini/assembly_report.txt \
+  --output <ABSENT_DIR>
+pangopup-build reference inspect --bundle <DIR>
+pangopup-build reference window --bundle <DIR> --contig NC_000001.11 \
+  --start 1 --length 15
+```
+
+Production uses profile `refseq-grch38p14-primary-v1`. Build performs private
+exhaustive certification once; there is intentionally no public long-running
+`reference verify` command. Ordinary open checks bounded metadata and the
+ambiguity table without hashing or scanning dense genome bytes.
 
 ## Upstream compatibility oracle
 
@@ -383,14 +404,14 @@ Implemented today:
   helper and every imported upstream Python module immediately before use;
 - three closed, benchmark-only GRCh38 sequence candidates, an authenticated
   miniature IUPAC/page-boundary oracle, and one retained deterministic
-  comparison selecting `acgt2-rle-v1` by speed. Selection does not yet ship a
-  production reference bundle or reader.
+  comparison selecting `acgt2-rle-v1` by speed, now hardened as a separate
+  production bundle, reader, provider, and builder.
 
 Not implemented yet: model runtime/fallback, HTTP service, container,
 persistent download progress/status, repair/GC/rollback, or result
 cache. In this slice a syntactically valid concrete REF that
 does not match an ordinary indexed key is `not_found`; runtime FASTA validation
-begins only with the future model/reference slice.
+begins only when model routing consumes the shipped reference provider.
 
 The rolling outcome order is:
 
@@ -406,12 +427,13 @@ The rolling outcome order is:
 9. an upstream Pangolin compatibility corpus (complete);
 10. measure and select the compact RefSeq GRCh38.p14 payload (complete:
     `acgt2-rle-v1` selected by speed);
-11. harden the selected reference payload with the pinned model and compact
-    GENCODE mask assets;
-12. CPU inference parity, followed only then by measured accelerator options;
-13. lookup-first model routing and evidence-gated result caching;
-14. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
-15. observability, security, performance, and release hardening.
+11. harden the selected reference payload as a complete provider and bundle
+    (Ticket 011);
+12. package the pinned model and compact GENCODE mask assets;
+13. CPU inference parity, followed only then by measured accelerator options;
+14. lookup-first model routing and evidence-gated result caching;
+15. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
+16. observability, security, performance, and release hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the
 next coordinator-authored and independently reviewed ticket is active work.

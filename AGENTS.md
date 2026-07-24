@@ -7,11 +7,12 @@ repository currently ships the source inspector, deterministic complete-corpus
 builder and verifier, fixed 11-byte mmap reader, typed score-provider API,
 batch lookup CLI, Linux local-user asset installation/discovery, the immutable
 public `snv-grch38-v1` lookup-data release, pinned resumable remote sync, and a
-strict frozen upstream compatibility corpus with a bounded offline inspector.
+strict frozen upstream compatibility corpus with a bounded offline inspector,
+and the qualified production RefSeq GRCh38.p14 reference bundle/provider.
 Model inference/fallback and the HTTP service remain target work and are not
 implemented. A reviewed retained benchmark selected the two-bit/ambiguity-run
-GRCh38 payload by speed; its checked codecs remain benchmark-only and none is
-yet a production reference reader. Read `README.md` first.
+GRCh38 payload by speed; Ticket 011 hardened it as the production `PGRREF01`
+reader and qualified the complete 25-contig bundle. Read `README.md` first.
 
 ## Repository contract shape
 

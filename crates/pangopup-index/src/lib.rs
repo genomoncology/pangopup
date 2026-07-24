@@ -9,6 +9,9 @@
 #[doc(hidden)]
 pub mod reference_candidates;
 
+/// Production GRCh38 reference bundle and mmap provider.
+pub mod reference;
+
 use memmap2::Mmap;
 use pangopup_core::{
     DnaBase, EnsemblGeneId, GeneScoreRecord, GenomicPosition, Grch38Contig, Grch38Snv, LookupError,

@@ -546,6 +546,89 @@ pub trait ScoreProvider: Send + Sync {
     ) -> Result<LookupResult, LookupError>;
 }
 
+/// Identity of the immutable reference bundle used for sequence access.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReferenceProvenance {
+    bundle_id: String,
+    profile: String,
+    format: String,
+    assembly: String,
+    assembly_accession: String,
+    sequence_set_sha256: String,
+}
+
+impl ReferenceProvenance {
+    pub fn new(
+        bundle_id: String,
+        profile: String,
+        format: String,
+        assembly: String,
+        assembly_accession: String,
+        sequence_set_sha256: String,
+    ) -> Self {
+        Self {
+            bundle_id,
+            profile,
+            format,
+            assembly,
+            assembly_accession,
+            sequence_set_sha256,
+        }
+    }
+
+    pub fn bundle_id(&self) -> &str {
+        &self.bundle_id
+    }
+    pub fn profile(&self) -> &str {
+        &self.profile
+    }
+    pub fn format(&self) -> &str {
+        &self.format
+    }
+    pub fn assembly(&self) -> &str {
+        &self.assembly
+    }
+    pub fn assembly_accession(&self) -> &str {
+        &self.assembly_accession
+    }
+    pub fn sequence_set_sha256(&self) -> &str {
+        &self.sequence_set_sha256
+    }
+}
+
+/// A typed reference-window failure.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ReferenceError {
+    EmptyWindow,
+    OutOfBounds,
+    CorruptProviderData,
+}
+
+impl fmt::Display for ReferenceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::EmptyWindow => "reference window must not be empty",
+            Self::OutOfBounds => "reference window is out of bounds",
+            Self::CorruptProviderData => "reference provider data is corrupt",
+        })
+    }
+}
+
+impl std::error::Error for ReferenceError {}
+
+/// Exact uppercase IUPAC sequence access over one immutable reference bundle.
+pub trait ReferenceProvider: Send + Sync {
+    fn copy_window(
+        &self,
+        contig: Grch38Contig,
+        start: GenomicPosition,
+        destination: &mut [u8],
+    ) -> Result<(), ReferenceError>;
+
+    fn provenance(&self) -> &ReferenceProvenance;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

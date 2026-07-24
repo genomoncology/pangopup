@@ -1,0 +1,26 @@
+# Synthetic pangopup-reference-mini-v1 assembly report
+1	assembled-molecule	1	Chromosome	mini1	=	NC_000001.11	Primary Assembly	30	chr1
+2	assembled-molecule	2	Chromosome	mini2	=	NC_000002.12	Primary Assembly	16	chr2
+3	assembled-molecule	3	Chromosome	mini3	=	NC_000003.12	Primary Assembly	12	chr3
+4	assembled-molecule	4	Chromosome	mini4	=	NC_000004.12	Primary Assembly	4	chr4
+5	assembled-molecule	5	Chromosome	mini5	=	NC_000005.10	Primary Assembly	4	chr5
+6	assembled-molecule	6	Chromosome	mini6	=	NC_000006.12	Primary Assembly	4	chr6
+7	assembled-molecule	7	Chromosome	mini7	=	NC_000007.14	Primary Assembly	4	chr7
+8	assembled-molecule	8	Chromosome	mini8	=	NC_000008.11	Primary Assembly	4	chr8
+9	assembled-molecule	9	Chromosome	mini9	=	NC_000009.12	Primary Assembly	4	chr9
+10	assembled-molecule	10	Chromosome	mini10	=	NC_000010.11	Primary Assembly	4	chr10
+11	assembled-molecule	11	Chromosome	mini11	=	NC_000011.10	Primary Assembly	4	chr11
+12	assembled-molecule	12	Chromosome	mini12	=	NC_000012.12	Primary Assembly	4	chr12
+13	assembled-molecule	13	Chromosome	mini13	=	NC_000013.11	Primary Assembly	4	chr13
+14	assembled-molecule	14	Chromosome	mini14	=	NC_000014.9	Primary Assembly	4	chr14
+15	assembled-molecule	15	Chromosome	mini15	=	NC_000015.10	Primary Assembly	4	chr15
+16	assembled-molecule	16	Chromosome	mini16	=	NC_000016.10	Primary Assembly	4	chr16
+17	assembled-molecule	17	Chromosome	mini17	=	NC_000017.11	Primary Assembly	4	chr17
+18	assembled-molecule	18	Chromosome	mini18	=	NC_000018.10	Primary Assembly	4	chr18
+19	assembled-molecule	19	Chromosome	mini19	=	NC_000019.10	Primary Assembly	4	chr19
+20	assembled-molecule	20	Chromosome	mini20	=	NC_000020.11	Primary Assembly	4	chr20
+21	assembled-molecule	21	Chromosome	mini21	=	NC_000021.9	Primary Assembly	4	chr21
+22	assembled-molecule	22	Chromosome	mini22	=	NC_000022.11	Primary Assembly	4	chr22
+X	assembled-molecule	X	Chromosome	miniX	=	NC_000023.11	Primary Assembly	8	chrX
+Y	assembled-molecule	Y	Chromosome	miniY	=	NC_000024.10	Primary Assembly	8	chrY
+MT	assembled-molecule	MT	Mitochondrion	miniM	=	NC_012920.1	non-nuclear	9	chrM

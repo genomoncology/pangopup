@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-07-23
+Updated: 2026-07-24
 
 ## Current boundary
 
@@ -13,7 +13,9 @@ leads memory and download size. Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
 established. Immutable publication and pinned resumable remote sync are also
 complete. The strict upstream Pangolin compatibility corpus is established;
-model/reference/mask assets, inference, and HTTP remain future.
+model/mask assets, inference, and HTTP remain future. The production reference
+bundle, authenticated builder, and typed mmap provider are established; its
+transport, installation, and publication remain future delivery work.
 
 ## Established — pinned source ingestion contract
 
@@ -136,13 +138,41 @@ six-contig RefSeq input selected `acgt2-rle-v1` by speed: headline p50/p95 were
 IUPAC4. This selects the payload; it does not claim a production reference
 reader or asset.
 
-## Current outcome — production model/reference/mask assets
+## Established — production GRCh38 reference bundle and provider
 
-Harden the selected `acgt2-rle-v1` payload for the complete 25-primary-sequence
-RefSeq GRCh38.p14 asset, and package it with pinned model checkpoints plus a
-compact GENCODE masking member. Builders or conversion tools must be
-reproducible, bounded-memory, independently verifiable, and license-complete.
-The service should not parse raw FASTA/GTF or open gffutils/SQLite at runtime.
+`PGRREF01` hardens the selected two-bit/ambiguity-run payload independently of
+the benchmark container. The registered production profile binds the exact
+RefSeq GRCh38.p14 FASTA/report, all 25 required sequences, ignored-record and
+logical sequence digests, exact member hashes, and NCBI attribution. A
+caller-buffer `ReferenceProvider` owns one read-only mmap; cheap open validates
+bounded structure and every ambiguity run without touching dense pages, and a
+window performs no heap allocation. The authenticated streaming builder
+privately hashes and decodes the complete stage before atomic publication.
+Normal gates use a separate 25-contig synthetic profile. One retained full
+build established the complete source identities, logical digest, contexts,
+member size, and builder heap. After an observable latency failure exposed a
+production decoder regression and per-query audit overhead, the production
+reader adopted the selected aligned four-base decoder and constructor-only
+audit scope without changing v1. Exhaustive bounded scalar equivalence and
+focused page, ambiguity, corruption, concurrency, and zero-allocation controls
+are green.
+
+The single authorized optimized CPU0 reuse qualification passed every
+unchanged threshold under contract `edaee037…b35af`: p50/p95 `1864/2084 ns`,
+zero allocations, open heap `16060` bytes, zero dense bytes during open,
+benchmark RSS `20938752` bytes, exact eight dense pages / page-count sum 20,
+installed size `772096272` bytes, and pinned-Zstandard size `656781805` bytes.
+All 25-contig logical identities remain unchanged. The original full build and
+both failed qualification roots are preserved; no second full build occurred.
+Reference transport/XDG/release is not part of this outcome.
+
+## Current outcome — production model and mask assets
+
+Package the pinned Pangolin checkpoints plus a compact GENCODE masking member.
+Builders or conversion tools must be reproducible, bounded-memory,
+independently verifiable, and license-complete. Model admission must require
+the exact established reference profile/format/assembly/digest. The service
+should not parse raw FASTA/GTF or open gffutils/SQLite at runtime.
 
 ## Later outcome — model-backed fallback
 

@@ -35,6 +35,10 @@ Owns the stable concepts callers use:
 - gene-specific result records and source provenance;
 - narrow provider capabilities and typed errors.
 
+The shipped `ReferenceProvider` copies an exact one-based uppercase-IUPAC
+window into caller-owned storage and reports immutable bundle provenance. It
+does not expose paths, mmap lifetimes, offsets, aliases, or FASTA details.
+
 Structs and newtypes represent data. Traits represent capabilities. Avoid a
 trait for every type: the likely first abstraction is one score provider with
 gene-filtered and all-overlap lookup operations.
@@ -75,10 +79,12 @@ adapter over the shared certification and transport APIs. `pangopup-index`
 supplies the sole bounded canonical installed-manifest parser; assets does not
 duplicate that grammar.
 
-Three benchmark-only reference codecs live behind a separate module so the
-maintenance builder and custom harness measure the same checked decoders. They
-are not runtime providers. Retained evidence selected `acgt2-rle-v1` by speed;
-a later ticket must harden that payload before model code can depend on it.
+Three benchmark-only reference codecs remain behind a separate module. The
+winner was re-specified as the distinct `PGRREF01` production format; runtime
+code uses `ReferenceBundleOpen`, never the benchmark container. The production
+reader owns one read-only mmap and the bounded ambiguity table. The build crate
+owns authenticated FASTA/report parsing, full logical certification, and
+atomic publication.
 
 ### `pangopup-cli`
 
