@@ -75,6 +75,11 @@ adapter over the shared certification and transport APIs. `pangopup-index`
 supplies the sole bounded canonical installed-manifest parser; assets does not
 duplicate that grammar.
 
+Three benchmark-only reference codecs live behind a separate module so the
+maintenance builder and custom harness measure the same checked decoders. They
+are not runtime providers. Retained evidence selected `acgt2-rle-v1` by speed;
+a later ticket must harden that payload before model code can depend on it.
+
 ### `pangopup-cli`
 
 Owns arguments, narrow genomic-variant input parsing, output rendering, and
@@ -173,7 +178,7 @@ Every result carries enough provenance to identify:
 
 Today the CLI opens either one explicitly supplied bundle or the atomically
 selected active Linux installation. Local install/status and active discovery
-are shipped; no HTTP adapter or remote sync exists. In the target service,
+and pinned remote sync are shipped; no HTTP adapter exists. In the target service,
 before serving, an adapter asks remote sync to obtain one binary-pinned
 compatible transport and passes it through the same local installer. The core
 then opens one immutable bundle. A replacement bundle requires a new process.
@@ -197,7 +202,7 @@ never appears on the query path.
 - model conversion and CPU execution for supported lookup misses and non-SNVs;
 - lookup-first routing through one typed result/provenance API;
 - application-level model-result caching only if measurements justify it;
-- immutable publication followed by pinned remote asset sync;
+- separately versioned model/reference/mask publication and pinned sync;
 - foreground HTTP serving plus container and native service-manager
   integration; and
 - measured accelerator backends only after CPU compatibility is proved.

@@ -125,10 +125,22 @@ and its atomic publisher distinguishes unpublished cleanup from a reported
 post-publication parent-sync failure. The one-time capture is not a routine
 validation command.
 
-## Next outcome — model/reference/mask assets
+## Established — compact reference payload selection
 
-Package pinned model checkpoints plus compact, indexed RefSeq GRCh38.p14
-sequence and GENCODE masking members. Builders or conversion tools must be
+Three closed sequence payloads now share one benchmark-only container and a
+checked miniature oracle. Focused tests prove exact IUPAC decoding,
+caller-buffer reads, corruption rejection, deterministic logical page traces,
+and the pure ranking rule. One retained five-round run over the preserved
+six-contig RefSeq input selected `acgt2-rle-v1` by speed: headline p50/p95 were
+4,469/4,880 ns, compared with 16,272/18,366 for ASCII and 34,267/41,522 for
+IUPAC4. This selects the payload; it does not claim a production reference
+reader or asset.
+
+## Current outcome — production model/reference/mask assets
+
+Harden the selected `acgt2-rle-v1` payload for the complete 25-primary-sequence
+RefSeq GRCh38.p14 asset, and package it with pinned model checkpoints plus a
+compact GENCODE masking member. Builders or conversion tools must be
 reproducible, bounded-memory, independently verifiable, and license-complete.
 The service should not parse raw FASTA/GTF or open gffutils/SQLite at runtime.
 

@@ -120,6 +120,12 @@ format or installer:
 All four SNV delivery stages are shipped. Later model/reference/mask delivery
 receives its own coordinator-authored and independently reviewed contract.
 
+Retained evidence selected the `acgt2-rle-v1` reference payload by speed from
+three exact mmap candidates on the pinned six-contig RefSeq input. That result
+may feed a later production bundle, XDG installation, or release asset only
+after full production hardening; benchmark files themselves are not runtime
+assets.
+
 ## Shipped Linux installation and pinned remote sync
 
 The binary embeds the canonical `snv-grch38-v1` release profile for one

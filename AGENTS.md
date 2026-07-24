@@ -9,7 +9,9 @@ batch lookup CLI, Linux local-user asset installation/discovery, the immutable
 public `snv-grch38-v1` lookup-data release, pinned resumable remote sync, and a
 strict frozen upstream compatibility corpus with a bounded offline inspector.
 Model inference/fallback and the HTTP service remain target work and are not
-implemented. Read `README.md` first.
+implemented. A reviewed retained benchmark selected the two-bit/ambiguity-run
+GRCh38 payload by speed; its checked codecs remain benchmark-only and none is
+yet a production reference reader. Read `README.md` first.
 
 ## Repository contract shape
 

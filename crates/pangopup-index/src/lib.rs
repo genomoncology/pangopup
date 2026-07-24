@@ -3,6 +3,12 @@
 //! The byte layout is not a public compatibility promise. Integer fields are
 //! little-endian and mapped bytes are never cast to Rust structs.
 
+/// Benchmark-only GRCh38 reference candidates used to select Ticket 011's
+/// production payload. Nothing in the runtime lookup path depends on these
+/// experimental codecs.
+#[doc(hidden)]
+pub mod reference_candidates;
+
 use memmap2::Mmap;
 use pangopup_core::{
     DnaBase, EnsemblGeneId, GeneScoreRecord, GenomicPosition, Grch38Contig, Grch38Snv, LookupError,

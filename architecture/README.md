@@ -9,6 +9,11 @@ The checked `pangopup-compat-v1` oracle now fixes upstream model and
 post-processing behavior. Model fallback and HTTP remain future work on the
 same standalone Rust core.
 
+Reference payload selection is isolated behind three benchmark-only codecs and
+a checked miniature oracle. Retained evidence selected `acgt2-rle-v1` by speed;
+the next slice must still harden it before it becomes part of the production
+runtime.
+
 ## Boundaries
 
 - [`design.md`](design.md) — typed API, crate ownership, lookup flow, and scope.
@@ -20,6 +25,8 @@ same standalone Rust core.
   standalone lookup and model fallback.
 - [`decisions/0008-strict-upstream-compatibility-profile.md`](decisions/0008-strict-upstream-compatibility-profile.md)
   — the frozen source/model/numeric profile and order-sensitive replay policy.
+- [`decisions/0009-reference-format-selection.md`](decisions/0009-reference-format-selection.md)
+  — the accepted two-bit/ambiguity-run reference payload selection.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)

@@ -1,0 +1,5 @@
+{"bases":"ACGTRYSWKMBDHVN","contig":"chr3","id":"C01-all-iupac","sha256":"63a788b0ce64591d999254f97eb3feae1d56e9894c3a4eef645af3c1615d52b1","start_1based":1}
+{"bases":"AAAAAAAA","contig":"chr3","id":"C02-ascii-page","sha256":"c34ab6abb7b2bb595bc25c3b388c872fd1d575819a8f55cc689510285e212385","start_1based":4093}
+{"bases":"AAAAAAAAAAAAAAAA","contig":"chr3","id":"C03-iupac-page","sha256":"991204fba2b6216d476282d375ab88d20e6108d109aecded97ef424ddd114706","start_1based":8185}
+{"bases":"AAAAAAAAAAAAAAAA","contig":"chr3","id":"C04-two-bit-page","sha256":"991204fba2b6216d476282d375ab88d20e6108d109aecded97ef424ddd114706","start_1based":16369}
+{"bases":"NNRRACTGACGT","contig":"chrM","id":"C05-runs","sha256":"ea81960b762a932fa6abaaafc829845e1aba61cb5a5545f896f13785fea1212d","start_1based":1}

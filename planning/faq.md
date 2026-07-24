@@ -158,6 +158,17 @@ sequence into a compact indexed mmap member. Model fallback will read a bounded
 sequence window without parsing FASTA or loading the whole reference into heap
 memory. None of that model/reference runtime is implemented yet.
 
+### Which compact reference encoding will Pangopup use?
+
+`acgt2-rle-v1`: two-bit ACGT with exact ambiguity runs. In the one retained
+six-contig comparison its headline p50/p95 were 4,469/4,880 ns, versus
+16,272/18,366 for uppercase ASCII and 34,267/41,522 for exact four-bit IUPAC.
+That satisfied the required five-percent speed win at both quantiles against
+both alternatives. It also produced the smallest member and Zstandard frame,
+although IUPAC4 touched two fewer logical pages. Normal tests use a tiny
+independent oracle. The winning payload still requires separate full-reference
+production hardening; the benchmark files are not runtime assets.
+
 ### What latency should we expect?
 
 The retained Ticket 004 evidence reports measured warm one-open library lookup,

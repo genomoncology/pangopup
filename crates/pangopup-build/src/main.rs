@@ -5,6 +5,7 @@ use pangopup_build::{
     CommandError, build_bundle,
     compatibility::{CaptureArguments, capture_corpus, inspect_corpus},
     inspect_directory, prepare_benchmark_corpus, prototype_open, prototype_roundtrip,
+    reference_candidates::{inspect_candidates, prepare_candidates},
     verify_bundle,
 };
 use std::{env, path::Path, process::ExitCode};
@@ -36,6 +37,12 @@ fn main() -> ExitCode {
         .is_some_and(|command| command == "compatibility")
     {
         return compatibility_command(&arguments[1..]);
+    }
+    if arguments
+        .first()
+        .is_some_and(|command| command == "reference-candidates")
+    {
+        return reference_candidates_command(&arguments[1..]);
     }
     match arguments.as_slice() {
         [command, source] if command == "inspect" => {
@@ -93,6 +100,112 @@ fn main() -> ExitCode {
         }
         _ => json_failure(&CommandError::new("CLI_USAGE", USAGE)),
     }
+}
+
+fn reference_candidates_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let Some(action) = arguments.first().and_then(|value| value.to_str()) else {
+        return reference_failure(
+            "reference-candidates",
+            "usage",
+            "reference-candidates requires prepare or inspect",
+            2,
+        );
+    };
+    match action {
+        "prepare" => {
+            let Ok(values) =
+                parse_exact_flags(&arguments[1..], &["--source", "--corpus", "--output"])
+            else {
+                return reference_failure(
+                    "reference-candidates.prepare",
+                    "usage",
+                    "prepare requires source, corpus, and output",
+                    2,
+                );
+            };
+            match prepare_candidates(
+                Path::new(values[0]),
+                Path::new(values[1]),
+                Path::new(values[2]),
+            ) {
+                Ok(outcome) => reference_json(&outcome, 0),
+                Err(error) => reference_failure(
+                    "reference-candidates.prepare",
+                    error.code(),
+                    error.message(),
+                    1,
+                ),
+            }
+        }
+        "inspect" => {
+            let Ok(values) = parse_exact_flags(&arguments[1..], &["--candidates", "--corpus"])
+            else {
+                return reference_failure(
+                    "reference-candidates.inspect",
+                    "usage",
+                    "inspect requires candidates and corpus",
+                    2,
+                );
+            };
+            match inspect_candidates(Path::new(values[0]), Path::new(values[1])) {
+                Ok(outcome) => reference_json(&outcome, 0),
+                Err(error) => reference_failure(
+                    "reference-candidates.inspect",
+                    error.code(),
+                    error.message(),
+                    1,
+                ),
+            }
+        }
+        _ => reference_failure(
+            "reference-candidates",
+            "usage",
+            "reference-candidates requires prepare or inspect",
+            2,
+        ),
+    }
+}
+
+fn reference_failure(
+    command: &'static str,
+    code: &'static str,
+    message: &'static str,
+    exit: u8,
+) -> ExitCode {
+    #[derive(serde::Serialize)]
+    struct ErrorBody {
+        code: &'static str,
+        message: &'static str,
+    }
+    #[derive(serde::Serialize)]
+    struct Failure {
+        ok: bool,
+        command: &'static str,
+        error: ErrorBody,
+    }
+    reference_json(
+        &Failure {
+            ok: false,
+            command,
+            error: ErrorBody { code, message },
+        },
+        exit,
+    )
+}
+
+fn reference_json(value: &impl serde::Serialize, exit: u8) -> ExitCode {
+    let bytes = match serde_jcs::to_vec(value) {
+        Ok(bytes) => bytes,
+        Err(_) => b"{\"command\":\"reference-candidates\",\"error\":{\"code\":\"io\",\"message\":\"JSON output failed\"},\"ok\":false}".to_vec(),
+    };
+    let mut stdout = std::io::stdout().lock();
+    if std::io::Write::write_all(&mut stdout, &bytes)
+        .and_then(|_| std::io::Write::write_all(&mut stdout, b"\n"))
+        .is_err()
+    {
+        return ExitCode::from(1);
+    }
+    ExitCode::from(exit)
 }
 
 fn compatibility_command(arguments: &[std::ffi::OsString]) -> ExitCode {

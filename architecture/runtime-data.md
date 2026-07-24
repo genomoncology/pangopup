@@ -54,6 +54,15 @@ The pinned sequence source is the [NCBI RefSeq GRCh38.p14 assembly](https://www.
 The masking source is the archived [GENCODE release 38](https://www.gencodegenes.org/human/release_38.html)
 annotation used by the upstream instructions, not a moving "latest" release.
 
+The runtime representation was selected by measurement rather than assumption.
+The closed comparison used uppercase ASCII, exact four-bit IUPAC, and two-bit
+ACGT plus exact ambiguity runs in one common mmap container. The retained
+six-contig result selected `acgt2-rle-v1` by speed: headline p50/p95 were
+4,469/4,880 ns versus 16,272/18,366 for ASCII and 34,267/41,522 for IUPAC4.
+A checked miniature proves symbol, boundary, corruption, and logical-page
+behavior in normal tests. These remain benchmark codecs, not a shipped
+reference asset; the selected payload still needs full production hardening.
+
 RefSeq and GENCODE have different roles here. RefSeq supplies the GRCh38 DNA
 bases. GENCODE supplies the gene/exon map required by Pangolin's masking rules
 and by the Ensembl-gene identities used in the precomputed dataset. This does

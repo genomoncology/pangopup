@@ -1,6 +1,6 @@
 # 010 — Select the compact GRCh38 runtime reference format
 
-Status: ready
+Status: complete
 Accepted contract identity: `sha256:0b59f1b874c6e2bc7c3a7943febd1d1041e613b7e0af4f413f21602c92ebbfee`
 Base revision: `36fee3b5d6551f0dc24c5d42d57986c283c98c28`
 
@@ -511,16 +511,20 @@ observations, not machine-dependent test thresholds. Make no cold-I/O claim.
 - Pre-existing user changes: none in the Git worktree.
 - Pre-existing unrelated process state: the two orphaned Ticket 007 helpers
   named above; preserve them.
-- Implementer changes: pending after independent design acceptance.
-- Generated artifacts: miniature checked fixture plus large candidate/output
-  paths named in the long-job checkpoint; pending.
+- Implementer changes: the candidate codecs/readers, builder/CLI, benchmark,
+  checked miniature fixture, tests/spec, and documentation named in the
+  implementation evidence; independently accepted and ready for the
+  coordinator's implementation commit.
+- Generated artifacts: the miniature checked fixture is complete. The one
+  retained candidate set, logs, and successful report are preserved at the
+  exact contract path named below and must not be regenerated unchanged.
 - Concurrent unrelated work: none known.
 - Coordinator: `/root`.
 - Independent design reviewer: `/root/ticket_009_code_review`, acting in a new
   role on Ticket 010 and not eligible to implement or code-review Ticket 010.
-- Developer: pending, must be a different subagent.
-- Adversarial code reviewer: pending, must differ from coordinator, design
-  reviewer, and developer.
+- Developer: `/root/ticket_010_developer`.
+- Adversarial code reviewer: `/root/ticket_010_code_review`, distinct from the
+  coordinator, design reviewer, and developer.
 
 ## Long-running jobs
 
@@ -546,6 +550,14 @@ inspect the cause first. An unchanged successful benchmark is never rerun. A
 causal code, source, corpus, comparator, container, or selection change marks
 the old output obsolete and requires the same reviewers before any replacement
 run.
+
+The reviewed run completed once and succeeded at the exact contract path.
+`benchmark.json` has SHA-256
+`82badac6c02fa3830dc9014d3b8b378e19fe6265d269ca3ed88a52691cbc21af`;
+the candidate-set manifest has SHA-256
+`a2e77a972b9094cd069cbad20531d7a065175343e507ac3e468fcf17f87db478`.
+The preserved result must not be rerun unless a causal input, code, contract,
+or selection rule changes and receives the required reviews again.
 
 ## Coordinator Authorship
 
@@ -583,51 +595,283 @@ remaining correction or separate major issue was found.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: `/root/ticket_010_developer`
+
+Implementation of the closed candidate formats, authenticated miniature
+fixture, deterministic evaluator, benchmark harness, focused offline controls,
+and retained decision evidence is complete for final adversarial review. The
+single authorized six-contig run succeeded and is preserved unchanged.
+
+Implemented before the retained run:
+
+- benchmark-only incremental ASCII, exact IUPAC4, and two-bit/ambiguity-run
+  writers plus structurally checked mmap readers and exhaustive inspection;
+- caller-buffer window copies, deterministic logical page traces, and the pure
+  speed/pages/file/Zstandard ranking evaluator;
+- bounded two-pass plain-FASTA preparation, strict real-profile source/corpus
+  authentication, private staged no-replace publication, closed canonical
+  manifest, and full candidate-set inspection;
+- the strict one-line JSON maintenance CLI, checked miniature source/corpus and
+  four-member candidate set, manual literal/page controls, integration tests,
+  executable spec, custom benchmark harness, accepted ADR, and retained
+  evidence artifact;
+- current architecture, runtime-data, delivery, frontier, FAQ, README, and
+  contributor boundaries that distinguish the selected benchmark payload from
+  a future production reference format.
+
+Focused evidence on 2026-07-24:
+
+```text
+cargo test --locked -p pangopup-index reference_candidate
+  13 unit + 1 benchmark-structure integration passed; 0 failed
+cargo test --locked -p pangopup-build reference_candidate
+  7 unit + 5 integration passed; 0 failed
+cargo test --locked -p pangopup-build --test reference_candidates
+  5 passed; 0 failed
+cargo check --locked -p pangopup-index --bench reference_formats
+  passed
+cargo clippy --locked -p pangopup-index -p pangopup-build --all-targets -- -D warnings
+  passed
+cargo build --locked --quiet -p pangopup-build --bin pangopup-build
+PATH="$(pwd)/target/debug:$PATH" mustmatch test spec/reference-candidates.md
+  5 passed
+git diff --check
+  passed
+```
+
+The miniature candidate-set SHA-256 is
+`557cfa37dda0cb7d89b552d2e3cb2a3c31ebea26a937f386ff149e6ed17c08ff`.
+Its manually asserted page-union counts, including open, are `6` for ASCII,
+`4` for IUPAC4, and `3` for two-bit/ambiguity runs. One focused evaluator test
+caught an implementation defect during development: later tie-break stages
+initially considered candidates eliminated by an earlier stage. The evaluator
+was corrected to retain only stage survivors and the discriminating test now
+passes.
+
+The retained report selected `acgt2-rle-v1` by speed. Headline p50/p95 were
+`4469/4880` ns, versus `16272/18366` for ASCII and `34267/41522` for IUPAC4.
+Member bytes were `165759160`, `663010724`, and `331507412` respectively;
+logical page counts were `16`, `22`, and `14`; every measured copy allocated
+zero bytes. Candidate preparation took 26.04 seconds wall with maximum RSS
+651,684 KiB; inspect took 1.59 seconds with 651,628 KiB; the benchmark took
+62.35 seconds with 650,280 KiB and zero major faults. This high RSS includes
+resident file-backed mmap pages touched by exhaustive inspection and is not a
+claim of equivalent heap retention. Raw arrays, identities, exact commands,
+resource observations, and limitations are recorded in the durable artifact.
+
+No full 25-contig source, 15 GB SNV index, Python, PyTorch, Pangolin, model,
+network, or public effect was read, launched, or performed.
+
+### Final-gate SNV fixture provenance refresh
+
+The coordinator's full test gate exercised the success-checklist contingency:
+Ticket 010 changed the builder-source fingerprint, so the tiny checked SNV
+regression fixture had to be regenerated. The existing fixture generator wrote
+only to the absent temporary directory
+`/tmp/pangopup-snv-regression-ticket010-ee6a50d5`; the checked fixture was then
+updated from that result. No raw production source or 15 GB index was read.
+
+The observed checked-to-regenerated identity change was:
+
+```text
+builder source: c059bb409a49a3ddc0aefcf8a213b9685199a8ee4293366593cacd5a9f85829c
+             -> a2c05be644b2bc36d10257ee848c5b556b6f9a217e177a6edc4b7220ebdb9133
+bundle manifest: ee6a50d5a1ef7e3eab2cd15a0334a6e117a86e367d9986271c1b5a09a945399b
+              -> 3126d856f11f1715a0246f3b953a89408e0de7c2fbec825832ac638194463275
+```
+
+Only `README.md`, `bundle/manifest.json`, `expected.jsonl`, and the seven
+batched `expected/*.jsonl` files changed. The exact score member remained
+byte-identical at SHA-256
+`fb0a77425456bd39e6aab7ad3447a24757f6889e82f7b27df01c214b78f8a6b9`;
+`requests.tsv` remained byte-identical at
+`042fcc0e550f7dfccad742a6a89b0c4e245673b0222bcefb7d42b1ffe52d`.
+`NOTICE`, `reference.fa.gz`, and all six source excerpts were also
+byte-identical. Removing only `builder.source_sha256` made the old and new
+manifests identical, with canonical comparison SHA-256
+`d5c24d9f4919827cfc832c1e8895cc5f7f18698e9c00a1d912485958ad1c6d2f`.
+
+Removing each result's complete `provenance` object made old and regenerated
+expected outputs byte-identical. The normalized SHA-256 values were:
+
+```text
+expected.jsonl                              de39d892bfa3d532256a6c3082e868de4ac367a6b882b1cd28bc1f97f17da424
+expected/ENSG00000010610.jsonl              ce7ff8e675e5f18fbb2b9f46a02da74add105b109cbdd3ae2e361d61b012d919
+expected/ENSG00000141499.jsonl              e36c59d7e22ccc7a153d21dcb9dc7ea5d23e4407511e407bad80018119a348d2
+expected/ENSG00000141510.jsonl              c9ffe7565e6b8a9f59f566b71ca18a1590e43905c28007c04815a59e478cb004
+expected/ENSG00000169129.jsonl              c321d568d600edcd3d0ca9e952cdf68eba22ea86df2b9ebd51997daf6974f757
+expected/ENSG00000175727.jsonl              e1aec9fb0046a25d2d810d5ae6dbe9a6accf3e5caee27c2e0c322b8abd98fc52
+expected/ENSG00000185974.jsonl              bf9306265e57bf6c6616ddc9cac7a6854a93f42512fef01c445ccfcee559cf79
+expected/unfiltered.jsonl                   d0e8e0a424ab8d26602e0ad96f5e8552075b8e9df1268f17685bde45131fe631
+```
+
+Thus the refresh changed provenance only: index bytes, request semantics, and
+every provenance-stripped expected result remained exact. It did not alter the
+retained reference candidate set, benchmark report, benchmark harness, or
+selection decision.
+
+The ten changed checked-file SHA-256 values are:
+
+```text
+README.md                         1959df4c361aaaa53e6333b8e79e136564626b249331e3a4daf23a5d27104978 -> 92ed8b6cbe5b4ab969d42500e520fb8852858b5bc7151e688f0dc41b30d81212
+bundle/manifest.json              ee6a50d5a1ef7e3eab2cd15a0334a6e117a86e367d9986271c1b5a09a945399b -> 3126d856f11f1715a0246f3b953a89408e0de7c2fbec825832ac638194463275
+expected.jsonl                    3f830615c6629a2b484479d7df7bd4d798e888fc0d56448e5d6e88e72f1a6f71 -> bd492f419ebb8f1fe963fa320690c30d8465f1e1298b6d2866d43503ddeeb8a8
+expected/ENSG00000010610.jsonl    338975be23b4e536f80de53f837b5356d22ebcbfd611c0f750f9d32532e325b4 -> 32b52fec2f7941572034f43b503fca645f9cc0ca725c6f4ca297ba9fd54be810
+expected/ENSG00000141499.jsonl    c4e6642efc9fea21b9767cc65bd4a5b558cc382da5c69ca88df693cb30c14fc8 -> 798570b62419890a0b89393f27f5ce54b78c1088457e9aeafe86243ae634b4cb
+expected/ENSG00000141510.jsonl    7a5db9126a8a893d003ed8e1abf4513da9475832d5c71d542c948f1aae4b56f6 -> 9eb3ffe01d327f420bcec8e731dc37c251c2d2a377a9b8c91b10dee92fddb04f
+expected/ENSG00000169129.jsonl    40ee28baca7469146ffe834ed9cb8ccaf6380ffe284d962b3c9a3e431e7af517 -> 75c717f334c547ee251607b913ffa87d9f896e5611217ea8efee4ebec422dc4d
+expected/ENSG00000175727.jsonl    b20a2ac49caa5ef3db6a812103ae2a3779b370cf0edd8fc8bb4c7f0586bf3012 -> b885cd3beb78e2874258c7bfb54dc3bbf783281a931184243f1d957df88dda3c
+expected/ENSG00000185974.jsonl    653326424e2cbd3ac81179732b72df817c8011f2c7a1c8cf15ace42f06278620 -> f125fd120c3cdb42ae86bfc0cb97187ef444a08892e13df51d6f307c679f47d9
+expected/unfiltered.jsonl         11d54b83a50398ab3f132ab2ac960b04fe5ad31d4e83d41be35502099b73f1ee -> a96efdf91c6060b65c9bf59eb5373032c8968b706b6d6585fa7276298b610147
+```
+
+Focused post-refresh evidence:
+
+```text
+cargo test --locked -p pangopup-build --test snv_regression_fixture
+  1 passed; checked fixture regenerates byte-exactly
+cargo test --locked -p pangopup-cli --test snv_regression
+  3 passed; all 1,000 direct expectations and seven CLI batches match
+cargo fmt --all -- --check
+  passed
+git diff --check
+  passed
+```
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `/root/ticket_010_code_review` — accepted final
 
 The reviewer must first approve the candidate code, oracle, harness, evaluator,
 and miniature evidence before the large retained run. The same reviewer then
 reviews the run, selected ADR, final docs, and exact diff before completion and
 answers whether a major separate issue was discovered.
 
+After both pre-run rejection/remediation cycles, the reviewer accepted the
+exact tree for the retained run. Acceptance binds HEAD
+`e4895756f00bde46876f76fca231b328a484e668`, contract
+`0b59f1b874c6e2bc7c3a7943febd1d1041e613b7e0af4f413f21602c92ebbfee`,
+and the 29-file inventory aggregate
+`84a2daf1ffd039034b9ce6d55d19142dece40106cdb3ffe0b6af6aff2a1c9e6f`.
+The full pre-launch checkpoint, binaries, inputs, host state, output/session,
+commands, progress, cancellation, and success/failure rules are recorded in
+`planning/artifacts/010-reference-format-selection.md`. No separate major issue
+was found.
+
+The initial read-only review rejected the harness before any retained run and
+reported seven in-scope findings. Every finding was accepted and remediated:
+
+1. The two-bit decoder used per-base shifts. It now uses the required fixed
+   256-entry byte-to-four-ASCII table with explicit unaligned prefix and suffix
+   handling; the measured bulk path copies four decoded bases per lookup.
+2. Benchmark preflight trusted too much self-described metadata and validation
+   occurred after timing began. Preflight now bounds and canonically decodes the
+   closed candidate envelope, checks the exact compiled real source/corpus/
+   container/contig registry, hashes the actual corpus manifest and cases plus
+   every candidate member, enforces the closed four-file directory, exhaustively
+   inspects all payloads, and checks all M01–M14 contexts before any timer. The
+   shipped inspector separately enforces `[3,10,12,13,17,25]`.
+3. Generation did not authenticate its second FASTA pass and ambiguity runs
+   scaled heap use with the contig. The generating pass is now independently
+   hashed and must match the first authenticated pass before publication; runs
+   stream through a bounded sibling scratch file and only the active run stays
+   in memory. Tests prove changed generation identity leaves no output and the
+   new writer remains byte-identical to the checked fixture.
+4. Corruption, bounds, CLI, oracle-independence, and read-audit controls were
+   incomplete. Focused tests now mutate codec, directory order, offsets,
+   header/packed/two-bit padding, IUPAC code, run bounds/order/coalescing,
+   truncation, member/corpus/literal identity, and CLI grammar. Zero/left/right/
+   overflow bounds preserve destinations. Instrumentation proves cheap open
+   reads exactly header plus directory and window page touches equal the manual
+   declared trace; header padding moved to exhaustive inspection.
+5. Timings included string parsing and allocation-toggle atomics, Zstandard
+   settings were partly implicit, and evaluator controls were incomplete.
+   Contigs are now parsed during preflight, toggles and destination slicing sit
+   outside the timed `copy_window`, zero workers and disabled long-distance
+   matching are explicit, deterministic codec settings are tested, and the
+   evaluator covers Zstandard selection plus malformed/duplicate evidence.
+6. Parent-directory sync failure could leave an output behind while returning
+   failure. Candidate and report publishers now perform explicit rollback and
+   resync after post-rename sync failure; injected tests prove both rollback
+   paths. The accepted no-replace/failure-leaves-none contract did not need to
+   change.
+7. A second stale design bullet still implied pinned sync was future. It now
+   states that only separately versioned model/reference/mask publication and
+   sync remain future; shipped SNV remote sync is no longer described as
+   unimplemented.
+8. The same reviewer's first re-review found that the first candidate block in
+   each process also calculated its complete-file Zstandard size and logical
+   page trace before later blocks were timed. The harness now returns from a
+   dedicated five-round timing function before it sorts samples, traces pages,
+   or compresses any member. A focused source-structure test requires the
+   timing section to contain none of `zstd_size`, `trace_window`, or quantile
+   sorting, requires all three in the later report section, and requires the
+   timing call to precede report finalization.
+
+The reviewer found no separate frontier-level major issue. No retained or
+large input was used while remediating.
+
+That pre-run acceptance authorized the single retained run. The same reviewer
+then accepted the preserved report, candidate manifest, selected ADR, evidence,
+current/future documentation, causal-code identity, and final diff. After the
+coordinator gate exposed the anticipated SNV regression provenance refresh,
+the reviewer independently accepted the provenance-only change against
+inventory aggregate
+`0236d275e6f90b8144c8e47b00628c54a91642ce77ad38b2b8829664d66921f2`.
+The reviewer confirmed the 1,000-request scores and seven batches were
+semantically unchanged, the retained reference artifacts were untouched, and
+no major separately scoped issue was discovered.
+
 ## External Effect Evidence
 
-Coordinator: not applicable
+Coordinator: `/root`
 
 Ticket 010 performs no publication, release, upload, deployment, paid job, or
-live-system mutation. The one retained local benchmark uses existing read-only
-inputs and writes only to the named workspace data directory after review.
+live-system mutation. The one retained local benchmark used existing read-only
+inputs and wrote only to the named workspace data directory after review. Its
+successful output is preserved and will not be rerun unchanged.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: `/root` — complete
 
-The coordinator will map every acceptance clause to evidence, audit the entire
-changed-file set, run `make lint`, `make test`, and `make spec`, perform the
-stale current/future documentation scan, and commit/push only after independent
-code-review acceptance.
+The coordinator audited the complete changed-file set, confirmed no retained
+large candidate/report is tracked, verified the preserved candidate/report
+hashes, checked current-versus-future documentation, and ran the exact final
+tree through all repository gates after the final reviewer accepted the SNV
+fixture refresh:
+
+```text
+make lint  passed (fmt and workspace all-target Clippy, warnings denied)
+make test  passed (complete locked workspace suite)
+make spec  passed (123 executable specifications)
+```
+
+The first full test invocation correctly failed on the anticipated builder
+provenance drift. It was not waived: the same developer performed the bounded
+fixture refresh, the same reviewer accepted its provenance-only evidence, and
+the complete test gate then passed byte-exactly.
 
 ## Acceptance trace
 
 | Acceptance clause | Command or evidence | Result |
 |---|---|---|
 | Exact reviewed contract | Contract SHA-256 `0b59f1b874c6e2bc7c3a7943febd1d1041e613b7e0af4f413f21602c92ebbfee`; independent acceptance above | Pass |
-| Independent literal exactness | M01–M14 plus manual IUPAC controls | Pending |
-| Closed candidates and corruption controls | Focused index/build suites | Pending |
-| Deterministic selection | Retained report plus accepted ADR | Pending |
-| Bounded resources and one retained run | Long-job checkpoint and artifact | Pending |
-| Full repository gates | `make lint`; `make test`; `make spec` | Pending |
-| Independent code review | Actual diff and evidence | Pending |
+| Independent literal exactness | M01–M14 plus manual IUPAC controls; retained inspect verified all 14 contexts | Pass |
+| Closed candidates and corruption controls | Focused index/build suites above | Pass before retained run |
+| Deterministic selection | Report SHA-256 `82badac6c02fa3830dc9014d3b8b378e19fe6265d269ca3ed88a52691cbc21af`; ADR 0009 selects `acgt2-rle-v1` by speed | Pass |
+| Bounded resources and one retained run | Preserved logs and complete artifact; one successful run, zero major faults | Pass |
+| Full repository gates | `make lint`; `make test`; `make spec` | Pass; 123 specs |
+| Independent code review | Pre-run harness plus retained result/final diff and post-fixture re-review | Pass |
 
 ## Evidence and artifacts
 
-- Base revision: `36fee3b5d6551f0dc24c5d42d57986c283c98c28`.
-- Contract identity, reviewed-ready commit, implementation diff, candidate-set
-  identity, binary/source/corpus/evaluator identities, role assignments,
-  commands, results, limitations, and final review verdict are pending.
-- Durable evidence target:
+- Original base revision: `36fee3b5d6551f0dc24c5d42d57986c283c98c28`.
+- Reviewed-ready base and `origin/main`:
+  `e4895756f00bde46876f76fca231b328a484e668`.
+- Contract, candidate set, binaries, source/corpus/evaluator identities, exact
+  commands, raw results, resources, limitations, and preserved output location
+  are complete in
   `planning/artifacts/010-reference-format-selection.md`.
+- Final independent review: accepted, including the bounded provenance-only SNV
+  fixture refresh. No separately scoped major issue was found.

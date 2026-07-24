@@ -22,6 +22,7 @@ use std::{
 
 pub mod compatibility;
 mod production;
+pub mod reference_candidates;
 pub use production::{BuildOutcome, CommandError, VerifyOutcome, build_bundle, verify_bundle};
 
 pub const SOURCE_HEADER: &str = "chrom\tpos\tref\talt\tgain_score\tgain_pos\tloss_score\tloss_pos";

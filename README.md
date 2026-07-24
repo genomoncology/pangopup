@@ -107,7 +107,7 @@ service will use four versioned assets:
 |---|---|---|---|
 | SNV score index | Shipped fast path | Zenodo precomputed scores | Certified three-file bundle with a fixed 11-byte mmap member |
 | Model weights | Planned fallback | Upstream Pangolin checkpoints | Planned verified Rust-runtime representation |
-| GRCh38 sequence | Planned fallback sequence window and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Planned compact indexed mmap file |
+| GRCh38 sequence | Planned fallback sequence window and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Planned production-hardening of the selected `acgt2-rle-v1` mmap payload |
 | Splice mask | Planned gene strand, spans, and exon boundaries | GENCODE release 38 annotation | Planned compact interval/boundary mmap file |
 
 NCBI supplies the reference genome sequence; it does not supply the Pangolin
@@ -380,7 +380,11 @@ Implemented today:
   rejection cases, four controlled post-processing cases, exact pinned source
   identities, complete independently fixed controlled vectors, and a bounded
   offline semantic inspector. Future capture re-authenticates the live GPL
-  helper and every imported upstream Python module immediately before use.
+  helper and every imported upstream Python module immediately before use;
+- three closed, benchmark-only GRCh38 sequence candidates, an authenticated
+  miniature IUPAC/page-boundary oracle, and one retained deterministic
+  comparison selecting `acgt2-rle-v1` by speed. Selection does not yet ship a
+  production reference bundle or reader.
 
 Not implemented yet: model runtime/fallback, HTTP service, container,
 persistent download progress/status, repair/GC/rollback, or result
@@ -400,11 +404,14 @@ The rolling outcome order is:
    (complete);
 8. pinned remote sync against the observed public release contract (complete);
 9. an upstream Pangolin compatibility corpus (complete);
-10. pinned model, compact RefSeq GRCh38.p14, and compact GENCODE mask assets;
-11. CPU inference parity, followed only then by measured accelerator options;
-12. lookup-first model routing and evidence-gated result caching;
-13. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
-14. observability, security, performance, and release hardening.
+10. measure and select the compact RefSeq GRCh38.p14 payload (complete:
+    `acgt2-rle-v1` selected by speed);
+11. harden the selected reference payload with the pinned model and compact
+    GENCODE mask assets;
+12. CPU inference parity, followed only then by measured accelerator options;
+13. lookup-first model routing and evidence-gated result caching;
+14. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
+15. observability, security, performance, and release hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the
 next coordinator-authored and independently reviewed ticket is active work.
