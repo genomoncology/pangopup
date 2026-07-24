@@ -4,7 +4,8 @@ Status: ready
 Superseded contract identity: `sha256:0fc618afd1073c7592f2aaa8d65eb5d37f719c8da37fe5b7745fe0390ecd2e5d`
 Superseded revised contract identity: `sha256:c31886f84cbea4144d7bde4573fec6ab1c15ba107694299aacc07dea28c177fd`
 Superseded rendering-corrected contract identity: `sha256:b94a93eaeb40e657eb78e68ea680982029e3d345fd8ffe9291fe1c09f85613fc`
-Accepted typed-array contract identity: `sha256:2adc3ee5563c9651b64c612d3536bba10d3ee11228a780e09f6731269d64e2dd`
+Superseded typed-array contract identity: `sha256:2adc3ee5563c9651b64c612d3536bba10d3ee11228a780e09f6731269d64e2dd`
+Accepted execution-profile-corrected contract identity: `sha256:93ab968f73b3e925864f19f51804d351a4951bb28720ef15caff86f6c5ad46f0`
 Base revision: `7563f90b7bda4a018833ca89cb628a26aed76c88`
 
 ## Outcome
@@ -263,8 +264,13 @@ Other fixed identities:
   `22020df0d3356e965868f4b193e89fa13e838b950a574349f7fcd461ac01c050`,
   official MD5 `16fcae8ca8e488cd8056cf317d963407`.
 - Capture environment: CPython 3.13.5, PyTorch 2.7.1+cpu, NumPy 2.5.1,
-  pandas 3.0.3, pyfastx 2.3.1, gffutils 0.14, PyVCF3 1.0.4, Linux x86_64;
-  CUDA disabled and both PyTorch thread counts forced to one.
+  pandas 3.0.3, pyfastx 2.3.1, gffutils 0.14, PyVCF3 1.0.4, Linux x86_64.
+  The normative raw-array helper had CUDA disabled and explicitly set PyTorch
+  intra-op/inter-op counts to `1/1`. The auxiliary unmodified CLI comparator
+  had CUDA disabled, inherited `OMP_NUM_THREADS=1`, and retained the observed
+  fresh-process PyTorch inter-op default `16`. Its exact public strings matched
+  the helper-derived fields for every eligible case. The comparator's thread
+  setting is provenance and a limitation, not a second numeric oracle.
 
 The manifest and notices retain these literal authoritative URLs:
 
@@ -308,14 +314,20 @@ version, or checkpoint profile before inference.
 A minimal source-controlled GPL Python helper, clearly marked as a Pangolin
 wrapper/modification, imports the pinned upstream `compute_score` path only to
 emit each raw post-ensemble array's exact NumPy dtype and bits plus observed
-genes/boundaries. Rust invokes it
-with CUDA disabled and one compute/interop thread. Separately, Rust invokes the
+genes/boundaries. Rust invokes it with CUDA disabled and PyTorch intra-op and
+inter-op counts explicitly set to one. Separately, Rust invokes the
 **unmodified** pinned upstream module as a CLI twice (`-m False` and `-m True`)
 over `M01`–`M14` plus `R01`–`R04`. `R05` and `R06` are never passed to that
 native slice path. Capture fails unless extrema/output derived from the helper
 arrays agree with the independent unmodified CLI files for every scored case,
 and unless the four eligible rejection observations agree. The helper does not
 serialize the final corpus or supply the expected CLI strings.
+
+Before any future maintainer capture, Rust runs a bounded fresh-process probe
+with the identical CLI environment and refuses it unless PyTorch reports
+intra-op/inter-op counts `1/16`. The manifest records the helper and comparator
+settings as separate named fields. This authenticates the one successful
+capture; it does not rerun or reinterpret its numeric evidence.
 
 Capture never downloads an input and never runs in normal gates. Its selected
 input plan and controlled vectors are checked source; the 671 MB capture FASTA,
@@ -365,8 +377,10 @@ The closed field layouts are:
   `transform`, `derived_bytes`, `derived_sha256`, `contigs: array`),
   `annotation: object` (`database_url`, `database_bytes`, `database_sha256`,
   `gtf_url`, `gtf_bytes`, `gtf_md5`, `gtf_sha256`, `filter`,
-  `logical_sha256`), `environment: object` (the named versions and enforced
-  CPU/thread settings), `coverage: [string;28]`, `case_ids: [string;24]`, and
+  `logical_sha256`), `environment: object` (the named versions, `cuda: false`,
+  `helper_torch_intraop_threads: 1`, `helper_torch_interop_threads: 1`,
+  `cli_omp_threads: 1`, and `cli_torch_interop_threads_observed: 16`),
+  `coverage: [string;28]`, `case_ids: [string;24]`, and
   `members: array` of exactly `cases.jsonl` then `NOTICE`, each with `filename`,
   `bytes`, and `sha256`.
 - Every case begins, in order, with `id: string`, `kind: string`, and
@@ -812,6 +826,14 @@ The same reviewer confirmed the shape-derived dtype mapping, 8/16-digit bits,
 no-narrowing rule, dtype-preserving masking/extrema/rendering, closed P04
 controls, helper/schema contract, negative tests, and failed-candidate evidence.
 
+That acceptance is superseded only for the overly broad thread-setting
+provenance statement. The same reviewer returned **ACCEPTED AS READY** for exact
+execution-profile-corrected contract
+`93ab968f73b3e925864f19f51804d351a4951bb28720ef15caff86f6c5ad46f0`.
+The reviewer confirmed the helper/comparator roles, exact `1/1` versus `1/16`
+settings, matched public fields, separate manifest fields, future fail-closed
+probe, and that no model rerun is required.
+
 Revised-contract capture candidate, checkpointed before execution:
 
 - Candidate: accepted revised contract `c31886f…` at reviewed-ready commit
@@ -914,6 +936,77 @@ discovery supersedes contract `b94a93e…`'s all-f32 array schema and returns th
 ticket to `proposed`. Another capture must wait for independent acceptance of
 the typed-array contract and a regression-tested implementation.
 
+Typed-array capture candidate, checkpointed before execution:
+
+- Purpose: perform the single reviewed CPU capture with shape-preserving `f32`
+  arrays for `M01`–`M11`, deletion-promoted `f64` arrays for `M12`–`M14`, and
+  the safe CLI/rule-replay split already accepted by the contract.
+- Candidate: accepted contract `2adc3ee…` at reviewed-ready commit
+  `bc8922318765552ca8fea01ea7bcd1d9a44bc7f9`; implementation-state SHA-256
+  `9b22022a2be17fee8e3a4eabd387f0634af544dd164d174b7c4aac3bc58ee97c`;
+  `target/debug/pangopup-build` SHA-256
+  `28a8b896192b9a387f13cba1cf188b3b0a7066d2f0f4b701dd9f6da34226b7c3`;
+  helper SHA-256
+  `4286f3851d7022a11d7ae4cfefd21b264b0f3068342b99fac4f48e6e54d3784d`.
+  `cargo check --locked -p pangopup-build` and all six focused compatibility
+  unit tests pass, including f64 no-narrowing and the exact twelve-scalar
+  dtype-aware rendering control. The final and sibling staging paths were
+  absent before launch.
+- Command, working directory, all input paths and fixed scientific identities
+  are the exact command and values recorded above. Progress is the child
+  process plus bounded sibling staging growth; success is exit zero, atomic
+  three-member publication, exact 24/14/6/4/28 self-inspection, and no partial
+  staging tree. Failure is nonzero exit or any closed identity, helper/CLI,
+  schema, semantic, or cleanup disagreement. This candidate is never rerun
+  unchanged after either success or failure.
+- Process/session: paused shell PID `1491346`, unified exec session `90683`,
+  started `2026-07-23T19:32:09-04:00`. It receives `GO` only after this exact
+  checkpoint is durable and coordinator notification. Cancel with `TERM` to
+  PID `1491346` or Ctrl-C to session `90683`; after exit, remove only its named
+  unpublished sibling staging directory if one exists, preserving every fixed
+  source input.
+
+The coordinator released that exact candidate once. It passed every fixed
+preflight identity, completed the raw-array helper and both eligible independent
+CLI passes, matched every eligible public field, self-inspected, and exited
+zero. It atomically published exactly three members and left no sibling staging
+directory. Capture output was
+`{"status":"captured","schema":"pangopup-compat-v1","profile":"pangolin-1.0.2-5cf94b8-grch38-v1","corpus_sha256":"8deedafa44c5f999e64d80dea21abbc9e4424e14cfa78339b345c8d4791e3f14","cases":24,"bytes":226621}`.
+The independent Rust inspector then returned exact summary 24/14/6/4/28.
+Member identities are: `manifest.json` 5,255 bytes SHA-256 `8deedafa…`,
+`cases.jsonl` 220,071 bytes SHA-256 `2aa557fd3b137966721d47ce073b2954c6a0bb1a6a64e9c4933dac69e88042c8`,
+and `NOTICE` 1,295 bytes SHA-256
+`7047ba11130abff88c105c3f9cd3b87475e1e243b5fcd351d3038d164ec92514`.
+The corpus has exactly 24 JSONL records and retains both typed families; this
+successful capture will not be rerun.
+
+Post-capture packaging review found that the generated corpus-local `NOTICE`
+named the NCBI FASTA and GENCODE GTF but omitted three literal provenance URLs
+required by this ticket: the assembly report, upstream gffutils database, and
+GENCODE checksum index. No scientific observation or case byte was changed and
+the model was not rerun. The deterministic `notice_bytes()` template and frozen
+`NOTICE` were completed, then the manifest's NOTICE size/digest declaration was
+rebound. The final checked corpus is 226,978 aggregate member bytes with
+`manifest.json` SHA-256
+`40ddab021530a1a736ec6fab1f2a7b1ac771cd996ed8251333b2973680a8f758`,
+unchanged `cases.jsonl` SHA-256 `2aa557fd…`, and final `NOTICE` 1,652 bytes
+SHA-256 `edb9addea955d89820b82cc77c86b2e879f843081dcd57b0940dcefe1698d5da`.
+The inspector returned exact valid 24/14/6/4/28 after this license-completeness
+normalization. Future capture from the completed deterministic template emits
+these final package bytes; the upstream model computation remains the one
+recorded successful run.
+
+Final evidence audit also established that the normative helper explicitly ran
+PyTorch at intra-op/inter-op `1/1`, while the auxiliary unmodified CLI ran with
+`OMP_NUM_THREADS=1` and its fresh-process PyTorch inter-op default `16`. A
+bounded read-only probe confirmed that default after capture. The comparator
+matched every eligible helper-derived public field, and eager sequential
+upstream execution did not expose an inter-op-dependent disagreement. No model
+or corpus capture was rerun. The execution-profile-corrected contract records
+the two roles separately, requires the same fresh-process probe for any future
+capture, and treats the auxiliary `16` as a provenance limitation rather than
+claiming the whole capture ran at `1/1`.
+
 ## Adversarial code review
 
 Pending.
@@ -922,7 +1015,7 @@ Pending.
 
 | Acceptance clause | Command or evidence | Result |
 |---|---|---|
-| Accepted contract identity and independent design review | Contract `2adc3ee…`; `ticket_009_design_review` typed-array re-review | Pass |
+| Accepted contract identity and independent design review | Contract `93ab968…`; `ticket_009_design_review` execution-profile re-review | Pass |
 | Exact 24-case compatibility corpus and provenance | Pending | Pending |
 | Rust semantic inspector and corruption controls | Pending | Pending |
 | Deterministic capture regeneration | Pending | Pending |
