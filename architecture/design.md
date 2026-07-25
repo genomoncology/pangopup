@@ -96,12 +96,12 @@ adapter over the shared certification and transport APIs. `pangopup-index`
 supplies the sole bounded canonical installed-manifest parser; assets does not
 duplicate that grammar.
 
-Three benchmark-only reference codecs remain behind a separate module. The
-winner was re-specified as the distinct `PGRREF01` production format; runtime
-code uses `ReferenceBundleOpen`, never the benchmark container. The production
-reader owns one read-only mmap and the bounded ambiguity table. The build crate
-owns authenticated FASTA/report parsing, full logical certification, and
-atomic publication.
+The discarded reference candidates and their benchmark adapter have been
+removed. Their retained reports explain why the selected payload was
+re-specified as the distinct `PGRREF01` production format. Runtime code uses
+`ReferenceBundleOpen`; the production reader owns one read-only mmap and the
+bounded ambiguity table. The build crate owns authenticated FASTA/report
+parsing, full logical certification, and atomic publication.
 
 ### `pangopup-cli`
 

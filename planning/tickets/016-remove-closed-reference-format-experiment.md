@@ -1,6 +1,6 @@
 # 016 — Remove the closed reference-format experiment
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -216,11 +216,64 @@ Accepted contract SHA-256:
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: independent sub-agent `/root/ticket016_implement`
+
+- Removed all seven named source/test/spec files and the complete
+  `reference-candidates-mini` fixture. `git diff --numstat` records exactly
+  7,985 deleted lines across the seven files; `git ls-tree -lr HEAD` records
+  exactly 59,822 deleted fixture bytes.
+- Removed the experiment module exports, build feature and benchmark binary,
+  index benchmark target, build-CLI adapter, benchmark-executable identity
+  assertion, and opt-in heap allocator/report. The surviving
+  `reference_resources` test remains the direct resource proof.
+- Added a negative `spec/reference.md` case. Its first run discriminated
+  correctly but exposed an incomplete expected envelope; after fixing the
+  independent expectation to include the ordinary `CommandError` fields,
+  `PATH="$(pwd)/target/debug:$PATH" mustmatch test spec/reference.md` passed
+  all 22 cases.
+- The exact forbidden-surface scan over `Makefile crates` returns no match,
+  `spec/reference-candidates.md` is absent, and Cargo metadata contains no
+  experiment feature, binary, or benchmark.
+- The production modules remained byte-identical before and after the change:
+  - `crates/pangopup-index/src/reference.rs`:
+    `4973df8c8e3167b09fd1394c7e4c29330d05ef29ff6cb23ee61875448454e2f7`;
+  - `crates/pangopup-build/src/reference.rs`:
+    `afac18d24fbc47c9644c96b54ca4f7df408ba6e0108d04bf594e4a4b88d88d23`.
+- Focused evidence:
+  - `cargo test --locked -p pangopup-index reference`: 5 passed;
+  - `cargo test --locked -p pangopup-build --test reference --test
+    reference_resources --test builder_provenance`: 19 passed;
+  - `cargo test --locked -p pangopup-build --test compatibility`: 7 passed;
+  - `cargo test --locked -p pangopup-build source_fingerprint_`: 19 passed;
+  - `cargo clippy --locked -p pangopup-build -p pangopup-index --all-targets
+    -- -D warnings`: passed;
+  - `cargo fmt --all --check`: passed;
+  - `git diff --check`: passed.
+- The external 772 MB production bundle was not opened, rebuilt, copied, or
+  hashed during implementation. Its cheap retained-bundle inspection remains
+  coordinator evidence as required by the ticket.
+- Final repository-wide `make lint`, `make test`, and `make spec` remain for
+  the coordinator after independent code-review acceptance.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: independent sub-agent `/root/ticket016_code_review`
+
+Accepted against reviewed base `19c8da2` with no findings. The reviewer
+confirmed:
+
+- every experiment module, CLI path, feature, benchmark, dedicated test/spec,
+  and candidate fixture is gone;
+- production reference modules and fixtures are byte-identical, and no
+  model/runtime-relevant code or retained asset was removed;
+- the former CLI command exits 2 on stderr with `CLI_USAGE`;
+- artifact-specific fingerprints remain fixed;
+- the focused 5 + 19 + 7 + 19 Rust tests and 22 reference spec cases pass; and
+- current documentation accurately separates retained historical evidence
+  from current production code.
+
+No major separately scoped issue was found. The known dead evaluator/provenance
+coupling is explicitly documented and does not alter current priority.
 
 ## External Effect Evidence
 
@@ -228,4 +281,27 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex (`/root`)
+
+- `make lint`: passed (`cargo fmt --check` and workspace/all-target Clippy).
+- `make test`: passed across the workspace; the intentionally external
+  retained-mask test remained ignored.
+- `make spec`: 140 passed.
+- The exact Cargo-metadata, forbidden compiled-surface, deleted-spec, stale
+  current-doc, and `git diff --check` controls passed.
+- Cheap inspection of the retained external production bundle returned:
+  - format `pangopup.reference.acgt2-rle.v1`;
+  - profile `refseq-grch38p14-primary-v1`;
+  - bundle ID
+    `sha256:7c28334e1829505863ff77dba78c4cbc0d8ebe655f68c30ad70ab4fdc36adc5f`;
+  - 25 sequences and 3,088,286,401 bases; and
+  - `member_sha256_checked:false`, as required. No payload-wide hash or rebuild
+    was performed.
+- Coordinator SHA-256 comparison against the reviewed base reconfirmed both
+  production source modules byte-identical:
+  `4973df8c8e3167b09fd1394c7e4c29330d05ef29ff6cb23ee61875448454e2f7`
+  (reader) and
+  `afac18d24fbc47c9644c96b54ca4f7df408ba6e0108d04bf594e4a4b88d88d23`
+  (builder).
+- Final diff: 144 insertions and 8,505 deletions across 30 paths, including
+  the ticket evidence and current documentation.

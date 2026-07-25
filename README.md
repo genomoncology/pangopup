@@ -14,10 +14,13 @@ Ticket 014 promotes the exact selected bytes behind a domains-only production
 mmap provider without rebuilding or renaming the format. The one-time
 candidate writer and qualification program have since been removed; their
 retained reports and exactness corpus remain as historical evidence. Mask
-delivery and model execution remain future work. Future SNV and reference builds now also
-carry separate, artifact-local source provenance, so unrelated tooling changes
-no longer churn their identities while already published/qualified v1 assets
-remain readable.
+delivery and model execution remain future work. The completed three-format
+reference experiment has likewise been removed from the compiled workspace;
+its retained selection evidence led to the independent production `PGRREF01`
+reader, provider, and builder that remain. Future SNV and reference builds now
+also carry separate, artifact-local source provenance, so unrelated tooling
+changes no longer churn their identities while already published/qualified v1
+assets remain readable.
 
 The target service will answer each request through one of two paths:
 
@@ -445,10 +448,10 @@ Implemented today:
   Python executable and a generic venv launcher/`pyvenv.cfg`, executes only the
   held base descriptor, bypasses `.pth` and bytecode startup paths, and binds
   every loaded file-backed or interpreter-owned module before and after use;
-- three closed, benchmark-only GRCh38 sequence candidates, an authenticated
-  miniature IUPAC/page-boundary oracle, and one retained deterministic
-  comparison selecting `acgt2-rle-v1` by speed, now hardened as a separate
-  production bundle, reader, provider, and builder.
+- a production `PGRREF01` reference bundle, reader, provider, and builder based
+  on the retained comparison that selected `acgt2-rle-v1` by speed. The
+  discarded candidate codecs, miniature, benchmark executable, and CLI have
+  been removed; their reports and decisions remain historical evidence;
 - exact versioned/PAR GENCODE identity and mask semantics, a production
   domains-only mmap provider, a checked miniature binary/oracle, and a retained
   fixed 1,000-query comparison manifest. The one retained comparison selected
@@ -488,11 +491,13 @@ The rolling outcome order is:
     provider without rebuilding it (complete);
 15. remove obsolete mask candidate and qualification machinery while retaining
     the selected member and durable evidence (complete);
-16. package the pinned checkpoints and implement CPU inference parity;
-17. consider accelerators only after measuring CPU;
-18. lookup-first model routing and evidence-gated result caching;
-19. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
-20. observability, security, performance, and release hardening.
+16. remove the closed reference-format experiment while retaining the
+    production reference path and durable evidence (complete);
+17. package the pinned checkpoints and implement CPU inference parity;
+18. consider accelerators only after measuring CPU;
+19. lookup-first model routing and evidence-gated result caching;
+20. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
+21. observability, security, performance, and release hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the
 next coordinator-authored and independently reviewed ticket is active work.

@@ -553,40 +553,6 @@ fn concurrent_builds_publish_exactly_one_bundle_without_replace() {
 }
 
 #[test]
-fn qualification_heap_report_is_canonical_bounded_and_opt_in() {
-    let temp = Temp::new("heap-report");
-    let heap = temp.0.join("builder-heap.json");
-    let output = Command::new(env!("CARGO_BIN_EXE_pangopup-build"))
-        .env("PANGOPUP_REFERENCE_HEAP_REPORT", &heap)
-        .args([
-            "reference",
-            "build",
-            "--profile",
-            "pangopup-reference-mini-v1",
-            "--source",
-        ])
-        .arg(fixture("source.fa.gz"))
-        .arg("--assembly-report")
-        .arg(fixture("assembly_report.txt"))
-        .arg("--output")
-        .arg(temp.0.join("bundle"))
-        .output()
-        .expect("run qualified miniature build");
-    assert!(output.status.success(), "stdout={:?}", output.stdout);
-    assert!(output.stderr.is_empty());
-    let bytes = fs::read(&heap).expect("heap report");
-    let value: serde_json::Value = serde_json::from_slice(&bytes).expect("heap JSON");
-    assert_eq!(
-        serde_jcs::to_vec(&value).expect("canonical heap JSON"),
-        bytes
-    );
-    assert_eq!(value["schema"], "pangopup-reference-builder-heap-v1");
-    let peak = value["peak_outstanding_bytes"].as_u64().expect("heap peak");
-    assert!(peak > 0);
-    assert!(peak <= 16 * 1024 * 1024, "heap peak {peak}");
-}
-
-#[test]
 fn reference_cli_grammar_errors_are_canonical_empty_stderr_and_redacted() {
     let cases: Vec<(Vec<&str>, i32, &str, &str)> = vec![
         (

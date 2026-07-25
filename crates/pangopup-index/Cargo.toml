@@ -30,9 +30,5 @@ zstd = { version = "0.13.3", features = ["zstdmt"] }
 name = "index_formats"
 harness = false
 
-[[bench]]
-name = "reference_formats"
-harness = false
-
 [lints]
 workspace = true

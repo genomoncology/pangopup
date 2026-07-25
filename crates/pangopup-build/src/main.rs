@@ -6,69 +6,9 @@ use pangopup_build::{
     compatibility::{CaptureArguments, capture_corpus, inspect_corpus},
     inspect_directory, prepare_benchmark_corpus, prototype_open, prototype_roundtrip,
     reference::{build_reference_bundle, inspect_reference_bundle, reference_window},
-    reference_candidates::{inspect_candidates, prepare_candidates},
     verify_bundle,
 };
-use serde::Serialize;
-use std::{
-    alloc::{GlobalAlloc, Layout, System},
-    env, fs,
-    path::Path,
-    process::ExitCode,
-    sync::atomic::{AtomicBool, AtomicU64, Ordering},
-};
-
-struct PeakAllocator;
-static HEAP_CURRENT: AtomicU64 = AtomicU64::new(0);
-static HEAP_PEAK: AtomicU64 = AtomicU64::new(0);
-static HEAP_TRACK: AtomicBool = AtomicBool::new(false);
-
-fn heap_add(size: usize) {
-    let current = HEAP_CURRENT.fetch_add(size as u64, Ordering::SeqCst) + size as u64;
-    if HEAP_TRACK.load(Ordering::SeqCst) {
-        HEAP_PEAK.fetch_max(current, Ordering::SeqCst);
-    }
-}
-
-unsafe impl GlobalAlloc for PeakAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        // SAFETY: delegate the unchanged request to the system allocator.
-        let pointer = unsafe { System.alloc(layout) };
-        if !pointer.is_null() {
-            heap_add(layout.size());
-        }
-        pointer
-    }
-
-    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
-        HEAP_CURRENT.fetch_sub(layout.size() as u64, Ordering::SeqCst);
-        // SAFETY: pointer and layout are the matching allocation pair.
-        unsafe { System.dealloc(pointer, layout) };
-    }
-
-    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        // SAFETY: delegate the unchanged old pair and requested size.
-        let replacement = unsafe { System.realloc(pointer, layout, new_size) };
-        if !replacement.is_null() {
-            if new_size >= layout.size() {
-                heap_add(new_size - layout.size());
-            } else {
-                HEAP_CURRENT.fetch_sub((layout.size() - new_size) as u64, Ordering::SeqCst);
-            }
-        }
-        replacement
-    }
-}
-
-#[global_allocator]
-static ALLOCATOR: PeakAllocator = PeakAllocator;
-
-#[derive(Serialize)]
-struct ReferenceHeapReport {
-    schema: &'static str,
-    allocator: &'static str,
-    peak_outstanding_bytes: u64,
-}
+use std::{env, path::Path, process::ExitCode};
 
 const USAGE: &str = "Usage: pangopup-build inspect <SOURCE_DIR>\n       pangopup-build prototype-roundtrip <SOURCE_DIR> <OUTPUT>\n       pangopup-build prototype-open <ARTIFACT>\n       pangopup-build benchmark-corpus <SOURCE_DIR> <OUTPUT> <SELECTED_MANIFEST>";
 
@@ -103,12 +43,6 @@ fn main() -> ExitCode {
         .is_some_and(|command| command == "compatibility")
     {
         return compatibility_command(&arguments[1..]);
-    }
-    if arguments
-        .first()
-        .is_some_and(|command| command == "reference-candidates")
-    {
-        return reference_candidates_command(&arguments[1..]);
     }
     match arguments.as_slice() {
         [command, source] if command == "inspect" => {
@@ -198,28 +132,12 @@ fn reference_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                     2,
                 );
             };
-            let heap_report = env::var_os("PANGOPUP_REFERENCE_HEAP_REPORT");
-            let heap_baseline = HEAP_CURRENT.load(Ordering::SeqCst);
-            if heap_report.is_some() {
-                HEAP_PEAK.store(heap_baseline, Ordering::SeqCst);
-                HEAP_TRACK.store(true, Ordering::SeqCst);
-            }
-            let result = build_reference_bundle(
+            match build_reference_bundle(
                 profile,
                 Path::new(values[1]),
                 Path::new(values[2]),
                 Path::new(values[3]),
-            );
-            HEAP_TRACK.store(false, Ordering::SeqCst);
-            if let Some(path) = heap_report {
-                let peak = HEAP_PEAK
-                    .load(Ordering::SeqCst)
-                    .saturating_sub(heap_baseline);
-                if write_reference_heap_report(Path::new(&path), peak).is_err() {
-                    return reference_failure("reference.build", "IO", "reference I/O failed", 1);
-                }
-            }
-            match result {
+            ) {
                 Ok(value) => reference_json(&value, 0),
                 Err(error) => reference_command_error("reference.build", &error),
             }
@@ -294,24 +212,6 @@ fn reference_command(arguments: &[std::ffi::OsString]) -> ExitCode {
     }
 }
 
-fn write_reference_heap_report(path: &Path, peak: u64) -> Result<(), ()> {
-    let bytes = serde_jcs::to_vec(&ReferenceHeapReport {
-        schema: "pangopup-reference-builder-heap-v1",
-        allocator: "rust-system-outstanding",
-        peak_outstanding_bytes: peak,
-    })
-    .map_err(|_| ())?;
-    let mut file = fs::File::options()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .map_err(|_| ())?;
-    use std::io::Write;
-    file.write_all(&bytes)
-        .and_then(|_| file.sync_all())
-        .map_err(|_| ())
-}
-
 fn valid_reference_alias(value: &str) -> bool {
     if value.parse::<pangopup_core::Grch38Contig>().is_ok() {
         return true;
@@ -351,70 +251,6 @@ fn reference_error_message(code: &str) -> &'static str {
     }
 }
 
-fn reference_candidates_command(arguments: &[std::ffi::OsString]) -> ExitCode {
-    let Some(action) = arguments.first().and_then(|value| value.to_str()) else {
-        return reference_failure(
-            "reference-candidates",
-            "usage",
-            "reference-candidates requires prepare or inspect",
-            2,
-        );
-    };
-    match action {
-        "prepare" => {
-            let Ok(values) =
-                parse_exact_flags(&arguments[1..], &["--source", "--corpus", "--output"])
-            else {
-                return reference_failure(
-                    "reference-candidates.prepare",
-                    "usage",
-                    "prepare requires source, corpus, and output",
-                    2,
-                );
-            };
-            match prepare_candidates(
-                Path::new(values[0]),
-                Path::new(values[1]),
-                Path::new(values[2]),
-            ) {
-                Ok(outcome) => reference_json(&outcome, 0),
-                Err(error) => reference_failure(
-                    "reference-candidates.prepare",
-                    error.code(),
-                    error.message(),
-                    1,
-                ),
-            }
-        }
-        "inspect" => {
-            let Ok(values) = parse_exact_flags(&arguments[1..], &["--candidates", "--corpus"])
-            else {
-                return reference_failure(
-                    "reference-candidates.inspect",
-                    "usage",
-                    "inspect requires candidates and corpus",
-                    2,
-                );
-            };
-            match inspect_candidates(Path::new(values[0]), Path::new(values[1])) {
-                Ok(outcome) => reference_json(&outcome, 0),
-                Err(error) => reference_failure(
-                    "reference-candidates.inspect",
-                    error.code(),
-                    error.message(),
-                    1,
-                ),
-            }
-        }
-        _ => reference_failure(
-            "reference-candidates",
-            "usage",
-            "reference-candidates requires prepare or inspect",
-            2,
-        ),
-    }
-}
-
 fn reference_failure(
     command: &'static str,
     code: &'static str,
@@ -445,7 +281,7 @@ fn reference_failure(
 fn reference_json(value: &impl serde::Serialize, exit: u8) -> ExitCode {
     let bytes = match serde_jcs::to_vec(value) {
         Ok(bytes) => bytes,
-        Err(_) => b"{\"command\":\"reference-candidates\",\"error\":{\"code\":\"io\",\"message\":\"JSON output failed\"},\"ok\":false}".to_vec(),
+        Err(_) => b"{\"command\":\"reference\",\"error\":{\"code\":\"IO\",\"message\":\"JSON output failed\"},\"ok\":false}".to_vec(),
     };
     let mut stdout = std::io::stdout().lock();
     if std::io::Write::write_all(&mut stdout, &bytes)

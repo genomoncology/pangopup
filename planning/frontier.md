@@ -138,14 +138,13 @@ validation command.
 
 ## Established — compact reference payload selection
 
-Three closed sequence payloads now share one benchmark-only container and a
-checked miniature oracle. Focused tests prove exact IUPAC decoding,
-caller-buffer reads, corruption rejection, deterministic logical page traces,
-and the pure ranking rule. One retained five-round run over the preserved
-six-contig RefSeq input selected `acgt2-rle-v1` by speed: headline p50/p95 were
-4,469/4,880 ns, compared with 16,272/18,366 for ASCII and 34,267/41,522 for
-IUPAC4. This selects the payload; it does not claim a production reference
-reader or asset.
+One retained five-round run over the preserved six-contig RefSeq input selected
+`acgt2-rle-v1` by speed: headline p50/p95 were 4,469/4,880 ns, compared with
+16,272/18,366 for ASCII and 34,267/41,522 for IUPAC4. Historical reports and
+decisions retain the exactness, corruption, page-trace, and ranking evidence.
+The discarded candidate codecs, miniature, benchmark executable, bench, and
+CLI have been removed from the compiled workspace; the independently hardened
+production implementation is the maintained path.
 
 ## Established — production GRCh38 reference bundle and provider
 
@@ -236,11 +235,14 @@ builder and qualification surfaces have now been removed. The retained
 
 ## Current outcome — repository diet
 
-The mask candidate/qualification slice is complete: the production reader,
-miniature, selected member, and durable evidence remain, while more than
-12,000 lines of one-time machinery no longer compile. Continue the repository
-diet only through the next bounded, independently reviewed slice, preserving
-selected readers, release compatibility, and retained evidence.
+The two bounded experiment-removal slices are complete. The production mask
+and reference readers, selected assets, focused production fixtures, and
+durable evidence remain, while their discarded candidate codecs, writers,
+benchmark executables, CLIs, and dedicated specs no longer compile. The
+reference evaluator still coupled to the recorded production source
+fingerprint has no adapter and remains until a separately reviewed provenance
+change can remove it without silently changing asset identity. No further
+repository-diet work is implied by this outcome.
 
 ## Next outcome — CPU runtime, safe model representation, and inference
 

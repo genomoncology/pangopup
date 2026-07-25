@@ -123,9 +123,11 @@ receives its own coordinator-authored and independently reviewed contract.
 
 Retained evidence selected the `acgt2-rle-v1` reference payload by speed from
 three exact mmap candidates on the pinned six-contig RefSeq input. It now feeds
-a separate production `PGRREF01` bundle and provider. The benchmark files are
-still not runtime assets. Reference XDG installation, transport, and release
-publication remain separately reviewed future work.
+a separate production `PGRREF01` bundle and provider. The discarded candidate
+files, miniature, benchmark executable, and CLI have been removed; their
+reports and decisions remain historical evidence rather than runtime assets.
+Reference XDG installation, transport, and release publication remain
+separately reviewed future work.
 
 Ticket 012's canonical export, unselected candidates, phase receipts, and
 benchmark report are retained private historical evidence and must not be

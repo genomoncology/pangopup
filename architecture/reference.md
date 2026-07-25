@@ -18,8 +18,9 @@ and both member hashes. `pangopup-reference-mini-v1` is a registered synthetic
 `reference.pgr` uses production magic `PGRREF01`. It packs A/C/G/T into two
 bits and records exact IUPAC ambiguity runs in one bounded table. Its header,
 25 fixed-order directory entries, padding, dense closure, and ambiguity-table
-closure are explicitly little-endian and checked. Ticket 010's `PGRBEN01`
-containers are incompatible benchmark evidence, not runtime assets.
+closure are explicitly little-endian and checked. Ticket 010's incompatible
+`PGRBEN01` candidates have been removed; retained reports and decisions remain
+historical selection evidence, not runtime assets.
 
 ## Runtime
 
@@ -55,35 +56,20 @@ and checks four synthetic or fourteen frozen Pangolin contexts. There is no
 public exhaustive verification command and normal gates never read the NCBI
 source.
 
-The one-time qualification path is separate from normal CLI and tests. An
-opt-in builder environment variable writes a canonical Rust outstanding-heap
-report without changing the maintenance command's JSON contract. The retained
-full build is immutable: the feature-gated v2 qualification binary accepts a
-canonical reuse input, a retained v1 root, the frozen corpus, and an absent
-output root. It opens every path component without following symlinks, retains
-the exact file descriptors it authenticated, constructs its reader from the
-held manifest bytes and reference descriptor, and re-hashes those same files
-after measurement. The compiled executable binds the complete builder source
-inventory, including the reader, evaluator, lockfile, and harness.
-Every bounded small evidence file owns one authenticated byte buffer; all JSON
-and text checks reuse that buffer rather than rereading the descriptor. The
-descriptor remains held for the required final metadata and full-hash mutation
-check.
+Ticket 011's retained evidence records the one-time full build and reuse
+qualification: warm latency, open heap, dense bytes read during open,
+allocations, logical pages, RSS/faults, installed size, and pinned Zstandard
+size. Those reports and historical decisions remain the evidence for the
+selected production path. The candidate codecs, benchmark executable,
+feature-gated qualification adapter, and opt-in CLI heap reporter have been
+removed; qualification is not a current command or ordinary test lifecycle.
+The direct bounded-memory and zero-allocation production tests remain.
 
-Qualification measures warm latency, open heap, dense bytes read during open,
-allocations, logical pages, RSS/faults, installed size, and the exact pinned
-level-9 Rust-Zstandard encoding. It never copies or rebuilds the 772 MB member.
-Small success or failure evidence is fsynced in a private stage and published
-atomically without replacement; a failure remains separate and cannot be
-mistaken for the successful contract root. It fails rather than emits a
-passing report when any Ticket 011 threshold is exceeded. RSS is reported
-separately because mapped file-backed pages are not Rust heap.
-
-After the private stage exists, every preflight, measurement, report,
-validation, or success-publication error enters one failure repair/seal/publish
-path. That path reconstructs the exact closed failure root from held
-authoritative inputs. If failure publication itself cannot complete, the
-private stage remains in place and the process identifies its exact local path.
+The evaluator still embedded in the production builder source has no current
+adapter. It is retained only because that source participates in the recorded
+production builder fingerprint. Removing it requires a separately reviewed
+provenance-decoupling change rather than silently changing the production
+identity.
 
 A same-size two-bit substitution is a valid encoding and deliberately is not
 detected by cheap open. Build certification detects it through member and

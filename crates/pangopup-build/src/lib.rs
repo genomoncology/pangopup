@@ -4,7 +4,6 @@ mod command_error;
 pub mod compatibility;
 mod production;
 pub mod reference;
-pub mod reference_candidates;
 mod snv;
 mod source_fingerprint;
 

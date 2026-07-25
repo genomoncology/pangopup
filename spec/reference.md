@@ -53,6 +53,18 @@ The remaining grammar and redaction controls reject missing, duplicate,
 unknown, nonnumeric, and oversized arguments before touching data. Operational
 errors expose neither the supplied path nor an operating-system message.
 
+The completed reference-format experiment is not a hidden maintenance
+interface. Its former top-level command reaches the ordinary closed CLI
+grammar.
+
+```bash run id=reference-candidates-removed exit=2 stream=stderr
+pangopup-build reference-candidates inspect
+```
+
+```text expect=reference-candidates-removed exact
+{"status":"error","code":"CLI_USAGE","message":"Usage: pangopup-build inspect <SOURCE_DIR>\n       pangopup-build prototype-roundtrip <SOURCE_DIR> <OUTPUT>\n       pangopup-build prototype-open <ARTIFACT>\n       pangopup-build benchmark-corpus <SOURCE_DIR> <OUTPUT> <SELECTED_MANIFEST>","details":null}
+```
+
 ```bash run id=reference-duplicate-flag exit=2 stream=stdout
 pangopup-build reference inspect --bundle ../target/spec/reference-production/bundle --bundle /secret/duplicate
 ```

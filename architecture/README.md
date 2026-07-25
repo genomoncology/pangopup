@@ -9,10 +9,12 @@ The checked `pangopup-compat-v1` oracle now fixes upstream model and
 post-processing behavior. Model fallback and HTTP remain future work on the
 same standalone Rust core.
 
-Reference payload selection remains isolated behind three benchmark-only
-codecs. The selected `acgt2-rle-v1` payload now has a separate production
-`PGRREF01` bundle, authenticated builder, cheap-open mmap reader, and typed
-caller-buffer provider.
+The closed three-codec reference comparison selected `acgt2-rle-v1`; its
+candidate modules, miniature, benchmark executable, and CLI have been removed
+from the compiled workspace. Retained reports and decisions preserve that
+historical selection evidence. The separate production `PGRREF01` bundle,
+authenticated builder, cheap-open mmap reader, and typed caller-buffer provider
+are the only current reference implementation.
 
 GENCODE masking is at a different boundary. Ticket 012 authenticated an exact
 ordered GENCODE v38 logical source and compared three private `PGMBEN01`

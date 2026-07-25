@@ -6,9 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[features]
-reference-qualification = ["pangopup-index/test-read-audit"]
-
 [dependencies]
 flate2 = "1.1.5"
 pangopup-assets = { path = "../pangopup-assets" }
@@ -36,8 +33,3 @@ sha2 = "0.10.9"
 
 [lints]
 workspace = true
-
-[[bin]]
-name = "pangopup-reference-benchmark"
-path = "src/bin/pangopup-reference-benchmark.rs"
-required-features = ["reference-qualification"]

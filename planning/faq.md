@@ -171,10 +171,12 @@ six-contig comparison its headline p50/p95 were 4,469/4,880 ns, versus
 16,272/18,366 for uppercase ASCII and 34,267/41,522 for exact four-bit IUPAC.
 That satisfied the required five-percent speed win at both quantiles against
 both alternatives. It also produced the smallest member and Zstandard frame,
-although IUPAC4 touched two fewer logical pages. Normal tests use a tiny
-independent oracle. Ticket 011 has since hardened the winner as the complete
-25-contig production `PGRREF01` bundle/provider; the benchmark files are not
-runtime assets. Delivery and model integration remain future work.
+although IUPAC4 touched two fewer logical pages. Normal tests use the small
+25-contig synthetic production fixture. Ticket 011 hardened the winner as the
+complete production `PGRREF01` bundle/provider. The discarded candidate codecs,
+miniature, benchmark executable, and CLI have been removed; retained reports
+and decisions preserve the selection evidence. Delivery and model integration
+remain future work.
 
 ### Which compact GENCODE mask encoding will Pangopup use?
 

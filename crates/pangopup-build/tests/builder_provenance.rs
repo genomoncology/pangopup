@@ -275,12 +275,4 @@ fn source_fingerprint_production_identity_constants_are_unchanged() {
     ] {
         assert!(release.contains(identity), "{identity}");
     }
-    let reference_qualification = include_str!("../src/bin/pangopup-reference-benchmark.rs");
-    for identity in [
-        "2215dabe7c5e81bde9254a7aa8979c78322647d6a5de803976266d9422ea1d8f",
-        "7c28334e1829505863ff77dba78c4cbc0d8ebe655f68c30ad70ab4fdc36adc5f",
-        "cdec4b6230c3b660b658f71e11cb79d760d74f906873e81dc53ba7347ee3da82",
-    ] {
-        assert!(reference_qualification.contains(identity), "{identity}");
-    }
 }
