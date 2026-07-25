@@ -486,12 +486,14 @@ The rolling outcome order is:
     (complete);
 12. establish exact GENCODE mask semantics and select a measured compact
     representation (complete: `domains` selected by speed);
-13. harden the selected representation as a production mask bundle/provider;
-14. package the pinned checkpoints and implement CPU inference parity;
-15. consider accelerators only after measuring CPU;
-16. lookup-first model routing and evidence-gated result caching;
-17. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
-18. observability, security, performance, and release hardening.
+13. isolate SNV and reference builder provenance so unrelated code no longer
+    churns artifact identities, without rebuilding either production asset;
+14. harden the selected representation as a production mask bundle/provider;
+15. package the pinned checkpoints and implement CPU inference parity;
+16. consider accelerators only after measuring CPU;
+17. lookup-first model routing and evidence-gated result caching;
+18. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
+19. observability, security, performance, and release hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the
 next coordinator-authored and independently reviewed ticket is active work.

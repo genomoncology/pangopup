@@ -191,7 +191,19 @@ the first p95 speed step. Headline p50/p95 were 171/331 ns, versus 241/401 and
 The private `PGMBEN01` members are benchmark evidence, not installable runtime
 assets.
 
-## Current outcome — production mask bundle and provider
+## Current outcome — isolate builder provenance by artifact
+
+Replace the repository-wide Rust-source hash used by existing SNV and
+production-reference builders with small, deterministic inventories containing
+only the sources that can change each artifact. Preserve compatibility with
+the already shipped SNV bundle and qualified reference bundle, and prove on
+miniature fixtures that unrelated source changes no longer churn either
+identity while declared causal changes still do. This is provenance migration,
+not permission to rebuild or republish a production asset. The already separate
+mask-qualification fingerprint must remain isolated. This outcome is a roadmap
+slot, not a drafted or authorized ticket.
+
+## Next outcome — production mask bundle and provider
 
 Harden only the selected domain representation as an immutable, independently
 verifiable bundle and typed point-query provider. The builder must be
@@ -199,7 +211,9 @@ reproducible, bounded-memory, license-complete, and use an artifact-specific
 source fingerprint so unrelated tooling changes do not churn its identity.
 Production open must use held no-follow members and must not scan the complete
 payload. Transport, XDG installation, public release, and model execution stay
-separate. This outcome is a roadmap slot, not a drafted or authorized ticket.
+separate. Keep any initial build command private unless the open maintainer-help
+issue is resolved in its own bounded slice. This outcome is a roadmap slot, not
+a drafted or authorized ticket.
 
 ## Later outcome — CPU runtime, safe model representation, and inference
 
