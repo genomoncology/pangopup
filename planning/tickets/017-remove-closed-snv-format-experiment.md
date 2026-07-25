@@ -1,6 +1,6 @@
 # 017 — Remove the closed SNV-format experiment
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -192,11 +192,33 @@ and accepted the amended contract with no remaining findings.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex (`/root/ticket017_implement`)
+
+Deleted the three named candidate files (2,240 Rust lines), removed the
+`index_formats` benchmark target and exact unused dev dependencies, and
+regenerated `Cargo.lock` offline. Its diff contains 180 deletions and no
+additions, so no surviving package version, source, or checksum changed.
+Updated only the four named current documents. The three protected production
+SNV source modules remain byte-identical to the recorded base.
+
+The structural/metadata/dependency checks passed. Artifact-specific fingerprint
+tests, fixed-v1 reader tests, full-bundle tests, and the 1,000-request provider
+and CLI regression passed. `make lint`, `make test`, and `make spec` passed;
+the executable spec gate reported `140 passed`. No production asset was read,
+rebuilt, hashed, downloaded, installed, or published.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Gauss the 3rd (`/root/ticket017_code_review`)
+
+Accepted after one process-evidence remediation, with no product findings. The
+initial review independently reproduced the 2,240-line deletion, manifest and
+deletion-only lock pruning, byte-identical protected sources, retained
+production fixtures/benches/evidence, focused tests, and absence of production
+asset access. It rejected the lifecycle record because the developer evidence
+and `review` status were still pending. The same developer corrected only that
+record; the same reviewer re-reviewed it and accepted with no remaining
+findings.
 
 ## External Effect Evidence
 
@@ -204,4 +226,11 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex (`/root`)
+
+After code-review approval, reran `make lint`, `make test`, and `make spec`;
+all passed and the executable spec gate reported `140 passed`. Exact acceptance
+controls independently confirmed the three deletions, absent benchmark target,
+crate-specific dev-dependency removals, absent candidate packages, deletion-only
+lock diff, exact 2,240 removed Rust lines, byte-identical protected production
+sources, and a clean diff. No production asset was opened or changed.

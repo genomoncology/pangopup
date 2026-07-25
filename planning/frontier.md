@@ -46,11 +46,13 @@ drives compression and size decisions.
 
 ## Established — measured fixed 11-byte private v1
 
-The checked fixture round-trips exactly through every candidate. A deterministic
-134-gene real lab corpus compared hierarchical direct, fixed 11-byte, Zstd/LZ4
-at 1,024/2,048/4,096 loci, and fair in-process Tabix. Fixed won the accepted
-speed-first priority after direct was corrected to ranked zero-copy mmap lookup,
-and is the only hardened product codec. Its reader maps the
+The retained fixture and report record exact round trips through every
+historical candidate. A deterministic 134-gene real lab corpus compared
+hierarchical direct, fixed 11-byte, Zstd/LZ4 at 1,024/2,048/4,096 loci, and fair
+in-process Tabix. Fixed won the accepted speed-first priority after direct was
+corrected to ranked zero-copy mmap lookup, and is the only hardened product
+codec. The one-time candidate implementations and benchmark target have been
+removed. Its reader maps the
 artifact, opens without a payload-wide scan, uses a balanced overlap tree, and
 validates ordinary payload only when touched. The complete artifact now has
 retained warm open, lookup, CLI, and serialization measurements. Cold I/O
@@ -235,14 +237,14 @@ builder and qualification surfaces have now been removed. The retained
 
 ## Current outcome — repository diet
 
-The two bounded experiment-removal slices are complete. The production mask
-and reference readers, selected assets, focused production fixtures, and
+The three bounded experiment-removal slices are complete. The production SNV,
+mask, and reference readers, selected assets, focused production fixtures, and
 durable evidence remain, while their discarded candidate codecs, writers,
 benchmark executables, CLIs, and dedicated specs no longer compile. The
-reference evaluator still coupled to the recorded production source
-fingerprint has no adapter and remains until a separately reviewed provenance
-change can remove it without silently changing asset identity. No further
-repository-diet work is implied by this outcome.
+reference evaluator still coupled to the recorded production source fingerprint
+has no adapter and remains until a separately reviewed provenance change can
+remove it without silently changing asset identity. No further repository-diet
+work is implied by this outcome.
 
 ## Next outcome — CPU runtime, safe model representation, and inference
 

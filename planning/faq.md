@@ -258,8 +258,9 @@ product to ten genes or use repeated full-source scans as an ordinary test.
 Exactness is mandatory and lookup speed is the primary optimization objective.
 Resident memory and pages touched come next; compressed download size is third.
 The fixed 11-byte mmap layout is the selected and shipped private v1 format.
-Hierarchical sparse, compressed-block, and Tabix layouts are retained only as
-historical measured candidates.
+Hierarchical sparse, compressed-block, and Tabix results remain as historical
+evidence; their comparison implementations and benchmark target have been
+removed.
 
 ### How are large artifacts delivered?
 

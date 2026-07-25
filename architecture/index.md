@@ -104,7 +104,8 @@ and is only about 88 MB larger than the measured 4,096-locus Zstd result.
 Query performance is the primary product objective, resident memory and pages
 touched are second, and compressed download size is third. Hierarchical direct
 won size and mapped-page work but lost the measured query priority to fixed v1.
-It remains a reproducible benchmark candidate, not a supported runtime format.
+Its comparison implementation has been removed; the retained report preserves
+the result, and it is not a supported runtime format.
 
 ### Independently compressed sparse blocks
 
@@ -128,7 +129,9 @@ compression expands a block.
 
 Ticket 002 compared hierarchical direct, fixed 11-byte, Zstd and LZ4 at 1,024,
 2,048, and 4,096 loci, plus an in-process Tabix baseline. Fixed supplied the
-required measured speed win. See ADR 0006 and the retained benchmark report.
+required measured speed win. The one-time candidate implementations and
+benchmark target have since been removed. See ADR 0006 and the retained
+benchmark report.
 
 ## Query-oriented structure
 

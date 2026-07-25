@@ -20,7 +20,9 @@ its retained selection evidence led to the independent production `PGRREF01`
 reader, provider, and builder that remain. Future SNV and reference builds now
 also carry separate, artifact-local source provenance, so unrelated tooling
 changes no longer churn their identities while already published/qualified v1
-assets remain readable.
+assets remain readable. The completed SNV-format comparison has also been
+removed from the compiled workspace; its retained report explains why the
+production fixed-v1 implementation remains selected.
 
 The target service will answer each request through one of two paths:
 
@@ -105,9 +107,9 @@ The complete-corpus fixed payload projects to about 14.0 GiB before small
 directories and provenance. The certified member is 15,033,158,255 bytes
 (about 14.0 GiB). This is deliberately larger than the 1.589 GiB
 hierarchical sparse candidate: the real-corpus benchmark found fixed lookup
-consistently faster on the equal candidate harness after direct was corrected
-to use ranked zero-copy mmap lookup, and query speed is the first accepted
-priority. The
+consistently faster on the now-removed equal candidate harness after direct was
+corrected to use ranked zero-copy mmap lookup, and query speed is the first
+accepted priority. The
 installed file is memory-mapped, so Pangopup reads only the directory and
 record pages needed by a query rather than copying the file into heap.
 
@@ -406,7 +408,8 @@ Implemented today:
 - bounded-memory gzip/TSV validation plus an observable source-inspection
   command, `pangopup-build inspect <SOURCE_DIR>`;
 - measured fixed/direct/Zstd/LZ4/Tabix comparison on a deterministic real lab
-  corpus, selecting and hardening the fixed 11-byte private v1 format;
+  corpus, selecting and hardening the fixed 11-byte private v1 format; the
+  completed comparison implementation has since been removed;
 - deterministic miniature fixed-index writing, structurally checked mmap open,
   exact lookup/exception round trips, and `pangopup-build prototype-roundtrip`;
 - deterministic full-corpus construction through `pangopup-build build`, with
@@ -493,11 +496,13 @@ The rolling outcome order is:
     the selected member and durable evidence (complete);
 16. remove the closed reference-format experiment while retaining the
     production reference path and durable evidence (complete);
-17. package the pinned checkpoints and implement CPU inference parity;
-18. consider accelerators only after measuring CPU;
-19. lookup-first model routing and evidence-gated result caching;
-20. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
-21. observability, security, performance, and release hardening.
+17. remove the closed SNV-format experiment while retaining the production
+    fixed-v1 path and durable evidence (complete);
+18. package the pinned checkpoints and implement CPU inference parity;
+19. consider accelerators only after measuring CPU;
+20. lookup-first model routing and evidence-gated result caching;
+21. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
+22. observability, security, performance, and release hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the
 next coordinator-authored and independently reviewed ticket is active work.
