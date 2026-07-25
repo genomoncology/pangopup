@@ -9,5 +9,4 @@ test:          ## inside-out unit and integration tests
 
 spec:          ## outside-in CLI contracts
 	cargo build --locked --quiet --package pangopup-cli --package pangopup-build
-	cargo build --locked --quiet --package pangopup-build --features mask-qualification --bin pangopup-mask-candidates
 	PATH="$(CURDIR)/target/debug:$$PATH" mustmatch test spec/

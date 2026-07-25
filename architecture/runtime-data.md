@@ -30,7 +30,7 @@ assets. New builds record separate source identities under
 `pangopup.snv-builder-source.v1` and
 `pangopup.reference-builder-source.v1`. Each identity covers only the checked
 source and locked dependency evidence that can affect its artifact. Changing
-mask qualification, delivery, CLI, or another unrelated subsystem therefore
+mask runtime, delivery, CLI, or another unrelated subsystem therefore
 does not create a new SNV or reference identity.
 
 That source fingerprint is descriptive build evidence, not a requirement that
@@ -68,7 +68,8 @@ private candidate mmap members and selected constant-membership domains by the
 closed speed-first comparison. ADR 0013 promotes the exact retained
 6,703,320-byte domains member behind a domains-only production mmap provider;
 it creates no second format or builder. SQLite, gffutils, and the GTF remain
-qualification inputs only.
+in the historical qualification evidence only; they are not current runtime or
+build-crate dependencies for the selected member.
 
 The logical mask is deliberately richer than a coordinate set. It retains the
 exact versioned GENCODE identifier and optional `_PAR_Y` suffix, its
@@ -122,40 +123,17 @@ measured pipe/NULL/LF transformation as a named legacy secondary observation;
 the exact database SHA-256 remains the primary identity.
 
 That compatibility corpus proves its selected overlap and masking cases; it is
-not a complete all-gene order inventory. Ticket 012's authenticated canonical
-export and complete-domain comparison are the authority for the complete
-GENCODE mask. The retained run certified all three layouts and selected domains
-by speed over its fixed 1,000-query workload.
+not a complete all-gene order inventory. Ticket 012's retained authenticated
+canonical-export report and complete-domain comparison are the authority for
+the complete GENCODE mask. The retained run certified all three layouts and
+selected domains by speed over its fixed 1,000-query workload.
 
-Environment failure is not capture success. Before the final observed
-environment can determine the capture contract ID, a handled failure is sealed
-once in a deterministic mode-0700 preflight-failure stage containing bounded,
-path-free evidence. It has no source snapshot or phase receipt and cannot be
-automatically retried or consumed as runtime data.
-
-The complete captured environment is allowed to exceed generic metadata: its
-formal maximum is 320 KiB, derived from 512 canonical module identities at 512
-bytes each plus a 64 KiB non-module envelope. The final contract is bounded at
-384 KiB. The measured pinned environment is 79,641 bytes with 254 modules.
-These bounds preserve the full authenticated inventory rather than truncating
-it, while receipts, reports, inventories, and reuse authorizations remain
-64 KiB. Full observation JSONL retains a separate 4 MiB per-record bound.
-
-The fourth production launch sealed that complete ordered observation before
-prepare failed. The pinned GENCODE v38 GTF has a closed mixed attribute grammar:
-strings are quoted, while only `level` and `exon_number` are bare canonical
-positive decimals. This is both fully inventoried and consistent with the
-official [GENCODE data format](https://www.gencodegenes.org/pages/data_format.html).
-The corrected build-only parser does not accept arbitrary bare values.
-
-Changing that parser necessarily changed the mask-builder identity. The
-completed capture promotion was therefore not an exception to identity
-checking: it derived a new contract whose sole changed field was builder
-provenance and required independently reviewed authorization binding the exact
-old contract, capture receipt, and prepare-failure receipt. Only sealed
-source/capture members were eligible. Runtime consumers receive none of the
-GTF, SQLite, Python, promotion, or failure material; future delivery contains
-only the exact selected domains member, its identity metadata, and attribution.
+The one-time GTF/gffutils capture, candidate writer/readers, qualification
+lifecycle, and mask-builder fingerprint have been removed from the current
+source tree. Their detailed receipts and reports remain historical evidence.
+Runtime consumers receive none of the GTF, SQLite, Python, promotion, or
+failure material; future delivery contains only the exact selected domains
+member, its identity metadata, and attribution.
 
 ## Reproduction boundary
 

@@ -11,8 +11,10 @@ and an HTTP service are planned but not implemented. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
 Ticket 014 promotes the exact selected bytes behind a domains-only production
-mmap provider without rebuilding or renaming the format. Mask delivery and
-model execution remain future work. Future SNV and reference builds now also
+mmap provider without rebuilding or renaming the format. The one-time
+candidate writer and qualification program have since been removed; their
+retained reports and exactness corpus remain as historical evidence. Mask
+delivery and model execution remain future work. Future SNV and reference builds now also
 carry separate, artifact-local source provenance, so unrelated tooling changes
 no longer churn their identities while already published/qualified v1 assets
 remain readable.
@@ -130,48 +132,36 @@ three-file bundle. Runtime code memory-maps `reference.pgr` and copies only the
 requested window into caller-owned memory. Delivery and XDG installation of
 this separate asset remain future work; a target full installation downloads
 the compiled bundle, not the raw FASTA. The same principle
-applies to GENCODE: GTF/gffutils is build input, not a runtime database.
+applies to GENCODE: GTF/gffutils were one-time selection inputs, not runtime
+data or current build-crate dependencies.
 
-### GENCODE mask qualification
+### GENCODE mask runtime and retained selection evidence
 
 Pangolin masking needs more than a set of exon coordinates. The candidate
-builder retains each exact versioned GENCODE identifier (including `_PAR_Y`),
+comparison retained each exact versioned GENCODE identifier (including `_PAR_Y`),
 strand, inclusive source span, effective `(start,end]` membership, upstream
 point-query rank, and normalized exon-boundary set. An unversioned gene filter
 matches the stable component only after the request contig is known, so chrX
 and chrY pseudoautosomal copies are never merged.
 
-The private, feature-gated qualification tool authenticates the pinned SQLite
-and GTF plus the base Python executable, generic venv launcher/`pyvenv.cfg`,
-prefix facts, exact loaded modules, and SQLite environment; produces one
-canonical ordered export; certifies interval-tree, domain, and binned-postings
-candidates; and implements the fixed comparison procedure. Its miniature
-controls are shipped and do not require Python. The retained full-source run
+The one-time private qualification run authenticated the pinned SQLite, GTF,
+Python, and SQLite environment; produced one canonical ordered export; and
+certified interval-tree, domain, and binned-postings candidates. The retained
+full-source evidence
 contains 60,649 genes, 88,202 constant-membership domains, and 591,404 exon
 boundaries on all 25 primary contigs.
 
-The complete pinned GTF inventory shows the narrow source grammar rather than
-loosening it generally. Across 3,150,424 data rows and 50,091,509 attributes,
-only `level` (values 1, 2, or 3) and `exon_number` (1 through 363) are unquoted;
-all 44,088,441 other values are quoted. This matches GENCODE's official
-[GTF format](https://www.gencodegenes.org/pages/data_format.html). The parser
-now accepts bare canonical positive decimals only for those two keys, retains
-duplicate quoted tags, and rejects every other bare or malformed form. Its
-limits of 256 attributes, 64 key bytes, and 4 KiB value bytes are well above
-the observed maxima of 25, 24, and 37.
-
-The first prepare attempt exposed that grammar after capture. Because the
-parser repair changed builder identity, normal same-builder reuse correctly
-rejected the old capture. A separately reviewed promotion copied only the
-reauthenticated sealed capture into the new contract; it did not copy failure
-or partial candidate output. Preparation then exhaustively certified all three
-candidates, and a balanced six-round, 1,000-query comparison selected
+The balanced six-round, 1,000-query comparison selected
 `domains`: headline p50/p95 were 171/331 ns, versus 241/401 for interval-tree
-and 241/431 for binned postings. The benchmark family remains private evidence.
+and 241/431 for binned postings.
 ADR 0013 promotes the exact selected `PGMBEN01` v1 bytes behind
 `pangopup_index::mask`; ordinary runtime open accepts only domains and neither
 rebuilds nor scans the complete member. There is still no installable mask
-transport or public mask release. See the retained
+transport or public mask release. The candidate writer, alternate readers,
+capture lifecycle, feature-gated CLI, and executable spec are no longer
+compiled at HEAD. Their durable report, 1,000-query manifest, and git history
+remain available without carrying the completed experiment in the product.
+See the retained
 [selection evidence](planning/artifacts/012-gencode-mask-format-selection.md)
 and [ADR 0013](architecture/decisions/0013-byte-identical-gencode-mask-promotion.md).
 
@@ -460,13 +450,11 @@ Implemented today:
   comparison selecting `acgt2-rle-v1` by speed, now hardened as a separate
   production bundle, reader, provider, and builder.
 - exact versioned/PAR GENCODE identity and mask semantics, a production
-  domains-only mmap provider, three retained private mask codecs/readers,
-  authenticated bounded capture and
-  complete-domain certification, a fixed 1,000-query comparison manifest, and
-  a preserved three-phase qualification lifecycle. The one retained comparison
-  selected constant-membership `domains` at the first p95 speed step. The
-  selected byte-identical domains member is the runtime representation; the
-  alternate codecs and failed preflight evidence remain private;
+  domains-only mmap provider, a checked miniature binary/oracle, and a retained
+  fixed 1,000-query comparison manifest. The one retained comparison selected
+  constant-membership `domains` at the first p95 speed step. The selected
+  byte-identical domains member is the runtime representation; the completed
+  candidate and qualification source has been removed;
 
 Not implemented yet: model runtime/fallback, HTTP service, container,
 persistent download progress/status, repair/GC/rollback, or result
@@ -498,11 +486,13 @@ The rolling outcome order is:
     (complete);
 14. expose the exact selected representation through a production mask
     provider without rebuilding it (complete);
-15. package the pinned checkpoints and implement CPU inference parity;
-16. consider accelerators only after measuring CPU;
-17. lookup-first model routing and evidence-gated result caching;
-18. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
-19. observability, security, performance, and release hardening.
+15. remove obsolete mask candidate and qualification machinery while retaining
+    the selected member and durable evidence (complete);
+16. package the pinned checkpoints and implement CPU inference parity;
+17. consider accelerators only after measuring CPU;
+18. lookup-first model routing and evidence-gated result caching;
+19. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
+20. observability, security, performance, and release hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the
 next coordinator-authored and independently reviewed ticket is active work.
@@ -518,8 +508,7 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
   transport, pinned resumable TLS sync, and secure Linux local-store/activation
   state;
 - `pangopup-build` — offline source validation, deterministic artifact
-  builders, the bounded compatibility-corpus adapter, and private feature-gated
-  GENCODE mask qualification tooling;
+  builders, and the bounded compatibility-corpus adapter;
 - `pangopup-cli` — shipped lookup, pinned asset sync, local install/status, and
   output adapter; service commands remain future;
 - future `pangopup-model` — model execution behind the core provider contract;

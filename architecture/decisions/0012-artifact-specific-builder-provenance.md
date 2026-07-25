@@ -77,5 +77,6 @@ The implementation and migration evidence are retained in
 - Changing a selected private-module declaration or a cross-crate root
   reexport requires refreshing the affected root-wiring projection. Unrelated
   crate-root items remain outside both artifact identities.
-- The Ticket 012 mask-qualification fingerprint remains a separate contract.
-  A future production mask bundle must define its own provenance domain.
+- Ticket 015 retired the completed Ticket 012 mask-qualification fingerprint
+  together with its one-time builder. A future production mask bundle defines
+  its own delivery identity and provenance when that asset is packaged.

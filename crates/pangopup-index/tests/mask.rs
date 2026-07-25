@@ -1,12 +1,9 @@
-use pangopup_core::{EnsemblGeneId, GencodeGeneId, GenomicPosition, Grch38Contig};
-use pangopup_index::{
-    mask::{MaskDomainsOpen, MaskError, MaskProvider, MaskQueryBuffer, MaskQueryGene},
-    mask_candidates::{
-        CanonicalMaskGene, MaskCandidateCodec, MaskStrand as CandidateMaskStrand,
-        write_mask_candidate,
-    },
+use pangopup_core::{EnsemblGeneId, GenomicPosition, Grch38Contig};
+use pangopup_index::mask::{
+    MaskDomainsOpen, MaskError, MaskProvider, MaskQueryBuffer, MaskQueryGene,
 };
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -18,19 +15,7 @@ static SCRATCH_SERIAL: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Deserialize)]
 struct Fixture {
-    genes: Vec<GeneFixture>,
     queries: Vec<QueryFixture>,
-}
-
-#[derive(Deserialize)]
-struct GeneFixture {
-    id: String,
-    contig: String,
-    strand: String,
-    start: u32,
-    end: u32,
-    rank: u32,
-    source_boundaries: Vec<u32>,
 }
 
 #[derive(Deserialize)]
@@ -77,36 +62,14 @@ fn fixture() -> Fixture {
     serde_json::from_slice(&fs::read(path).expect("read fixture")).expect("parse fixture")
 }
 
-fn genes(fixture: &Fixture) -> Vec<CanonicalMaskGene> {
-    fixture
-        .genes
-        .iter()
-        .map(|gene| {
-            CanonicalMaskGene::new(
-                GencodeGeneId::from_str(&gene.id).expect("gene identity"),
-                Grch38Contig::from_str(&gene.contig).expect("contig"),
-                match gene.strand.as_str() {
-                    "+" => CandidateMaskStrand::Plus,
-                    "-" => CandidateMaskStrand::Minus,
-                    _ => panic!("fixture strand"),
-                },
-                GenomicPosition::new(gene.start).expect("start"),
-                GenomicPosition::new(gene.end).expect("end"),
-                gene.rank,
-                gene.source_boundaries
-                    .iter()
-                    .copied()
-                    .map(|value| GenomicPosition::new(value).expect("boundary"))
-                    .collect(),
-            )
-            .expect("canonical gene")
-        })
-        .collect()
+fn fixture_member() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/gencode-mask-mini/domains.pgm")
 }
 
-fn write_fixture(path: &Path, codec: MaskCandidateCodec) {
-    let fixture = fixture();
-    write_mask_candidate(path, codec, &genes(&fixture)).expect("write fixture");
+fn scratch_member(scratch: &Scratch) -> PathBuf {
+    let path = scratch.path().join("domains.pgm");
+    fs::copy(fixture_member(), &path).expect("copy fixture member");
+    path
 }
 
 fn render(buffer: &MaskQueryBuffer, genes: &[MaskQueryGene]) -> Vec<ExpectedGene> {
@@ -144,10 +107,13 @@ fn production_domains_api_matches_the_independent_miniature_oracle() {
     assert_sync::<MaskDomainsOpen>();
 
     let fixture = fixture();
-    let scratch = Scratch::new();
-    let path = scratch.path().join("domains.pgm");
-    write_mask_candidate(&path, MaskCandidateCodec::Domains, &genes(&fixture))
-        .expect("write domains fixture");
+    let path = fixture_member();
+    let bytes = fs::read(&path).expect("read domains fixture");
+    assert_eq!(bytes.len(), 880);
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&bytes)),
+        "76d4513ba12fea21f509a3b61d01c90b2f503c24b139c2a50a4c08569994cc43"
+    );
     let provider = MaskDomainsOpen::open(&path).expect("open domains");
     assert_eq!(
         provider.file_len(),
@@ -182,14 +148,13 @@ fn production_domains_api_matches_the_independent_miniature_oracle() {
 #[test]
 fn production_api_rejects_both_unselected_codecs() {
     let scratch = Scratch::new();
-    for codec in [
-        MaskCandidateCodec::IntervalTree,
-        MaskCandidateCodec::BinnedPostings,
-    ] {
-        let path = scratch.path().join(codec.filename());
-        write_fixture(&path, codec);
+    let path = scratch_member(&scratch);
+    for codec in [1_u8, 3_u8] {
+        let mutation = mutate(&path, &format!("codec-{codec}"), |bytes| {
+            bytes[10] = codec;
+        });
         assert!(matches!(
-            MaskDomainsOpen::open(&path),
+            MaskDomainsOpen::open(&mutation),
             Err(MaskError::UnsupportedCodec)
         ));
     }
@@ -197,9 +162,7 @@ fn production_api_rejects_both_unselected_codecs() {
 
 #[test]
 fn stable_filter_is_contig_local_and_retains_exact_par_identity() {
-    let scratch = Scratch::new();
-    let path = scratch.path().join("domains.pgm");
-    write_fixture(&path, MaskCandidateCodec::Domains);
+    let path = fixture_member();
     let provider = MaskDomainsOpen::open(&path).expect("open domains");
     let stable = EnsemblGeneId::from_str("ENSG00000228572").expect("stable gene");
     let mut output = MaskQueryBuffer::default();
@@ -234,8 +197,7 @@ type ByteMutation = (&'static str, fn(&mut Vec<u8>));
 #[test]
 fn open_is_bounded_but_header_directory_and_touched_payload_corruption_fail_closed() {
     let scratch = Scratch::new();
-    let path = scratch.path().join("domains.pgm");
-    write_fixture(&path, MaskCandidateCodec::Domains);
+    let path = scratch_member(&scratch);
 
     for (suffix, change) in [
         (
@@ -295,8 +257,7 @@ fn open_is_bounded_but_header_directory_and_touched_payload_corruption_fail_clos
 #[test]
 fn domains_reject_foreign_postings_and_wrong_contig_genes_without_partial_output() {
     let scratch = Scratch::new();
-    let path = scratch.path().join("domains.pgm");
-    write_fixture(&path, MaskCandidateCodec::Domains);
+    let path = scratch_member(&scratch);
     let original = MaskDomainsOpen::open(&path).expect("open original");
     let contig = Grch38Contig::autosome(1).expect("chr1");
     let mut output = MaskQueryBuffer::with_capacity(8, 32);

@@ -39,7 +39,8 @@ open, and allocation-free warmed lookup already passed.
 - No GTF, SQLite database, Python environment, canonical export, builder, or
   second mask member is part of runtime operation.
 - The historical candidate writer, alternate codecs, and qualification tools
-  remain temporarily as evidence and are not exposed by the production API.
+  were removed after promotion. Their selection report, exactness manifest,
+  and git history remain the durable evidence.
 - Asset packaging later binds the exact member size and digest. The member is
   immutable after verified installation; concurrent in-place mutation or
   truncation of an open mmap is outside the supported threat model.

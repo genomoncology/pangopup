@@ -13,9 +13,10 @@ leads memory and download size. Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
 established. Immutable publication and pinned resumable remote sync are also
 complete. The strict upstream Pangolin compatibility corpus is established.
-Private, feature-gated GENCODE-mask qualification has authenticated the exact
-upstream semantics and selected constant-membership domains from three mmap
-candidates in one retained full-source comparison. The exact retained domains
+Retained GENCODE-mask qualification evidence authenticates the exact upstream
+semantics and records the selection of constant-membership domains from three
+mmap candidates in one full-source comparison. The one-time candidate and
+qualification source has been removed. The exact retained domains
 member is now available through a production, domains-only typed mmap provider;
 its delivery and model integration remain future. Model inference and HTTP
 remain future. The
@@ -179,11 +180,12 @@ Reference transport/XDG/release is not part of this outcome.
 Ticket 012 defines the exact versioned/PAR identity, effective
 `(gene_start,gene_end]` membership, contig-local filtering, exon boundaries,
 and observed same-strand order that a compact GENCODE v38 member must preserve.
-The private feature-gated lifecycle authenticated the GTF, gffutils database,
+The historical private lifecycle authenticated the GTF, gffutils database,
 Python/SQLite environment, canonical ordered export, and complete candidate
 set. It retained 60,649 genes, 88,202 domains, and 591,404 boundaries on 25
-primary contigs. Normal gates use an independent miniature without Python,
-gffutils, production inputs, or a network request.
+primary contigs. Current normal gates use a pinned 880-byte domains member and
+independently authored miniature query expectations without Python, gffutils,
+production inputs, a writer, or a network request.
 
 The single retained balanced comparison exhaustively certified interval-tree,
 constant-membership domains, and binned postings, then selected `domains` at
@@ -191,9 +193,10 @@ the first p95 speed step. Headline p50/p95 were 171/331 ns, versus 241/401 and
 241/431 ns. Every warmed lookup round allocated zero bytes. The exact report,
 1,000-query manifest, identities, and limitations are retained in
 [`artifacts/012-gencode-mask-format-selection.md`](artifacts/012-gencode-mask-format-selection.md).
-The two unselected `PGMBEN01` members and qualification lifecycle remain
-benchmark evidence. ADR 0013 promotes the exact selected domains member behind
-the production runtime API; it is not yet an installable or published asset.
+The unselected formats and qualification lifecycle remain historical benchmark
+evidence only; their compiled implementations have been removed. ADR 0013
+promotes the exact selected domains member behind the production runtime API;
+it is not yet an installable or published asset.
 
 ## Established — artifact-specific builder provenance
 
@@ -208,8 +211,9 @@ Checked legacy manifests remain readable with unchanged miniature payloads.
 The SNV regression's six source members, reference, requests, `NOTICE`, and
 `scores.pgi` stayed byte-identical; only manifest provenance and its copied
 bundle ID changed. The reference member and notice also stayed byte-identical.
-No production asset was opened or rebuilt, and the exact Ticket 012 mask
-fingerprint remains unchanged. See
+No production asset was opened or rebuilt. Ticket 015 later retired the
+completed mask-only fingerprint without changing either artifact-specific
+identity. See
 [`artifacts/013-artifact-builder-provenance.md`](artifacts/013-artifact-builder-provenance.md)
 and ADR 0012.
 
@@ -225,15 +229,18 @@ nothing with sufficient capacity.
 ADR 0013 supersedes ADR 0011's separate-format requirement. Ordinary open
 validates bounded header, section, and directory structure; queries validate
 touched records; asset SHA-256 stays a later download/install responsibility.
-No GTF, Python, SQLite, builder, copied member, bundle, transport, publication,
-or model work occurred. The retained 1,000-query oracle matches exactly.
+No GTF, Python, SQLite, builder, copied production member, bundle, transport,
+publication, or model work is in the runtime provider. The obsolete mask
+builder and qualification surfaces have now been removed. The retained
+1,000-query oracle matches exactly.
 
 ## Current outcome — repository diet
 
-Remove the completed candidate, qualification, bespoke publication, and
-source-fingerprint machinery that is no longer needed by the runtime product,
-while preserving the selected readers, fixtures, release compatibility, and
-durable evidence. This is a roadmap slot, not a drafted or authorized ticket.
+The mask candidate/qualification slice is complete: the production reader,
+miniature, selected member, and durable evidence remain, while more than
+12,000 lines of one-time machinery no longer compile. Continue the repository
+diet only through the next bounded, independently reviewed slice, preserving
+selected readers, release compatibility, and retained evidence.
 
 ## Next outcome — CPU runtime, safe model representation, and inference
 

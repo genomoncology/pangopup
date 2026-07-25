@@ -68,8 +68,8 @@ codecs and implements a `Send + Sync` `MaskProvider` over caller-owned reusable
 storage. It preserves exact versioned/PAR identity, `(start,end]` membership,
 plus-before-minus and authenticated within-strand order, optional stable-gene
 filtering, and normalized exon boundaries. The historical writer, alternate
-codecs, and qualification APIs remain temporarily isolated from production
-consumers.
+codecs, and qualification APIs have been removed; retained reports and
+exactness fixtures preserve the selection evidence.
 
 ### `pangopup-build`
 
@@ -77,42 +77,12 @@ Owns streaming `.tsv.gz` ingestion, full-source validation, deterministic index
 writing, reference certification, and atomic bundle publication. Gzip/TSV and
 other build-only dependencies stay here and do not enter runtime consumers.
 
-It also owns the private feature-gated GENCODE observation and qualification
-path: held-input authentication, separate base-interpreter and venv-launcher
-authentication, exact gffutils/SQLite environment capture, canonical order
-export, complete-domain comparison, candidate measurement, and preserved
-receipts. The helper executes the held interpreter with an authenticated
-prefix, disables ordinary site/`.pth` and bytecode startup, and records exact
-loaded-module origin/content/descriptor facts. A handled failure before the
-environment-derived capture contract gets its own deterministic private
-preflight-failure receipt. SQLite cursor results cross the helper boundary only
-as position-preserving primitive arrays; an in-process duplicate-column
-`sqlite3.Row` control prevents accidental mapping conversion. The exact
-database identity is authoritative, while the schema check deliberately
-retains its documented legacy pipe digest. Python, SQLite, and GTF parsing
-remain build-only.
-
-Environment evidence is a separate bounded schema, not generic metadata. It
-permits no more than 512 modules, each canonical `ModuleIdentity` is at most
-512 bytes, and the canonical non-module envelope is at most 64 KiB. The complete
-canonical environment is therefore capped at 320 KiB and its capture contract
-at 384 KiB. Probe draining, staged writes, authentication, inspection, and
-authorized reuse apply those same bounds. Ordinary receipts and reports keep
-their 64 KiB limit; full observation records keep the independent 4 MiB line
-limit. The helper rejects module 513 before authenticating it and rejects an
-oversized module file from `fstat` before reading or hashing it.
-
-The retained production capture is immutable across causal builder changes.
-Ordinary phase reuse still requires the old contract, every receipt, and the
-current mask-builder fingerprint to agree. When a sealed capture exposes a
-prepare-only defect, `plan-capture-promotion` may instead derive a target
-contract by replacing only that fingerprint. The separately authorized
-`promote-capture` path binds the canonical old contract, old builder, sealed
-capture receipt, prepare-failure receipt, derived target contract, and current
-builder. It reauthenticates the current helper/environment contract and every
-copied member, creates an absent no-replace target, and emits a new capture
-receipt that binds the authorization and old receipt. Failure evidence and
-unsealed prepare files never cross that boundary.
+The one-time GENCODE observation, candidate construction, and qualification
+program is not a supported builder surface and has been removed from the
+workspace. Its exact selection report, query manifest, and historical ADRs are
+retained. Runtime mask consumers need only the selected immutable member;
+Python, SQLite, gffutils, and GTF parsing are not runtime or build-crate
+dependencies for that member.
 
 ### `pangopup-assets`
 

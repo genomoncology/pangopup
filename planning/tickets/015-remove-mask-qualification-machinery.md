@@ -1,6 +1,6 @@
 # 015 — Remove obsolete GENCODE mask qualification machinery
 
-Status: ready
+Status: complete
 Contract identity (SHA-256 with this value set to `pending`):
 `4cb18507d3bf058e6ab77453574fbbab833e202602bd041975f7ff0614a61c44`
 Base revision: `34a69c3d3f97741dc726f47378f1d7b27670805b`
@@ -191,8 +191,8 @@ compiled or presented as supported tooling.
 ## Work Ownership
 
 - Coordinator-authored ticket and review dispositions: Codex primary agent.
-- Independent design reviewer: pending.
-- Implementer: pending; must differ from the design reviewer.
+- Independent design reviewer: `/root/ticket015_design_review`.
+- Implementer: `/root/ticket015_implement`; differs from the design reviewer.
 - Adversarial code reviewer: pending; must differ from both.
 - No user-authored, generated, or unrelated working-tree changes exist at the
   recorded base.
@@ -223,21 +223,104 @@ slice, and recorded `ACCEPTED AS READY`.
 
 ## Implementation Evidence
 
-Developer: pending.
+Developer: `/root/ticket015_implement`.
+
+The developer verified reviewed commit
+`418246dc129e1f5fcfadbb3f830faaaac5413eaa`, base
+`34a69c3d3f97741dc726f47378f1d7b27670805b`, contract identity
+`4cb18507d3bf058e6ab77453574fbbab833e202602bd041975f7ff0614a61c44`,
+and a clean pre-implementation ownership map.
+
+Before deleting the accepted writer, a temporary
+`pangopup-index` example parsed only the existing miniature's `genes` input and
+called `write_mask_candidate(..., MaskCandidateCodec::Domains, ...)`. Both
+destinations were first proved absent. The exact two generation commands were:
+
+```text
+cargo run --locked --quiet -p pangopup-index --example generate_mask_domains_fixture -- tests/fixtures/gencode-mask-mini/fixture.json tests/fixtures/gencode-mask-mini/domains.pgm
+cargo run --locked --quiet -p pangopup-index --example generate_mask_domains_fixture -- tests/fixtures/gencode-mask-mini/fixture.json /tmp/pangopup-ticket015-domains-second.pgm
+```
+
+Both commands printed `880`; this command succeeded with no difference:
+
+```text
+cmp tests/fixtures/gencode-mask-mini/domains.pgm /tmp/pangopup-ticket015-domains-second.pgm
+```
+
+The committed miniature is exactly 880 bytes with SHA-256
+`76d4513ba12fea21f509a3b61d01c90b2f503c24b139c2a50a4c08569994cc43`.
+The temporary generator was removed before review. Production-mask tests now
+deserialize only `fixture.json`'s independently authored `queries`; they open
+the pinned binary directly, pin its byte count/digest, mutate copies for
+corruption controls, and change header byte 10 to `1` and `3` for rejected
+codec controls. The allocation test also opens the pinned binary directly.
+
+The five named mask candidate/qualification source/spec files, feature, binary
+target, crate-root modules, `make spec` build, mask-wide build-script hash, and
+Ticket 012 frozen hash assertion were removed. The artifact-specific SNV and
+reference inventories, algorithms, domains, and expected identities were not
+changed; the focused source-fingerprint suite passed 19 tests, including all
+four integration invariance controls. Current documentation now distinguishes
+the production domains reader and retained evidence from the deleted one-time
+machinery.
+
+Focused evidence:
+
+```text
+cargo test --locked -p pangopup-index --test mask --test mask_allocations --test mask_retained_member
+# 6 passed; 1 retained-member test ignored as designed
+
+PANGOPUP_MASK_MEMBER=/home/ian/workspace/data/pangopup-mask-qualification-012/ce0356365d65ef2d0a0d5415d917e2b3ca03ca47b1bf05a75b3e736a2c8907fb/prepare/candidates/domains.pgm \
+  cargo test --locked -p pangopup-index --test mask_retained_member \
+  -- --ignored --exact retained_domains_member_matches_oracle
+# 1 passed; all 1,000 JCS+LF hashes matched
+
+cargo test --locked -p pangopup-build source_fingerprint
+# 19 passed; 25 filtered out
+
+cargo clippy --locked -p pangopup-index --tests -- -D warnings
+# passed
+
+! rg -n \
+  'mask_candidates|mask-qualification|pangopup-mask-candidates|PANGOPUP_MASK_BUILDER_SOURCE_SHA256' \
+  Makefile crates spec
+# passed
+
+git diff --check
+# passed
+```
+
+The remediated implementation diff is 233 insertions and 12,810 deletions
+(net -12,577 tracked lines). The miniature is the only new data file and is
+below 64 KiB. No full-source input, selected production member, external data,
+network, publication, or unrelated subsystem was mutated.
 
 ## Adversarial Code Review
 
-Reviewer: pending.
+Reviewer: `/root/ticket015_code_review`.
+
+The first review found one material stale current-doc claim:
+`planning/faq.md` still said the selected mask had no production provider and
+described SQLite, gffutils, and raw GTF as current build inputs. The developer
+corrected only that paragraph: it now distinguishes the shipped domains-only
+provider from future asset delivery/installation and accurately records those
+raw sources as one-time qualification inputs that are not runtime or current
+build-crate dependencies. Focused stale-claim scanning and `git diff --check`
+then passed.
+
+The same reviewer re-read the bounded remediation, found the FAQ and ticket
+evidence accurate, and recorded `ACCEPT`. The reviewer found no major,
+separately scoped issue.
 
 ## Acceptance Trace
 
 | Acceptance clause | Command or evidence | Result |
 |---|---|---|
-| Qualification code and surfaces removed | pending | pending |
-| Portable production mask behavior | pending | pending |
-| Exact retained 1,000-query behavior | pending | pending |
-| Existing product behavior unchanged | pending | pending |
-| Documentation and full gates | pending | pending |
+| Qualification code and surfaces removed | required negative `rg`; Cargo metadata shows only `reference-qualification` and no candidate target | pass |
+| Portable production mask behavior | focused three-test-target command; pinned 880-byte SHA-256 identity; codec/corruption/allocation controls | pass |
+| Exact retained 1,000-query behavior | exact environment-gated ignored-test command | pass, 1,000/1,000 |
+| Existing product behavior unchanged | `make test`; source-fingerprint focused suite | pass; expected SNV/reference identities unchanged |
+| Documentation and full gates | stale-claim scan; `make lint`; `make test`; `make spec`; `git diff --check` | pass; 143 executable specs |
 
 ## External Effect Evidence
 
@@ -246,7 +329,44 @@ external effect.
 
 ## Coordinator Final Check
 
-Coordinator: pending.
+Coordinator: Codex primary agent.
+
+The coordinator inspected every surviving code/test/configuration change, the
+complete current-document diff, all deletions, and the only untracked addition.
+`crates/pangopup-index/src/mask.rs`,
+`mask_retained_member.rs`, `fixture.json`, both artifact-specific inventory
+declarations, and the retained external member have no diff. The committed
+miniature is 880 bytes, mode-safe for git, and independently matches SHA-256
+`76d4513ba12fea21f509a3b61d01c90b2f503c24b139c2a50a4c08569994cc43`.
+Cargo metadata and the required negative scan expose no deleted
+feature/binary/module surface. There is no new framework, production data,
+model, network effect, rebuild, or file above 64 KiB.
+
+Final evidence on the independently accepted diff:
+
+```text
+PANGOPUP_MASK_MEMBER=.../prepare/candidates/domains.pgm \
+  cargo test --locked -p pangopup-index --test mask_retained_member \
+  -- --ignored --exact retained_domains_member_matches_oracle
+# passed; 1,000/1,000 query hashes matched
+
+cargo test --locked -p pangopup-index \
+  --test mask --test mask_allocations --test mask_retained_member
+# 6 passed; exact external test ignored in the portable run
+
+cargo test --locked -p pangopup-build source_fingerprint
+# 19 passed across unit and integration controls
+
+make lint
+make test
+make spec
+git diff --check
+# all passed; 143 executable specs
+```
+
+The final tracked diff is 275 insertions and 12,811 deletions, a net removal of
+12,536 lines, plus the sole 880-byte fixture. The code reviewer accepted the
+only remediation before these final gates.
 
 ## Coordinator Authorship
 

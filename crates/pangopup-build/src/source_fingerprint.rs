@@ -233,9 +233,8 @@ mod tests {
     ];
     const REPRESENTATIVE_EXCLUDED: &[&str] = &[
         "crates/pangopup-build/build.rs",
-        "crates/pangopup-build/src/mask.rs",
         "crates/pangopup-build/src/lib.rs",
-        "crates/pangopup-index/src/mask_candidates.rs",
+        "crates/pangopup-index/src/mask.rs",
         "crates/pangopup-index/src/lib.rs",
         "crates/pangopup-assets/src/sync.rs",
         "crates/pangopup-assets/src/release.rs",
@@ -2208,14 +2207,6 @@ mod tests {
         assert!(
             source_manifest_dependency_contract(&roots, SNV_ENTRIES, &manifests).is_err(),
             "causal manifest feature-list drift must fail"
-        );
-    }
-
-    #[test]
-    fn source_fingerprint_ticket_012_mask_identity_is_unchanged() {
-        assert_eq!(
-            env!("PANGOPUP_MASK_BUILDER_SOURCE_SHA256"),
-            "fd738fecac360867b74ec786dc53366e05ed1f78ef76062476a136feefe76816"
         );
     }
 }

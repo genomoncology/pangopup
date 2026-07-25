@@ -84,10 +84,11 @@ additionally needs the model checkpoints, local GRCh38 DNA bases, and a map of
 gene strand plus exon boundaries. The DNA is pinned NCBI RefSeq GRCh38.p14
 `GCF_000001405.40`. The boundary map is compiled from the GENCODE annotation
 used by Pangolin's masking behavior. A retained comparison selected the
-constant-membership domain representation from three private mmap candidates,
-but it has not yet been hardened as a production boundary-map format/provider.
-SQLite, gffutils, and raw GTF remain build inputs rather than runtime
-dependencies.
+constant-membership domain representation from three private mmap candidates.
+The exact selected bytes now have a production domains-only mmap provider;
+asset delivery and installation remain future work. SQLite, gffutils, and raw
+GTF were one-time qualification inputs and are neither runtime nor current
+build-crate dependencies.
 
 ### Why is any gene information needed at all?
 
@@ -184,8 +185,9 @@ speed step: headline p50/p95 were 171/331 ns, compared with 241/401 for
 interval-tree and 241/431 for binned postings. ADR 0013 promotes the exact
 selected `PGMBEN01` v1 domains bytes behind the production
 `pangopup_index::mask` provider instead of rebuilding identical data under a
-second format identity. The other codecs and qualification machinery remain
-private evidence; mask delivery and publication remain future work.
+second format identity. The other-codec results remain in retained historical
+evidence; their writer/readers and qualification machinery have been removed.
+Mask delivery and publication remain future work.
 
 The mask retains exact versioned identifiers and `_PAR_Y`, and its effective
 gene membership is `(start,end]` because that is what the upstream point query

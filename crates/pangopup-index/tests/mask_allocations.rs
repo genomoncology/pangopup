@@ -1,15 +1,8 @@
-use pangopup_core::{EnsemblGeneId, GencodeGeneId, GenomicPosition, Grch38Contig};
-use pangopup_index::{
-    mask::{MaskDomainsOpen, MaskProvider, MaskQueryBuffer},
-    mask_candidates::{
-        CanonicalMaskGene, MaskCandidateCodec, MaskStrand as CandidateMaskStrand,
-        write_mask_candidate,
-    },
-};
+use pangopup_core::{EnsemblGeneId, GenomicPosition, Grch38Contig};
+use pangopup_index::mask::{MaskDomainsOpen, MaskProvider, MaskQueryBuffer};
 use std::{
     alloc::{GlobalAlloc, Layout, System},
-    fs,
-    path::PathBuf,
+    path::Path,
     str::FromStr,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -47,27 +40,12 @@ static ALLOCATOR: CountingAllocator = CountingAllocator;
 
 #[test]
 fn sufficiently_reserved_warmed_queries_allocate_nothing() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target")
-        .join(format!("mask-allocation-{}.pgm", std::process::id()));
-    let gene = CanonicalMaskGene::new(
-        GencodeGeneId::from_str("ENSG00000000001.1").expect("gene"),
-        Grch38Contig::autosome(1).expect("chr1"),
-        CandidateMaskStrand::Plus,
-        GenomicPosition::new(10).expect("start"),
-        GenomicPosition::new(20).expect("end"),
-        0,
-        vec![
-            GenomicPosition::new(11).expect("boundary"),
-            GenomicPosition::new(20).expect("boundary"),
-        ],
-    )
-    .expect("canonical gene");
-    write_mask_candidate(&path, MaskCandidateCodec::Domains, &[gene]).expect("write member");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/gencode-mask-mini/domains.pgm");
     let provider = MaskDomainsOpen::open(&path).expect("open member");
     let mut output = MaskQueryBuffer::with_capacity(4, 8);
     let contig = Grch38Contig::autosome(1).expect("chr1");
-    let position = GenomicPosition::new(15).expect("position");
+    let position = GenomicPosition::new(2).expect("position");
     let stable = EnsemblGeneId::from_str("ENSG00000000001").expect("stable gene");
     provider
         .query(contig, position, Some(stable), &mut output)
@@ -83,7 +61,4 @@ fn sufficiently_reserved_warmed_queries_allocate_nothing() {
     assert_eq!(after, before, "warmed query allocated");
     assert_eq!(output.plus().len(), 1);
     assert!(output.minus().is_empty());
-
-    drop(provider);
-    fs::remove_file(path).expect("remove member");
 }

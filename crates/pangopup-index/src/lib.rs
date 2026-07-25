@@ -6,11 +6,6 @@
 #[doc(hidden)]
 pub mod reference_candidates;
 
-/// Historical GENCODE masking candidates and Ticket 012 qualification support.
-/// Runtime consumers use [`mask`] instead.
-#[doc(hidden)]
-pub mod mask_candidates;
-
 /// Production, domains-only GENCODE mask mmap provider.
 pub mod mask;
 

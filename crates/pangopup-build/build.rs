@@ -60,37 +60,6 @@ fn main() {
         "cargo:rustc-env=PANGOPUP_BUILDER_SOURCE_SHA256={:x}",
         hash.finalize()
     );
-
-    // Ticket 012 candidates bind only the causal mask implementation. This is
-    // deliberately independent of release, sync, SNV, and reference code.
-    let mask_paths = [
-        "Cargo.lock",
-        "crates/pangopup-core/Cargo.toml",
-        "crates/pangopup-core/src/lib.rs",
-        "crates/pangopup-index/Cargo.toml",
-        "crates/pangopup-index/src/mask_candidates.rs",
-        "crates/pangopup-build/Cargo.toml",
-        "crates/pangopup-build/build.rs",
-        "crates/pangopup-build/src/compatibility.rs",
-        "crates/pangopup-build/src/mask.rs",
-        "crates/pangopup-build/src/bin/pangopup-mask-candidates.rs",
-    ];
-    let mut mask_hash = Sha256::new();
-    for relative in mask_paths {
-        let bytes = fs::read(workspace.join(relative)).expect("read mask builder source");
-        mask_hash.update((relative.len() as u64).to_le_bytes());
-        mask_hash.update(relative.as_bytes());
-        mask_hash.update((bytes.len() as u64).to_le_bytes());
-        mask_hash.update(bytes);
-        println!(
-            "cargo:rerun-if-changed={}",
-            workspace.join(relative).display()
-        );
-    }
-    println!(
-        "cargo:rustc-env=PANGOPUP_MASK_BUILDER_SOURCE_SHA256={:x}",
-        mask_hash.finalize()
-    );
 }
 
 fn collect_rs(directory: &Path, workspace: &Path, paths: &mut Vec<PathBuf>) {

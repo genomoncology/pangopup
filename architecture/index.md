@@ -187,9 +187,9 @@ one sorted result. A concrete REF mismatch against ordinary payload is simply a
 miss on the lookup-only route; that route does not consult the separately
 shipped reference provider.
 
-## GENCODE mask benchmark candidates
+## Retained GENCODE mask selection
 
-Ticket 012 defines a separate, non-production `PGMBEN01` family for comparing
+Ticket 012 defined a separate, non-production `PGMBEN01` family for comparing
 three exact mask layouts: a direct interval-tree baseline,
 constant-membership domains, and binned postings. All three expose the same
 caller-owned query buffer and return containing genes separated by strand in
@@ -197,7 +197,7 @@ authenticated upstream order, with exact versioned/PAR identity, source span,
 query rank, and normalized exon boundaries. Membership follows Pangolin's
 effective `(start,end]` rule rather than a conventional closed interval.
 
-Candidate open maps one immutable member and validates bounded header,
+The comparison readers mapped one immutable member and validated bounded header,
 section, and contig-directory metadata. Point queries decode only their indexed
 regions; deterministic logical 4,096-byte traces record the actual decoder
 pages. Exhaustive offline inspection decodes the complete logical stream,
@@ -213,8 +213,9 @@ ADR 0013 promotes the exact selected `PGMBEN01` v1 domains bytes behind the
 production `pangopup_index::mask` API rather than rebuilding identical data
 under a second magic. Runtime open accepts only the domains discriminator,
 performs bounded structural checks, and leaves whole-member identity to later
-download/install checksum verification. The alternate members, candidate
-writer, tracing, and exhaustive inspection remain qualification-only.
+download/install checksum verification. The one-time alternate readers,
+candidate writer, tracing, and exhaustive inspection source have been removed;
+their report, manifest, and historical commits retain the decision evidence.
 
 ## Builder contract
 
@@ -296,8 +297,8 @@ key. Future fixed-v1 SNV builds use
 Each source digest covers a checked inventory declaration and artifact-local
 source/dependency bytes compiled into the builder. Logical paths are sorted and
 length-framed, and duplicate paths fail. Shared causal vocabulary and the
-fingerprint algorithm intentionally affect both families. Mask qualification,
-candidate formats, sync, release, CLI, model, and HTTP code affect neither.
+fingerprint algorithm intentionally affect both families. Production mask,
+sync, release, CLI, model, and HTTP code affect neither.
 
 Existing v1 manifests with the former repository-wide source fingerprint
 remain readable under the unchanged schema and integrity rules. Their members

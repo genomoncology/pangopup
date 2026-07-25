@@ -22,7 +22,9 @@ after all candidates passed exhaustive semantic and corruption controls.
 ADR 0013 promotes those exact selected bytes behind the domains-only
 `pangopup_index::mask` production provider, superseding ADR 0011's requirement
 for a separately renamed format. There is no mask delivery asset yet; the
-alternate codecs and qualification path remain historical evidence.
+alternate-codec and qualification results remain in durable historical
+evidence, while their one-time source and executable surfaces are no longer
+compiled.
 
 SNV and production-reference construction now have separate, artifact-local
 builder provenance. The checked source/dependency evidence is compiled into
