@@ -65,8 +65,9 @@ those semantics in Rust; they do not rerun Python or the neural network.
 The manifest distinguishes the normative helper's forced PyTorch `1/1` thread
 profile from the auxiliary unmodified CLI's observed `1/16` profile instead of
 claiming the whole capture used one setting. Controlled vectors and their
-expected values are pinned independently of replay, and future capture hashes
-the live helper plus every imported upstream Pangolin Python module before use.
+expected values are pinned independently of replay, and the provenance capture
+path hashes the live helper plus every imported upstream Pangolin Python module
+before use.
 
 ### Does Pangopup need HGVS or transcript projection?
 
@@ -82,8 +83,11 @@ The lookup path needs only the fixed-v1 score bundle. The planned model path
 additionally needs the model checkpoints, local GRCh38 DNA bases, and a map of
 gene strand plus exon boundaries. The DNA is pinned NCBI RefSeq GRCh38.p14
 `GCF_000001405.40`. The boundary map is compiled from the GENCODE annotation
-used by Pangolin's masking behavior. It is a compact Pangopup mmap member, not
-a runtime database.
+used by Pangolin's masking behavior. A retained comparison selected the
+constant-membership domain representation from three private mmap candidates,
+but it has not yet been hardened as a production boundary-map format/provider.
+SQLite, gffutils, and raw GTF remain build inputs rather than runtime
+dependencies.
 
 ### Why is any gene information needed at all?
 
@@ -152,11 +156,12 @@ override durable discovery. Other-platform support is future work.
 
 ### Will model fallback run from a FASTA file?
 
-The GRCh38 reference source is distributed by NCBI as FASTA, but raw FASTA will
-be build input. The planned asset builder compiles the required primary
-sequence into a compact indexed mmap member. Model fallback will read a bounded
-sequence window without parsing FASTA or loading the whole reference into heap
-memory. None of that model/reference runtime is implemented yet.
+The GRCh38 reference source is distributed by NCBI as FASTA, but raw FASTA is
+build input. The shipped reference builder compiles all 25 required primary
+sequences into the production `PGRREF01` mmap bundle, and its provider copies a
+bounded sequence window without parsing FASTA or loading the whole reference
+into heap memory. Installation and model routing do not consume that provider
+yet, and model inference remains unimplemented.
 
 ### Which compact reference encoding will Pangopup use?
 
@@ -166,8 +171,26 @@ six-contig comparison its headline p50/p95 were 4,469/4,880 ns, versus
 That satisfied the required five-percent speed win at both quantiles against
 both alternatives. It also produced the smallest member and Zstandard frame,
 although IUPAC4 touched two fewer logical pages. Normal tests use a tiny
-independent oracle. The winning payload still requires separate full-reference
-production hardening; the benchmark files are not runtime assets.
+independent oracle. Ticket 011 has since hardened the winner as the complete
+25-contig production `PGRREF01` bundle/provider; the benchmark files are not
+runtime assets. Delivery and model integration remain future work.
+
+### Which compact GENCODE mask encoding will Pangopup use?
+
+Constant-membership domains. Ticket 012 compared interval-tree, domains, and
+binned-postings candidates behind one exact query API over the complete pinned
+GENCODE v38 logical source. The closed selector chose domains at its first p95
+speed step: headline p50/p95 were 171/331 ns, compared with 241/401 for
+interval-tree and 241/431 for binned postings. `PGMBEN01` remains a private
+benchmark family, not a runtime format or release asset. A later outcome must
+harden domains under a distinct production format and provider contract.
+
+The mask retains exact versioned identifiers and `_PAR_Y`, and its effective
+gene membership is `(start,end]` because that is what the upstream point query
+actually produces. Overlapping same-strand gene order matters: Pangolin mutates
+one score array while visiting genes, so changing that order can change a later
+gene's masked result. An unversioned filter is applied within the already
+selected contig and never merges chrX/chrY pseudoautosomal copies.
 
 ### What latency should we expect?
 
@@ -218,15 +241,11 @@ None beyond possibly recognizing an exact genomic RefSeq accession as a contig
 alias. Pangopup does not accept transcript/protein HGVS or call a projection
 service.
 
-### What corpus should prove the first index?
+### What corpus proved the first index? (historical decision)
 
-- **Recommended:** a checked-in miniature containing normal loci, both genomic
-  directions, overlapping genes, zero scores, boundary positions, and malformed
-  rows; then certify all 19,913 files before calling v1 complete.
-- Start directly with the full 13 GB source: realistic, but slow feedback and
-  poor failure isolation.
-- Limit the product to the current ten clinical genes: fastest product proof,
-  but creates a temporary scope and artifact that would soon be discarded.
+A checked-in miniature supplied fast discriminating controls, followed by
+complete certification of all 19,913 files. The project did not limit the
+product to ten genes or use repeated full-source scans as an ordinary test.
 
 ### What is the primary optimization objective?
 

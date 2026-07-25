@@ -21,6 +21,8 @@ use std::{
 };
 
 pub mod compatibility;
+#[doc(hidden)]
+pub mod mask;
 mod production;
 pub mod reference;
 pub mod reference_candidates;

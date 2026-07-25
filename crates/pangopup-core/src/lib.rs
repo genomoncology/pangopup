@@ -10,6 +10,7 @@ pub enum ValueError {
     InvalidBase(String),
     SameAlleles,
     InvalidGene(String),
+    InvalidGencodeGene(String),
     ScoreOutOfRange(u16),
     RelativePositionOutOfRange(i16),
 }
@@ -27,6 +28,10 @@ impl fmt::Display for ValueError {
                     "Ensembl gene ID must be ENSG followed by 11 digits, got {value}"
                 )
             }
+            Self::InvalidGencodeGene(value) => write!(
+                f,
+                "GENCODE gene ID must be ENSG plus 11 digits, a nonzero version, and optional _PAR_Y, got {value}"
+            ),
             Self::ScoreOutOfRange(value) => {
                 write!(
                     f,
@@ -211,6 +216,88 @@ impl FromStr for EnsemblGeneId {
 impl fmt::Display for EnsemblGeneId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "ENSG{:011}", self.0)
+    }
+}
+
+/// Exact GENCODE gene identity used by Pangolin's masking annotation.
+///
+/// This is deliberately distinct from [`EnsemblGeneId`]. The latter is the
+/// stable, unversioned identity stored by the published SNV score source;
+/// GENCODE masking must retain both the version and an optional `_PAR_Y`
+/// suffix. The stable component is therefore not globally unique.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct GencodeGeneId {
+    stable: EnsemblGeneId,
+    version: NonZeroU32,
+    par_y: bool,
+}
+
+impl GencodeGeneId {
+    /// Construct an exact identity from its stable component and numeric
+    /// GENCODE version.
+    pub fn new(stable: EnsemblGeneId, version: u32, par_y: bool) -> Result<Self, ValueError> {
+        let version = NonZeroU32::new(version)
+            .ok_or_else(|| ValueError::InvalidGencodeGene(format!("{stable}.{version}")))?;
+        Ok(Self {
+            stable,
+            version,
+            par_y,
+        })
+    }
+
+    pub const fn stable(self) -> EnsemblGeneId {
+        self.stable
+    }
+
+    pub const fn version(self) -> NonZeroU32 {
+        self.version
+    }
+
+    pub const fn is_par_y(self) -> bool {
+        self.par_y
+    }
+}
+
+impl FromStr for GencodeGeneId {
+    type Err = ValueError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (body, par_y) = match value.strip_suffix("_PAR_Y") {
+            Some(body) => (body, true),
+            None => (value, false),
+        };
+        let (stable, version) = body
+            .split_once('.')
+            .ok_or_else(|| ValueError::InvalidGencodeGene(value.to_owned()))?;
+        if version.is_empty()
+            || version.starts_with('0')
+            || !version.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return Err(ValueError::InvalidGencodeGene(value.to_owned()));
+        }
+        let stable = stable
+            .parse::<EnsemblGeneId>()
+            .map_err(|_| ValueError::InvalidGencodeGene(value.to_owned()))?;
+        let version = version
+            .parse::<u32>()
+            .ok()
+            .and_then(NonZeroU32::new)
+            .ok_or_else(|| ValueError::InvalidGencodeGene(value.to_owned()))?;
+        Ok(Self {
+            stable,
+            version,
+            par_y,
+        })
+    }
+}
+
+impl fmt::Display for GencodeGeneId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}.{}", self.stable, self.version)?;
+        if self.par_y {
+            formatter.write_str("_PAR_Y")?;
+        }
+        Ok(())
     }
 }
 
@@ -679,6 +766,30 @@ mod tests {
             "ENSG00000141510"
         );
         assert!("ENSG141510".parse::<EnsemblGeneId>().is_err());
+        let exact = "ENSG00000228572.7_PAR_Y"
+            .parse::<GencodeGeneId>()
+            .expect("versioned PAR identity");
+        assert_eq!(exact.to_string(), "ENSG00000228572.7_PAR_Y");
+        assert_eq!(exact.stable().to_string(), "ENSG00000228572");
+        assert_eq!(exact.version().get(), 7);
+        assert!(exact.is_par_y());
+        assert_eq!(
+            GencodeGeneId::new(exact.stable(), 7, false)
+                .expect("non-PAR identity")
+                .to_string(),
+            "ENSG00000228572.7"
+        );
+        for rejected in [
+            "ENSG00000228572",
+            "ENSG00000228572.0",
+            "ENSG00000228572.01",
+            "ENSG00000228572.7_PAR_X",
+            "ENSG00000228572.7_PAR_Y_PAR_Y",
+            "ENSG0000022857X.7",
+            "ENSG00000228572.4294967296",
+        ] {
+            assert!(rejected.parse::<GencodeGeneId>().is_err(), "{rejected}");
+        }
         let position = GenomicPosition::new(1).expect("valid");
         assert!(Grch38Snv::new(Grch38Contig::X, position, DnaBase::A, DnaBase::T).is_ok());
         assert_eq!(

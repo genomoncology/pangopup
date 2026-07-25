@@ -14,9 +14,10 @@ aggregate release-size or bandwidth quota. Ordinary Git objects remain subject
 to the 100 MiB limit, so generated indices and model weights never enter Git
 history or Git LFS.
 
-The initial release family should keep independently versioned concerns
-separate. The SNV lookup uses one eight-file release asset set whose installable
-transport is the closed five-file subset:
+Release families keep independently versioned concerns separate. The SNV
+lookup uses one shipped eight-file release asset set whose installable transport
+is the closed five-file subset. The executable/model/reference/mask names below
+are intended future families, not currently published assets:
 
 ```text
 pangopup-<version>-<target>.tar.zst
@@ -90,8 +91,8 @@ The command itself requires the extracted executable to be exactly 43,495,424
 bytes with
 `sha256:d4a46368912cfc7b9f0a897a613910e34562ef033fc6029e0bea52c43b440fa4`.
 
-The model archive contains only the exact checkpoints needed by the supported
-inference implementation plus upstream notices and checksums. Keeping concerns
+The future model archive will contain only the exact checkpoints needed by its
+supported inference implementation plus upstream notices and checksums. Keeping concerns
 separate lets lookup-only installations avoid model bytes and lets data, model,
 reference, mask, and executable releases evolve without pretending they share
 a version. The reference and mask assets are optional unless model fallback is
@@ -125,6 +126,17 @@ three exact mmap candidates on the pinned six-contig RefSeq input. It now feeds
 a separate production `PGRREF01` bundle and provider. The benchmark files are
 still not runtime assets. Reference XDG installation, transport, and release
 publication remain separately reviewed future work.
+
+Ticket 012's canonical export, three `PGMBEN01` candidates, qualification
+binary, phase receipts, and benchmark report are private local evidence. They
+must not be uploaded as runtime assets. Mask delivery begins only after the
+selected `domains` representation is hardened by a later ticket under a
+distinct production format and provider contract.
+
+The sealed production capture and its completed builder-promotion authorization
+are also private qualification evidence, not release payloads. Promotion copied
+only the authenticated capture into an absent local stage; it did not publish a
+mask asset and cannot bypass the later production-format and delivery review.
 
 ## Shipped Linux installation and pinned remote sync
 
@@ -160,7 +172,7 @@ installer. Remote sync:
 
 1. uses only the binary-pinned asset set, never an unpinned “latest” release;
 2. holds a separate nonblocking cache lock before the installation lock;
-3. reuse a complete compatible local bundle without network access;
+3. reuses a complete compatible local bundle without network access;
 4. otherwise stream missing members sequentially to private cache state,
    resuming only on an exact strong-ETag ranged response;
 5. pass the exact local transport directory to the shipped installer.

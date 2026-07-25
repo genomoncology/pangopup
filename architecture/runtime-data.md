@@ -47,9 +47,20 @@ Running Pangolin for a lookup miss or non-SNV genuinely needs:
 
 Upstream Pangolin obtains item 3 from a gffutils database generated from
 GENCODE. Its documented GRCh38 default is GENCODE release 38 with
-`Ensembl_canonical` transcripts. Pangopup should compile the required gene
-intervals, strand bits, identifiers, and exon-boundary positions into a compact
-immutable mmap member. It does not ship SQLite/gffutils at runtime.
+`Ensembl_canonical` transcripts. Ticket 012 compiled those facts into three
+private candidate mmap members and selected constant-membership domains by the
+closed speed-first comparison. This selects a representation for later
+hardening, not a production format: no runtime mask provider exists. SQLite,
+gffutils, and the GTF remain build inputs only.
+
+The logical mask is deliberately richer than a coordinate set. It retains the
+exact versioned GENCODE identifier and optional `_PAR_Y` suffix, its
+unversioned stable component, contig, strand, inclusive GTF span, Pangolin's
+effective `(start,end]` point membership, observed point-query rank, and the
+canonical exon-boundary set. Stable filtering happens after contig selection;
+it never merges chrX and chrY pseudoautosomal copies. Ordered same-strand
+results must be preserved because upstream masking mutates shared arrays as it
+visits genes.
 
 The pinned sequence source is the [NCBI RefSeq GRCh38.p14 assembly](https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405/).
 The masking source is the archived [GENCODE release 38](https://www.gencodegenes.org/human/release_38.html)
@@ -68,8 +79,9 @@ the manifest-bound member hashes and compatibility contexts.
 
 RefSeq and GENCODE have different roles here. RefSeq supplies the GRCh38 DNA
 bases. GENCODE supplies the gene/exon map required by Pangolin's masking rules
-and by the Ensembl-gene identities used in the precomputed dataset. This does
-not introduce general gene annotation into the public API.
+and exact versioned/PAR identities used during model masking. The Zenodo lookup
+source separately uses unversioned Ensembl identifiers. This does not introduce
+general gene annotation into the public API.
 
 Pangopup now pins that boundary in `tests/fixtures/pangolin-compat-v1`. The
 227,060-byte corpus contains 14 scored genomic cases, six rejection cases, and
@@ -79,9 +91,54 @@ GENCODE v38 gene/exon facts, typed raw arrays, masked and unmasked output,
 overlapping-gene order, and rejection witnesses. Its Rust inspector replays the
 semantics offline. This corpus—not architectural similarity—is the acceptance
 oracle for CPU inference and any later conversion. Its controlled vectors and
-expectations are fixed independently from replay, and its future capture path
-authenticates the live helper and all imported upstream Python modules before
-execution.
+expectations are fixed independently from replay, and its provenance capture path
+authenticates the live helper, the held base Python executable, the venv
+launcher relationship and `pyvenv.cfg`, and all loaded file-backed or
+interpreter-owned modules before and after execution. Capture uses `-S` plus an
+authenticated held-prefix import path so venv `.pth` startup code is not an
+unrecorded input; bytecode lookup is redirected away from existing caches.
+Every schema, query-plan, and compile-option cursor is required to return an
+actual `sqlite3.Row`, then converted positionally with exact per-column scalar
+types. A duplicate-column in-memory control proves sequence semantics before
+the production database is observed. The schema digest keeps the previously
+measured pipe/NULL/LF transformation as a named legacy secondary observation;
+the exact database SHA-256 remains the primary identity.
+
+That compatibility corpus proves its selected overlap and masking cases; it is
+not a complete all-gene order inventory. Ticket 012's authenticated canonical
+export and complete-domain comparison are the authority for the complete
+GENCODE mask. The retained run certified all three layouts and selected domains
+by speed over its fixed 1,000-query workload.
+
+Environment failure is not capture success. Before the final observed
+environment can determine the capture contract ID, a handled failure is sealed
+once in a deterministic mode-0700 preflight-failure stage containing bounded,
+path-free evidence. It has no source snapshot or phase receipt and cannot be
+automatically retried or consumed as runtime data.
+
+The complete captured environment is allowed to exceed generic metadata: its
+formal maximum is 320 KiB, derived from 512 canonical module identities at 512
+bytes each plus a 64 KiB non-module envelope. The final contract is bounded at
+384 KiB. The measured pinned environment is 79,641 bytes with 254 modules.
+These bounds preserve the full authenticated inventory rather than truncating
+it, while receipts, reports, inventories, and reuse authorizations remain
+64 KiB. Full observation JSONL retains a separate 4 MiB per-record bound.
+
+The fourth production launch sealed that complete ordered observation before
+prepare failed. The pinned GENCODE v38 GTF has a closed mixed attribute grammar:
+strings are quoted, while only `level` and `exon_number` are bare canonical
+positive decimals. This is both fully inventoried and consistent with the
+official [GENCODE data format](https://www.gencodegenes.org/pages/data_format.html).
+The corrected build-only parser does not accept arbitrary bare values.
+
+Changing that parser necessarily changed the mask-builder identity. The
+completed capture promotion was therefore not an exception to identity
+checking: it derived a new contract whose sole changed field was builder
+provenance and required independently reviewed authorization binding the exact
+old contract, capture receipt, and prepare-failure receipt. Only sealed
+source/capture members were eligible. Runtime consumers receive none of the
+GTF, SQLite, Python, promotion, or failure material; a future production bundle
+will contain only a separately hardened domain representation and provenance.
 
 ## Reproduction boundary
 

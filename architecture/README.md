@@ -14,6 +14,16 @@ codecs. The selected `acgt2-rle-v1` payload now has a separate production
 `PGRREF01` bundle, authenticated builder, cheap-open mmap reader, and typed
 caller-buffer provider.
 
+GENCODE masking is at a different boundary. Ticket 012 authenticated an exact
+ordered GENCODE v38 logical source and compared three private `PGMBEN01`
+candidate layouts. The retained full-source run covers 60,649 genes and 88,202
+constant-membership domains. It selected `domains` at the first p95 speed step
+after all candidates passed exhaustive semantic and corruption controls. The
+candidate family remains qualification-only: there is no production mask
+format, provider, bundle, or delivery asset. ADR 0011 permits the next outcome
+to harden only the selected logical representation under a distinct production
+contract.
+
 ## Boundaries
 
 - [`design.md`](design.md) — typed API, crate ownership, lookup flow, and scope.
@@ -31,6 +41,8 @@ caller-buffer provider.
   — the accepted two-bit/ambiguity-run reference payload selection.
 - [`decisions/0010-production-reference-bundle.md`](decisions/0010-production-reference-bundle.md)
   — the production container, provider, and integrity policy.
+- [`decisions/0011-gencode-mask-format-selection.md`](decisions/0011-gencode-mask-format-selection.md)
+  — the accepted constant-membership domain mask representation selection.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)

@@ -10,4 +10,4 @@ Regenerate into an absent directory with:
 cargo run --locked --package pangopup-build --bin pangopup-regression-fixture -- tests/fixtures/pangolin-precompute <ABSENT_OUTPUT>
 ```
 
-Bundle identity: `sha256:cf0ed402d0a6c84241f87d9e77270fd8b4850f6b19a3523670b044749127c598`.
+Bundle identity: `sha256:f7d93978715603eeebb72c7bb1af744e0d3bb5f976c94c3daaeae2c0e6d58fbc`.

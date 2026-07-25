@@ -12,7 +12,8 @@ string still advertises only four early prototype commands. `--help`,
 `--version`, and nested `--help` probes exit as usage errors. No executable spec
 checks the complete maintenance command catalog.
 
-Several documents also retained pre-Ticket-011 or pre-sync claims:
+At discovery, several documents also retained pre-Ticket-011 or pre-sync
+claims:
 
 - `planning/faq.md` says the reference builder/runtime is not implemented and
   the selected representation still needs production hardening;
@@ -23,6 +24,18 @@ Several documents also retained pre-Ticket-011 or pre-sync claims:
 - `planning/artifacts/011-production-reference.md` points to an active Ticket
   011 that was correctly removed; and
 - README outcome 11 is not marked complete.
+
+Ticket 012 reconciled those listed stale current/future claims and then updated
+the same surfaces again after the retained mask comparison selected `domains`.
+The private feature-gated `pangopup-mask-candidates` binary is deliberately
+excluded from ordinary installation and does not expand the supported
+maintainer interface. Its closed grammar is executable-spec tested. Historical
+ADR consequences remain snapshots of the decision at acceptance unless a
+document explicitly presents itself as current state.
+
+The unresolved debt is the public `pangopup-build` help/version behavior and a
+narrow repeatable check of its supported command catalog. Release-upload
+subprocess lifecycle is tracked separately and is not part of this issue.
 
 ## Required resolution
 
@@ -35,6 +48,8 @@ Several documents also retained pre-Ticket-011 or pre-sync claims:
 - Add a repeatable stale-command/stale-current-claim check that is narrow
   enough to remain useful rather than becoming another long-running verifier.
 
-This is real maintenance debt but does not block Ticket 012's local mask
-semantics and format work. It must be resolved before new model/mask maintenance
-commands are presented as an end-user-supported interface.
+This remains real maintenance debt. Ticket 012's private mask qualification is
+complete and deliberately did not expand the supported maintainer interface.
+Resolve this issue before new production mask/model maintenance commands are
+presented as end-user-supported interfaces. Keep it open until public
+help/version and the stale-catalog checks are implemented.

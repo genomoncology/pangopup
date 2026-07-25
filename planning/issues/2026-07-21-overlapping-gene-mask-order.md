@@ -1,6 +1,6 @@
 # Overlapping-gene mask order
 
-Status: promoted to Ticket 012 on 2026-07-24
+Status: closed by Ticket 012 on 2026-07-25
 
 ## Observation
 
@@ -28,7 +28,7 @@ That evidence proves the behavior but not the complete production data. The
 retained compatibility artifact explicitly says it does not contain an
 all-gene masking-order representation.
 
-## Remaining contract promoted to Ticket 012
+## Contract completed by Ticket 012
 
 - Inventory every same-strand overlap and every distinct effective
   `(gene_start,gene_end]` point-query gene order in the exact pinned GENCODE v38
@@ -43,5 +43,9 @@ all-gene masking-order representation.
 - Retain a full-source digest and overlap/order summary so later production
   hardening cannot silently sort genes by identifier or coordinate.
 
-The reviewed Ticket 012 is the live owner of this remaining work. This issue is
-no longer a second implementation queue.
+Ticket 012 completed this contract over the exact pinned GENCODE v38 source:
+60,649 ordered exact genes, 88,202 effective domains, every domain witness and
+edge, and all three compiled candidates were authenticated and compared. ADR
+0011 selected constant-membership domains for production hardening. Preserving
+the resulting order remains a production-format and model-parity invariant,
+not an open issue or second implementation queue.

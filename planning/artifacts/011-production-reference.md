@@ -35,7 +35,8 @@ plain and deterministic single-member gzip source forms. Normal tests prove:
   binaries, sources, members, resource logs, pinned Rust-Zstandard size, and
   host evidence.
 
-Focused developer commands and results are recorded in the active Ticket 011.
+Focused developer commands and results are recorded in the completed Ticket
+011 history in Git.
 
 ## Retained production build and failed first qualification
 

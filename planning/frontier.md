@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-07-24
+Updated: 2026-07-25
 
 ## Current boundary
 
@@ -12,10 +12,15 @@ explicit fixed-v1 bundle or the active Linux user-data installation. Speed
 leads memory and download size. Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
 established. Immutable publication and pinned resumable remote sync are also
-complete. The strict upstream Pangolin compatibility corpus is established;
-model/mask assets, inference, and HTTP remain future. The production reference
-bundle, authenticated builder, and typed mmap provider are established; its
-transport, installation, and publication remain future delivery work.
+complete. The strict upstream Pangolin compatibility corpus is established.
+Private, feature-gated GENCODE-mask qualification has authenticated the exact
+upstream semantics and selected constant-membership domains from three mmap
+candidates in one retained full-source comparison. The selection is
+candidate-only; no production mask asset/provider exists. Model inference and
+HTTP remain future. The
+production reference bundle, authenticated builder, and typed mmap provider are
+established; its transport, installation, and publication remain future
+delivery work.
 
 ## Established — pinned source ingestion contract
 
@@ -166,34 +171,35 @@ All 25-contig logical identities remain unchanged. The original full build and
 both failed qualification roots are preserved; no second full build occurred.
 Reference transport/XDG/release is not part of this outcome.
 
-## Current outcome — exact GENCODE mask semantics and format selection
+## Established — exact GENCODE mask semantics and format selection
 
-Pin the complete behavior that a compact GENCODE v38 masking member must
-preserve before freezing its production layout. The source contract must bind
-the exact GTF and upstream gffutils database, retain versioned GENCODE gene
-identity including `_PAR_Y` copies, and reproduce Pangolin's effective
-`(gene_start,gene_end]` membership. The upstream SQLite query has no `ORDER BY`,
-so a database hash alone is insufficient: one authenticated
-Python/gffutils/SQLite observation environment must emit the canonical ordered
-all-gene export. That order is observable because upstream Pangolin mutates
-shared arrays while processing same-strand genes. A checked miniature and one
-retained full-source inventory must compare plausible mmap layouts against that
-export: exactness first, then lookup speed, resident memory/pages, and compressed
-size. Runtime code must not require raw GTF, SQLite, or gffutils.
+Ticket 012 defines the exact versioned/PAR identity, effective
+`(gene_start,gene_end]` membership, contig-local filtering, exon boundaries,
+and observed same-strand order that a compact GENCODE v38 member must preserve.
+The private feature-gated lifecycle authenticated the GTF, gffutils database,
+Python/SQLite environment, canonical ordered export, and complete candidate
+set. It retained 60,649 genes, 88,202 domains, and 591,404 boundaries on 25
+primary contigs. Normal gates use an independent miniature without Python,
+gffutils, production inputs, or a network request.
 
-This is the Ticket 012 boundary. It selects and records a mask representation;
-it does not harden a production mask bundle, package checkpoints, or run the
-model.
+The single retained balanced comparison exhaustively certified interval-tree,
+constant-membership domains, and binned postings, then selected `domains` at
+the first p95 speed step. Headline p50/p95 were 171/331 ns, versus 241/401 and
+241/431 ns. Every warmed lookup round allocated zero bytes. The exact report,
+1,000-query manifest, identities, and limitations are retained in
+[`artifacts/012-gencode-mask-format-selection.md`](artifacts/012-gencode-mask-format-selection.md).
+The private `PGMBEN01` members are benchmark evidence, not installable runtime
+assets.
 
-## Next outcome — production mask bundle and provider
+## Current outcome — production mask bundle and provider
 
-Harden only the selected mask representation as an immutable, independently
+Harden only the selected domain representation as an immutable, independently
 verifiable bundle and typed point-query provider. The builder must be
 reproducible, bounded-memory, license-complete, and use an artifact-specific
 source fingerprint so unrelated tooling changes do not churn its identity.
 Production open must use held no-follow members and must not scan the complete
 payload. Transport, XDG installation, public release, and model execution stay
-separate.
+separate. This outcome is a roadmap slot, not a drafted or authorized ticket.
 
 ## Later outcome — CPU runtime, safe model representation, and inference
 

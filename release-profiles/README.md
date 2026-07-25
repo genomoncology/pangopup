@@ -17,5 +17,5 @@ Profiles are data contracts; remote existence is separately observed. The
 matching assets and `immutable=true`. `pangopup-build release prepare`
 reproduces the small publication outputs from bounded local metadata without
 opening payload parts or contacting GitHub. A mutable release is not a
-fallback. This observed immutable contract is the input boundary for the next
-remote-sync slice.
+fallback. This observed immutable contract is the source of truth consumed by
+the shipped pinned remote-sync implementation.

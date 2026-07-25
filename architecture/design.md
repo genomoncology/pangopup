@@ -30,7 +30,8 @@ Owns the stable concepts callers use:
 
 - a build-qualified genomic SNV;
 - canonical contig/accession, 1-based position, reference, and alternate allele;
-- Ensembl gene identity;
+- unversioned `EnsemblGeneId` for the published SNV source and distinct exact
+  versioned/PAR `GencodeGeneId` for model masking;
 - exact centi-scores and relative positions;
 - gene-specific result records and source provenance;
 - narrow provider capabilities and typed errors.
@@ -61,11 +62,56 @@ Owns the runtime side and shared codec of the private storage contract:
 No consumer is allowed to know an offset or cast mapped bytes. The format may
 change without changing the provider contract.
 
+The same crate currently owns three private `PGMBEN01` mask candidates
+(interval tree, constant-membership domains, and binned postings) behind one
+caller-owned query buffer. They preserve exact versioned/PAR identity,
+`(start,end]` membership, strand-specific upstream rank, and exon boundaries.
+The retained full-source comparison selected domains by speed. All three
+remain qualification formats: the selected logical representation still has
+no production mask magic, bundle, or provider.
+
 ### `pangopup-build`
 
 Owns streaming `.tsv.gz` ingestion, full-source validation, deterministic index
 writing, reference certification, and atomic bundle publication. Gzip/TSV and
 other build-only dependencies stay here and do not enter runtime consumers.
+
+It also owns the private feature-gated GENCODE observation and qualification
+path: held-input authentication, separate base-interpreter and venv-launcher
+authentication, exact gffutils/SQLite environment capture, canonical order
+export, complete-domain comparison, candidate measurement, and preserved
+receipts. The helper executes the held interpreter with an authenticated
+prefix, disables ordinary site/`.pth` and bytecode startup, and records exact
+loaded-module origin/content/descriptor facts. A handled failure before the
+environment-derived capture contract gets its own deterministic private
+preflight-failure receipt. SQLite cursor results cross the helper boundary only
+as position-preserving primitive arrays; an in-process duplicate-column
+`sqlite3.Row` control prevents accidental mapping conversion. The exact
+database identity is authoritative, while the schema check deliberately
+retains its documented legacy pipe digest. Python, SQLite, and GTF parsing
+remain build-only.
+
+Environment evidence is a separate bounded schema, not generic metadata. It
+permits no more than 512 modules, each canonical `ModuleIdentity` is at most
+512 bytes, and the canonical non-module envelope is at most 64 KiB. The complete
+canonical environment is therefore capped at 320 KiB and its capture contract
+at 384 KiB. Probe draining, staged writes, authentication, inspection, and
+authorized reuse apply those same bounds. Ordinary receipts and reports keep
+their 64 KiB limit; full observation records keep the independent 4 MiB line
+limit. The helper rejects module 513 before authenticating it and rejects an
+oversized module file from `fstat` before reading or hashing it.
+
+The retained production capture is immutable across causal builder changes.
+Ordinary phase reuse still requires the old contract, every receipt, and the
+current mask-builder fingerprint to agree. When a sealed capture exposes a
+prepare-only defect, `plan-capture-promotion` may instead derive a target
+contract by replacing only that fingerprint. The separately authorized
+`promote-capture` path binds the canonical old contract, old builder, sealed
+capture receipt, prepare-failure receipt, derived target contract, and current
+builder. It reauthenticates the current helper/environment contract and every
+copied member, creates an absent no-replace target, and emits a new capture
+receipt that binds the authorization and old receipt. Failure evidence and
+unsealed prepare files never cross that boundary.
 
 ### `pangopup-assets`
 
@@ -90,7 +136,7 @@ atomic publication.
 
 Owns arguments, narrow genomic-variant input parsing, output rendering, and
 exit codes. It opens one configured Pangopup bundle for the process and reuses
-it for every request in batch or streaming modes. It does not parse source TSV
+it across one validated batch. It does not parse source TSV
 files. The binary and performance harness call the same library renderer, so
 measured JSONL/table serialization is the production byte path rather than a
 benchmark copy.
@@ -98,9 +144,9 @@ benchmark copy.
 Future `pangopup-model` and `pangopup-http` crates should be
 added only when their own observable slices begin. They must consume the same
 core types rather than leak a model runtime, HTTP, or cache types into the
-scoring API. The shipped assets crate intentionally has no network access; its
-Linux adapter owns home-directory discovery and managed local installation.
-`pangopup-core` performs no network or home-directory access. The future HTTP adapter runs in the
+scoring API. The shipped assets crate owns explicit pinned remote sync plus its
+Linux XDG installation adapter. `pangopup-core` performs no network or
+home-directory access. The future HTTP adapter runs in the
 foreground; process lifecycle belongs to external managers as described in
 [`service.md`](service.md).
 
@@ -145,12 +191,19 @@ Ensembl gene and masking is gene-specific, so the same genomic allele can have
 several valid score records. Pangopup returns every matching record by default
 and accepts an optional source-gene filter; it never guesses one best gene.
 
+For a future model request, that existing unversioned filter matches every
+containing exact GENCODE identity with the same stable component on the already
+selected contig. It does not collapse versions or merge chrX and chrY `_PAR_Y`
+copies. Exact mask query order is semantic because upstream Pangolin mutates
+shared score arrays while visiting overlapping same-strand genes.
+
 The current CLI slice accepts concrete SNVs only and tries the precomputed index.
 A concrete tuple whose reference does not match an ordinary indexed key is a
-typed-context `not_found` result, because no runtime FASTA is present. A later
-model slice may route misses and supported non-SNVs through pinned reference and
-mask assets; it must define its own reference-mismatch behavior. Every current
-result identifies the precomputed bundle and source provenance.
+typed-context `not_found` result because the lookup-only route does not consult
+the shipped reference provider. A later model slice may route misses and
+supported non-SNVs through pinned reference and mask assets; it must define its
+own reference-mismatch behavior. Every current result identifies the
+precomputed bundle and source provenance.
 
 See [`runtime-data.md`](runtime-data.md) for the small set of standalone assets
 needed by lookup and model execution.
@@ -202,6 +255,11 @@ Sync`. Results own small sorted record and ambiguity collections rather than
 exposing mmap lifetimes. The selected installed profile is decompression-free
 fixed-width mmap; transport compression is removed once at installation and
 never appears on the query path.
+
+The current sync profile provisions only the SNV transport. A future full
+service must pin a coherent set of SNV, reference, mask, and checkpoint
+identities before it can report readiness; the existence of the reference
+provider alone does not make model fallback operational.
 
 ## Planned extensions not yet shipped
 

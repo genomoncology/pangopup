@@ -8,6 +8,7 @@ repository.workspace = true
 
 [features]
 reference-qualification = ["pangopup-index/test-read-audit"]
+mask-qualification = []
 
 [dependencies]
 flate2 = "1.1.5"
@@ -41,3 +42,8 @@ workspace = true
 name = "pangopup-reference-benchmark"
 path = "src/bin/pangopup-reference-benchmark.rs"
 required-features = ["reference-qualification"]
+
+[[bin]]
+name = "pangopup-mask-candidates"
+path = "src/bin/pangopup-mask-candidates.rs"
+required-features = ["mask-qualification"]

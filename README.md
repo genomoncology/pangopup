@@ -7,7 +7,11 @@ provider and authenticated builder, deterministic local release
 transport tooling, atomic Linux/XDG installation, and pinned resumable sync of
 the immutable public SNV transport. It also ships a frozen, independently
 captured upstream compatibility corpus for future model work. Model inference
-and an HTTP service are planned but not implemented.
+and an HTTP service are planned but not implemented. Ticket 012 has now
+authenticated the complete GENCODE v38 mask semantics and selected the
+constant-membership `domains` encoding by a retained speed-first comparison.
+That selection is candidate evidence only; no production mask format or runtime
+provider exists yet.
 
 The target service will answer each request through one of two paths:
 
@@ -109,7 +113,7 @@ service will use four versioned assets:
 | SNV score index | Shipped fast path | Zenodo precomputed scores | Certified three-file bundle with a fixed 11-byte mmap member |
 | Model weights | Planned fallback | Upstream Pangolin checkpoints | Planned verified Rust-runtime representation |
 | GRCh38 sequence | Shipped provider for fallback sequence windows and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Certified `PGRREF01` two-bit/ambiguity-run mmap bundle |
-| Splice mask | Planned gene strand, spans, and exon boundaries | GENCODE release 38 annotation | Planned compact interval/boundary mmap file |
+| Splice mask | Selected candidate; production fallback still planned | GENCODE release 38 annotation | `domains` selected from three private `PGMBEN01` candidates; production bundle/provider not implemented |
 
 NCBI supplies the reference genome sequence; it does not supply the Pangolin
 model. The target release process will publish a pinned copy or verified
@@ -123,6 +127,47 @@ requested window into caller-owned memory. Delivery and XDG installation of
 this separate asset remain future work; a target full installation downloads
 the compiled bundle, not the raw FASTA. The same principle
 applies to GENCODE: GTF/gffutils is build input, not a runtime database.
+
+### GENCODE mask qualification
+
+Pangolin masking needs more than a set of exon coordinates. The candidate
+builder retains each exact versioned GENCODE identifier (including `_PAR_Y`),
+strand, inclusive source span, effective `(start,end]` membership, upstream
+point-query rank, and normalized exon-boundary set. An unversioned gene filter
+matches the stable component only after the request contig is known, so chrX
+and chrY pseudoautosomal copies are never merged.
+
+The private, feature-gated qualification tool authenticates the pinned SQLite
+and GTF plus the base Python executable, generic venv launcher/`pyvenv.cfg`,
+prefix facts, exact loaded modules, and SQLite environment; produces one
+canonical ordered export; certifies interval-tree, domain, and binned-postings
+candidates; and implements the fixed comparison procedure. Its miniature
+controls are shipped and do not require Python. The retained full-source run
+contains 60,649 genes, 88,202 constant-membership domains, and 591,404 exon
+boundaries on all 25 primary contigs.
+
+The complete pinned GTF inventory shows the narrow source grammar rather than
+loosening it generally. Across 3,150,424 data rows and 50,091,509 attributes,
+only `level` (values 1, 2, or 3) and `exon_number` (1 through 363) are unquoted;
+all 44,088,441 other values are quoted. This matches GENCODE's official
+[GTF format](https://www.gencodegenes.org/pages/data_format.html). The parser
+now accepts bare canonical positive decimals only for those two keys, retains
+duplicate quoted tags, and rejects every other bare or malformed form. Its
+limits of 256 attributes, 64 key bytes, and 4 KiB value bytes are well above
+the observed maxima of 25, 24, and 37.
+
+The first prepare attempt exposed that grammar after capture. Because the
+parser repair changed builder identity, normal same-builder reuse correctly
+rejected the old capture. A separately reviewed promotion copied only the
+reauthenticated sealed capture into the new contract; it did not copy failure
+or partial candidate output. Preparation then exhaustively certified all three
+candidates, and a balanced six-round, 1,000-query comparison selected
+`domains`: headline p50/p95 were 171/331 ns, versus 241/401 for interval-tree
+and 241/431 for binned postings. The benchmark family remains private evidence.
+There is still no production mask magic, installable mask asset, or runtime
+mask provider. See the retained
+[selection evidence](planning/artifacts/012-gencode-mask-format-selection.md)
+and [ADR 0011](architecture/decisions/0011-gencode-mask-format-selection.md).
 
 The normal test path builds the checked synthetic profile:
 
@@ -351,7 +396,7 @@ the query path.
 Implemented today:
 
 - the five-crate Rust workspace and strict lint/test/spec gates;
-- CLI help/version behavior with two executable smoke specs;
+- runtime `pangopup` CLI help/version behavior with two executable smoke specs;
 - GPL-3.0 source licensing, upstream Pangolin attribution, and CC BY 4.0
   dataset attribution;
 - a retained Rust analyzer that scanned the complete downloaded score corpus;
@@ -400,16 +445,26 @@ Implemented today:
 - the strict `pangopup-compat-v1` upstream oracle: 14 scored cases, six
   rejection cases, four controlled post-processing cases, exact pinned source
   identities, complete independently fixed controlled vectors, and a bounded
-  offline semantic inspector. Future capture re-authenticates the live GPL
-  helper and every imported upstream Python module immediately before use;
+  offline semantic inspector. Future capture separately authenticates the base
+  Python executable and a generic venv launcher/`pyvenv.cfg`, executes only the
+  held base descriptor, bypasses `.pth` and bytecode startup paths, and binds
+  every loaded file-backed or interpreter-owned module before and after use;
 - three closed, benchmark-only GRCh38 sequence candidates, an authenticated
   miniature IUPAC/page-boundary oracle, and one retained deterministic
   comparison selecting `acgt2-rle-v1` by speed, now hardened as a separate
   production bundle, reader, provider, and builder.
+- exact versioned/PAR GENCODE identity and mask semantics, three private
+  benchmark-only mask codecs/readers, authenticated bounded capture and
+  complete-domain certification, a fixed 1,000-query comparison manifest, and
+  a preserved three-phase qualification lifecycle. The one retained comparison
+  selected constant-membership `domains` at the first p95 speed step. The
+  candidate family and failed preflight evidence remain private and are not
+  runtime assets;
 
 Not implemented yet: model runtime/fallback, HTTP service, container,
 persistent download progress/status, repair/GC/rollback, or result
-cache. In this slice a syntactically valid concrete REF that
+cache. Production mask installation, transport, bundle/provider, and model
+routing are also not implemented. In this slice a syntactically valid concrete REF that
 does not match an ordinary indexed key is `not_found`; runtime FASTA validation
 begins only when model routing consumes the shipped reference provider.
 
@@ -428,12 +483,15 @@ The rolling outcome order is:
 10. measure and select the compact RefSeq GRCh38.p14 payload (complete:
     `acgt2-rle-v1` selected by speed);
 11. harden the selected reference payload as a complete provider and bundle
-    (Ticket 011);
-12. package the pinned model and compact GENCODE mask assets;
-13. CPU inference parity, followed only then by measured accelerator options;
-14. lookup-first model routing and evidence-gated result caching;
-15. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
-16. observability, security, performance, and release hardening.
+    (complete);
+12. establish exact GENCODE mask semantics and select a measured compact
+    representation (complete: `domains` selected by speed);
+13. harden the selected representation as a production mask bundle/provider;
+14. package the pinned checkpoints and implement CPU inference parity;
+15. consider accelerators only after measuring CPU;
+16. lookup-first model routing and evidence-gated result caching;
+17. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
+18. observability, security, performance, and release hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the
 next coordinator-authored and independently reviewed ticket is active work.
@@ -449,7 +507,8 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
   transport, pinned resumable TLS sync, and secure Linux local-store/activation
   state;
 - `pangopup-build` — offline source validation, deterministic artifact
-  builders, and the bounded compatibility-corpus capture/inspection adapter;
+  builders, the bounded compatibility-corpus adapter, and private feature-gated
+  GENCODE mask qualification tooling;
 - `pangopup-cli` — shipped lookup, pinned asset sync, local install/status, and
   output adapter; service commands remain future;
 - future `pangopup-model` — model execution behind the core provider contract;

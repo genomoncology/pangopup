@@ -184,7 +184,33 @@ At a stored `REF=N` coordinate, any syntactically valid concrete REF/ALT query
 returns the same gene-specific ambiguity and never returns the exception's
 scores. Ordinary and exception records from overlapping genes can coexist in
 one sorted result. A concrete REF mismatch against ordinary payload is simply a
-miss in this no-runtime-FASTA slice.
+miss on the lookup-only route; that route does not consult the separately
+shipped reference provider.
+
+## GENCODE mask benchmark candidates
+
+Ticket 012 defines a separate, non-production `PGMBEN01` family for comparing
+three exact mask layouts: a direct interval-tree baseline,
+constant-membership domains, and binned postings. All three expose the same
+caller-owned query buffer and return containing genes separated by strand in
+authenticated upstream order, with exact versioned/PAR identity, source span,
+query rank, and normalized exon boundaries. Membership follows Pangolin's
+effective `(start,end]` rule rather than a conventional closed interval.
+
+Candidate open maps one immutable member and validates bounded header,
+section, and contig-directory metadata. Point queries decode only their indexed
+regions; deterministic logical 4,096-byte traces record the actual decoder
+pages. Exhaustive offline inspection decodes the complete logical stream,
+reconstructs the canonical encoding, and owns payload-wide corruption checks.
+
+These formats exist only for the retained comparison. The authenticated
+complete GENCODE v38 run selected constant-membership domains at the first p95
+speed step: headline p50/p95 were 171/331 ns, versus 241/401 for interval-tree
+and 241/431 for binned postings. Exhaustive domain/edge comparison, corruption
+controls, and warmed zero-allocation checks passed for every candidate. There
+is still no production magic, bundle, provider, installer, or runtime consumer.
+Production hardening must re-specify only domains under a separate format
+identity; `PGMBEN01` is never installable.
 
 ## Builder contract
 

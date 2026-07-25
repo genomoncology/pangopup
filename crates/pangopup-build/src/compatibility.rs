@@ -20,6 +20,8 @@ const MANIFEST_MAX: u64 = 128 * 1024;
 const CASES_MAX: u64 = 3_800_000;
 const NOTICE_MAX: u64 = 64 * 1024;
 const AGGREGATE_MAX: u64 = 4 * 1024 * 1024;
+const CORPUS_DIGEST_DOMAIN: &[u8] = b"pangopup-compatibility-corpus-v1\0";
+const CORPUS_MEMBER_ORDER: [&str; 3] = ["manifest.json", "cases.jsonl", "NOTICE"];
 const LINE_MAX: usize = 256 * 1024;
 const STRING_MAX: usize = 8 * 1024;
 const TOKEN_MAX: usize = 128;
@@ -202,6 +204,21 @@ pub struct CaptureOutcome {
     pub corpus_sha256: String,
     pub cases: u8,
     pub bytes: u64,
+}
+
+/// Fully validated compatibility evidence retained from one anchored corpus read.
+///
+/// `corpus_sha256` uses the domain-separated framing implemented by
+/// [`corpus_sha256`]: it binds every member's exact name, canonical order,
+/// length, and bytes. `cases_jsonl_bytes` are the same bounded bytes that were
+/// authenticated against `manifest.json` and semantically validated; callers
+/// must not reopen `cases.jsonl` by pathname.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompatibilityCorpusEvidence {
+    pub corpus_bytes: u64,
+    pub corpus_sha256: String,
+    pub cases_jsonl_sha256: String,
+    pub cases_jsonl_bytes: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -524,13 +541,38 @@ impl Case {
     }
 }
 
-pub fn inspect_corpus(path: &Path) -> Result<InspectOutcome, CommandError> {
-    let members = open_members(path)?;
+/// Validate the complete corpus and retain evidence from the authenticated bytes.
+pub fn authenticate_corpus(path: &Path) -> Result<CompatibilityCorpusEvidence, CommandError> {
+    let mut members = open_members(path)?;
     let manifest: Manifest = decode_json(&members["manifest.json"], "manifest.json", MANIFEST_MAX)?;
     validate_manifest(&manifest, &members)?;
     validate_notice(&members["NOTICE"])?;
     let cases = decode_cases(&members["cases.jsonl"])?;
     validate_cases(&manifest, &cases)?;
+
+    let corpus_bytes = members.values().try_fold(0_u64, |total, member| {
+        let member_len = u64::try_from(member.len())
+            .map_err(|_| invalid("corpus", None, "member length overflow"))?;
+        total
+            .checked_add(member_len)
+            .ok_or_else(|| invalid("corpus", None, "aggregate byte overflow"))
+    })?;
+    let corpus_sha256 = corpus_sha256(&members)?;
+    let cases_jsonl_bytes = members
+        .remove("cases.jsonl")
+        .ok_or_else(|| invalid("corpus", None, "cases member disappeared"))?;
+    let cases_jsonl_sha256 = format!("{:x}", Sha256::digest(&cases_jsonl_bytes));
+
+    Ok(CompatibilityCorpusEvidence {
+        corpus_bytes,
+        corpus_sha256,
+        cases_jsonl_sha256,
+        cases_jsonl_bytes,
+    })
+}
+
+pub fn inspect_corpus(path: &Path) -> Result<InspectOutcome, CommandError> {
+    authenticate_corpus(path)?;
     Ok(InspectOutcome {
         status: "valid",
         schema: SCHEMA,
@@ -541,6 +583,31 @@ pub fn inspect_corpus(path: &Path) -> Result<InspectOutcome, CommandError> {
         postprocess_cases: 4,
         coverage_cells: 28,
     })
+}
+
+/// Hash the exact corpus with unambiguous, versioned framing.
+///
+/// The digest input is the domain separator, member count, then each member in
+/// `CORPUS_MEMBER_ORDER` as `u32(name length)`, name bytes, `u64(content
+/// length)`, and content bytes. Integer fields are little-endian.
+fn corpus_sha256(members: &BTreeMap<String, Vec<u8>>) -> Result<String, CommandError> {
+    let mut digest = Sha256::new();
+    digest.update(CORPUS_DIGEST_DOMAIN);
+    digest.update((CORPUS_MEMBER_ORDER.len() as u32).to_le_bytes());
+    for name in CORPUS_MEMBER_ORDER {
+        let bytes = members
+            .get(name)
+            .ok_or_else(|| invalid("corpus", None, format!("missing {name}")))?;
+        let name_len = u32::try_from(name.len())
+            .map_err(|_| invalid("corpus", None, "member name length overflow"))?;
+        let bytes_len = u64::try_from(bytes.len())
+            .map_err(|_| invalid("corpus", None, "member length overflow"))?;
+        digest.update(name_len.to_le_bytes());
+        digest.update(name.as_bytes());
+        digest.update(bytes_len.to_le_bytes());
+        digest.update(bytes);
+    }
+    Ok(format!("{:x}", digest.finalize()))
 }
 
 fn invalid(member: &str, case: Option<&str>, reason: impl AsRef<str>) -> CommandError {
@@ -3346,6 +3413,10 @@ fn sync_directory(path: &Path) -> Result<(), CommandError> {
 mod tests {
     use super::*;
 
+    fn compatibility_fixture() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/pangolin-compat-v1")
+    }
+
     fn scratch(name: &str) -> PathBuf {
         let serial = CAPTURE_SERIAL.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
@@ -3354,6 +3425,27 @@ mod tests {
         ));
         fs::create_dir(&path).expect("create unit scratch");
         path
+    }
+
+    #[test]
+    fn authenticated_evidence_retains_exact_cases_and_stable_aggregate_identity() {
+        let fixture = compatibility_fixture();
+        let evidence = authenticate_corpus(&fixture).expect("authenticate fixture once");
+
+        assert_eq!(evidence.corpus_bytes, 227_060);
+        assert_eq!(
+            evidence.corpus_sha256,
+            "c077d400230fc7df83242d2737a850b2709299be990f521599b0e55735ff55e3"
+        );
+        assert_eq!(
+            evidence.cases_jsonl_sha256,
+            "2aa557fd3b137966721d47ce073b2954c6a0bb1a6a64e9c4933dac69e88042c8"
+        );
+        assert_eq!(evidence.cases_jsonl_bytes.len(), 220_071);
+        assert_eq!(
+            evidence.cases_jsonl_bytes,
+            fs::read(fixture.join("cases.jsonl")).expect("fixture cases")
+        );
     }
 
     #[test]
