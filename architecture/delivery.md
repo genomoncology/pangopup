@@ -127,16 +127,17 @@ a separate production `PGRREF01` bundle and provider. The benchmark files are
 still not runtime assets. Reference XDG installation, transport, and release
 publication remain separately reviewed future work.
 
-Ticket 012's canonical export, three `PGMBEN01` candidates, qualification
-binary, phase receipts, and benchmark report are private local evidence. They
-must not be uploaded as runtime assets. Mask delivery begins only after the
-selected `domains` representation is hardened by a later ticket under a
-distinct production format and provider contract.
+Ticket 012's canonical export, two unselected `PGMBEN01` candidates,
+qualification binary, phase receipts, and benchmark report are private local
+evidence and must not be uploaded as runtime assets. ADR 0013 permits only the
+exact selected `domains.pgm` member to become the future runtime asset. Its
+transport, manifest-bound digest verification, XDG installation, and
+publication remain separate work; this provider outcome performs none of them.
 
 The sealed production capture and its completed builder-promotion authorization
 are also private qualification evidence, not release payloads. Promotion copied
 only the authenticated capture into an absent local stage; it did not publish a
-mask asset and cannot bypass the later production-format and delivery review.
+mask asset and cannot bypass the later delivery review.
 
 ## Shipped Linux installation and pinned remote sync
 

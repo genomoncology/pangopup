@@ -10,10 +10,12 @@ captured upstream compatibility corpus for future model work. Model inference
 and an HTTP service are planned but not implemented. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
-That selection is candidate evidence only; no production mask format or runtime
-provider exists yet. Future SNV and reference builds now also carry separate,
-artifact-local source provenance, so unrelated tooling changes no longer churn
-their identities while already published/qualified v1 assets remain readable.
+Ticket 014 promotes the exact selected bytes behind a domains-only production
+mmap provider without rebuilding or renaming the format. Mask delivery and
+model execution remain future work. Future SNV and reference builds now also
+carry separate, artifact-local source provenance, so unrelated tooling changes
+no longer churn their identities while already published/qualified v1 assets
+remain readable.
 
 The target service will answer each request through one of two paths:
 
@@ -115,7 +117,7 @@ service will use four versioned assets:
 | SNV score index | Shipped fast path | Zenodo precomputed scores | Certified three-file bundle with a fixed 11-byte mmap member |
 | Model weights | Planned fallback | Upstream Pangolin checkpoints | Planned verified Rust-runtime representation |
 | GRCh38 sequence | Shipped provider for fallback sequence windows and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Certified `PGRREF01` two-bit/ambiguity-run mmap bundle |
-| Splice mask | Selected candidate; production fallback still planned | GENCODE release 38 annotation | `domains` selected from three private `PGMBEN01` candidates; production bundle/provider not implemented |
+| Splice mask | Shipped provider for fallback masking; delivery still planned | GENCODE release 38 annotation | Exact selected 6,703,320-byte `domains.pgm` mmap member |
 
 NCBI supplies the reference genome sequence; it does not supply the Pangolin
 model. The target release process will publish a pinned copy or verified
@@ -166,10 +168,12 @@ or partial candidate output. Preparation then exhaustively certified all three
 candidates, and a balanced six-round, 1,000-query comparison selected
 `domains`: headline p50/p95 were 171/331 ns, versus 241/401 for interval-tree
 and 241/431 for binned postings. The benchmark family remains private evidence.
-There is still no production mask magic, installable mask asset, or runtime
-mask provider. See the retained
+ADR 0013 promotes the exact selected `PGMBEN01` v1 bytes behind
+`pangopup_index::mask`; ordinary runtime open accepts only domains and neither
+rebuilds nor scans the complete member. There is still no installable mask
+transport or public mask release. See the retained
 [selection evidence](planning/artifacts/012-gencode-mask-format-selection.md)
-and [ADR 0011](architecture/decisions/0011-gencode-mask-format-selection.md).
+and [ADR 0013](architecture/decisions/0013-byte-identical-gencode-mask-promotion.md).
 
 The normal test path builds the checked synthetic profile:
 
@@ -455,17 +459,18 @@ Implemented today:
   miniature IUPAC/page-boundary oracle, and one retained deterministic
   comparison selecting `acgt2-rle-v1` by speed, now hardened as a separate
   production bundle, reader, provider, and builder.
-- exact versioned/PAR GENCODE identity and mask semantics, three private
-  benchmark-only mask codecs/readers, authenticated bounded capture and
+- exact versioned/PAR GENCODE identity and mask semantics, a production
+  domains-only mmap provider, three retained private mask codecs/readers,
+  authenticated bounded capture and
   complete-domain certification, a fixed 1,000-query comparison manifest, and
   a preserved three-phase qualification lifecycle. The one retained comparison
   selected constant-membership `domains` at the first p95 speed step. The
-  candidate family and failed preflight evidence remain private and are not
-  runtime assets;
+  selected byte-identical domains member is the runtime representation; the
+  alternate codecs and failed preflight evidence remain private;
 
 Not implemented yet: model runtime/fallback, HTTP service, container,
 persistent download progress/status, repair/GC/rollback, or result
-cache. Production mask installation, transport, bundle/provider, and model
+cache. Production mask installation, transport, release publication, and model
 routing are also not implemented. In this slice a syntactically valid concrete REF that
 does not match an ordinary indexed key is `not_found`; runtime FASTA validation
 begins only when model routing consumes the shipped reference provider.
@@ -491,7 +496,8 @@ The rolling outcome order is:
 13. isolate SNV and reference builder provenance so unrelated code no longer
     churns artifact identities, without rebuilding either production asset
     (complete);
-14. harden the selected representation as a production mask bundle/provider;
+14. expose the exact selected representation through a production mask
+    provider without rebuilding it (complete);
 15. package the pinned checkpoints and implement CPU inference parity;
 16. consider accelerators only after measuring CPU;
 17. lookup-first model routing and evidence-gated result caching;

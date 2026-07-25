@@ -6,11 +6,13 @@
 #[doc(hidden)]
 pub mod reference_candidates;
 
-/// Benchmark-only GENCODE masking candidates used to select Ticket 012's
-/// production payload. The candidate magic is intentionally not a production
-/// compatibility promise.
+/// Historical GENCODE masking candidates and Ticket 012 qualification support.
+/// Runtime consumers use [`mask`] instead.
 #[doc(hidden)]
 pub mod mask_candidates;
+
+/// Production, domains-only GENCODE mask mmap provider.
+pub mod mask;
 
 /// Production GRCh38 reference bundle and mmap provider.
 pub mod reference;

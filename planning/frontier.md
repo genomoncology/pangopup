@@ -15,9 +15,10 @@ established. Immutable publication and pinned resumable remote sync are also
 complete. The strict upstream Pangolin compatibility corpus is established.
 Private, feature-gated GENCODE-mask qualification has authenticated the exact
 upstream semantics and selected constant-membership domains from three mmap
-candidates in one retained full-source comparison. The selection is
-candidate-only; no production mask asset/provider exists. Model inference and
-HTTP remain future. The
+candidates in one retained full-source comparison. The exact retained domains
+member is now available through a production, domains-only typed mmap provider;
+its delivery and model integration remain future. Model inference and HTTP
+remain future. The
 production reference bundle, authenticated builder, and typed mmap provider are
 established; its transport, installation, and publication remain future
 delivery work. Future SNV and reference builds now use separate causal
@@ -190,8 +191,9 @@ the first p95 speed step. Headline p50/p95 were 171/331 ns, versus 241/401 and
 241/431 ns. Every warmed lookup round allocated zero bytes. The exact report,
 1,000-query manifest, identities, and limitations are retained in
 [`artifacts/012-gencode-mask-format-selection.md`](artifacts/012-gencode-mask-format-selection.md).
-The private `PGMBEN01` members are benchmark evidence, not installable runtime
-assets.
+The two unselected `PGMBEN01` members and qualification lifecycle remain
+benchmark evidence. ADR 0013 promotes the exact selected domains member behind
+the production runtime API; it is not yet an installable or published asset.
 
 ## Established — artifact-specific builder provenance
 
@@ -211,17 +213,27 @@ fingerprint remains unchanged. See
 [`artifacts/013-artifact-builder-provenance.md`](artifacts/013-artifact-builder-provenance.md)
 and ADR 0012.
 
-## Current outcome — production mask bundle and provider
+## Established — production GENCODE mask provider
 
-Harden only the selected domain representation as an immutable, independently
-verifiable bundle and typed point-query provider. The builder must be
-reproducible, bounded-memory, license-complete, and use an artifact-specific
-source fingerprint so unrelated tooling changes do not churn its identity.
-Production open must use held no-follow members and must not scan the complete
-payload. Transport, XDG installation, public release, and model execution stay
-separate. Keep any initial build command private unless the open maintainer-help
-issue is resolved in its own bounded slice. This outcome is a roadmap slot, not
-a drafted or authorized ticket.
+`pangopup_index::mask` opens the exact retained 6,703,320-byte Ticket 012
+domains member through one read-only mmap. It rejects the interval-tree and
+binned-postings discriminators and exposes a `Send + Sync` provider with
+caller-owned reusable storage, plus/minus slices, exact gene identities, and
+boundary slices. Misses and errors clear output; warmed queries allocate
+nothing with sufficient capacity.
+
+ADR 0013 supersedes ADR 0011's separate-format requirement. Ordinary open
+validates bounded header, section, and directory structure; queries validate
+touched records; asset SHA-256 stays a later download/install responsibility.
+No GTF, Python, SQLite, builder, copied member, bundle, transport, publication,
+or model work occurred. The retained 1,000-query oracle matches exactly.
+
+## Current outcome — repository diet
+
+Remove the completed candidate, qualification, bespoke publication, and
+source-fingerprint machinery that is no longer needed by the runtime product,
+while preserving the selected readers, fixtures, release compatibility, and
+durable evidence. This is a roadmap slot, not a drafted or authorized ticket.
 
 ## Next outcome — CPU runtime, safe model representation, and inference
 

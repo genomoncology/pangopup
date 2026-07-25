@@ -62,13 +62,14 @@ Owns the runtime side and shared codec of the private storage contract:
 No consumer is allowed to know an offset or cast mapped bytes. The format may
 change without changing the provider contract.
 
-The same crate currently owns three private `PGMBEN01` mask candidates
-(interval tree, constant-membership domains, and binned postings) behind one
-caller-owned query buffer. They preserve exact versioned/PAR identity,
-`(start,end]` membership, strand-specific upstream rank, and exon boundaries.
-The retained full-source comparison selected domains by speed. All three
-remain qualification formats: the selected logical representation still has
-no production mask magic, bundle, or provider.
+The same crate exposes the byte-identical selected `PGMBEN01` domains member
+through its production `mask` module. `MaskDomainsOpen` rejects both unselected
+codecs and implements a `Send + Sync` `MaskProvider` over caller-owned reusable
+storage. It preserves exact versioned/PAR identity, `(start,end]` membership,
+plus-before-minus and authenticated within-strand order, optional stable-gene
+filtering, and normalized exon boundaries. The historical writer, alternate
+codecs, and qualification APIs remain temporarily isolated from production
+consumers.
 
 ### `pangopup-build`
 

@@ -42,8 +42,8 @@ schema, format identity, manifest claims, and member-integrity checks.
 ## Model fallback assets
 
 Model fallback is not implemented. Its accepted data boundary requires three
-additional local facts; the second is now implemented as a provider and build
-artifact, but is not yet installed or routed into inference:
+additional local facts. The reference and mask now have runtime providers, but
+neither is installed or routed into inference:
 
 Running Pangolin for a lookup miss or non-SNV genuinely needs:
 
@@ -65,9 +65,10 @@ Upstream Pangolin obtains item 3 from a gffutils database generated from
 GENCODE. Its documented GRCh38 default is GENCODE release 38 with
 `Ensembl_canonical` transcripts. Ticket 012 compiled those facts into three
 private candidate mmap members and selected constant-membership domains by the
-closed speed-first comparison. This selects a representation for later
-hardening, not a production format: no runtime mask provider exists. SQLite,
-gffutils, and the GTF remain build inputs only.
+closed speed-first comparison. ADR 0013 promotes the exact retained
+6,703,320-byte domains member behind a domains-only production mmap provider;
+it creates no second format or builder. SQLite, gffutils, and the GTF remain
+qualification inputs only.
 
 The logical mask is deliberately richer than a coordinate set. It retains the
 exact versioned GENCODE identifier and optional `_PAR_Y` suffix, its
@@ -153,8 +154,8 @@ checking: it derived a new contract whose sole changed field was builder
 provenance and required independently reviewed authorization binding the exact
 old contract, capture receipt, and prepare-failure receipt. Only sealed
 source/capture members were eligible. Runtime consumers receive none of the
-GTF, SQLite, Python, promotion, or failure material; a future production bundle
-will contain only a separately hardened domain representation and provenance.
+GTF, SQLite, Python, promotion, or failure material; future delivery contains
+only the exact selected domains member, its identity metadata, and attribution.
 
 ## Reproduction boundary
 

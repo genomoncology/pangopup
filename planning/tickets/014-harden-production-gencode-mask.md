@@ -1,6 +1,6 @@
 # 014 — Use the selected GENCODE mask as a runtime provider
 
-Status: ready
+Status: complete
 Contract identity (SHA-256 with this value set to `pending`):
 `4fe67d2db72e92e864f649c5872b6fba3a7662b682939fda0f53b72a01884eef`
 Base revision: `8681dee6d0afce7ab437d413a5e786dd49e7e018`
@@ -162,10 +162,10 @@ Pangolin masking.
 
 ## Work Ownership
 
-- Coordinator-authored ticket and review dispositions: primary agent.
-- Independent design reviewer: pending.
-- Implementer: pending; must be different from the design reviewer.
-- Adversarial code reviewer: pending; must be different from both.
+- Coordinator-authored ticket and review dispositions: Codex primary agent.
+- Independent design reviewer: `/root/ticket014_design_review`.
+- Implementer: `/root/ticket014_implement`.
+- Adversarial code reviewer: `/root/ticket014_code_review`.
 - The abandoned prior Ticket 014 diff was agent-generated, was archived under
   `/tmp/pangopup-ticket014-abandoned-20260725`, and is not part of this work.
 - No user-authored or unrelated working-tree changes remain at this base.
@@ -194,21 +194,99 @@ confirmed Ticket 012 complete and Ticket 013 unnecessary, and recorded
 
 ## Implementation Evidence
 
-Developer: pending.
+Developer: `/root/ticket014_implement`.
+
+Implementation completed at reviewed ticket commit
+`db0e07b2c8c77eb16042e3697ec39f430c47fef7`. The implementation:
+
+- added `pangopup_index::mask` as the production owner of `MaskStrand`,
+  `MaskQueryGene`, reusable `MaskQueryBuffer`, typed `MaskError`,
+  `MaskProvider`, and the domains-only `MaskDomainsOpen`;
+- added a self-contained domains-only production decoder, rejecting both
+  unselected codecs and enforcing touched posting-directory, contig/span, and
+  same-strand rank-order validation, without importing the frozen candidate
+  decoder or adding a writer, format, member, builder, or lifecycle;
+- added portable miniature, codec rejection, filtering/PAR, bounded-open,
+  touched-record corruption, output-clearing, thread-safety, and allocation
+  controls;
+- added the ignored exact retained-member test and proved all 1,000 preserved
+  JCS+LF query hashes against the pinned 6,703,320-byte member;
+- added ADR 0013 and updated every named current-state document.
+
+The first code review found that the reused domains decoder could silently
+ignore a structurally valid foreign posting or wrong-contig gene. The decoder
+now rejects every posted gene outside the selected directory and every touched
+gene whose contig/span does not contain the query. Two independent mutations
+prove both failures are typed and clear previously populated output. The same
+remediation documents that boundary slices accept only a gene from the
+buffer's current result and removes the last superseded separate-format claim
+from `planning/faq.md`.
+
+The coordinator's first full `make test` then exposed that modifying the
+historical candidate decoder changed Ticket 012's frozen source fingerprint.
+That attempt was not accepted: `mask_candidates.rs` is restored byte-for-byte
+to the reviewed base, and the production module now owns its complete minimal
+domains-only mmap/open/query decoder. The fingerprint regression and complete
+repository gate pass without changing the historical expected identity or its
+fingerprint machinery.
+
+Focused evidence:
+
+```text
+cargo test --locked -p pangopup-index
+  39 passed; 0 failed; 1 ignored
+
+cargo clippy --locked -p pangopup-index --all-targets -- -D warnings
+  passed
+
+PANGOPUP_MASK_MEMBER=/home/ian/workspace/data/pangopup-mask-qualification-012/ce0356365d65ef2d0a0d5415d917e2b3ca03ca47b1bf05a75b3e736a2c8907fb/prepare/candidates/domains.pgm \
+  cargo test --locked -p pangopup-index --test mask_retained_member \
+  -- --ignored --exact retained_domains_member_matches_oracle
+  1 passed; 1,000/1,000 expected query digests matched
+
+cargo fmt --all --check
+git diff --check
+  passed
+
+make lint
+make test
+make spec
+  passed; 150 executable specs
+```
+
+No production or source input was rebuilt, copied, rewritten, or added to the
+repository. Full repository gates remain the coordinator's post-review step.
 
 ## Adversarial Code Review
 
-Reviewer: pending.
+Reviewer: `/root/ticket014_code_review`.
+
+The first review rejected the diff because a structurally valid foreign
+posting or wrong-contig gene could be silently skipped, leaving an incomplete
+successful result. It also found one stale FAQ claim and required an explicit
+current-buffer precondition for boundary slices. The implementer added
+directory/contig/span validation and two discriminating corruptions that begin
+with populated output and prove typed error plus complete clearing, corrected
+the FAQ, and documented the boundary-handle contract.
+
+The coordinator's first full gate then exposed the historical source-
+fingerprint coupling described above. The developer replaced the facade with a
+self-contained production decoder and restored `mask_candidates.rs` exactly.
+The same reviewer inspected that materially rewritten decoder and independently
+verified 39 focused passes, the 1,000/1,000 retained oracle, the frozen Ticket
+012 fingerprint, formatting, and clippy. Final verdict: `ACCEPT`. The reviewer
+reported no separately scoped major issue; historical candidate removal remains
+the already-planned repository-diet outcome.
 
 ## Acceptance Trace
 
 | Acceptance clause | Command or evidence | Result |
 |---|---|---|
-| Domains-only runtime provider | pending | pending |
-| Exact retained workload | pending | pending |
-| Bounded/corrupt-input behavior | pending | pending |
-| Existing product paths unchanged | pending | pending |
-| Full repository gates | pending | pending |
+| Domains-only runtime provider | `cargo test --locked -p pangopup-index --test mask` | 5 passed |
+| Exact retained workload | Exact pinned ignored-test command above | 1,000/1,000 matched |
+| Bounded/corrupt-input behavior | `mask` plus `mask_allocations` integration tests | 6 passed |
+| Existing product paths unchanged | `cargo test --locked -p pangopup-index` | 39 passed; 1 ignored |
+| Full repository gates | `make lint && make test && make spec` | passed; 150 specs |
 
 ## External Effect Evidence
 
@@ -217,7 +295,40 @@ external effect.
 
 ## Coordinator Final Check
 
-Coordinator: pending.
+Coordinator: Codex primary agent.
+
+The coordinator inspected all changed and untracked files, the complete
+production decoder, ADR/documentation diff, and stale current-state claims.
+There are no unrelated changes, generated data members, large files, model
+inputs, network effects, or production builds in the diff. The largest added
+source is the 654-line domains-only decoder. `mask_candidates.rs` has no diff
+from the reviewed base.
+
+Final evidence on the exact accepted diff:
+
+```text
+PANGOPUP_MASK_MEMBER=.../prepare/candidates/domains.pgm \
+  cargo test --locked -p pangopup-index --test mask_retained_member \
+  -- --ignored --exact retained_domains_member_matches_oracle
+  1 passed; 1,000/1,000 query hashes matched
+
+make lint
+  passed
+
+make test
+  passed
+
+make spec
+  150 passed
+
+git diff --check
+  passed
+```
+
+The sole initial full-gate failure was the frozen Ticket 012 fingerprint after
+the rejected candidate-decoder modification. The final self-contained decoder
+eliminated that coupling without changing the historical hash; the rerun is
+green.
 
 ## Coordinator Authorship
 

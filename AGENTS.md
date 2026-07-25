@@ -13,6 +13,9 @@ Model inference/fallback and the HTTP service remain target work and are not
 implemented. A reviewed retained benchmark selected the two-bit/ambiguity-run
 GRCh38 payload by speed; Ticket 011 hardened it as the production `PGRREF01`
 reader and qualified the complete 25-contig bundle. Read `README.md` first.
+Ticket 014 now exposes Ticket 012's selected byte-identical GENCODE v38
+`domains` member through the production `pangopup_index::mask` mmap provider;
+mask delivery and model execution remain future work.
 
 ## Repository contract shape
 

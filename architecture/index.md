@@ -203,14 +203,18 @@ regions; deterministic logical 4,096-byte traces record the actual decoder
 pages. Exhaustive offline inspection decodes the complete logical stream,
 reconstructs the canonical encoding, and owns payload-wide corruption checks.
 
-These formats exist only for the retained comparison. The authenticated
-complete GENCODE v38 run selected constant-membership domains at the first p95
-speed step: headline p50/p95 were 171/331 ns, versus 241/401 for interval-tree
-and 241/431 for binned postings. Exhaustive domain/edge comparison, corruption
-controls, and warmed zero-allocation checks passed for every candidate. There
-is still no production magic, bundle, provider, installer, or runtime consumer.
-Production hardening must re-specify only domains under a separate format
-identity; `PGMBEN01` is never installable.
+The authenticated complete GENCODE v38 run selected constant-membership
+domains at the first p95 speed step: headline p50/p95 were 171/331 ns, versus
+241/401 for interval-tree and 241/431 for binned postings. Exhaustive
+domain/edge comparison, corruption controls, and warmed zero-allocation checks
+passed for every candidate.
+
+ADR 0013 promotes the exact selected `PGMBEN01` v1 domains bytes behind the
+production `pangopup_index::mask` API rather than rebuilding identical data
+under a second magic. Runtime open accepts only the domains discriminator,
+performs bounded structural checks, and leaves whole-member identity to later
+download/install checksum verification. The alternate members, candidate
+writer, tracing, and exhaustive inspection remain qualification-only.
 
 ## Builder contract
 

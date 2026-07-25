@@ -18,11 +18,11 @@ GENCODE masking is at a different boundary. Ticket 012 authenticated an exact
 ordered GENCODE v38 logical source and compared three private `PGMBEN01`
 candidate layouts. The retained full-source run covers 60,649 genes and 88,202
 constant-membership domains. It selected `domains` at the first p95 speed step
-after all candidates passed exhaustive semantic and corruption controls. The
-candidate family remains qualification-only: there is no production mask
-format, provider, bundle, or delivery asset. ADR 0011 permits the next outcome
-to harden only the selected logical representation under a distinct production
-contract.
+after all candidates passed exhaustive semantic and corruption controls.
+ADR 0013 promotes those exact selected bytes behind the domains-only
+`pangopup_index::mask` production provider, superseding ADR 0011's requirement
+for a separately renamed format. There is no mask delivery asset yet; the
+alternate codecs and qualification path remain historical evidence.
 
 SNV and production-reference construction now have separate, artifact-local
 builder provenance. The checked source/dependency evidence is compiled into
@@ -51,6 +51,8 @@ ADR 0012 defines that descriptive provenance boundary.
   — the accepted constant-membership domain mask representation selection.
 - [`decisions/0012-artifact-specific-builder-provenance.md`](decisions/0012-artifact-specific-builder-provenance.md)
   — separate causal builder identities for future SNV and reference artifacts.
+- [`decisions/0013-byte-identical-gencode-mask-promotion.md`](decisions/0013-byte-identical-gencode-mask-promotion.md)
+  — the selected mask member's domains-only production runtime boundary.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)

@@ -181,9 +181,11 @@ Constant-membership domains. Ticket 012 compared interval-tree, domains, and
 binned-postings candidates behind one exact query API over the complete pinned
 GENCODE v38 logical source. The closed selector chose domains at its first p95
 speed step: headline p50/p95 were 171/331 ns, compared with 241/401 for
-interval-tree and 241/431 for binned postings. `PGMBEN01` remains a private
-benchmark family, not a runtime format or release asset. A later outcome must
-harden domains under a distinct production format and provider contract.
+interval-tree and 241/431 for binned postings. ADR 0013 promotes the exact
+selected `PGMBEN01` v1 domains bytes behind the production
+`pangopup_index::mask` provider instead of rebuilding identical data under a
+second format identity. The other codecs and qualification machinery remain
+private evidence; mask delivery and publication remain future work.
 
 The mask retains exact versioned identifiers and `_PAR_Y`, and its effective
 gene membership is `(start,end]` because that is what the upstream point query
