@@ -1,9 +1,13 @@
 # 013 — Isolate SNV and reference builder provenance
 
 Status: ready
-Accepted contract identity:
+Accepted v1 contract identity:
 `4bef0284bcaa04dad90bc438a95db668e07c4c1c66007ab3980acdc720ced0c9`
+Replacement remediation contract identity
+(SHA-256 of this ticket with this value set to `pending`): `27904a7344675044143405c4b7784a1dd33ce070e9526f4437befe70df2fc3d1`
 Base revision: `c5ec1a3f07d8c72b71dc76b895f3784a48a81a5d`
+Reviewed-ready implementation base:
+`17681a2b6807333504cc2188626ded8578f90019`
 
 ## Why
 
@@ -82,6 +86,11 @@ rebuilt, repacked, downloaded, or published.
     preserving current re-exports;
   - move the SNV `NOTICE`/bundle-certification implementation out of
     `crates/pangopup-assets/src/lib.rs` while preserving current re-exports.
+  - move only the shared build-command error type out of
+    `crates/pangopup-build/src/production.rs`, and the SNV bundle error/input
+    audit support out of `crates/pangopup-assets/src/lib.rs`, into bounded
+    private modules included by every inventory that imports them. Preserve
+    existing error behavior and API paths.
 - Treat `crates/pangopup-core/src/lib.rs` as a conservative shared causal input
   to both v1 inventories. Do not refactor it in this ticket because it is a
   pinned input to the accepted mask identity.
@@ -98,6 +107,18 @@ rebuilt, repacked, downloaded, or published.
 - Keep dependency projections checked, canonical, and artifact-specific.
   Whole-workspace `Cargo.toml` or `Cargo.lock` bytes are not fingerprint inputs:
   adding an unrelated future dependency must not churn either artifact.
+- Prove each direct external root independently from the selected causal Rust
+  sources and the actual dependency declaration of the crate that owns each
+  source. The proof must derive candidate dependency identifiers and exact
+  version/default-feature/feature settings from the relevant real Cargo
+  manifests, then compare them with the artifact root declaration. A checked
+  witness file cannot be the authority for this comparison. Omitting a root
+  and its witness together, or changing a causal manifest dependency setting
+  without refreshing the artifact projection, must fail.
+- Resolve each accepted root set in its own standalone, locked, offline Cargo
+  project so unrelated workspace members cannot unify features into either
+  projection. Relevant Cargo manifests and the workspace lock may be test
+  evidence, but their whole bytes do not become fingerprint inputs.
 - Change only future manifest `builder.source_sha256` values. Keep
   `pangopup.bundle.v1`, `pangopup.reference.bundle.v1`, their builder object
   shape, member formats, package-version field, readers, public APIs, and CLI
@@ -129,14 +150,15 @@ rebuilt, repacked, downloaded, or published.
 - Reference qualification, performance benchmarking, transport/XDG/release
   work, public maintenance commands, model inference, routing, HTTP, or Docker.
 - A general crate/module cleanup. Mechanical extraction is limited to the
-  three mixed roots named above and must preserve existing API paths.
+  three SNV roots and three bounded shared support modules named above and must
+  preserve existing API paths and behavior.
 
 ## Success Checklist
 
-- [ ] The current defect has a discriminating control: the SNV and reference
+- [x] The current defect has a discriminating control: the SNV and reference
       fingerprints differ, and representative mask/candidate/sync/release/CLI
       inputs are excluded from both.
-- [ ] Pure hasher tests inject source/dependency bytes and prove:
+- [x] Pure hasher tests inject source/dependency bytes and prove:
   - mutating every declared SNV-only input changes only SNV;
   - mutating every declared reference-only input changes only reference;
   - mutating shared core or shared fingerprint-algorithm input changes both;
@@ -145,25 +167,31 @@ rebuilt, repacked, downloaded, or published.
     rename/domain-version changes do;
   - every compiled inventory and dependency projection is canonical, complete
     against its declared map, and independently recomputes the emitted value.
-- [ ] A focused test asserts the exact Ticket 012 mask fingerprint remains
+- [ ] An independent dependency control derives direct external uses from the
+      selected causal source bytes and binds each one to its actual owning
+      Cargo-manifest declaration. Simultaneous root/witness omission and a
+      causal mutation of the version requirement, `default-features`, or
+      feature list each fail; an unrelated workspace consumer or dependency
+      does not change either projection.
+- [x] A focused test asserts the exact Ticket 012 mask fingerprint remains
       `fd738fecac360867b74ec786dc53366e05ed1f78ef76062476a136feefe76816`.
-- [ ] New miniature SNV and reference manifests carry distinct valid
+- [x] New miniature SNV and reference manifests carry distinct valid
       fingerprints under their respective v1 domains.
-- [ ] The current reader opens an actual pre-migration miniature SNV manifest
+- [x] The current reader opens an actual pre-migration miniature SNV manifest
       and the coordinator-pinned pre-migration reference manifest with their
       unchanged members and returns the expected lookup/window.
-- [ ] SNV fixture migration proves the ten invariant files byte-identical and
+- [x] SNV fixture migration proves the ten invariant files byte-identical and
       proves every expected JSONL change is limited to
       `provenance.bundle_id`.
-- [ ] Reference migration proves exact unchanged hashes for `reference.pgr`
+- [x] Reference migration proves exact unchanged hashes for `reference.pgr`
       (`0ef815ff...a3d5`) and `NOTICE` (`faea3b19...62db`) while the manifest
       receives reference-specific provenance.
-- [ ] Existing production release-profile/proof constants and retained
+- [x] Existing production release-profile/proof constants and retained
       production identities are unchanged. No production asset is opened.
-- [ ] The 1,000-case SNV regression, reference miniature tests, full-bundle
+- [x] The 1,000-case SNV regression, reference miniature tests, full-bundle
       tests, transport/release tests, and mask-qualification miniature tests
       remain green.
-- [ ] No new public command or spec behavior is introduced. Existing
+- [x] No new public command or spec behavior is introduced. Existing
       `make spec` remains the outside-in regression gate.
 - [ ] `make lint`, `make test`, and `make spec` pass.
 
@@ -193,15 +221,18 @@ matches zero tests.
 - Why: `build.rs` is itself a Ticket 012 mask input, nested Cargo is fragile,
   and runtime checkout reads make released binaries non-reproducible.
 
-### 2. File-granular causal inventories with three narrow extractions
+### 2. File-granular causal inventories with bounded narrow extractions
 
 - Considered: keep hashing mixed crate roots; perform a repository-wide module
-  rewrite; extract only the SNV implementation from three mixed roots.
-- Decision: perform only the three named extractions. Keep shared core as an
-  explicitly shared conservative unit.
+  rewrite; extract only the SNV implementation from three mixed roots; extract
+  the small shared support definitions needed to close those inventories.
+- Decision: perform the three named SNV extractions plus only the shared
+  build-command error, asset error, and asset input-audit support extractions
+  named in Scope. Keep shared core as an explicitly shared conservative unit.
 - Why: this removes the known mask/candidate/delivery coupling without turning
-  a provenance correction into a broad API refactor or changing the accepted
-  mask fingerprint.
+  a provenance correction into a broad API refactor, while ensuring that an
+  imported support definition cannot change artifact behavior outside its
+  fingerprint. It does not change the accepted mask fingerprint.
 
 ### 3. Version the hash preimage, not the v1 manifest schema
 
@@ -226,12 +257,31 @@ matches zero tests.
 ### 5. Dependency projection rather than the whole lockfile
 
 - Considered: omit dependencies; hash the entire lockfile; record the exact
-  artifact-specific resolved closure/features.
-- Decision: record the exact closure/features for each builder in a checked
+  artifact-specific resolved closure/features; trust a second checked witness
+  declaration; derive the roots from selected causal sources and their owning
+  package manifests.
+- Decision: selected causal Rust source bytes plus the actual dependency
+  declarations in their owning Cargo manifests are the authority for direct
+  roots, version requirements, `default-features`, and feature lists. Checked
+  witness declarations are diagnostic only. Resolve each derived root set in
+  a standalone locked project and record its exact closure/features in a
   canonical projection.
 - Why: dependency versions can affect construction/certification, while an
   unrelated future model or HTTP dependency must not change SNV/reference
   identities.
+
+### 6. Canonical dependency target
+
+- Considered: use whichever target runs the tests; record every supported
+  target; bind the v1 projections to one production target.
+- Decision: the two v1 dependency projections are canonically resolved for
+  `x86_64-unknown-linux-gnu`, the current production artifact-build target.
+  Tests on any host inspect that target explicitly. Another production target
+  requires a separately reviewed fingerprint domain/version rather than
+  silently changing v1.
+- Why: target-specific dependencies and features must not vary with the
+  maintainer's test host, and Pangopup currently makes production publication
+  guarantees only on Linux.
 
 ## Dependencies
 
@@ -245,13 +295,29 @@ None.
   `/root/ticket013_evidence_research`. They supplied evidence and cannot serve
   as this ticket's design or code reviewer.
 - Independent design reviewer: `/root/ticket013_design_review3`.
-- Developer: pending; must differ from both research agents and reviewers.
-- Independent code reviewer: pending; must differ from author, research
-  agents, design reviewer, and developer.
+- Developer: `/root/ticket013_developer`; differs from the research agents and
+  reviewers.
+- Independent code reviewer: `/root/model_architecture_research`; differs from
+  author, ticket research agents, design reviewer, and developer.
 - Pre-existing user changes: none.
 - Coordinator-generated ignored baseline:
   `target/ticket013-baseline/reference/`.
-- Tracked implementation/generated fixture changes: pending developer.
+- Tracked implementation:
+  - narrow SNV extractions in `pangopup-index`, `pangopup-build`, and
+    `pangopup-assets`, preserving their root re-exports;
+  - bounded shared command-error and asset error/input-audit support
+    extractions required to close the causal inventories;
+  - `pangopup-build` artifact-local fingerprint algorithm, declarations,
+    source inventories, isolated dependency roots/locks/projections, and
+    manifest wiring;
+  - discriminating fingerprint and migration integration tests.
+- Tracked generated evidence:
+  `tests/fixtures/builder-provenance-v1/` and the one-time regenerated
+  `tests/fixtures/snv-regression/` manifest/README/expected JSONL. Its source,
+  reference, requests, notice, and score member remain unchanged.
+- Tracked documentation:
+  ADR 0012, architecture/runtime/README/frontier/issue updates, and
+  `planning/artifacts/013-artifact-builder-provenance.md`.
 - Concurrent unrelated work: none.
 
 ## Long-Running Jobs
@@ -284,13 +350,133 @@ manifests, and uses discriminating provenance and payload-invariance controls.
 Dependencies remain `None`. This verdict transcription and status transition
 are non-causal record changes after acceptance of the exact identity above.
 
+Replacement remediation review:
+
+- Identity `30022b75...6208` was `REJECTED`. Decision 2 still contradicted the
+  bounded support extractions, Decision 5 did not record the new source/
+  manifest authority or canonical target, and acceptance did not separately
+  discriminate version-requirement and `default-features` drift.
+- Identity `27904a73...c3d1` resolved those three findings. The same reviewer
+  independently recomputed the normalized identity, found no Major or Minor
+  findings, confirmed base `c5ec1a3`, implementation base `17681a2`, and
+  dependencies `None`, and returned `ACCEPTED AS READY`. This verdict
+  transcription and status transition are non-causal record changes after
+  acceptance of the exact replacement identity above.
+
 ## Implementation Evidence
 
-Developer: pending
+Developer: `/root/ticket013_developer`
+
+Implementation completed against reviewed-ready commit `17681a2` and the
+accepted contract identity above. The pre-edit checkout was clean; the
+coordinator-owned ignored reference baseline matched all three pinned hashes,
+and there was no concurrent unrelated work.
+
+The mixed SNV implementations were mechanically extracted into private
+`snv.rs` modules while preserving every root re-export. Future SNV and
+reference manifests now call separate artifact-local fingerprint functions.
+Their shared v1 algorithm length-frames the algorithm declaration, domain,
+inventory declaration, and sorted unique logical path/bytes. All evidence is
+compiled into the builder.
+
+Checked dependency roots, isolated locks, source-use witnesses, and projections
+are independently compared in standalone per-artifact temporary projects with
+`cargo metadata --locked --offline --filter-platform
+x86_64-unknown-linux-gnu`. No workspace consumer participates in those
+resolved feature sets. A missing `libc` root and a broken witness both fail.
+Pure injected-input controls exercise every declared family input, shared
+inputs, excluded actual paths, order, duplicate, add, remove, rename,
+inventory, domain, and algorithm changes. An independent one-shot preimage
+oracle and hard expected values check the production incremental hasher. The
+current miniature identities are SNV `536ec535...d825a6` and reference
+`5eb85f90...3f41f2`.
+
+The established fixture generator was rerun after reviewer-required inventory
+closure. Ten SNV inputs/members stayed at their exact accepted hashes; only
+`builder.source_sha256` and copied bundle IDs changed. Legacy manifest
+rebinding reconstructs exact old canonical bytes.
+The new integration controls also build the miniature reference, compare its
+member/notice with the coordinator baseline, open both actual legacy manifests,
+and return a real lookup/window. Production identities are checked from
+unchanged source constants without opening production assets.
+
+An aggregate filtered rerun exposed that the new SNV/reference migration tests
+shared one process-named scratch directory. The implementation corrected them
+to use family-specific scratch paths. Reviewer remediation subsequently
+expanded the unit controls; the final aggregate passes 7 unit plus 4 migration
+controls.
+
+Focused evidence:
+
+```text
+cargo check --locked --workspace --all-features
+  PASS
+cargo test --locked -p pangopup-build source_fingerprint -- --nocapture
+  PASS after final remediation: 7 unit + 4 integration
+cargo test --locked -p pangopup-build --test builder_provenance -- --nocapture
+  PASS: 4
+cargo test --locked -p pangopup-build --test snv_regression_fixture -- --nocapture
+  PASS: 1 (1,000 requests)
+cargo test --locked -p pangopup-build --test full_bundle -- --nocapture
+  PASS: 13
+cargo test --locked -p pangopup-build --test reference -- --nocapture
+  PASS: 15
+cargo test --locked -p pangopup-assets release -- --nocapture
+  PASS: 4 matched controls
+cargo test --locked -p pangopup-build --features mask-qualification mask::tests -- --nocapture
+  PASS: 29; 1 intentional production lifecycle control ignored
+make lint
+  PASS: rustfmt and workspace/all-target Clippy with warnings denied
+git diff --check
+  PASS
+```
+
+The ordinary `make test` and `make spec` remain the coordinator's final gate
+after independent adversarial code review.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `/root/model_architecture_research`
+
+Initial verdict: `REJECT`.
+
+The reviewer found three Major proof gaps:
+
+1. The first dependency check read workspace-global `cargo metadata`, so an
+   unrelated consumer could unify extra features into both projections. The
+   SNV root declaration also omitted its direct `libc` use.
+2. The source inventories did not close over `CommandError` in
+   `production.rs` or the asset error/input-audit definitions used by
+   `assets/snv.rs`.
+3. The claimed recomputation called the production fingerprint function and
+   therefore was not an independent digest oracle.
+
+Developer disposition:
+
+1. Replaced workspace resolution with standalone per-artifact temporary Cargo
+   projects generated from exact roots/default-features/features and checked
+   isolated lock snapshots. `cargo metadata --locked --offline` now resolves
+   only that artifact. Source-use evidence and mutation controls require
+   `libc` and every other direct root.
+2. Extracted shared `CommandError`, asset errors, and the input-open audit into
+   bounded modules and included them in every causal inventory that imports
+   them.
+3. Added hard expected SNV/reference digests and a separate one-shot oracle
+   that constructs the complete framed preimage through a `BTreeMap` without
+   calling the production incremental hasher.
+
+Re-review: pending with the same reviewer.
+
+The first re-review remained `REJECT`: although isolated Cargo resolution and
+the independent digest oracle were fixed, direct-root completeness still
+compared two checked declarations and never bound version/default-feature/
+feature settings to the actual relevant Cargo manifests. The reviewer also
+identified the narrow shared `CommandError` extraction as outside the v1
+contract's three-extraction limit. The replacement remediation contract above
+explicitly admits only the bounded support extractions already required for
+source closure and requires a source- and manifest-derived dependency control.
+The original design reviewer must accept the exact replacement identity before
+the developer resumes.
 
 ## External Effect Evidence
 
@@ -306,11 +492,11 @@ Coordinator: pending
 
 | Acceptance clause | Command or evidence | Result |
 |---|---|---|
-| Artifact-local fingerprints | focused source-fingerprint tests | pending |
-| Legacy v1 readability | miniature legacy bundle tests | pending |
-| SNV payload stability | invariant-file comparison | pending |
-| Reference payload stability | miniature baseline comparison | pending |
-| Mask identity preserved | exact fingerprint assertion | pending |
-| Production identities untouched | release/reference identity checks | pending |
-| Documentation/current frontier | stale-claim scan | pending |
-| Repository gate | `make lint`; `make test`; `make spec` | pending |
+| Artifact-local fingerprints | `cargo test --locked -p pangopup-build source_fingerprint -- --nocapture` | pass: 7 unit + 4 integration |
+| Legacy v1 readability | `builder_provenance` real legacy-manifest controls | pass: SNV lookup + reference window |
+| SNV payload stability | checked ten-file migration evidence + 1,000-case regression | pass |
+| Reference payload stability | exact miniature baseline member/notice comparison | pass |
+| Mask identity preserved | exact compiled fingerprint assertion + mask miniature controls | pass: `fd738fec...6816` |
+| Production identities untouched | source-only release/reference constant checks; no production open | pass |
+| Documentation/current frontier | ADR 0012, evidence, README/architecture/frontier/issue update | implementation complete; review pending |
+| Repository gate | `make lint`; `make test`; `make spec` | lint pass; test/spec pending final coordinator gate |
