@@ -1,6 +1,7 @@
 //! Authenticated production reference build and private certification.
 
-use crate::CommandError;
+use crate::command_error::CommandError;
+use crate::source_fingerprint::reference_source_sha256;
 use flate2::bufread::GzDecoder;
 use pangopup_core::{GenomicPosition, Grch38Contig, ReferenceProvider};
 use pangopup_index::reference::{
@@ -540,7 +541,7 @@ fn build_staged(
         profile: profile.name.to_owned(),
         builder: BuilderManifest {
             version: env!("CARGO_PKG_VERSION").to_owned(),
-            source_sha256: format!("sha256:{}", env!("PANGOPUP_BUILDER_SOURCE_SHA256")),
+            source_sha256: format!("sha256:{}", reference_source_sha256()),
         },
         source: SourceManifest {
             assembly: profile.assembly.to_owned(),

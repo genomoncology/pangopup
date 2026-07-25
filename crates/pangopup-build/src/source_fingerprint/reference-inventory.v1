@@ -1,0 +1,9 @@
+crates/pangopup-build/src/command_error.rs
+crates/pangopup-build/src/reference.rs
+crates/pangopup-core/src/lib.rs
+crates/pangopup-index/src/reference.rs
+dependencies/reference-builder-cargo-lock.v1
+dependencies/reference-builder-linux-lock.v1
+dependencies/reference-builder-roots.v1
+tests/fixtures/pangolin-compat-v1/cases.jsonl
+wiring/reference-root-wiring.v1

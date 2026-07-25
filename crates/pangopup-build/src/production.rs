@@ -1,7 +1,9 @@
-use super::{
+use crate::command_error::CommandError;
+use crate::snv::{
     SourceLocus, TotalSummary, discover_members, index_locus, inspect_member_hashed,
     parse_member_gene,
 };
+use crate::source_fingerprint::snv_source_sha256;
 use flate2::bufread::GzDecoder;
 use pangopup_assets::{NOTICE, certify_bundle};
 use pangopup_index::{
@@ -10,12 +12,11 @@ use pangopup_index::{
     StreamingIndexWriter, VisitAllError, canonical_manifest_bytes,
 };
 use serde::Serialize;
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     convert::Infallible,
-    fmt, fs,
+    fs,
     fs::File,
     io::{self, BufRead, BufReader, ErrorKind, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -51,24 +52,7 @@ const REQUIRED: [(&str, &str); 25] = [
 ];
 static STAGING_SERIAL: AtomicU64 = AtomicU64::new(0);
 
-#[derive(Clone, Debug, Serialize)]
-pub struct CommandError {
-    pub status: &'static str,
-    pub code: &'static str,
-    pub message: String,
-    pub details: Option<Value>,
-}
-
 impl CommandError {
-    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
-        Self {
-            status: "error",
-            code,
-            message: message.into(),
-            details: None,
-        }
-    }
-
     fn mismatch(mismatch_count: u64, examples: Vec<MismatchExample>) -> Self {
         Self {
             status: "error",
@@ -84,14 +68,6 @@ impl CommandError {
         }
     }
 }
-
-impl fmt::Display for CommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for CommandError {}
 
 #[derive(Clone, Debug, Serialize)]
 struct MismatchDetails {
@@ -385,7 +361,7 @@ fn build_staged(
         index_format: "pangopup.fixed11.v1".to_owned(),
         builder: BuilderManifest {
             version: env!("CARGO_PKG_VERSION").to_owned(),
-            source_sha256: format!("sha256:{}", env!("PANGOPUP_BUILDER_SOURCE_SHA256")),
+            source_sha256: format!("sha256:{}", snv_source_sha256()),
         },
         source: SourceManifest {
             title: "Pangolin precomputed scores".to_owned(),

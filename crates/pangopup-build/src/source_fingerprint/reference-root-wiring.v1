@@ -1,0 +1,4 @@
+crates/pangopup-build/src/lib.rs	mod command_error ;
+crates/pangopup-build/src/lib.rs	mod source_fingerprint ;
+crates/pangopup-build/src/lib.rs	pub mod reference ;
+crates/pangopup-index/src/lib.rs	pub mod reference ;

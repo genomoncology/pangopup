@@ -24,6 +24,12 @@ format, provider, bundle, or delivery asset. ADR 0011 permits the next outcome
 to harden only the selected logical representation under a distinct production
 contract.
 
+SNV and production-reference construction now have separate, artifact-local
+builder provenance. The checked source/dependency evidence is compiled into
+the builder, unrelated subsystems do not churn either identity, and existing
+v1 assets carrying the former repository-wide fingerprint remain valid.
+ADR 0012 defines that descriptive provenance boundary.
+
 ## Boundaries
 
 - [`design.md`](design.md) — typed API, crate ownership, lookup flow, and scope.
@@ -43,6 +49,8 @@ contract.
   — the production container, provider, and integrity policy.
 - [`decisions/0011-gencode-mask-format-selection.md`](decisions/0011-gencode-mask-format-selection.md)
   — the accepted constant-membership domain mask representation selection.
+- [`decisions/0012-artifact-specific-builder-provenance.md`](decisions/0012-artifact-specific-builder-provenance.md)
+  — separate causal builder identities for future SNV and reference artifacts.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)

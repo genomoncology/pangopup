@@ -1,0 +1,8 @@
+flate2	crates/pangopup-build/src/snv.rs	flate2::
+libc	crates/pangopup-assets/src/snv.rs	libc::
+memmap2	crates/pangopup-index/src/snv.rs	memmap2::
+rustix	crates/pangopup-build/src/production.rs	rustix::
+serde	crates/pangopup-build/src/production.rs	serde::
+serde_jcs	crates/pangopup-index/src/snv.rs	serde_jcs::
+serde_json	crates/pangopup-build/src/production.rs	serde_json::
+sha2	crates/pangopup-build/src/snv.rs	sha2::

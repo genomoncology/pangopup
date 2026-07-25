@@ -11,7 +11,9 @@ and an HTTP service are planned but not implemented. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
 That selection is candidate evidence only; no production mask format or runtime
-provider exists yet.
+provider exists yet. Future SNV and reference builds now also carry separate,
+artifact-local source provenance, so unrelated tooling changes no longer churn
+their identities while already published/qualified v1 assets remain readable.
 
 The target service will answer each request through one of two paths:
 
@@ -487,7 +489,8 @@ The rolling outcome order is:
 12. establish exact GENCODE mask semantics and select a measured compact
     representation (complete: `domains` selected by speed);
 13. isolate SNV and reference builder provenance so unrelated code no longer
-    churns artifact identities, without rebuilding either production asset;
+    churns artifact identities, without rebuilding either production asset
+    (complete);
 14. harden the selected representation as a production mask bundle/provider;
 15. package the pinned checkpoints and implement CPU inference parity;
 16. consider accelerators only after measuring CPU;

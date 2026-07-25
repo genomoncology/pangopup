@@ -1,6 +1,6 @@
 # Artifact builder fingerprint coupling
 
-Status: open
+Status: closed by Ticket 013
 Found by: Ticket 012 closeout frontier review
 Priority: before production mask hardening
 
@@ -32,3 +32,30 @@ This issue does not authorize a production mask format/provider, GTF/database
 replay, model work, transport, installation, public CLI changes, or release
 publication. Close it only after the ordinary lint/test/spec gate and focused
 fingerprint-isolation evidence pass.
+
+## Resolution
+
+Ticket 013 replaced the shared hash for future builds with two independent
+source identities:
+
+- `pangopup.snv-builder-source.v1`;
+- `pangopup.reference-builder-source.v1`.
+
+In plain English, changing SNV construction code now changes the SNV builder
+identity without pretending the reference changed, and changing reference
+construction code does the opposite. Shared causal code changes both. Mask,
+candidate, sync, release, and CLI changes affect neither.
+
+The evidence is compiled into the builder, includes exact checked dependency
+closures/features, and does not inspect the checkout during an artifact build.
+Checked legacy manifests prove the already shipped SNV and retained reference
+remain readable with unchanged payloads. The 1,000-case SNV fixture and
+miniature reference prove the migration changed only descriptive manifest
+provenance. No production asset was opened or rebuilt, and the Ticket 012 mask
+identity stayed exact.
+
+The durable evidence is
+[`../artifacts/013-artifact-builder-provenance.md`](../artifacts/013-artifact-builder-provenance.md).
+Independent code review accepted the complete implementation and the bounded
+test-only correction exposed by the first broad test run. The final
+`make lint`, `make test`, and `make spec` gate passed, so this issue is closed.

@@ -23,6 +23,22 @@ therefore fails or misses rather than returning the score for a different
 allele. The full model reference is not loaded merely to repeat that check for
 an indexed SNV.
 
+## Artifact provenance
+
+The SNV score bundle and production-reference bundle are independently built
+assets. New builds record separate source identities under
+`pangopup.snv-builder-source.v1` and
+`pangopup.reference-builder-source.v1`. Each identity covers only the checked
+source and locked dependency evidence that can affect its artifact. Changing
+mask qualification, delivery, CLI, or another unrelated subsystem therefore
+does not create a new SNV or reference identity.
+
+That source fingerprint is descriptive build evidence, not a requirement that
+the current executable match the artifact's historical builder. Existing
+public and qualified v1 bundles remain immutable and readable after the
+provenance split. Runtime compatibility continues to come from the bundle
+schema, format identity, manifest claims, and member-integrity checks.
+
 ## Model fallback assets
 
 Model fallback is not implemented. Its accepted data boundary requires three

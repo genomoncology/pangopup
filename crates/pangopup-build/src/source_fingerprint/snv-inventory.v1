@@ -1,0 +1,13 @@
+NOTICE
+crates/pangopup-assets/src/error.rs
+crates/pangopup-assets/src/input_audit.rs
+crates/pangopup-assets/src/snv.rs
+crates/pangopup-build/src/command_error.rs
+crates/pangopup-build/src/production.rs
+crates/pangopup-build/src/snv.rs
+crates/pangopup-core/src/lib.rs
+crates/pangopup-index/src/snv.rs
+dependencies/snv-builder-cargo-lock.v1
+dependencies/snv-builder-linux-lock.v1
+dependencies/snv-builder-roots.v1
+wiring/snv-root-wiring.v1

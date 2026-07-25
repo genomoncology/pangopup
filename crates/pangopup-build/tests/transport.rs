@@ -125,55 +125,52 @@ fn hash(bytes: &[u8]) -> String {
     format!("sha256:{:x}", Sha256::digest(bytes))
 }
 
-fn collect_rs(directory: &Path, workspace: &Path, paths: &mut Vec<PathBuf>) {
-    let mut entries: Vec<_> = fs::read_dir(directory)
-        .expect("source directory")
-        .map(|entry| entry.expect("source entry").path())
-        .collect();
-    entries.sort();
-    for path in entries {
-        if path.is_dir() {
-            collect_rs(&path, workspace, paths);
-        } else if path.extension().is_some_and(|extension| extension == "rs") {
-            paths.push(
-                path.strip_prefix(workspace)
-                    .expect("relative source")
-                    .to_owned(),
-            );
-        }
-    }
+fn frame_builder_source(hash: &mut Sha256, bytes: &[u8]) {
+    hash.update((bytes.len() as u64).to_le_bytes());
+    hash.update(bytes);
 }
 
-fn builder_digest(mutation: Option<&Path>) -> String {
+fn snv_builder_digest(mutation: Option<&str>) -> String {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut paths = vec![
-        PathBuf::from("Cargo.toml"),
-        PathBuf::from("Cargo.lock"),
-        PathBuf::from("NOTICE"),
-    ];
-    for name in [
-        "pangopup-core",
-        "pangopup-index",
-        "pangopup-assets",
-        "pangopup-build",
-    ] {
-        let root = PathBuf::from(format!("crates/{name}"));
-        paths.push(root.join("Cargo.toml"));
-        collect_rs(&workspace.join(&root), &workspace, &mut paths);
-    }
-    paths.sort();
-    let mut hash = Sha256::new();
-    for relative in paths {
-        let name = relative.to_str().expect("UTF-8 path").as_bytes();
-        let mut bytes = fs::read(workspace.join(&relative)).expect("builder source");
-        if mutation.is_some_and(|target| relative == target) {
+    let evidence = workspace.join("crates/pangopup-build/src/source_fingerprint");
+    let algorithm = fs::read(evidence.join("algorithm.v1")).expect("fingerprint algorithm");
+    let inventory = fs::read(evidence.join("snv-inventory.v1")).expect("SNV fingerprint inventory");
+    let declaration = std::str::from_utf8(&inventory).expect("UTF-8 SNV inventory");
+    assert!(declaration.ends_with('\n'));
+
+    let mut entries = Vec::new();
+    let mut mutation_seen = mutation.is_none();
+    for logical in declaration.lines() {
+        let source = if let Some(relative) = logical
+            .strip_prefix("dependencies/")
+            .or_else(|| logical.strip_prefix("wiring/"))
+        {
+            evidence.join(relative)
+        } else {
+            workspace.join(logical)
+        };
+        let mut bytes = fs::read(source).expect("SNV builder-source input");
+        if mutation == Some(logical) {
             bytes.push(0);
+            mutation_seen = true;
         }
-        hash.update((name.len() as u64).to_le_bytes());
-        hash.update(name);
-        hash.update((bytes.len() as u64).to_le_bytes());
-        hash.update(bytes);
+        entries.push((logical.as_bytes(), bytes));
     }
+    entries.sort_unstable_by_key(|(logical, _)| *logical);
+
+    let mut hash = Sha256::new();
+    for bytes in [
+        algorithm.as_slice(),
+        b"pangopup.snv-builder-source.v1",
+        inventory.as_slice(),
+    ] {
+        frame_builder_source(&mut hash, bytes);
+    }
+    for (logical, bytes) in entries {
+        frame_builder_source(&mut hash, logical);
+        frame_builder_source(&mut hash, &bytes);
+    }
+    assert!(mutation_seen, "requested causal input is inventoried");
     format!("sha256:{:x}", hash.finalize())
 }
 
@@ -2204,13 +2201,19 @@ fn builder_identity_covers_assets_manifest_notice_and_certification_source() {
     let manifest: BundleManifest =
         serde_json::from_slice(&fs::read(bundle.join("manifest.json")).expect("manifest"))
             .expect("manifest JSON");
-    let actual = builder_digest(None);
-    assert_eq!(manifest.builder.source_sha256, actual);
-    assert_ne!(
+    let actual = snv_builder_digest(None);
+    assert_eq!(
         actual,
-        builder_digest(Some(Path::new("crates/pangopup-assets/src/lib.rs")))
+        "sha256:85126cbb4bbc008a475b0b941447fb7a24f299abb1754a1c10582912a522eb2d"
     );
-    assert_ne!(actual, builder_digest(Some(Path::new("NOTICE"))));
+    assert_eq!(manifest.builder.source_sha256, actual);
+    for causal in [
+        "wiring/snv-root-wiring.v1",
+        "NOTICE",
+        "crates/pangopup-assets/src/snv.rs",
+    ] {
+        assert_ne!(actual, snv_builder_digest(Some(causal)), "{causal}");
+    }
 }
 
 #[test]

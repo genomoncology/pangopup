@@ -20,7 +20,9 @@ candidate-only; no production mask asset/provider exists. Model inference and
 HTTP remain future. The
 production reference bundle, authenticated builder, and typed mmap provider are
 established; its transport, installation, and publication remain future
-delivery work.
+delivery work. Future SNV and reference builds now use separate causal
+source/dependency fingerprints; their existing production assets remain
+immutable and readable.
 
 ## Established — pinned source ingestion contract
 
@@ -191,19 +193,25 @@ the first p95 speed step. Headline p50/p95 were 171/331 ns, versus 241/401 and
 The private `PGMBEN01` members are benchmark evidence, not installable runtime
 assets.
 
-## Current outcome — isolate builder provenance by artifact
+## Established — artifact-specific builder provenance
 
-Replace the repository-wide Rust-source hash used by existing SNV and
-production-reference builders with small, deterministic inventories containing
-only the sources that can change each artifact. Preserve compatibility with
-the already shipped SNV bundle and qualified reference bundle, and prove on
-miniature fixtures that unrelated source changes no longer churn either
-identity while declared causal changes still do. This is provenance migration,
-not permission to rebuild or republish a production asset. The already separate
-mask-qualification fingerprint must remain isolated. This outcome is a roadmap
-slot, not a drafted or authorized ticket.
+Future SNV and production-reference builds use separate, versioned domains over
+small checked inventories of only their causal source and exact locked Linux
+dependency evidence. The evidence is compiled into the builder; construction
+does not inspect a checkout or invoke Cargo recursively. Discriminating tests
+prove artifact-only inputs affect only their owner, shared causal inputs affect
+both, and representative mask/candidate/sync/release/CLI inputs affect neither.
 
-## Next outcome — production mask bundle and provider
+Checked legacy manifests remain readable with unchanged miniature payloads.
+The SNV regression's six source members, reference, requests, `NOTICE`, and
+`scores.pgi` stayed byte-identical; only manifest provenance and its copied
+bundle ID changed. The reference member and notice also stayed byte-identical.
+No production asset was opened or rebuilt, and the exact Ticket 012 mask
+fingerprint remains unchanged. See
+[`artifacts/013-artifact-builder-provenance.md`](artifacts/013-artifact-builder-provenance.md)
+and ADR 0012.
+
+## Current outcome — production mask bundle and provider
 
 Harden only the selected domain representation as an immutable, independently
 verifiable bundle and typed point-query provider. The builder must be
@@ -215,7 +223,7 @@ separate. Keep any initial build command private unless the open maintainer-help
 issue is resolved in its own bounded slice. This outcome is a roadmap slot, not
 a drafted or authorized ticket.
 
-## Later outcome — CPU runtime, safe model representation, and inference
+## Next outcome — CPU runtime, safe model representation, and inference
 
 Choose the CPU tensor runtime together with the checkpoint representation
 rather than converting weights before a consumer exists. Authenticate every

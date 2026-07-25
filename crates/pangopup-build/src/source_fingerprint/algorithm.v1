@@ -1,0 +1,6 @@
+pangopup.builder-source-fingerprint.v1
+sha256
+frame=u64-little-endian-byte-length-followed-by-bytes
+preimage=algorithm-declaration,domain,inventory-declaration,sorted-entry(path,bytes)
+paths=utf8,nonempty,unique
+ordering=lexicographic-logical-path

@@ -1,6 +1,6 @@
 # 013 — Isolate SNV and reference builder provenance
 
-Status: ready
+Status: complete
 Accepted v1 contract identity:
 `4bef0284bcaa04dad90bc438a95db668e07c4c1c66007ab3980acdc720ced0c9`
 Replacement remediation contract identity
@@ -8,6 +8,8 @@ Replacement remediation contract identity
 Base revision: `c5ec1a3f07d8c72b71dc76b895f3784a48a81a5d`
 Reviewed-ready implementation base:
 `17681a2b6807333504cc2188626ded8578f90019`
+Replacement reviewed-ready amendment:
+`7171755199d3d6e6ee395356ec2f2b6765631587`
 
 ## Why
 
@@ -167,7 +169,7 @@ rebuilt, repacked, downloaded, or published.
     rename/domain-version changes do;
   - every compiled inventory and dependency projection is canonical, complete
     against its declared map, and independently recomputes the emitted value.
-- [ ] An independent dependency control derives direct external uses from the
+- [x] An independent dependency control derives direct external uses from the
       selected causal source bytes and binds each one to its actual owning
       Cargo-manifest declaration. Simultaneous root/witness omission and a
       causal mutation of the version requirement, `default-features`, or
@@ -193,7 +195,7 @@ rebuilt, repacked, downloaded, or published.
       remain green.
 - [x] No new public command or spec behavior is introduced. Existing
       `make spec` remains the outside-in regression gate.
-- [ ] `make lint`, `make test`, and `make spec` pass.
+- [x] `make lint`, `make test`, and `make spec` pass.
 
 Focused commands:
 
@@ -379,17 +381,45 @@ Their shared v1 algorithm length-frames the algorithm declaration, domain,
 inventory declaration, and sorted unique logical path/bytes. All evidence is
 compiled into the builder.
 
-Checked dependency roots, isolated locks, source-use witnesses, and projections
-are independently compared in standalone per-artifact temporary projects with
-`cargo metadata --locked --offline --filter-platform
-x86_64-unknown-linux-gnu`. No workspace consumer participates in those
-resolved feature sets. A missing `libc` root and a broken witness both fail.
+Checked dependency roots, isolated locks, and projections are independently
+compared in standalone per-artifact temporary projects with `cargo metadata
+--locked --offline --filter-platform x86_64-unknown-linux-gnu`. No workspace
+consumer participates in those resolved feature sets.
+
+The replacement remediation independently scans the selected causal Rust
+bytes for external path heads, excluding comments and string/raw/byte/C-string
+literals. It maps each source to `crates/<owner>/src/...`, reads that package's
+effective normal registry declarations from the actual Pangopup manifests
+with locked Linux-target `cargo metadata --no-deps`, and binds the derived
+package set to the checked root requirement, `default-features`, and explicit
+features. Cargo supplies the effective values for workspace-inherited
+declarations. Checked direct-use witness files are diagnostic only and are
+excluded from both fingerprints. Removing `libc` from the root and witness
+together still fails because the selected source derives it; independent
+controls fail version-requirement, default-feature, and feature-list drift.
+Unrelated assets dependencies `ureq` and `zstd` are not derived.
+
+The second replacement remediation binds intra-crate causal imports directly
+to private modules and removes the obsolete crate-private helper reexport.
+Checked artifact-specific root-wiring projections are fingerprint inputs.
+Tests derive them from the real mixed crate roots, requiring exact selected
+module declarations and the actual cross-crate `pub mod`/`pub use` items used
+by selected sources. A module `path` rebind and a cross-crate reexport rebind
+fail or change the projection; an unrelated root item does not. Whole mixed
+crate-root bytes remain excluded.
+
+The source tokenizer now derives ordinary and use-tree aliases plus
+`extern crate` aliases. A synthetic `gzip::` control still derives `flate2`
+after both root and diagnostic witness are omitted. Nearby line/nested-block
+comments and normal/raw/byte/C-string literals cannot create a false
+`serde_json` dependency.
+
 Pure injected-input controls exercise every declared family input, shared
 inputs, excluded actual paths, order, duplicate, add, remove, rename,
 inventory, domain, and algorithm changes. An independent one-shot preimage
 oracle and hard expected values check the production incremental hasher. The
-current miniature identities are SNV `536ec535...d825a6` and reference
-`5eb85f90...3f41f2`.
+current miniature identities are SNV `85126cbb...22eb2d` and reference
+`252f60fd...73e24`.
 
 The established fixture generator was rerun after reviewer-required inventory
 closure. Ten SNV inputs/members stayed at their exact accepted hashes; only
@@ -403,8 +433,17 @@ unchanged source constants without opening production assets.
 An aggregate filtered rerun exposed that the new SNV/reference migration tests
 shared one process-named scratch directory. The implementation corrected them
 to use family-specific scratch paths. Reviewer remediation subsequently
-expanded the unit controls; the final aggregate passes 7 unit plus 4 migration
-controls.
+expanded the unit controls; the final aggregate passes 16 unit plus four
+migration controls.
+
+A coordinator `make test` attempt subsequently found one stale pre-Ticket-013
+transport assertion. It still recomputed the former repository-wide builder
+identity, so the new manifest correctly returned `85126cbb...22eb2d` while the
+obsolete helper returned `1139b040...b1a9fe`. The transport control now
+independently reconstructs the final artifact-local SNV preimage, pins the
+exact accepted identity, and retains discriminating mutations for the checked
+SNV root-wiring projection, root `NOTICE`, and assets certification source.
+An audit found no other stale intermediate Ticket-013 SNV/reference identities.
 
 Focused evidence:
 
@@ -412,11 +451,13 @@ Focused evidence:
 cargo check --locked --workspace --all-features
   PASS
 cargo test --locked -p pangopup-build source_fingerprint -- --nocapture
-  PASS after final remediation: 7 unit + 4 integration
+  PASS after second replacement remediation: 16 unit + 4 integration
 cargo test --locked -p pangopup-build --test builder_provenance -- --nocapture
   PASS: 4
 cargo test --locked -p pangopup-build --test snv_regression_fixture -- --nocapture
   PASS: 1 (1,000 requests)
+cargo test --locked -p pangopup-build --test transport builder_identity_covers_assets_manifest_notice_and_certification_source -- --exact --nocapture
+  PASS: 1
 cargo test --locked -p pangopup-build --test full_bundle -- --nocapture
   PASS: 13
 cargo test --locked -p pangopup-build --test reference -- --nocapture
@@ -431,7 +472,7 @@ git diff --check
   PASS
 ```
 
-The ordinary `make test` and `make spec` remain the coordinator's final gate
+The coordinator's final `make lint`, `make test`, and `make spec` gate passed
 after independent adversarial code review.
 
 ## Adversarial Code Review
@@ -465,7 +506,7 @@ Developer disposition:
    that constructs the complete framed preimage through a `BTreeMap` without
    calling the production incremental hasher.
 
-Re-review: pending with the same reviewer.
+First re-review: `REJECT`.
 
 The first re-review remained `REJECT`: although isolated Cargo resolution and
 the independent digest oracle were fixed, direct-root completeness still
@@ -475,8 +516,70 @@ identified the narrow shared `CommandError` extraction as outside the v1
 contract's three-extraction limit. The replacement remediation contract above
 explicitly admits only the bounded support extractions already required for
 source closure and requires a source- and manifest-derived dependency control.
-The original design reviewer must accept the exact replacement identity before
-the developer resumes.
+The original design reviewer accepted exact replacement identity
+`27904a73...c3d1` at reviewed-ready amendment `7171755`, after which the
+developer resumed.
+
+Replacement developer disposition:
+
+1. Direct dependencies are now derived from independently enumerated path
+   heads in the selected causal Rust bytes and joined to the actual owning
+   package declarations reported by locked Linux-target Cargo metadata.
+   Checked root requirements, default-feature policy, and explicit features
+   must exactly match those effective manifest declarations.
+2. Checked direct-use files are excluded diagnostic aids. A discriminating
+   control removes `libc` from both root and witness, demonstrates that the
+   former checked-map comparison would pass, and demonstrates that the
+   source/manifest contract fails.
+3. Separate controls prove version-requirement, `default-features`, and
+   explicit feature-list drift each fail. Standalone locked offline Linux
+   resolution remains the independent resolved-version/closure/feature proof.
+
+The replacement re-review remained `REJECT` with two Major proof gaps:
+
+1. Selected behavior still resolved through untracked mixed crate roots:
+   `production.rs` and `reference.rs` used build-root imports,
+   `assets/snv.rs` used asset-root error/audit reexports, and selected build
+   code consumed index/assets root reexports. Changing those bindings could
+   alter behavior without changing an artifact fingerprint.
+2. Direct-root enumeration did not follow Rust aliases, so
+   `use flate2 as gzip; gzip::...` or `extern crate flate2 as gzip;` could
+   evade the source-derived root set.
+
+Second replacement developer disposition:
+
+1. Intra-crate imports now name the bounded private modules directly. Separate
+   checked SNV/reference root-wiring projections are fingerprint inputs.
+   Tests derive selected module declarations and actually consumed cross-crate
+   reexports from the real mixed roots, with workspace import/rename facts
+   from Cargo metadata. Causal module/reexport rebinding fails or changes the
+   projection; an unrelated root item does not.
+2. The comment/literal-aware tokenizer now derives import roots and follows
+   ordinary `use`, use-tree, and `extern crate` alias chains. An alias-specific
+   simultaneous root/witness omission fails, while comment and normal/raw/
+   byte/C-string decoys do not create roots.
+
+Second replacement re-review: `ACCEPT`.
+
+The same reviewer inspected the complete remediation and returned no Major or
+Minor findings. It confirmed that direct private imports plus independently
+derived root-wiring projections close the causal source boundary, alias-aware
+dependency derivation closes the source-alias escape, and the rebind,
+simultaneous-omission, unrelated-root, manifest-drift, legacy, and migration
+controls are discriminating. The reviewer reran 16 fingerprint unit controls
+plus four migration controls, rustfmt, workspace/all-target/all-feature Clippy,
+and `git diff --check`; all passed. It found no major separately scoped issue
+requiring another ticket.
+
+Final-gate stale-control remediation re-review: `ACCEPT`.
+
+The same reviewer found no issue. The replacement transport oracle is
+independent of the production fingerprint function, reconstructs every
+declared SNV input from repository/miniature evidence under the accepted
+framing and domain, and keeps three effective causal mutations. The exact
+transport regression, 16 fingerprint plus four migration controls, and
+`git diff --check` passed. No other stale Ticket 013 identity remains outside
+explanatory history, and no major separately scoped issue was identified.
 
 ## External Effect Evidence
 
@@ -486,17 +589,50 @@ deployment, publication, production build, or production-data read.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: complete.
+
+The first `make test` attempt reached the transport suite after all preceding
+suites passed, then failed only
+`builder_identity_covers_assets_manifest_notice_and_certification_source`
+because its helper still encoded the retired repository-wide fingerprint
+algorithm. The product manifest carried the independently established final
+SNV identity. The developer replaced that stale helper with an independent
+artifact-local preimage oracle and preserved causal mutation assertions.
+Focused remediation gates and the same reviewer's re-review passed. The
+coordinator then ran the complete repository gate:
+
+```text
+make lint
+  PASS: rustfmt and workspace/all-target Clippy with warnings denied
+make test
+  PASS: complete workspace test suite
+make spec
+  PASS: 150 executable specifications
+git diff --check
+  PASS
+```
+
+The 49-path implementation contains no change to `Cargo.toml`, `Cargo.lock`,
+`crates/pangopup-build/build.rs`, or the accepted mask source. It introduced no
+large file, production-data read, asset rebuild, download, network write, or
+publication. Process state before and after the gate contained only the two
+already-recorded orphaned Ticket 008 upload-test processes; Ticket 013 leaked
+no process. The independently reviewed implementation diff, excluding this
+ticket's final coordinator record, had SHA-256
+`e1bf967135060b1abe8b0f844f80f1c48352513f2ca52dc85701bfaa8b841fa4`.
 
 ## Acceptance Trace
 
 | Acceptance clause | Command or evidence | Result |
 |---|---|---|
-| Artifact-local fingerprints | `cargo test --locked -p pangopup-build source_fingerprint -- --nocapture` | pass: 7 unit + 4 integration |
+| Artifact-local fingerprints | `cargo test --locked -p pangopup-build source_fingerprint -- --nocapture` | pass: 16 unit + 4 integration |
+| Source/manifest dependency derivation | source-path enumeration + actual owner-manifest metadata + independent drift controls | pass |
+| Causal crate-root wiring | real-root module/reexport derivation + causal/unrelated controls | pass |
+| Transport identity regression | exact transport test with independent final SNV oracle + three causal mutations | pass after stale-control remediation |
 | Legacy v1 readability | `builder_provenance` real legacy-manifest controls | pass: SNV lookup + reference window |
 | SNV payload stability | checked ten-file migration evidence + 1,000-case regression | pass |
 | Reference payload stability | exact miniature baseline member/notice comparison | pass |
 | Mask identity preserved | exact compiled fingerprint assertion + mask miniature controls | pass: `fd738fec...6816` |
 | Production identities untouched | source-only release/reference constant checks; no production open | pass |
-| Documentation/current frontier | ADR 0012, evidence, README/architecture/frontier/issue update | implementation complete; review pending |
-| Repository gate | `make lint`; `make test`; `make spec` | lint pass; test/spec pending final coordinator gate |
+| Documentation/current frontier | ADR 0012, evidence, README/architecture/frontier/issue update | implementation complete; independently accepted |
+| Repository gate | `make lint`; `make test`; `make spec` | pass; spec: 150 |
