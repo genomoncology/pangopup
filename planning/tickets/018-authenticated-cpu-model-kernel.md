@@ -1,6 +1,6 @@
 # 018 — Authenticate and execute the Pangolin CPU model kernel
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -384,7 +384,7 @@ Developer evidence-generation result:
 - source: upstream commit `5cf94b8db938c658391b4305cd7ce33297d44ff7`
   and the exact frozen compatibility corpus;
 - helper identity:
-  `sha256:b75a5eedef95df8fd5f9cdee931645bdd941ae13287ff979bc8a297ce4c5427c`;
+  `sha256:fb840e1c685eeb4317bdf2e7b9ea23e1b20642b4e6e81eb62267fdc1506dcf45`;
 - locked environment identity:
   `sha256:6d2f3ded757d1806e270ee72b6dc80190aee8a1c1bd295c90406cafbdcbba63d`;
 - command: `cargo run --locked -p pangopup-build --bin pangopup-build -- model evidence
@@ -402,17 +402,250 @@ Developer evidence-generation result:
 - output: `/tmp/pangopup-model-evidence-018-dev`; no production path;
 - blocker disposition: the coordinator independently reproduced the result and
   amended the success checklist, evidence schema contract, and mutation
-  control to exactly 32 counters. Implementation remains stopped until the
-  same independent ticket reviewer accepts that material correction.
+  control to exactly 32 counters. The same independent ticket reviewer
+  accepted that material correction, and implementation resumed.
+
+Completed developer conversion and qualification checkpoint:
+
+- purpose: prove the exact reviewed converter and Rust ONNX Runtime open/probe
+  against the checked trust root without creating the coordinator's accepted
+  production output;
+- candidate: converter
+  `sha256:8cfeab7c87096941b1748ea35314441a084b9ecc101cc0120d0633133bc02c8e`,
+  evidence manifest
+  `sha256:d441c023cbdd5495d0e58df60f034e974814907b81d6731597d4b491fff0d1e7`,
+  upstream commit `5cf94b8db938c658391b4305cd7ce33297d44ff7`;
+- command: `cargo run --locked -p pangopup-build --bin pangopup-build --
+  model convert --upstream /home/ian/foss/Pangolin --python
+  tools/pangolin-model/.venv/bin/python --evidence
+  tests/fixtures/pangolin-model-v1 --output
+  /tmp/pangopup-model-bundle-018-dev`;
+- result: published an authenticated three-file scratch bundle after the Rust
+  minimum-context probe. `model.onnx` is 33,867,142 bytes and SHA-256
+  `3c2760472ce0af5feb693f562716b6cdc6887a7d0a00b7b5ec8ddad2a2d31f6b`;
+  scratch bundle identity is
+  `sha256:1dff4c9d142691006543f3590e009acc197c4c5b46e295d3a52871806ca6c2fc`;
+- qualification: 14 cases, 18 strand paths, 36 sequence evaluations, 432
+  channel arrays, and all 45,756 scalar comparisons; maximum absolute error
+  `5.364418029785156e-7`, with no missing, non-finite, or out-of-range value;
+- output: `/tmp/pangopup-model-bundle-018-dev`; failure cleanup is automatic,
+  and this scratch output is not the accepted production path.
+
+Implemented surfaces:
+
+- new `pangopup-model` crate with the closed authenticated bundle, exact
+  production checkpoint/channel contract, bounded context/strand encoding,
+  descriptor-held ONNX load, graph checks, minimum probe, and raw
+  twelve-channel CPU inference;
+- locked independent PyTorch evidence and ONNX converter helpers plus
+  Rust-owned `model evidence`, `convert`, `inspect`, and `qualify` adapters;
+- checked complete production trust root and a tiny synthetic same-schema
+  bundle/evidence fixture used by real ONNX Runtime tests;
+- rebound and corruption controls covering channel/checkpoint/tensor/graph/
+  golden/member identities and both strand/length bounds;
+- executable miniature spec, ADR 0014, current architecture/product docs, and
+  retained artifact report;
+- an ignored maintainer-only release measurement harness. On CPU 0 of the AMD
+  Ryzen 7 5825U host, one scratch session open was 2,763,246,509 ns with
+  process `VmHWM` 123,684 KiB; repeating-`ACGTN` plus-strand p50/p95 were
+  2,078,678,879/2,251,681,164 ns at 10,101 bases and
+  2,451,126,316/3,249,250,519 ns at 10,200 bases over 3 warmups + 20 samples.
+  There is no timing gate or wider performance claim.
+
+Focused developer gates:
+
+```text
+cargo test --locked -p pangopup-model
+  6 unit passed; 8 integration passed; 1 maintainer measurement ignored
+cargo test --locked -p pangopup-build --test model_bundle
+  4 passed
+mustmatch test spec/model-kernel.md
+  12 passed; 2 skipped
+```
+
+The developer did not read/hash/rebuild production SNV, reference, or mask
+assets; did not create the coordinator-reserved accepted output; did not run a
+second production conversion; and did not commit or push.
+
+Final self-review found that the Python helpers authenticated input bytes after
+`Path.read_bytes()` but did not enforce the ticket's pre-allocation bound or
+retain the already authenticated corpus bytes. Both helpers now use
+`O_NOFOLLOW`, require a regular single-link exact-size input before allocation,
+read at most the expected bytes plus one from the held descriptor, and parse
+the retained corpus bytes. Current identities are evidence helper
+`sha256:cef204f0e706880fbfd29af8c0ec16bd0c2f7d0bfade7e8d28e1630212b633b6`,
+converter
+`sha256:82e1e3bf38da2b65a0bfe0d711688f0f886e53f8c9c58424410ae1c50328f2b3`,
+and checked evidence manifest
+`sha256:9ce654730b76b34bbfdac826bec7c51c61ec50675b6abdb80f38a5a1ffeffaf2`.
+Inventory/golden bytes did not change. Per the no-needless-rebuild rule, the
+developer did not rerun full evidence or conversion; the coordinator's one
+accepted run must prove evidence byte equality and creates the first bundle
+with these final helper identities.
+
+Full developer handoff gates:
+
+```text
+make lint
+  passed: cargo fmt --check and clippy --locked --workspace --all-targets
+make test
+  passed: complete locked workspace; retained production-mask and
+  maintainer model-measure tests ignored by contract
+make spec
+  152 passed; 2 skipped
+```
+
+`cargo metadata --locked` contains exactly one `pangopup-model` package, and
+the retained tree records `ort` and `ort-sys` exactly at `2.0.0-rc.12`.
+`git diff --check` is clean. One initial direct focused spec invocation lacked
+the Makefile's `target/debug` `PATH` and therefore produced command-not-found;
+the corrected focused run and full `make spec` both passed.
+
+After the final helper input-read hardening, the affected
+`pangopup-build --test model_bundle` suite passed all four tests, the focused
+model spec again passed 12 with 2 skips, both helpers passed CPython bytecode
+compilation, and `git diff --check` remained clean. That change touches no
+normal Python execution path; the earlier complete workspace gate remains
+representative, and the coordinator will run the final full gate after
+independent code review as required by the repository process.
+
+The repository-root `NOTICE` remains byte-identical intentionally: it is the
+embedded, hash-pinned notice in the already published immutable SNV bundle, and
+changing it made the existing bundle fail its full test matrix. The new
+three-file model bundle carries its own Pangolin GPL/conversion `NOTICE`.
+ONNX Runtime is not contained in that model asset; complete dependency-license
+packaging remains required when an executable/model release is actually
+published.
+
+First-pass adversarial review rejected two trust-boundary defects, both now
+remediated without changing the reviewed ticket contract:
+
+- Qualification now opens one `ModelKernel` and derives the evidence kind,
+  profile, and emitted bundle identity from that held kernel. It no longer
+  inspects the bundle path separately before opening the inference session. A
+  deterministic regression replaces the complete bundle directory after the
+  kernel opens and proves the qualification receipt names the held kernel's
+  original identity rather than the different valid bundle now found at the
+  same path.
+- Runtime graph validation now requires the exact ONNX dimension-symbol
+  contract as well as dtype and numeric shape: input `["", "", "N"]` and
+  output `["", "", "N_minus_10000"]`. Unit controls reject a wrong or missing
+  dynamic symbol and any symbol attached to a fixed batch or channel axis.
+
+Focused remediation gates:
+
+```text
+cargo test --locked -p pangopup-model
+  7 unit passed; 8 integration passed; 1 maintainer measurement ignored
+cargo test --locked -p pangopup-build \
+  model::tests::qualification_receipt_uses_held_kernel_identity_after_path_replacement
+  1 passed
+cargo test --locked -p pangopup-build --test model_bundle
+  4 passed
+PATH="$PWD/target/debug:$PATH" mustmatch test spec/model-kernel.md
+  12 passed; 2 skipped
+cargo clippy --locked -p pangopup-model -p pangopup-build \
+  --all-targets -- -D warnings
+  passed
+git diff --check
+  passed
+```
+
+These tests use only the checked miniature fixture. The accepted production
+bundle and evidence were not read, altered, or regenerated; neither `model
+evidence` nor `model convert` was run during remediation.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `/root/ticket018_code_review`
+
+The first review rejected the implementation with two medium findings:
+
+1. qualification inspected a bundle and then reopened its pathname for the
+   kernel, allowing a pathname replacement to make the receipt identify one
+   bundle while inference used another; and
+2. runtime graph validation checked numeric dynamic dimensions but did not
+   enforce the reviewed ONNX symbolic-axis names.
+
+The original developer remediated both without rebuilding evidence or the
+model. Qualification now opens exactly one kernel, selects evidence and
+sequences from that held kernel, and emits that kernel's profile and bundle
+identity. A deterministic regression replaces the bundle directory with a
+different valid bundle after open and proves qualification continues to execute
+and report the original held session. Runtime graph validation now requires
+exact symbols `["", "", "N"]` and
+`["", "", "N_minus_10000"]`; negative controls cover wrong or missing
+dynamic symbols and symbols attached to fixed axes.
+
+The same reviewer independently reran the affected model/build tests, exact
+path-replacement regression, clippy with warnings denied, and
+`git diff --check`. Re-review accepted both remediations with no remaining
+material finding, scope creep, or unjustified over-engineering. External
+trusted bundle-ID binding remains intentionally deferred to delivery/profile
+work.
+
+## Accepted Production Evidence
+
+Coordinator: Codex (`/root`)
+
+- Ran the reviewed locked environment sync and release builder once, then
+  generated evidence at
+  `/home/ian/workspace/data/pangopup-model-018/evidence`.
+- Proved the accepted evidence directory's exact three-member set byte-for-byte
+  identical to `tests/fixtures/pangolin-model-v1/`. Its evidence identity is
+  `sha256:9ce654730b76b34bbfdac826bec7c51c61ec50675b6abdb80f38a5a1ffeffaf2`.
+- Performed the one accepted conversion into the absent no-replace path
+  `/home/ian/workspace/data/pangopup-model-018/bundle`. Bundle identity is
+  `sha256:4d8f2b8e7ee2dbf5d555c56693280d78d04ee2d0cf3346dfc35066e2a90aae43`.
+  It contains exactly `manifest.json` (3,823 bytes), `model.onnx`
+  (33,867,142 bytes), and `NOTICE` (648 bytes), totaling 33,871,613 member
+  bytes. The model SHA-256 is
+  `3c2760472ce0af5feb693f562716b6cdc6887a7d0a00b7b5ec8ddad2a2d31f6b`
+  and is byte-identical to the developer's independent scratch conversion.
+- Rust inspect and qualification passed 14 cases, 18 strand paths, 36 sequence
+  evaluations, 432 channel arrays, and all 45,756 scalar comparisons. Maximum
+  absolute error was `5.364418029785156e-7`.
+- After code-review remediation, the corrected release binary inspected and
+  requalified the unchanged accepted bundle with the same identity, counts,
+  and maximum absolute error. No evidence or conversion command was rerun.
+- Retained CPU0 release measurement against the accepted bundle: session open
+  3,202,463,033 ns, `VmHWM` 123,776 KiB; 10,101-base p50/p95
+  2,334,544,116/2,797,753,804 ns; 10,200-base p50/p95
+  2,221,989,361/2,748,089,929 ns over three warmups and twenty samples.
+- No production SNV, reference, or mask asset was read or rebuilt. No model or
+  checkpoint was added to git, and nothing was uploaded or published.
 
 ## External Effect Evidence
 
-Coordinator: not applicable
+Coordinator: not applicable; this ticket has no public external effect. The
+accepted bundle remains local qualification evidence and is not a release
+asset.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex (`/root`)
+
+After independent code-review acceptance:
+
+```text
+make lint
+  passed: cargo fmt --all --check and
+  cargo clippy --locked --workspace --all-targets -- -D warnings
+make test
+  passed: complete locked workspace; only the retained production-mask and
+  maintainer-only model-measure tests were ignored by contract
+make spec
+  152 passed; 2 skipped
+```
+
+The exact Cargo metadata/tree checks found one `pangopup-model` package and
+`ort` plus `ort-sys` exactly at `2.0.0-rc.12`. `git diff --check` passed. The
+corrected release `model inspect` and `model qualify` commands reused the
+preserved accepted output, reported bundle
+`sha256:4d8f2b8e7ee2dbf5d555c56693280d78d04ee2d0cf3346dfc35066e2a90aae43`,
+and again passed 45,756 scalar comparisons with maximum absolute error
+`5.364418029785156e-7`.
+
+No production evidence/model regeneration, SNV/reference/mask access, upload,
+publication, or public runtime routing occurred. The ticket outcome is
+complete and ready for the reviewed implementation commit.

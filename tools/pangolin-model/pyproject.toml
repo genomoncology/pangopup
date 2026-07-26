@@ -1,0 +1,20 @@
+[project]
+name = "pangopup-pangolin-model-tools"
+version = "0.0.0"
+requires-python = "==3.13.5"
+dependencies = [
+    "numpy==2.5.1",
+    "onnx==1.19.1",
+    "torch==2.7.1+cpu",
+]
+
+[tool.uv]
+package = false
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }

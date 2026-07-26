@@ -18,8 +18,11 @@ semantics and records the selection of constant-membership domains from three
 mmap candidates in one full-source comparison. The one-time candidate and
 qualification source has been removed. The exact retained domains
 member is now available through a production, domains-only typed mmap provider;
-its delivery and model integration remain future. Model inference and HTTP
-remain future. The
+its delivery and model integration remain future. An authenticated combined
+ONNX representation and qualified single-owner CPU kernel now return the
+twelve raw Pangolin channels. Genomic variant construction, Pangolin
+post-processing, lookup-first fallback, model delivery, and HTTP remain future.
+The
 production reference bundle, authenticated builder, and typed mmap provider are
 established; its transport, installation, and publication remain future
 delivery work. Future SNV and reference builds now use separate causal
@@ -235,7 +238,7 @@ publication, or model work is in the runtime provider. The obsolete mask
 builder and qualification surfaces have now been removed. The retained
 1,000-query oracle matches exactly.
 
-## Current outcome — repository diet
+## Established — repository diet
 
 The three bounded experiment-removal slices are complete. The production SNV,
 mask, and reference readers, selected assets, focused production fixtures, and
@@ -246,32 +249,49 @@ has no adapter and remains until a separately reviewed provenance change can
 remove it without silently changing asset identity. No further repository-diet
 work is implied by this outcome.
 
-## Next outcome — CPU runtime, safe model representation, and inference
+## Established — authenticated raw CPU model kernel
 
-Choose the CPU tensor runtime together with the checkpoint representation
-rather than converting weights before a consumer exists. Authenticate every
-raw checkpoint before parsing; pin tensor names, shapes, dtypes, ordering, and
-per-tensor identities; define numeric tolerance and public-rendering acceptance;
-and add discriminating internal goldens beyond the end-to-end corpus. Then
-implement CPU inference against explicit compatible reference, mask, and model
-paths and prove the retained compatibility corpus. The supported non-SNV input
-and normalization contract must be explicit before it becomes a public or
-cache identity.
+`pangopup-model` authenticates a closed three-file
+`pangopup-model-bundle-v1`, opens one ONNX Runtime 1.24.2 CPU session, and
+returns twelve selected raw channels for bounded plus/minus A/C/G/T/N contexts
+in genomic orientation. The exact checkpoint/channel mapping, graph metadata,
+fixed thread policy, output shape/range, and descriptor-held model load are
+enforced at runtime.
 
-Only after CPU compatibility is established should Pangopup measure
-accelerator backends such as MPS or CUDA, alternative runtimes, or
-quantization. Adopt one only with the same defined behavior and measured
-end-to-end benefit. Keep every precomputed SNV hit authoritative whenever it
-exists.
+A locked evidence helper independently authenticates and executes each
+checkpoint, records all 3,024 state tensors, and retains 45,756 selected-channel
+`f32` values. The converted graph matched every value with maximum absolute
+error `5.364418029785156e-7`. Normal gates execute real ONNX Runtime against a
+tiny checked same-schema graph; they do not invoke Python, PyTorch, production
+weights, or a network. The developer CPU-pinned baseline measured raw warmed
+calls in seconds, reinforcing that every precomputed SNV hit remains
+authoritative. Production model delivery is not part of this outcome.
 
-## Later outcome — lookup-first routing and evidence-gated caching
+## Next outcome — variant-level CPU scoring and lookup-first routing
 
-Try SNV lookup first, route lookup misses and supported non-SNVs to inference
-through one typed API, and report route and asset provenance. Measure repeated
-model workloads before adding a cache. If justified, cache only complete model
-results under a key that includes normalized variant, gene/masking context,
-model checkpoint, reference/mask identity, window, and inference parameters;
-prove bounds, concurrency, corruption handling, and invalidation.
+Define the supported genomic request and normalization boundary, then compose
+the existing reference provider, mask provider, raw CPU kernel, and frozen
+post-processing semantics. Construct exact reference/alternate contexts,
+average the retained replicate groups, reconcile indel arrays, preserve
+order-sensitive masking, select extrema/positions, and prove the complete
+compatibility corpus before exposing a public model result.
+
+The route must try the precomputed SNV lookup first, use the model only for
+supported misses/non-SNVs, and report exact route plus model/reference/mask
+provenance. This outcome must not add a cache or HTTP boundary.
+
+## Later outcome — measured acceleration and evidence-gated caching
+
+The established single-thread CPU kernel is the baseline. Measure candidate
+thread policies, MPS/CUDA backends, alternative runtimes, or quantization only
+against the same oracle and representative end-to-end variant workloads.
+Adopt one only with preserved behavior and a material measured benefit.
+
+Measure repeated complete model requests before adding a cache. If justified,
+cache only complete model results under a key that includes normalized variant,
+gene/masking context, model checkpoint, reference/mask identity, window, and
+inference parameters; prove bounds, concurrency, corruption handling, and
+invalidation.
 
 ## Later outcome — one compatible installed runtime profile
 

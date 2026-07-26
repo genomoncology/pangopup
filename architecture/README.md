@@ -6,8 +6,10 @@ the Wagner/Neverov precomputed dataset through a fixed 11-byte mmap index and
 typed CLI, plus Linux local installation, active-bundle discovery, the
 immutable public `snv-grch38-v1` release, and pinned resumable remote sync.
 The checked `pangopup-compat-v1` oracle now fixes upstream model and
-post-processing behavior. Model fallback and HTTP remain future work on the
-same standalone Rust core.
+post-processing behavior. The shipped authenticated CPU kernel now executes
+the twelve raw selected Pangolin channels through one ONNX Runtime session.
+Variant construction, Pangolin post-processing, lookup-first fallback, model
+asset delivery, and HTTP remain future work on the same standalone Rust core.
 
 The closed three-codec reference comparison selected `acgt2-rle-v1`; its
 candidate modules, miniature, benchmark executable, and CLI have been removed
@@ -57,6 +59,9 @@ ADR 0012 defines that descriptive provenance boundary.
   — separate causal builder identities for future SNV and reference artifacts.
 - [`decisions/0013-byte-identical-gencode-mask-promotion.md`](decisions/0013-byte-identical-gencode-mask-promotion.md)
   — the selected mask member's domains-only production runtime boundary.
+- [`decisions/0014-authenticated-onnx-cpu-kernel.md`](decisions/0014-authenticated-onnx-cpu-kernel.md)
+  — the authenticated combined ONNX representation, independent qualification,
+  and single-owner CPU kernel boundary.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)

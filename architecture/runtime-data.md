@@ -41,14 +41,18 @@ schema, format identity, manifest claims, and member-integrity checks.
 
 ## Model fallback assets
 
-Model fallback is not implemented. Its accepted data boundary requires three
-additional local facts. The reference and mask now have runtime providers, but
-neither is installed or routed into inference:
+Variant-level model fallback is not implemented. The raw CPU kernel and the
+reference and mask runtime providers now exist independently, but they are not
+wired together, installed as one profile, or routed from lookup misses.
+Completing that route requires three local assets:
 
 Running Pangolin for a lookup miss or non-SNV genuinely needs:
 
-1. **Model weights.** The twelve version-2 checkpoints loaded by the current
-   upstream program, or a verified equivalent conversion.
+1. **Model weights.** Pangopup authenticates the twelve version-2 checkpoints
+   loaded by the current upstream program and converts them without
+   quantization into one bounded ONNX bundle. The production bundle remains an
+   unpublished build output; original checkpoint containers are not runtime
+   inputs.
 2. **GRCh38 reference bases.** Pangolin reads a long DNA window around the
    variant, verifies the submitted reference allele, and scores reference and
    alternate sequences. Pangopup pins NCBI's RefSeq GRCh38.p14 assembly,
@@ -122,6 +126,15 @@ the production database is observed. The schema digest keeps the previously
 measured pipe/NULL/LF transformation as a named legacy secondary observation;
 the exact database SHA-256 remains the primary identity.
 
+The separate checked `pangolin-model-v1` trust root now qualifies the raw model
+kernel itself. It authenticates every state tensor from each checkpoint and
+retains 45,756 independently generated selected-channel `f32` values. The
+reviewed converter produces one fixed-order, twelve-channel ONNX graph;
+`pangopup-model` authenticates the three-file bundle, runs a minimum-context
+probe, and compares all retained values through ONNX Runtime on CPU. Normal
+tests use a tiny same-schema synthetic graph rather than rerunning Python or
+shipping production weights.
+
 That compatibility corpus proves its selected overlap and masking cases; it is
 not a complete all-gene order inventory. Ticket 012's retained authenticated
 canonical-export report and complete-domain comparison are the authority for
@@ -150,10 +163,12 @@ Small numeric differences with identical masking are more likely to come from
 model/checkpoint or numeric-runtime differences than from reference bases once
 the submitted reference allele has been verified.
 
-CPU compatibility is proved before accelerator selection. MPS, CUDA,
-alternative runtimes, quantization, or other optimizations are accepted only if
-they preserve the defined result/error behavior within explicit retained
-tolerances and improve measured end-to-end performance or resource use.
+Raw CPU-kernel compatibility is now proved with maximum observed absolute error
+well below the accepted `1e-5` tolerance. Variant-level compatibility still
+requires context construction and the frozen Pangolin post-processing replay.
+MPS, CUDA, alternative runtimes, quantization, or other optimizations are
+accepted only if they preserve the same result/error behavior and improve
+measured end-to-end performance or resource use.
 
 The current Python implementation also mutates its gain/loss arrays while
 masking each gene. The strict compatibility profile retains observed SQLite
@@ -170,6 +185,6 @@ independent-per-gene policy requires a separately named profile.
 - PostgreSQL, SQLite, or gffutils as a runtime dependency.
 
 The shipped standalone lookup deployment is therefore the executable plus the
-fixed-v1 score bundle. The target complete deployment adds weights, a compact
-GRCh38 sequence member, and a compact Pangolin masking member; a future
-lookup-only profile can omit those three.
+fixed-v1 score bundle. The target complete deployment adds the converted model
+bundle, a compact GRCh38 sequence member, and a compact Pangolin masking
+member; a future lookup-only profile can omit those three.

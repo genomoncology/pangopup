@@ -6,15 +6,17 @@ an exact precomputed-SNV library and CLI, a production mmap GRCh38 reference
 provider and authenticated builder, deterministic local release
 transport tooling, atomic Linux/XDG installation, and pinned resumable sync of
 the immutable public SNV transport. It also ships a frozen, independently
-captured upstream compatibility corpus for future model work. Model inference
+captured upstream compatibility corpus plus an authenticated CPU ONNX kernel
+that returns the twelve raw Pangolin channels. Variant-level model fallback
 and an HTTP service are planned but not implemented. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
 Ticket 014 promotes the exact selected bytes behind a domains-only production
 mmap provider without rebuilding or renaming the format. The one-time
 candidate writer and qualification program have since been removed; their
-retained reports and exactness corpus remain as historical evidence. Mask
-delivery and model execution remain future work. The completed three-format
+retained reports and exactness corpus remain as historical evidence. Mask and
+model delivery plus variant-level model execution remain future work. The
+completed three-format
 reference experiment has likewise been removed from the compiled workspace;
 its retained selection evidence led to the independent production `PGRREF01`
 reader, provider, and builder that remain. Future SNV and reference builds now
@@ -122,13 +124,14 @@ service will use four versioned assets:
 | Asset | Used for | Original source | Installed form |
 |---|---|---|---|
 | SNV score index | Shipped fast path | Zenodo precomputed scores | Certified three-file bundle with a fixed 11-byte mmap member |
-| Model weights | Planned fallback | Upstream Pangolin checkpoints | Planned verified Rust-runtime representation |
+| Model weights | Qualified raw CPU kernel; fallback routing still planned | Upstream Pangolin checkpoints | Authenticated three-file ONNX bundle, not yet published or installed |
 | GRCh38 sequence | Shipped provider for fallback sequence windows and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Certified `PGRREF01` two-bit/ambiguity-run mmap bundle |
 | Splice mask | Shipped provider for fallback masking; delivery still planned | GENCODE release 38 annotation | Exact selected 6,703,320-byte `domains.pgm` mmap member |
 
 NCBI supplies the reference genome sequence; it does not supply the Pangolin
-model. The target release process will publish a pinned copy or verified
-conversion of the upstream model as a separate asset.
+model. The maintainer converter already produces a verified, unquantized
+combined ONNX graph from the twelve pinned checkpoints. A later release outcome
+will publish and install that bundle as a separate GPL asset.
 
 The reference maintenance builder accepts the exact pinned NCBI FASTA and
 assembly report, selects the 25 required assembled molecules, certifies every
@@ -187,9 +190,9 @@ exhaustive certification once; there is intentionally no public long-running
 `reference verify` command. Ordinary open checks bounded metadata and the
 ambiguity table without hashing or scanning dense genome bytes.
 
-## Upstream compatibility oracle
+## Upstream compatibility and raw CPU kernel
 
-Future inference implementations are tested against
+Variant-level inference implementations are tested against
 `tests/fixtures/pangolin-compat-v1`, a 227,060-byte offline corpus captured from
 Pangolin 1.0.2 commit `5cf94b8`. Its 24 cases retain exact GRCh38 contexts,
 typed raw model arrays, masked and unmasked results, overlap order, rejection
@@ -206,6 +209,24 @@ pangopup-build compatibility inspect --corpus tests/fixtures/pangolin-compat-v1
 The expensive `compatibility capture` command is a provenance tool, not a
 routine test or runtime path. Normal gates replay the frozen arrays in Rust and
 deliberately do not rerun the model.
+
+The separate `pangolin-model-v1` trust root authenticates every state tensor in
+the twelve checkpoints and 45,756 independently generated raw-channel values.
+`pangopup-model` opens one bounded three-file ONNX bundle, executes a
+single-owner ONNX Runtime CPU session at `1/1` threads, and returns the twelve
+channels without hiding ensemble or masking behavior. Maintainers can inspect
+or qualify an already-built bundle without Python or the original checkpoints:
+
+```text
+pangopup-build model inspect --bundle <MODEL_BUNDLE>
+pangopup-build model qualify --bundle <MODEL_BUNDLE> \
+  --evidence tests/fixtures/pangolin-model-v1
+```
+
+Normal gates use a tiny checked synthetic graph and never rebuild the
+production model. See
+[ADR 0014](architecture/decisions/0014-authenticated-onnx-cpu-kernel.md) and
+the [qualification report](planning/artifacts/018-authenticated-cpu-model-kernel.md).
 
 ## Shipped SNV release, local transport, and installation
 
@@ -461,8 +482,12 @@ Implemented today:
   constant-membership `domains` at the first p95 speed step. The selected
   byte-identical domains member is the runtime representation; the completed
   candidate and qualification source has been removed;
+- an authenticated, bounded ONNX model bundle contract, locked independent
+  checkpoint evidence/conversion tooling, and one qualified raw CPU kernel
+  returning twelve fixed-order channels.
 
-Not implemented yet: model runtime/fallback, HTTP service, container,
+Not implemented yet: genomic variant construction and post-processing over the
+raw model kernel, lookup-miss/non-SNV routing, HTTP service, container,
 persistent download progress/status, repair/GC/rollback, or result
 cache. Production mask installation, transport, release publication, and model
 routing are also not implemented. In this slice a syntactically valid concrete REF that
@@ -498,11 +523,14 @@ The rolling outcome order is:
     production reference path and durable evidence (complete);
 17. remove the closed SNV-format experiment while retaining the production
     fixed-v1 path and durable evidence (complete);
-18. package the pinned checkpoints and implement CPU inference parity;
-19. consider accelerators only after measuring CPU;
-20. lookup-first model routing and evidence-gated result caching;
-21. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
-22. observability, security, performance, and release hardening.
+18. package the pinned checkpoints and implement raw CPU-kernel parity
+    (complete);
+19. compose reference, mask, raw model, and post-processing into lookup-first
+    variant scoring;
+20. measured acceleration and evidence-gated result caching;
+21. one coherent model/reference/mask delivery and installed runtime profile;
+22. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
+23. observability, security, performance, and release hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the
 next coordinator-authored and independently reviewed ticket is active work.
@@ -518,10 +546,12 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
   transport, pinned resumable TLS sync, and secure Linux local-store/activation
   state;
 - `pangopup-build` — offline source validation, deterministic artifact
-  builders, and the bounded compatibility-corpus adapter;
+  builders, the bounded compatibility-corpus adapter, and authenticated
+  maintainer model evidence/conversion commands;
 - `pangopup-cli` — shipped lookup, pinned asset sync, local install/status, and
   output adapter; service commands remain future;
-- future `pangopup-model` — model execution behind the core provider contract;
+- `pangopup-model` — authenticated model bundles, context/strand encoding, and
+  the raw single-owner ONNX Runtime CPU kernel;
 - future `pangopup-http` — long-lived HTTP adapter over the same core.
 
 ## Development

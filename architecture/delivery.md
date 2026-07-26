@@ -91,8 +91,10 @@ The command itself requires the extracted executable to be exactly 43,495,424
 bytes with
 `sha256:d4a46368912cfc7b9f0a897a613910e34562ef033fc6029e0bea52c43b440fa4`.
 
-The future model archive will contain only the exact checkpoints needed by its
-supported inference implementation plus upstream notices and checksums. Keeping concerns
+The future model archive will carry the authenticated three-file
+`pangopup-model-bundle-v1`: canonical manifest, converted combined ONNX graph,
+and Pangolin notice. Original checkpoint containers and qualification goldens
+are maintainer inputs/evidence, not installed runtime members. Keeping concerns
 separate lets lookup-only installations avoid model bytes and lets data, model,
 reference, mask, and executable releases evolve without pretending they share
 a version. The reference and mask assets are optional unless model fallback is

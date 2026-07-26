@@ -8,16 +8,17 @@ builder and verifier, fixed 11-byte mmap reader, typed score-provider API,
 batch lookup CLI, Linux local-user asset installation/discovery, the immutable
 public `snv-grch38-v1` lookup-data release, pinned resumable remote sync, and a
 strict frozen upstream compatibility corpus with a bounded offline inspector,
-and the qualified production RefSeq GRCh38.p14 reference bundle/provider.
-Model inference/fallback and the HTTP service remain target work and are not
-implemented. A reviewed retained benchmark selected the two-bit/ambiguity-run
-GRCh38 payload by speed; Ticket 011 hardened it as the production `PGRREF01`
-reader and qualified the complete 25-contig bundle. Read `README.md` first.
+the qualified production RefSeq GRCh38.p14 reference bundle/provider, and an
+authenticated ONNX Runtime CPU kernel returning twelve raw Pangolin channels.
+Variant-level model scoring/fallback and the HTTP service remain target work
+and are not implemented. A reviewed retained benchmark selected the
+two-bit/ambiguity-run GRCh38 payload by speed; Ticket 011 hardened it as the
+production `PGRREF01` reader and qualified the complete 25-contig bundle. Read
+`README.md` first.
 Ticket 014 now exposes Ticket 012's selected byte-identical GENCODE v38
 `domains` member through the production `pangopup_index::mask` mmap provider;
 the one-time candidate/qualification source has been removed while its retained
-selection evidence remains. Mask delivery and model execution remain future
-work.
+selection evidence remains. Mask and model delivery remain future work.
 
 ## Repository contract shape
 
@@ -46,9 +47,14 @@ There is no `make check`. Run all three gates before committing.
   structural validation, mmap lifecycle, checked byte decoding, and lookup.
 - `crates/pangopup-build` owns gzip/TSV ingestion, full-source validation,
   deterministic writing, offline certification, and compatibility-corpus
-  capture/inspection. The checked corpus is replayed offline; normal gates must
-  never invoke its expensive Python/model capture path. Builder-only
-  dependencies must not enter runtime consumers.
+  capture/inspection. It also owns the authenticated maintainer-only model
+  evidence/conversion adapters. The checked corpus and miniature model are
+  replayed offline; normal gates must never invoke expensive Python capture or
+  conversion paths. Builder-only dependencies must not enter runtime consumers.
+- `crates/pangopup-model` owns the closed model-bundle contract, context/strand
+  encoding, and one mutable CPU ONNX Runtime session returning twelve raw
+  channels. It does not own genomic variant construction, post-processing,
+  masking, routing, or a public score provider.
 - `crates/pangopup-cli` adapts command-line strings and output to the typed API;
   it contains no scoring or index logic.
 - `architecture/` records durable boundaries and accepted decisions.

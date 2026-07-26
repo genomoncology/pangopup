@@ -54,11 +54,12 @@ zero reference mismatches against RefSeq GRCh38.p14 primary chromosomes, but the
 publisher does not identify the exact FASTA or GENCODE release. Pangopup can say
 GRCh38 and pin the archive checksum; it should not invent missing provenance.
 
-### What proves a future model is Pangolin-compatible?
+### What proves the CPU model kernel is Pangolin-compatible?
 
-The checked `pangopup-compat-v1` corpus, not a claim that the network has the
-same architecture. It binds Pangolin 1.0.2 source commit `5cf94b8`, twelve
-checkpoint hashes, the exact RefSeq GRCh38.p14 sequence source, GENCODE v38
+Two independent checked roots, not a claim that the network merely has the same
+architecture. `pangopup-compat-v1` binds Pangolin 1.0.2 source commit
+`5cf94b8`, twelve checkpoint hashes, the exact RefSeq GRCh38.p14 sequence
+source, GENCODE v38
 masking inputs, and the pinned CPU numeric environment. Its 24 cases preserve
 typed raw arrays plus independently observed CLI output. Normal tests replay
 those semantics in Rust; they do not rerun Python or the neural network.
@@ -68,6 +69,12 @@ claiming the whole capture used one setting. Controlled vectors and their
 expected values are pinned independently of replay, and the provenance capture
 path hashes the live helper plus every imported upstream Pangolin Python module
 before use.
+
+`pangolin-model-v1` separately authenticates every tensor in every checkpoint
+and 45,756 selected-channel `f32` values produced by direct per-checkpoint
+PyTorch execution. The Rust CPU kernel's combined ONNX graph matches all of
+them within maximum absolute tolerance `1e-5`. Normal tests execute a tiny
+same-schema graph through real ONNX Runtime and do not rerun conversion.
 
 ### Does Pangopup need HGVS or transcript projection?
 
@@ -79,9 +86,11 @@ general transcript/protein reference system and is not splice scoring.
 
 ### What reference and annotation data does model fallback need?
 
-The lookup path needs only the fixed-v1 score bundle. The planned model path
-additionally needs the model checkpoints, local GRCh38 DNA bases, and a map of
-gene strand plus exon boundaries. The DNA is pinned NCBI RefSeq GRCh38.p14
+The lookup path needs only the fixed-v1 score bundle. The future fallback path
+additionally needs the authenticated converted model bundle, local GRCh38 DNA
+bases, and a map of gene strand plus exon boundaries. The original checkpoint
+containers are maintainer conversion inputs, not runtime inputs. The DNA is
+pinned NCBI RefSeq GRCh38.p14
 `GCF_000001405.40`. The boundary map is compiled from the GENCODE annotation
 used by Pangolin's masking behavior. A retained comparison selected the
 constant-membership domain representation from three private mmap candidates.
@@ -162,7 +171,8 @@ build input. The shipped reference builder compiles all 25 required primary
 sequences into the production `PGRREF01` mmap bundle, and its provider copies a
 bounded sequence window without parsing FASTA or loading the whole reference
 into heap memory. Installation and model routing do not consume that provider
-yet, and model inference remains unimplemented.
+yet. The raw CPU model kernel is implemented, but genomic context construction,
+masking/post-processing, and fallback routing remain unimplemented.
 
 ### Which compact reference encoding will Pangopup use?
 
@@ -201,10 +211,13 @@ selected contig and never merges chrX/chrY pseudoautosomal copies.
 ### What latency should we expect?
 
 The retained Ticket 004 evidence reports measured warm one-open library lookup,
-fresh CLI batch, open-only, and serialization-only costs separately. It does
-not project those measurements onto HTTP or model inference. Cold behavior is
-explicitly unmeasured on the development host because neither dataset size nor
-an OS/device procedure proved the queried pages were nonresident.
+fresh CLI batch, open-only, and serialization-only costs separately. Ticket 018
+records the raw CPU kernel separately: roughly 2.08 seconds p50 for a warmed
+10,101-base context and 2.45 seconds p50 for 10,200 bases on its pinned
+single-core development-host method. Those are raw model calls, not variant,
+HTTP, concurrent, accelerator, or end-to-end measurements. Cold lookup behavior
+is explicitly unmeasured because neither dataset size nor an OS/device
+procedure proved the queried pages were nonresident.
 
 ### Is JSON output still future work?
 
@@ -265,7 +278,8 @@ removed.
 ### How are large artifacts delivered?
 
 The target is separately versioned GitHub release assets: executable, CC BY
-fixed-v1 lookup transport set, GPL model weights, GRCh38 reference member, and
+fixed-v1 lookup transport set, GPL converted model bundle, GRCh38 reference
+member, and
 GENCODE masking member. The lookup set is canonical metadata, copied small
 bundle members, and deterministic parts of one compressed score stream; it is
 not one tar archive. Verify and reassemble it once during local installation,

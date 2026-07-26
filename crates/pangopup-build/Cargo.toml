@@ -11,6 +11,7 @@ flate2 = "1.1.5"
 pangopup-assets = { path = "../pangopup-assets" }
 pangopup-core = { path = "../pangopup-core" }
 pangopup-index = { path = "../pangopup-index" }
+pangopup-model = { path = "../pangopup-model" }
 sha2 = "0.10.9"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
@@ -22,6 +23,7 @@ zstd = { version = "=0.13.3", features = ["zstdmt"] }
 [dev-dependencies]
 pangopup-assets = { path = "../pangopup-assets", features = ["test-read-audit"] }
 pangopup-index = { path = "../pangopup-index", features = ["test-read-audit"] }
+tempfile = "3.27.0"
 
 [build-dependencies]
 sha2 = "0.10.9"

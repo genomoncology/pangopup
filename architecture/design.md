@@ -112,12 +112,16 @@ files. The binary and performance harness call the same library renderer, so
 measured JSONL/table serialization is the production byte path rather than a
 benchmark copy.
 
-Future `pangopup-model` and `pangopup-http` crates should be
-added only when their own observable slices begin. They must consume the same
-core types rather than leak a model runtime, HTTP, or cache types into the
-scoring API. The shipped assets crate owns explicit pinned remote sync plus its
-Linux XDG installation adapter. `pangopup-core` performs no network or
-home-directory access. The future HTTP adapter runs in the
+`pangopup-model` owns the authenticated three-file model bundle, bounded
+A/C/G/T/N context encoding, and one mutable CPU ONNX Runtime session returning
+twelve raw replicate channels in genomic orientation. It intentionally does
+not consume `pangopup-core` genomic types yet: variant construction, ensemble
+arithmetic, masking, extrema, and the public scoring provider remain a later
+boundary. A future `pangopup-http` crate must consume the same eventual core
+provider rather than leak model runtime, HTTP, or cache types into the scoring
+API. The shipped assets crate owns explicit pinned remote sync plus its Linux
+XDG installation adapter. `pangopup-core` performs no network or home-directory
+access. The future HTTP adapter runs in the
 foreground; process lifecycle belongs to external managers as described in
 [`service.md`](service.md).
 
@@ -228,13 +232,14 @@ fixed-width mmap; transport compression is removed once at installation and
 never appears on the query path.
 
 The current sync profile provisions only the SNV transport. A future full
-service must pin a coherent set of SNV, reference, mask, and checkpoint
-identities before it can report readiness; the existence of the reference
-provider alone does not make model fallback operational.
+service must pin a coherent set of SNV, reference, mask, and converted-model
+identities before it can report readiness. Existing reference, mask, and raw
+model providers do not yet make variant-level fallback operational.
 
 ## Planned extensions not yet shipped
 
-- model conversion and CPU execution for supported lookup misses and non-SNVs;
+- genomic context construction and Pangolin post-processing over the shipped
+  raw CPU kernel for supported lookup misses and non-SNVs;
 - lookup-first routing through one typed result/provenance API;
 - application-level model-result caching only if measurements justify it;
 - separately versioned model/reference/mask publication and pinned sync;

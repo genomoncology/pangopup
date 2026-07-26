@@ -5,6 +5,7 @@ members = [
     "crates/pangopup-cli",
     "crates/pangopup-core",
     "crates/pangopup-index",
+    "crates/pangopup-model",
 ]
 resolver = "3"
 

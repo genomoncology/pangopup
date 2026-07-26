@@ -4,7 +4,12 @@ use pangopup_assets::{
 use pangopup_build::{
     CommandError, build_bundle,
     compatibility::{CaptureArguments, capture_corpus, inspect_corpus},
-    inspect_directory, prepare_benchmark_corpus, prototype_open, prototype_roundtrip,
+    inspect_directory,
+    model::{
+        ConvertArguments, EvidenceArguments, convert_model_bundle, create_model_evidence,
+        inspect_model_bundle, qualify_model_bundle,
+    },
+    prepare_benchmark_corpus, prototype_open, prototype_roundtrip,
     reference::{build_reference_bundle, inspect_reference_bundle, reference_window},
     verify_bundle,
 };
@@ -43,6 +48,9 @@ fn main() -> ExitCode {
         .is_some_and(|command| command == "compatibility")
     {
         return compatibility_command(&arguments[1..]);
+    }
+    if arguments.first().is_some_and(|command| command == "model") {
+        return model_command(&arguments[1..]);
     }
     match arguments.as_slice() {
         [command, source] if command == "inspect" => {
@@ -100,6 +108,100 @@ fn main() -> ExitCode {
         }
         _ => json_failure(&CommandError::new("CLI_USAGE", USAGE)),
     }
+}
+
+fn model_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let Some(action) = arguments.first().and_then(|value| value.to_str()) else {
+        return json_usage("model requires evidence, convert, inspect, or qualify");
+    };
+    match action {
+        "evidence" => {
+            let Ok(values) = parse_exact_flags(
+                &arguments[1..],
+                &["--upstream", "--python", "--corpus", "--output"],
+            ) else {
+                return json_usage(
+                    "model evidence requires --upstream, --python, --corpus, and --output exactly once",
+                );
+            };
+            let arguments = EvidenceArguments {
+                upstream: Path::new(values[0]).to_owned(),
+                python: Path::new(values[1]).to_owned(),
+                corpus: Path::new(values[2]).to_owned(),
+                output: Path::new(values[3]).to_owned(),
+            };
+            match create_model_evidence(&arguments) {
+                Ok(value) => model_json(&value, 0),
+                Err(error) => model_failure(&error),
+            }
+        }
+        "convert" => {
+            let Ok(values) = parse_exact_flags(
+                &arguments[1..],
+                &["--upstream", "--python", "--evidence", "--output"],
+            ) else {
+                return json_usage(
+                    "model convert requires --upstream, --python, --evidence, and --output exactly once",
+                );
+            };
+            let arguments = ConvertArguments {
+                upstream: Path::new(values[0]).to_owned(),
+                python: Path::new(values[1]).to_owned(),
+                evidence: Path::new(values[2]).to_owned(),
+                output: Path::new(values[3]).to_owned(),
+            };
+            match convert_model_bundle(&arguments) {
+                Ok(value) => model_json(&value, 0),
+                Err(error) => model_failure(&error),
+            }
+        }
+        "inspect" => {
+            let Ok(values) = parse_exact_flags(&arguments[1..], &["--bundle"]) else {
+                return json_usage("model inspect requires --bundle exactly once");
+            };
+            match inspect_model_bundle(Path::new(values[0])) {
+                Ok(value) => model_json(&value, 0),
+                Err(error) => model_failure(&error),
+            }
+        }
+        "qualify" => {
+            let Ok(values) = parse_exact_flags(&arguments[1..], &["--bundle", "--evidence"]) else {
+                return json_usage("model qualify requires --bundle and --evidence exactly once");
+            };
+            match qualify_model_bundle(Path::new(values[0]), Path::new(values[1])) {
+                Ok(value) => model_json(&value, 0),
+                Err(error) => model_failure(&error),
+            }
+        }
+        _ => json_usage("model requires evidence, convert, inspect, or qualify"),
+    }
+}
+
+fn model_failure(error: &CommandError) -> ExitCode {
+    let exit = u8::from(error.code == "CLI_USAGE") + 1;
+    model_json(error, exit)
+}
+
+fn model_json(value: &impl serde::Serialize, exit: u8) -> ExitCode {
+    let bytes = match serde_jcs::to_vec(value) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            b"{\"code\":\"IO\",\"details\":null,\"message\":\"model JSON output failed\",\"status\":\"error\"}".to_vec()
+        }
+    };
+    let mut stream: Box<dyn std::io::Write> = if exit == 0 {
+        Box::new(std::io::stdout().lock())
+    } else {
+        Box::new(std::io::stderr().lock())
+    };
+    if stream
+        .write_all(&bytes)
+        .and_then(|()| stream.write_all(b"\n"))
+        .is_err()
+    {
+        return ExitCode::from(1);
+    }
+    ExitCode::from(exit)
 }
 
 fn reference_command(arguments: &[std::ffi::OsString]) -> ExitCode {
