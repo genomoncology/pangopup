@@ -243,8 +243,10 @@ complete-request comparison found fixed sequential `8/1` fastest on this host,
 at about 1.05 seconds p50 for M09 and 2.64 seconds for two-strand M10.
 Affinity-aware `auto/1` failed the M10 improvement gate, so ordinary sessions
 remain portable sequential `1/1`; fixed host results are not latency promises.
-Reference/alternate graph batching is the next measured optimization before
-accelerators or quantization.
+Reference/alternate graph batching was corrected and fully remeasured after
+the first run's exporter mismatch. Both corrected policy comparisons exceeded
+the singleton drift limit, and neither candidate met the independent
+replacement gates, so ordinary sessions remain singleton.
 
 Cold lookup behavior is explicitly unmeasured because neither dataset size nor
 an OS/device procedure proved the queried pages were nonresident.

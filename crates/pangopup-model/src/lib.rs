@@ -24,11 +24,20 @@ use std::{
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
 pub const MODEL_BUNDLE_SCHEMA: &str = "pangopup-model-bundle-v1";
+pub const MODEL_BUNDLE_SCHEMA_V2: &str = "pangopup-model-bundle-v2";
 pub const PRODUCTION_PROFILE: &str = "pangolin-1.0.2-5cf94b8-onnx-cpu-v1";
 pub const MINI_PROFILE: &str = "pangopup-model-kernel-mini-v1";
+pub const ZERO_PADDED_PRODUCTION_PROFILE: &str = "pangolin-1.0.2-5cf94b8-onnx-cpu-zero-padded-v2";
+pub const PAIRED_PRODUCTION_PROFILE: &str = "pangolin-1.0.2-5cf94b8-onnx-cpu-paired-strand-v2";
+pub const ZERO_PADDED_MINI_PROFILE: &str = "pangopup-model-kernel-mini-zero-padded-v2";
+pub const PAIRED_MINI_PROFILE: &str = "pangopup-model-kernel-mini-paired-strand-v2";
 pub const PRODUCTION_UPSTREAM_COMMIT: &str = "5cf94b8db938c658391b4305cd7ce33297d44ff7";
 pub const INPUT_NAME: &str = "sequence";
 pub const OUTPUT_NAME: &str = "replicate_scores";
+pub const REFERENCE_INPUT_NAME: &str = "reference";
+pub const ALTERNATE_INPUT_NAME: &str = "alternate";
+pub const REFERENCE_OUTPUT_NAME: &str = "reference_scores";
+pub const ALTERNATE_OUTPUT_NAME: &str = "alternate_scores";
 pub const CHANNELS: usize = 12;
 pub const CONTEXT_FLANKS: usize = 10_000;
 pub const MIN_CONTEXT_LENGTH: usize = 10_001;
@@ -37,6 +46,8 @@ pub const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 pub const MAX_NOTICE_BYTES: u64 = 64 * 1024;
 pub const MAX_MODEL_BYTES: u64 = 48 * 1024 * 1024;
 pub const MAX_AGGREGATE_BYTES: u64 = 49 * 1024 * 1024;
+pub const MAX_BATCH_ITEMS: usize = 4;
+pub const MAX_PAIRED_STRANDS: usize = 2;
 pub const ORT_CRATE_VERSION: &str = "2.0.0-rc.12";
 pub const ONNX_RUNTIME_VERSION: &str = "1.24.2";
 
@@ -227,6 +238,25 @@ pub enum BundleKind {
     SyntheticTest,
 }
 
+/// The closed graph representation declared by an authenticated bundle.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ModelRepresentation {
+    Singleton,
+    ZeroPaddedBatch,
+    PairedStrandBatch,
+}
+
+impl fmt::Display for ModelRepresentation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Singleton => "singleton",
+            Self::ZeroPaddedBatch => "zero-padded-batch",
+            Self::PairedStrandBatch => "paired-strand-batch",
+        })
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FileIdentity {
@@ -298,6 +328,46 @@ pub struct GraphContract {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct ExporterSettingsV2 {
+    pub dynamo: bool,
+    pub constant_folding: bool,
+    pub dynamic_axes: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GraphContractV2 {
+    pub representation: ModelRepresentation,
+    pub opset: u8,
+    pub inputs: Vec<TensorContract>,
+    pub outputs: Vec<TensorContract>,
+    pub channels: Vec<ChannelMapping>,
+    pub exporter: ExporterSettingsV2,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConversionManifestV2 {
+    pub converter: FileIdentity,
+    pub checkpoint_inventory: FileIdentity,
+    pub qualification_evidence: FileIdentity,
+    pub environment: ConversionEnvironment,
+    pub graph: GraphContractV2,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelManifestV2 {
+    pub schema: String,
+    pub kind: BundleKind,
+    pub profile: String,
+    pub source: ModelSource,
+    pub conversion: ConversionManifestV2,
+    pub members: Vec<FileIdentity>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConversionManifest {
     pub converter: FileIdentity,
     pub checkpoint_inventory: FileIdentity,
@@ -343,6 +413,7 @@ pub struct BundleInspection {
     pub notice_bytes: u64,
     pub checkpoints: usize,
     pub channels: usize,
+    pub representation: ModelRepresentation,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -409,6 +480,94 @@ pub struct ReplicateScores {
     values: Vec<f32>,
 }
 
+/// One validated context and orientation in a zero-padded graph request.
+#[derive(Clone, Copy, Debug)]
+pub struct BatchItem<'a> {
+    pub context: &'a ModelContext,
+    pub strand: Strand,
+}
+
+/// One reference/alternate pair for an active strand.
+#[derive(Clone, Copy, Debug)]
+pub struct StrandPair<'a> {
+    pub reference: &'a ModelContext,
+    pub alternate: &'a ModelContext,
+    pub strand: Strand,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PairScores {
+    reference: ReplicateScores,
+    alternate: ReplicateScores,
+}
+
+impl PairScores {
+    #[must_use]
+    pub const fn reference(&self) -> &ReplicateScores {
+        &self.reference
+    }
+
+    #[must_use]
+    pub const fn alternate(&self) -> &ReplicateScores {
+        &self.alternate
+    }
+
+    #[must_use]
+    pub fn into_parts(self) -> (ReplicateScores, ReplicateScores) {
+        (self.reference, self.alternate)
+    }
+}
+
+/// Exact accounting for one complete model request.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct InferenceAccounting {
+    pub session_invocations: usize,
+    pub logical_context_evaluations: usize,
+    pub batch_size: usize,
+    pub padded_input_elements: usize,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct VariantBatchScores {
+    pairs: Vec<PairScores>,
+    accounting: InferenceAccounting,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BatchScores {
+    items: Vec<ReplicateScores>,
+    accounting: InferenceAccounting,
+}
+
+impl BatchScores {
+    #[must_use]
+    pub fn items(&self) -> &[ReplicateScores] {
+        &self.items
+    }
+
+    #[must_use]
+    pub const fn accounting(&self) -> InferenceAccounting {
+        self.accounting
+    }
+}
+
+impl VariantBatchScores {
+    #[must_use]
+    pub fn pairs(&self) -> &[PairScores] {
+        &self.pairs
+    }
+
+    #[must_use]
+    pub fn into_pairs(self) -> Vec<PairScores> {
+        self.pairs
+    }
+
+    #[must_use]
+    pub const fn accounting(&self) -> InferenceAccounting {
+        self.accounting
+    }
+}
+
 impl ReplicateScores {
     #[must_use]
     pub fn score_length(&self) -> usize {
@@ -456,6 +615,14 @@ pub enum ModelError {
         index: usize,
         value: f32,
     },
+    BatchCount {
+        observed: usize,
+        maximum: usize,
+    },
+    Representation {
+        required: ModelRepresentation,
+        observed: ModelRepresentation,
+    },
 }
 
 impl fmt::Display for ModelError {
@@ -487,6 +654,16 @@ impl fmt::Display for ModelError {
                     "model output value {value} at flat index {index} is invalid"
                 )
             }
+            Self::BatchCount { observed, maximum } => {
+                write!(
+                    formatter,
+                    "model batch count {observed} is outside 1..={maximum}"
+                )
+            }
+            Self::Representation { required, observed } => write!(
+                formatter,
+                "model representation {observed} cannot execute {required} request"
+            ),
         }
     }
 }
@@ -501,10 +678,66 @@ impl std::error::Error for ModelError {
 }
 
 struct AuthenticatedBundle {
-    manifest: ModelManifest,
+    manifest: ParsedManifest,
     identity: BundleIdentity,
     model_file: File,
     model_bytes: Vec<u8>,
+}
+
+enum ParsedManifest {
+    V1(ModelManifest),
+    V2(ModelManifestV2),
+}
+
+impl ParsedManifest {
+    fn schema(&self) -> &str {
+        match self {
+            Self::V1(value) => &value.schema,
+            Self::V2(value) => &value.schema,
+        }
+    }
+
+    const fn kind(&self) -> BundleKind {
+        match self {
+            Self::V1(value) => value.kind,
+            Self::V2(value) => value.kind,
+        }
+    }
+
+    fn profile(&self) -> &str {
+        match self {
+            Self::V1(value) => &value.profile,
+            Self::V2(value) => &value.profile,
+        }
+    }
+
+    fn source(&self) -> &ModelSource {
+        match self {
+            Self::V1(value) => &value.source,
+            Self::V2(value) => &value.source,
+        }
+    }
+
+    fn members(&self) -> &[FileIdentity] {
+        match self {
+            Self::V1(value) => &value.members,
+            Self::V2(value) => &value.members,
+        }
+    }
+
+    const fn representation(&self) -> ModelRepresentation {
+        match self {
+            Self::V1(_) => ModelRepresentation::Singleton,
+            Self::V2(value) => value.conversion.graph.representation,
+        }
+    }
+
+    fn channels(&self) -> usize {
+        match self {
+            Self::V1(value) => value.conversion.graph.channels.len(),
+            Self::V2(value) => value.conversion.graph.channels.len(),
+        }
+    }
 }
 
 pub struct ModelKernel {
@@ -512,6 +745,8 @@ pub struct ModelKernel {
     identity: BundleIdentity,
     kind: BundleKind,
     profile: String,
+    representation: ModelRepresentation,
+    last_accounting: InferenceAccounting,
     // Keep the authenticated descriptor alive for the entire session. The
     // graph was loaded from bytes read through this descriptor, not a reopened
     // pathname.
@@ -528,6 +763,29 @@ impl ModelKernel {
     /// This low-level seam exists for qualification and callers that own their
     /// complete scheduling policy. Normal callers should use [`Self::open`].
     pub fn open_with_cpu_policy(bundle: &Path, policy: CpuPolicy) -> Result<Self, ModelError> {
+        let kernel = Self::open_authenticated(bundle, policy)?;
+        if kernel.representation != ModelRepresentation::Singleton {
+            return Err(ModelError::IncompatibleBundle(
+                "ordinary runtime requires singleton representation",
+            ));
+        }
+        Ok(kernel)
+    }
+
+    /// Open any authenticated Ticket 022 representation for retained
+    /// maintainer qualification and comparison.
+    ///
+    /// Ordinary runtime callers must use [`Self::open`] or
+    /// [`Self::open_with_cpu_policy`].
+    #[doc(hidden)]
+    pub fn open_experimental_with_cpu_policy(
+        bundle: &Path,
+        policy: CpuPolicy,
+    ) -> Result<Self, ModelError> {
+        Self::open_authenticated(bundle, policy)
+    }
+
+    fn open_authenticated(bundle: &Path, policy: CpuPolicy) -> Result<Self, ModelError> {
         let authenticated = authenticate_bundle(bundle)?;
         let mut builder = Session::builder()
             .map_err(runtime_error)?
@@ -545,20 +803,33 @@ impl ModelKernel {
         let session = builder
             .commit_from_memory(&authenticated.model_bytes)
             .map_err(runtime_error)?;
-        validate_graph_contract(&session)?;
+        validate_graph_contract(&session, authenticated.manifest.representation())?;
         let mut kernel = Self {
             session,
             identity: authenticated.identity,
-            kind: authenticated.manifest.kind,
-            profile: authenticated.manifest.profile,
+            kind: authenticated.manifest.kind(),
+            profile: authenticated.manifest.profile().to_owned(),
+            representation: authenticated.manifest.representation(),
+            last_accounting: InferenceAccounting::default(),
             _model_file: authenticated.model_file,
         };
         let zeroes = ModelContext::new(vec![b'N'; MIN_CONTEXT_LENGTH])?;
-        let probe = kernel.infer(&zeroes, Strand::Plus)?;
-        if probe.shape() != [1, CHANNELS, 1] {
+        let probe = kernel.infer_variant(&[StrandPair {
+            reference: &zeroes,
+            alternate: &zeroes,
+            strand: Strand::Plus,
+        }])?;
+        let probe = probe
+            .pairs()
+            .first()
+            .ok_or(ModelError::InvalidBundle("empty initialization probe"))?;
+        if probe.reference().shape() != [1, CHANNELS, 1]
+            || probe.alternate().shape() != [1, CHANNELS, 1]
+        {
             return Err(ModelError::OutputShape {
                 expected: [1, CHANNELS, 1],
                 observed: probe
+                    .reference()
                     .shape()
                     .into_iter()
                     .map(|value| value as i64)
@@ -583,7 +854,31 @@ impl ModelKernel {
         &self.profile
     }
 
+    #[must_use]
+    pub const fn representation(&self) -> ModelRepresentation {
+        self.representation
+    }
+
+    #[must_use]
+    pub const fn last_accounting(&self) -> InferenceAccounting {
+        self.last_accounting
+    }
+
     pub fn infer(
+        &mut self,
+        context: &ModelContext,
+        strand: Strand,
+    ) -> Result<ReplicateScores, ModelError> {
+        if self.representation != ModelRepresentation::Singleton {
+            return Err(ModelError::Representation {
+                required: ModelRepresentation::Singleton,
+                observed: self.representation,
+            });
+        }
+        self.infer_singleton(context, strand)
+    }
+
+    fn infer_singleton(
         &mut self,
         context: &ModelContext,
         strand: Strand,
@@ -623,9 +918,260 @@ impl ModelKernel {
             values,
         })
     }
+
+    /// Execute all reference/alternate work for the active strands using the
+    /// authenticated representation declared by this bundle.
+    pub fn infer_variant(
+        &mut self,
+        pairs: &[StrandPair<'_>],
+    ) -> Result<VariantBatchScores, ModelError> {
+        if pairs.is_empty() || pairs.len() > MAX_PAIRED_STRANDS {
+            return Err(ModelError::BatchCount {
+                observed: pairs.len(),
+                maximum: MAX_PAIRED_STRANDS,
+            });
+        }
+        let result = match self.representation {
+            ModelRepresentation::Singleton => self.infer_variant_singleton(pairs),
+            ModelRepresentation::ZeroPaddedBatch => {
+                let items = pairs
+                    .iter()
+                    .flat_map(|pair| {
+                        [
+                            BatchItem {
+                                context: pair.reference,
+                                strand: pair.strand,
+                            },
+                            BatchItem {
+                                context: pair.alternate,
+                                strand: pair.strand,
+                            },
+                        ]
+                    })
+                    .collect::<Vec<_>>();
+                let (scores, padded_input_elements) = self.infer_zero_padded(&items)?;
+                let mut scores = scores.into_iter();
+                let mut paired = Vec::with_capacity(pairs.len());
+                while let Some(reference) = scores.next() {
+                    let alternate = scores
+                        .next()
+                        .ok_or(ModelError::InvalidBundle("incomplete zero-padded pair"))?;
+                    paired.push(PairScores {
+                        reference,
+                        alternate,
+                    });
+                }
+                Ok(VariantBatchScores {
+                    pairs: paired,
+                    accounting: InferenceAccounting {
+                        session_invocations: 1,
+                        logical_context_evaluations: items.len(),
+                        batch_size: items.len(),
+                        padded_input_elements,
+                    },
+                })
+            }
+            ModelRepresentation::PairedStrandBatch => self.infer_paired(pairs),
+        }?;
+        self.last_accounting = result.accounting();
+        Ok(result)
+    }
+
+    fn infer_variant_singleton(
+        &mut self,
+        pairs: &[StrandPair<'_>],
+    ) -> Result<VariantBatchScores, ModelError> {
+        let mut scores = Vec::with_capacity(pairs.len());
+        for pair in pairs {
+            let reference = self.infer_singleton(pair.reference, pair.strand)?;
+            let alternate = self.infer_singleton(pair.alternate, pair.strand)?;
+            scores.push(PairScores {
+                reference,
+                alternate,
+            });
+        }
+        Ok(VariantBatchScores {
+            pairs: scores,
+            accounting: InferenceAccounting {
+                session_invocations: pairs.len() * 2,
+                logical_context_evaluations: pairs.len() * 2,
+                batch_size: 1,
+                padded_input_elements: 0,
+            },
+        })
+    }
+
+    fn infer_zero_padded(
+        &mut self,
+        items: &[BatchItem<'_>],
+    ) -> Result<(Vec<ReplicateScores>, usize), ModelError> {
+        if items.is_empty() || items.len() > MAX_BATCH_ITEMS {
+            return Err(ModelError::BatchCount {
+                observed: items.len(),
+                maximum: MAX_BATCH_ITEMS,
+            });
+        }
+        let maximum_length =
+            items
+                .iter()
+                .map(|item| item.context.len())
+                .max()
+                .ok_or(ModelError::BatchCount {
+                    observed: 0,
+                    maximum: MAX_BATCH_ITEMS,
+                })?;
+        let elements = checked_elements(items.len(), 4, maximum_length)?;
+        let mut encoded = vec![0.0; elements];
+        for (batch, item) in items.iter().enumerate() {
+            encode_context_into(
+                item.context,
+                item.strand,
+                maximum_length,
+                &mut encoded[batch * 4 * maximum_length..(batch + 1) * 4 * maximum_length],
+            )?;
+        }
+        let input = Tensor::<f32>::from_array(([items.len(), 4, maximum_length], encoded))
+            .map_err(runtime_error)?;
+        let outputs = self
+            .session
+            .run(ort::inputs! { INPUT_NAME => input })
+            .map_err(runtime_error)?;
+        let output = outputs
+            .get(OUTPUT_NAME)
+            .ok_or_else(|| ModelError::Runtime("missing replicate_scores output".to_owned()))?;
+        let (shape, values) = output.try_extract_tensor::<f32>().map_err(runtime_error)?;
+        let padded_score_length = maximum_length - CONTEXT_FLANKS;
+        validate_dynamic_shape(shape, [items.len(), CHANNELS, padded_score_length])?;
+        validate_output_values(values)?;
+        let mut results = Vec::with_capacity(items.len());
+        for (batch, item) in items.iter().enumerate() {
+            let score_length = item.context.len() - CONTEXT_FLANKS;
+            let mut selected = Vec::with_capacity(CHANNELS * score_length);
+            for channel in 0..CHANNELS {
+                let start = (batch * CHANNELS + channel) * padded_score_length;
+                selected.extend_from_slice(&values[start..start + score_length]);
+            }
+            if item.strand == Strand::Minus {
+                for channel in selected.chunks_exact_mut(score_length) {
+                    channel.reverse();
+                }
+            }
+            results.push(ReplicateScores {
+                score_length,
+                values: selected,
+            });
+        }
+        let unpadded = items.iter().try_fold(0_usize, |total, item| {
+            checked_elements(1, 4, item.context.len()).and_then(|value| {
+                total
+                    .checked_add(value)
+                    .ok_or(ModelError::InvalidBundle("input element overflow"))
+            })
+        })?;
+        Ok((results, elements - unpadded))
+    }
+
+    /// Execute the zero-padded candidate directly for checked construction
+    /// tests and maintainer qualification.
+    pub fn infer_batch(&mut self, items: &[BatchItem<'_>]) -> Result<BatchScores, ModelError> {
+        if self.representation != ModelRepresentation::ZeroPaddedBatch {
+            return Err(ModelError::Representation {
+                required: ModelRepresentation::ZeroPaddedBatch,
+                observed: self.representation,
+            });
+        }
+        let logical_context_evaluations = items.len();
+        let (items, padded_input_elements) = self.infer_zero_padded(items)?;
+        Ok(BatchScores {
+            items,
+            accounting: InferenceAccounting {
+                session_invocations: 1,
+                logical_context_evaluations,
+                batch_size: logical_context_evaluations,
+                padded_input_elements,
+            },
+        })
+    }
+
+    fn infer_paired(&mut self, pairs: &[StrandPair<'_>]) -> Result<VariantBatchScores, ModelError> {
+        let reference_length = pairs[0].reference.len();
+        let alternate_length = pairs[0].alternate.len();
+        if pairs.iter().any(|pair| {
+            pair.reference.len() != reference_length || pair.alternate.len() != alternate_length
+        }) {
+            return Err(ModelError::InvalidBundle(
+                "paired strand contexts have inconsistent allele lengths",
+            ));
+        }
+        let reference = encode_items(
+            &pairs
+                .iter()
+                .map(|pair| BatchItem {
+                    context: pair.reference,
+                    strand: pair.strand,
+                })
+                .collect::<Vec<_>>(),
+            reference_length,
+        )?;
+        let alternate = encode_items(
+            &pairs
+                .iter()
+                .map(|pair| BatchItem {
+                    context: pair.alternate,
+                    strand: pair.strand,
+                })
+                .collect::<Vec<_>>(),
+            alternate_length,
+        )?;
+        let reference_input =
+            Tensor::<f32>::from_array(([pairs.len(), 4, reference_length], reference))
+                .map_err(runtime_error)?;
+        let alternate_input =
+            Tensor::<f32>::from_array(([pairs.len(), 4, alternate_length], alternate))
+                .map_err(runtime_error)?;
+        let outputs = self
+            .session
+            .run(ort::inputs! {
+                REFERENCE_INPUT_NAME => reference_input,
+                ALTERNATE_INPUT_NAME => alternate_input
+            })
+            .map_err(runtime_error)?;
+        let reference_scores = extract_paired_output(
+            &outputs,
+            REFERENCE_OUTPUT_NAME,
+            pairs,
+            reference_length - CONTEXT_FLANKS,
+        )?;
+        let alternate_scores = extract_paired_output(
+            &outputs,
+            ALTERNATE_OUTPUT_NAME,
+            pairs,
+            alternate_length - CONTEXT_FLANKS,
+        )?;
+        Ok(VariantBatchScores {
+            pairs: reference_scores
+                .into_iter()
+                .zip(alternate_scores)
+                .map(|(reference, alternate)| PairScores {
+                    reference,
+                    alternate,
+                })
+                .collect(),
+            accounting: InferenceAccounting {
+                session_invocations: 1,
+                logical_context_evaluations: pairs.len() * 2,
+                batch_size: pairs.len(),
+                padded_input_elements: 0,
+            },
+        })
+    }
 }
 
 pub fn canonical_manifest_bytes(manifest: &ModelManifest) -> Result<Vec<u8>, ModelError> {
+    serde_jcs::to_vec(manifest).map_err(|_| ModelError::InvalidBundle("manifest encoding"))
+}
+
+pub fn canonical_manifest_v2_bytes(manifest: &ModelManifestV2) -> Result<Vec<u8>, ModelError> {
     serde_jcs::to_vec(manifest).map_err(|_| ModelError::InvalidBundle("manifest encoding"))
 }
 
@@ -636,17 +1182,18 @@ pub fn bundle_identity(manifest_bytes: &[u8]) -> BundleIdentity {
 
 pub fn inspect_bundle(bundle: &Path) -> Result<BundleInspection, ModelError> {
     let authenticated = authenticate_bundle(bundle)?;
-    let model_bytes = member(&authenticated.manifest, "model.onnx")?.bytes;
-    let notice_bytes = member(&authenticated.manifest, "NOTICE")?.bytes;
+    let model_bytes = member(authenticated.manifest.members(), "model.onnx")?.bytes;
+    let notice_bytes = member(authenticated.manifest.members(), "NOTICE")?.bytes;
     Ok(BundleInspection {
-        schema: authenticated.manifest.schema,
-        kind: authenticated.manifest.kind,
-        profile: authenticated.manifest.profile,
+        schema: authenticated.manifest.schema().to_owned(),
+        kind: authenticated.manifest.kind(),
+        profile: authenticated.manifest.profile().to_owned(),
         bundle_id: authenticated.identity,
         model_bytes,
         notice_bytes,
-        checkpoints: authenticated.manifest.source.checkpoints.len(),
-        channels: authenticated.manifest.conversion.graph.channels.len(),
+        checkpoints: authenticated.manifest.source().checkpoints.len(),
+        channels: authenticated.manifest.channels(),
+        representation: authenticated.manifest.representation(),
     })
 }
 
@@ -661,6 +1208,29 @@ pub fn parse_manifest_bytes(bytes: &[u8]) -> Result<ModelManifest, ModelError> {
     }
     validate_manifest(&manifest)?;
     Ok(manifest)
+}
+
+pub fn parse_manifest_v2_bytes(bytes: &[u8]) -> Result<ModelManifestV2, ModelError> {
+    if bytes.len() as u64 > MAX_MANIFEST_BYTES {
+        return Err(ModelError::InvalidBundle("manifest size"));
+    }
+    let manifest: ModelManifestV2 =
+        serde_json::from_slice(bytes).map_err(|_| ModelError::InvalidBundle("manifest JSON"))?;
+    if canonical_manifest_v2_bytes(&manifest)? != bytes {
+        return Err(ModelError::InvalidBundle("manifest canonical bytes"));
+    }
+    validate_manifest_v2(&manifest)?;
+    Ok(manifest)
+}
+
+fn parse_any_manifest(bytes: &[u8]) -> Result<ParsedManifest, ModelError> {
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|_| ModelError::InvalidBundle("manifest JSON"))?;
+    match value.get("schema").and_then(serde_json::Value::as_str) {
+        Some(MODEL_BUNDLE_SCHEMA) => parse_manifest_bytes(bytes).map(ParsedManifest::V1),
+        Some(MODEL_BUNDLE_SCHEMA_V2) => parse_manifest_v2_bytes(bytes).map(ParsedManifest::V2),
+        _ => Err(ModelError::IncompatibleBundle("schema")),
+    }
 }
 
 fn authenticate_bundle(bundle: &Path) -> Result<AuthenticatedBundle, ModelError> {
@@ -682,7 +1252,7 @@ fn authenticate_bundle(bundle: &Path) -> Result<AuthenticatedBundle, ModelError>
         MAX_MANIFEST_BYTES,
         "read manifest",
     )?;
-    let manifest = parse_manifest_bytes(&manifest_bytes)?;
+    let manifest = parse_any_manifest(&manifest_bytes)?;
     let identity = bundle_identity(&manifest_bytes);
 
     let (mut notice_file, notice_size) = open_bounded_member(bundle, "NOTICE", MAX_NOTICE_BYTES)?;
@@ -703,8 +1273,8 @@ fn authenticate_bundle(bundle: &Path) -> Result<AuthenticatedBundle, ModelError>
     if aggregate > MAX_AGGREGATE_BYTES {
         return Err(ModelError::InvalidBundle("aggregate size"));
     }
-    validate_member_bytes(&manifest, "NOTICE", &notice_bytes)?;
-    validate_member_bytes(&manifest, "model.onnx", &model_bytes)?;
+    validate_member_bytes(manifest.members(), "NOTICE", &notice_bytes)?;
+    validate_member_bytes(manifest.members(), "model.onnx", &model_bytes)?;
     if exact_member_set(bundle)? != observed {
         return Err(ModelError::InvalidBundle("member set changed during open"));
     }
@@ -779,11 +1349,11 @@ fn read_exact_member(
 }
 
 fn validate_member_bytes(
-    manifest: &ModelManifest,
+    members: &[FileIdentity],
     name: &str,
     bytes: &[u8],
 ) -> Result<(), ModelError> {
-    let expected = member(manifest, name)?;
+    let expected = member(members, name)?;
     if expected.bytes != bytes.len() as u64 {
         return Err(ModelError::InvalidBundle("member byte length"));
     }
@@ -793,12 +1363,57 @@ fn validate_member_bytes(
     Ok(())
 }
 
-fn member<'a>(manifest: &'a ModelManifest, name: &str) -> Result<&'a FileIdentity, ModelError> {
-    manifest
-        .members
+fn member<'a>(members: &'a [FileIdentity], name: &str) -> Result<&'a FileIdentity, ModelError> {
+    members
         .iter()
         .find(|member| member.filename == name)
         .ok_or(ModelError::InvalidBundle("missing declared member"))
+}
+
+fn validate_manifest_v2(manifest: &ModelManifestV2) -> Result<(), ModelError> {
+    if manifest.schema != MODEL_BUNDLE_SCHEMA_V2 {
+        return Err(ModelError::IncompatibleBundle("schema"));
+    }
+    match manifest.kind {
+        BundleKind::Production => {
+            let expected = match manifest.conversion.graph.representation {
+                ModelRepresentation::ZeroPaddedBatch => ZERO_PADDED_PRODUCTION_PROFILE,
+                ModelRepresentation::PairedStrandBatch => PAIRED_PRODUCTION_PROFILE,
+                ModelRepresentation::Singleton => {
+                    return Err(ModelError::InvalidBundle(
+                        "v2 cannot declare singleton representation",
+                    ));
+                }
+            };
+            if manifest.profile != expected {
+                return Err(ModelError::IncompatibleBundle("production profile"));
+            }
+            validate_production_source_parts(&manifest.source)?;
+        }
+        BundleKind::SyntheticTest => {
+            let expected = match manifest.conversion.graph.representation {
+                ModelRepresentation::ZeroPaddedBatch => ZERO_PADDED_MINI_PROFILE,
+                ModelRepresentation::PairedStrandBatch => PAIRED_MINI_PROFILE,
+                ModelRepresentation::Singleton => {
+                    return Err(ModelError::InvalidBundle(
+                        "v2 cannot declare singleton representation",
+                    ));
+                }
+            };
+            if manifest.profile != expected || !manifest.source.checkpoints.is_empty() {
+                return Err(ModelError::IncompatibleBundle("synthetic profile"));
+            }
+        }
+    }
+    validate_common_manifest(
+        &manifest.source,
+        &manifest.conversion.converter,
+        &manifest.conversion.checkpoint_inventory,
+        &manifest.conversion.qualification_evidence,
+        &manifest.conversion.environment,
+        &manifest.members,
+    )?;
+    validate_graph_v2(&manifest.conversion.graph)
 }
 
 fn validate_manifest(manifest: &ModelManifest) -> Result<(), ModelError> {
@@ -818,30 +1433,15 @@ fn validate_manifest(manifest: &ModelManifest) -> Result<(), ModelError> {
             }
         }
     }
-    if manifest.members.len() != 2
-        || manifest.members[0].filename != "NOTICE"
-        || manifest.members[1].filename != "model.onnx"
-    {
-        return Err(ModelError::InvalidBundle("declared member order"));
-    }
-    if manifest.members[0].bytes > MAX_NOTICE_BYTES
-        || manifest.members[1].bytes > MAX_MODEL_BYTES
-        || manifest.members.iter().any(|item| !valid_sha(&item.sha256))
-    {
-        return Err(ModelError::InvalidBundle("declared member identity"));
-    }
-    validate_file_identity(&manifest.source.model_source)?;
-    validate_file_identity(&manifest.conversion.converter)?;
-    validate_file_identity(&manifest.conversion.checkpoint_inventory)?;
-    validate_file_identity(&manifest.conversion.qualification_evidence)?;
+    validate_common_manifest(
+        &manifest.source,
+        &manifest.conversion.converter,
+        &manifest.conversion.checkpoint_inventory,
+        &manifest.conversion.qualification_evidence,
+        &manifest.conversion.environment,
+        &manifest.members,
+    )?;
     validate_graph(&manifest.conversion.graph)?;
-    if manifest.conversion.environment.python.is_empty()
-        || manifest.conversion.environment.pytorch.is_empty()
-        || manifest.conversion.environment.numpy.is_empty()
-        || manifest.conversion.environment.onnx.is_empty()
-    {
-        return Err(ModelError::InvalidBundle("conversion environment"));
-    }
     Ok(())
 }
 
@@ -849,17 +1449,53 @@ fn validate_production_source(manifest: &ModelManifest) -> Result<(), ModelError
     if manifest.profile != PRODUCTION_PROFILE {
         return Err(ModelError::IncompatibleBundle("production profile"));
     }
-    if manifest.source.upstream_commit != PRODUCTION_UPSTREAM_COMMIT
-        || manifest.source.model_source.filename != "pangolin/model.py"
-        || manifest.source.model_source.bytes != 3_011
-        || manifest.source.model_source.sha256 != PRODUCTION_MODEL_SOURCE_SHA256
+    validate_production_source_parts(&manifest.source)
+}
+
+fn validate_production_source_parts(source: &ModelSource) -> Result<(), ModelError> {
+    if source.upstream_commit != PRODUCTION_UPSTREAM_COMMIT
+        || source.model_source.filename != "pangolin/model.py"
+        || source.model_source.bytes != 3_011
+        || source.model_source.sha256 != PRODUCTION_MODEL_SOURCE_SHA256
     {
         return Err(ModelError::InvalidBundle("production source identity"));
     }
-    if manifest.source.checkpoints != production_checkpoints() {
+    if source.checkpoints != production_checkpoints() {
         return Err(ModelError::InvalidBundle(
             "production checkpoint identities",
         ));
+    }
+    Ok(())
+}
+
+fn validate_common_manifest(
+    source: &ModelSource,
+    converter: &FileIdentity,
+    inventory: &FileIdentity,
+    evidence: &FileIdentity,
+    environment: &ConversionEnvironment,
+    members: &[FileIdentity],
+) -> Result<(), ModelError> {
+    if members.len() != 2 || members[0].filename != "NOTICE" || members[1].filename != "model.onnx"
+    {
+        return Err(ModelError::InvalidBundle("declared member order"));
+    }
+    if members[0].bytes > MAX_NOTICE_BYTES
+        || members[1].bytes > MAX_MODEL_BYTES
+        || members.iter().any(|item| !valid_sha(&item.sha256))
+    {
+        return Err(ModelError::InvalidBundle("declared member identity"));
+    }
+    validate_file_identity(&source.model_source)?;
+    validate_file_identity(converter)?;
+    validate_file_identity(inventory)?;
+    validate_file_identity(evidence)?;
+    if environment.python.is_empty()
+        || environment.pytorch.is_empty()
+        || environment.numpy.is_empty()
+        || environment.onnx.is_empty()
+    {
+        return Err(ModelError::InvalidBundle("conversion environment"));
     }
     Ok(())
 }
@@ -894,27 +1530,131 @@ fn validate_graph(graph: &GraphContract) -> Result<(), ModelError> {
     Ok(())
 }
 
-fn validate_graph_contract(session: &Session) -> Result<(), ModelError> {
-    if session.inputs().len() != 1 || session.outputs().len() != 1 {
+fn validate_graph_v2(graph: &GraphContractV2) -> Result<(), ModelError> {
+    let (inputs, outputs, axes): (Vec<_>, Vec<_>, &[u8]) = match graph.representation {
+        ModelRepresentation::ZeroPaddedBatch => (
+            vec![TensorContract {
+                name: INPUT_NAME.to_owned(),
+                element_type: "f32".to_owned(),
+                shape: vec!["B".to_owned(), "4".to_owned(), "N".to_owned()],
+            }],
+            vec![TensorContract {
+                name: OUTPUT_NAME.to_owned(),
+                element_type: "f32".to_owned(),
+                shape: vec!["B".to_owned(), "12".to_owned(), "N-10000".to_owned()],
+            }],
+            &[0, 2],
+        ),
+        ModelRepresentation::PairedStrandBatch => (
+            vec![
+                TensorContract {
+                    name: REFERENCE_INPUT_NAME.to_owned(),
+                    element_type: "f32".to_owned(),
+                    shape: vec!["B".to_owned(), "4".to_owned(), "N_ref".to_owned()],
+                },
+                TensorContract {
+                    name: ALTERNATE_INPUT_NAME.to_owned(),
+                    element_type: "f32".to_owned(),
+                    shape: vec!["B".to_owned(), "4".to_owned(), "N_alt".to_owned()],
+                },
+            ],
+            vec![
+                TensorContract {
+                    name: REFERENCE_OUTPUT_NAME.to_owned(),
+                    element_type: "f32".to_owned(),
+                    shape: vec!["B".to_owned(), "12".to_owned(), "N_ref-10000".to_owned()],
+                },
+                TensorContract {
+                    name: ALTERNATE_OUTPUT_NAME.to_owned(),
+                    element_type: "f32".to_owned(),
+                    shape: vec!["B".to_owned(), "12".to_owned(), "N_alt-10000".to_owned()],
+                },
+            ],
+            &[0, 2],
+        ),
+        ModelRepresentation::Singleton => {
+            return Err(ModelError::InvalidBundle("v2 graph representation"));
+        }
+    };
+    if graph.opset != 17
+        || graph.inputs != inputs
+        || graph.outputs != outputs
+        || graph.exporter.dynamo
+        || !graph.exporter.constant_folding
+        || graph.exporter.dynamic_axes != axes
+        || graph.channels.as_slice() != EXPECTED_CHANNEL_MAPPING
+    {
+        return Err(ModelError::InvalidBundle("graph contract"));
+    }
+    Ok(())
+}
+
+fn validate_graph_contract(
+    session: &Session,
+    representation: ModelRepresentation,
+) -> Result<(), ModelError> {
+    match representation {
+        ModelRepresentation::Singleton => validate_session_outlets(
+            session,
+            &[(INPUT_NAME, [1, 4, -1], ["", "", "N"])],
+            &[(
+                OUTPUT_NAME,
+                [1, CHANNELS as i64, -1],
+                ["", "", "N_minus_10000"],
+            )],
+        ),
+        ModelRepresentation::ZeroPaddedBatch => validate_session_outlets(
+            session,
+            &[(INPUT_NAME, [-1, 4, -1], ["B", "", "N"])],
+            &[(
+                OUTPUT_NAME,
+                [-1, CHANNELS as i64, -1],
+                ["B", "", "N_minus_10000"],
+            )],
+        ),
+        ModelRepresentation::PairedStrandBatch => validate_session_outlets(
+            session,
+            &[
+                (REFERENCE_INPUT_NAME, [-1, 4, -1], ["B", "", "N_ref"]),
+                (ALTERNATE_INPUT_NAME, [-1, 4, -1], ["B", "", "N_alt"]),
+            ],
+            &[
+                (
+                    REFERENCE_OUTPUT_NAME,
+                    [-1, CHANNELS as i64, -1],
+                    ["B", "", "N_ref_minus_10000"],
+                ),
+                (
+                    ALTERNATE_OUTPUT_NAME,
+                    [-1, CHANNELS as i64, -1],
+                    ["B", "", "N_alt_minus_10000"],
+                ),
+            ],
+        ),
+    }
+}
+
+fn validate_session_outlets(
+    session: &Session,
+    inputs: &[(&str, [i64; 3], [&str; 3])],
+    outputs: &[(&str, [i64; 3], [&str; 3])],
+) -> Result<(), ModelError> {
+    if session.inputs().len() != inputs.len() || session.outputs().len() != outputs.len() {
         return Err(ModelError::IncompatibleBundle("graph input/output count"));
     }
-    let input = &session.inputs()[0];
-    let output = &session.outputs()[0];
-    if input.name() != INPUT_NAME || output.name() != OUTPUT_NAME {
-        return Err(ModelError::IncompatibleBundle("graph input/output names"));
+    for (outlet, (name, shape, symbols)) in session.inputs().iter().zip(inputs) {
+        if outlet.name() != *name {
+            return Err(ModelError::IncompatibleBundle("graph input/output names"));
+        }
+        validate_outlet(outlet.dtype(), *shape, *symbols, "graph input metadata")?;
     }
-    validate_outlet(
-        input.dtype(),
-        [1, 4, -1],
-        ["", "", "N"],
-        "graph input metadata",
-    )?;
-    validate_outlet(
-        output.dtype(),
-        [1, CHANNELS as i64, -1],
-        ["", "", "N_minus_10000"],
-        "graph output metadata",
-    )
+    for (outlet, (name, shape, symbols)) in session.outputs().iter().zip(outputs) {
+        if outlet.name() != *name {
+            return Err(ModelError::IncompatibleBundle("graph input/output names"));
+        }
+        validate_outlet(outlet.dtype(), *shape, *symbols, "graph output metadata")?;
+    }
+    Ok(())
 }
 
 fn validate_outlet(
@@ -955,23 +1695,96 @@ fn validate_output_values(values: &[f32]) -> Result<(), ModelError> {
 fn encode_context(context: &ModelContext, strand: Strand) -> Vec<f32> {
     let length = context.len();
     let mut encoded = vec![0.0; 4 * length];
+    encode_context_into(context, strand, length, &mut encoded)
+        .expect("validated context dimensions fit the fixed resource bounds");
+    encoded
+}
+
+fn checked_elements(batch: usize, channels: usize, length: usize) -> Result<usize, ModelError> {
+    batch
+        .checked_mul(channels)
+        .and_then(|value| value.checked_mul(length))
+        .ok_or(ModelError::InvalidBundle("input element overflow"))
+}
+
+fn encode_items(items: &[BatchItem<'_>], length: usize) -> Result<Vec<f32>, ModelError> {
+    let elements = checked_elements(items.len(), 4, length)?;
+    let mut encoded = vec![0.0; elements];
+    for (batch, item) in items.iter().enumerate() {
+        encode_context_into(
+            item.context,
+            item.strand,
+            length,
+            &mut encoded[batch * 4 * length..(batch + 1) * 4 * length],
+        )?;
+    }
+    Ok(encoded)
+}
+
+fn encode_context_into(
+    context: &ModelContext,
+    strand: Strand,
+    stride: usize,
+    encoded: &mut [f32],
+) -> Result<(), ModelError> {
+    let length = context.len();
+    if stride < length || encoded.len() != checked_elements(1, 4, stride)? {
+        return Err(ModelError::InvalidBundle("encoded input dimensions"));
+    }
     match strand {
         Strand::Plus => {
             for (position, base) in context.bases().iter().copied().enumerate() {
                 if let Some(channel) = channel_for(base) {
-                    encoded[channel * length + position] = 1.0;
+                    encoded[channel * stride + position] = 1.0;
                 }
             }
         }
         Strand::Minus => {
             for (position, base) in context.bases().iter().rev().copied().enumerate() {
                 if let Some(channel) = channel_for(complement(base)) {
-                    encoded[channel * length + position] = 1.0;
+                    encoded[channel * stride + position] = 1.0;
                 }
             }
         }
     }
-    encoded
+    Ok(())
+}
+
+fn validate_dynamic_shape(shape: &[i64], expected: [usize; 3]) -> Result<(), ModelError> {
+    let observed = shape.to_vec();
+    if observed.as_slice() != [expected[0] as i64, expected[1] as i64, expected[2] as i64] {
+        return Err(ModelError::OutputShape { expected, observed });
+    }
+    Ok(())
+}
+
+fn extract_paired_output(
+    outputs: &ort::session::SessionOutputs<'_>,
+    name: &str,
+    pairs: &[StrandPair<'_>],
+    score_length: usize,
+) -> Result<Vec<ReplicateScores>, ModelError> {
+    let output = outputs
+        .get(name)
+        .ok_or_else(|| ModelError::Runtime(format!("missing {name} output")))?;
+    let (shape, values) = output.try_extract_tensor::<f32>().map_err(runtime_error)?;
+    validate_dynamic_shape(shape, [pairs.len(), CHANNELS, score_length])?;
+    validate_output_values(values)?;
+    let mut results = Vec::with_capacity(pairs.len());
+    for (batch, pair) in pairs.iter().enumerate() {
+        let mut selected =
+            values[batch * CHANNELS * score_length..(batch + 1) * CHANNELS * score_length].to_vec();
+        if pair.strand == Strand::Minus {
+            for channel in selected.chunks_exact_mut(score_length) {
+                channel.reverse();
+            }
+        }
+        results.push(ReplicateScores {
+            score_length,
+            values: selected,
+        });
+    }
+    Ok(results)
 }
 
 fn channel_for(base: u8) -> Option<usize> {
@@ -1302,5 +2115,23 @@ mod tests {
                 Err(ModelError::OutputValue { index: 0, .. })
             ));
         }
+    }
+
+    #[test]
+    fn candidate_dimension_and_element_checks_reject_wrong_shapes_and_overflow() {
+        assert!(validate_dynamic_shape(&[2, 12, 17], [2, 12, 17]).is_ok());
+        assert!(matches!(
+            validate_dynamic_shape(&[1, 12, 17], [2, 12, 17]),
+            Err(ModelError::OutputShape { .. })
+        ));
+        assert!(matches!(
+            validate_dynamic_shape(&[2, 12, 18], [2, 12, 17]),
+            Err(ModelError::OutputShape { .. })
+        ));
+        assert!(checked_elements(4, 4, MAX_CONTEXT_LENGTH).is_ok());
+        assert!(matches!(
+            checked_elements(usize::MAX, 4, MAX_CONTEXT_LENGTH),
+            Err(ModelError::InvalidBundle("input element overflow"))
+        ));
     }
 }

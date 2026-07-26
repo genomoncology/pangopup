@@ -1,6 +1,6 @@
 # 022 — Select the fastest exact reference/alternate model representation
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -155,11 +155,12 @@ asset download/upload, or publication.
   applies the mechanical selection, and removes losing production dispatch
   paths. The coordinator reruns selected production proof before independent
   code review.
-- Retain compact maintainer-only converter modes and the ignored experimental
-  harness needed to regenerate and compare all candidates. Retain the selected
-  checked miniature fixture and the unchanged legacy singleton fixture; remove
-  losing checked fixtures and production dispatch branches. Durable evidence
-  includes the losing candidates without making them permanent runtime modes.
+- Retain compact maintainer-only converter modes, both tiny checked candidate
+  fixtures, and the ignored experimental harness needed to regenerate, execute,
+  and compare all candidates. Retain the unchanged legacy singleton fixture
+  and remove losing ordinary production dispatch branches. Candidate fixtures
+  remain normal-test assets because retained experimental code requires real
+  ONNX Runtime coverage; they are not permanent ordinary runtime modes.
 - Re-run the selected representation in a fresh process at ordinary `1/1` and
   fixed `8/1`, then repeat full raw-model and 14-case public qualification.
 - The selected production model bundle remains a local retained asset for
@@ -222,9 +223,9 @@ asset download/upload, or publication.
 4. **Select across representative shapes, not one lucky variant.** Equal-length,
    insertion, deletion, one-strand, and two-strand cases prevent a
    fixture-specific winner.
-5. **Retain reproducibility, delete production cruft.** Maintainer converter
-   modes and the ignored comparison harness remain; losing checked fixtures
-   and runtime dispatch do not.
+5. **Retain reproducibility and executable safety.** Maintainer converter
+   modes, tiny checked candidate fixtures, and the ignored comparison harness
+   remain; losing ordinary runtime dispatch does not.
 
 ## Dependencies
 
@@ -280,13 +281,122 @@ v1/v2 contracts, diagnostic boundary, selection arithmetic, accuracy proof,
 resource metrics, staged ownership, and reproducibility plan technically
 valid, bounded, and ready for implementation.
 
+Post-code-review scope amendment: **ACCEPT**. The same reviewer approved
+retaining both tiny candidate fixtures because the maintainer-only v2 runtime
+paths remain compiled and therefore require normal real-ORT execution coverage.
+The amendment does not make either candidate an ordinary runtime mode and does
+not broaden production access, policies, cases, or selection rules.
+
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex `/root/ticket022_implementation`
+
+The first implementation and measurement pass completed, but code review
+reopened the ticket because the v2 exporter omitted its declared dynamic axes.
+The developer:
+
+- preserved the exact v1 manifest type/parser/canonical serializer and added a
+  distinct closed v2 grammar for zero-padded and paired-strand graphs;
+- added authenticated converter modes and absent-path checked miniature
+  generation for singleton, zero-padded, and paired-strand representations;
+- added bounded typed model/engine candidate execution, score-length retention,
+  minus-strand genomic reorientation, invocation/item/padding accounting, and
+  unchanged singleton dispatch;
+- uses checked candidate ONNX fixtures to prove raw
+  miniature qualification, v1/v2 contracts, resource/output rejection, and
+  candidate execution across real-ORT B1/B2/B4, unequal length bounds, strands,
+  slicing/accounting, malformed/error cases, and all-six-shape engine grouping;
+- added the ignored six-case fresh-process measurement harness and widened the
+  ignored 14-case public qualification harness to an explicit candidate and
+  selected CPU policy; and
+- preserved all 19 successful raw measurement records verbatim in a
+  checksummed JSONL artifact and applied the ticket's selection arithmetic;
+- retained the first-run arithmetic as ineligible historical evidence because
+  neither candidate was exported under its claimed v2 dynamic-axis contract;
+- corrected v2 conversion to pass dynamic batch/length axes into PyTorch while
+  preserving exact historical v1 singleton reproduction;
+- pinned evidence-v1 to its historical converter identity so newly generated
+  v1 evidence remains byte-compatible and old checked evidence stays accepted;
+  and
+- made ordinary model/scorer construction singleton-only while retaining
+  maintainer converter modes, closed v2 contracts, bounded experimental
+  execution, and the ignored reproduction harness.
+
+Focused non-production results:
+
+```text
+cargo test -p pangopup-model
+  8 unit + 15 integration passed; 1 measurement ignored
+cargo test -p pangopup-build --test model_bundle
+  5 passed
+cargo test -p pangopup-build --lib
+  39 passed
+cargo test -p pangopup-engine
+  11 unit passed; 3 coordinator-only tests ignored
+cargo clippy -p pangopup-model -p pangopup-build -p pangopup-engine \
+  --all-targets -- -D warnings
+  passed
+```
+
+No production model/reference/mask asset, Pangolin checkout/checkpoint, or
+network was opened by the developer. First-run coordinator evidence established that all
+three representations passed 36 raw evaluations, 432 arrays, 45,756 scalar
+comparisons at maximum error `5.364418029785156e-7`, and all 14 public cases /
+21 records exactly. The 19 successful raw records, aggregate latency/RSS/size
+arithmetic, diagnostic, identities, and selection are retained in
+`planning/artifacts/022-reference-alternate-batching.md` and its linked raw
+JSONL as ineligible historical evidence. Two additional verbatim JSON records retain the accepted singleton
+fresh-process reruns at `1/1` and `8/1`. The selected full raw qualification
+passed the same 36 evaluations / 45,756 scalars at the exact accepted model
+identity, and public qualification passed all 14 cases / 21 records with exact
+reference, mask, and post-ensemble identities. No asset changed. Independent
+review then found the v2 exporter mismatch. The revised retained-fixture scope
+requires the same design reviewer's approval before the coordinator rebuilds
+corrected candidates into a new absent scratch root and reruns the full matrix.
+That re-review passed. Corrected production construction then changed both
+bundle identities (`sha256:bb5767d8...fefb` zero-padded and
+`sha256:4957ced0...82dc` paired-strand) while retaining the prior model byte
+counts. All three representations passed the corrected raw 36/432/45,756
+oracle and exact 14-case/21-record public qualification. The corrected 19-run
+matrix is retained verbatim at SHA-256
+`7f60128ea6cb4d7857579c41b4d6d0b4f8fbc04fb8723edb53685ff40891962e`.
+Singleton drift made both policies formally inconclusive; independently,
+zero-padded materially regressed representative cases and paired did not meet
+the M09/M10 improvement gate without `8/1` regressions. The mechanical final
+selection remains the accepted singleton. Fresh selected production reruns
+then passed at `1/1` and `8/1`; final raw and public qualification repeated
+the exact accepted model/reference/mask/post-ensemble identities, 36/432/45,756
+raw comparisons, and 14 cases / 21 records. The two selected JSON records are
+retained verbatim at SHA-256
+`730accf826431b6beb77c94d45c5d67e6f07bbde6f860e025e845dcea9a1a8e8`.
+The implementation is ready to return to the same code reviewer.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex sub-agent `/root/ticket022_code_review`
+
+Initial verdict: **REJECT**. The reviewer found four material gaps:
+
+- v2 manifests claimed dynamic axes that conversion applied only to final
+  graph metadata rather than passing into PyTorch export;
+- retained candidate runtime paths had lost normal real-ORT coverage when
+  losing fixtures were removed;
+- new evidence-v1 generation embedded the changed live converter identity but
+  conversion required the historical checked manifest byte-for-byte; and
+- the frontier opening still described the batching comparison as future.
+
+Remediation complete. Corrected candidate conversion, retained miniature
+coverage, historical evidence-v1 identity, and frontier status are implemented
+and focused tests pass. The same design reviewer accepted the revised
+retained-fixture boundary. Corrected construction changed both candidate
+identities; the coordinator repeated all raw/public qualification, all 19
+measurements, and selected-singleton proof. The corrected and selected JSONL
+artifacts are checksummed.
+
+Final verdict: **ACCEPT**. The same reviewer confirmed all four findings are
+resolved, independently reproduced the corrected evidence arithmetic and
+singleton selection from the raw JSON, and passed the model, build, and engine
+tests, focused clippy, and `git diff --check`.
 
 ## External Effect Evidence
 
@@ -297,4 +407,10 @@ download, upload, release, activation, or publication.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex `/root`
+
+The corrected production experiment and selected singleton reruns passed. The
+same independent reviewer accepted the remediated implementation and
+reproduced the selection arithmetic. Final `make lint`, `make test`, `make
+spec`, and `git diff --check` passed; the spec gate reported 167 passed and 2
+skipped. No production asset was changed or published.

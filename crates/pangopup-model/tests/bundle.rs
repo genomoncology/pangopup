@@ -1,6 +1,9 @@
 use pangopup_model::{
-    CpuExecutionMode, CpuPolicy, CpuPolicyError, IntraOpThreads, ModelContext, ModelKernel, Strand,
-    bundle_identity, canonical_manifest_bytes, inspect_bundle, parse_manifest_bytes, sha256,
+    BundleKind, ConversionManifestV2, CpuExecutionMode, CpuPolicy, CpuPolicyError,
+    ExporterSettingsV2, GraphContractV2, IntraOpThreads, ModelContext, ModelKernel,
+    ModelManifestV2, ModelRepresentation, Strand, TensorContract, bundle_identity,
+    canonical_manifest_bytes, canonical_manifest_v2_bytes, inspect_bundle, parse_manifest_bytes,
+    parse_manifest_v2_bytes, sha256,
 };
 use std::{
     fs,
@@ -12,6 +15,13 @@ use tempfile::TempDir;
 fn fixture_bundle() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/pangolin-model-kernel-mini/bundle")
+}
+
+fn candidate_bundle(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures")
+        .join(name)
+        .join("bundle")
 }
 
 fn copied_bundle() -> (TempDir, PathBuf) {
@@ -201,6 +211,210 @@ fn miniature_runs_under_both_cpu_execution_families() {
 }
 
 #[test]
+fn zero_padded_candidate_runs_real_ort_at_b1_b2_and_b4_with_bounds_and_strands() {
+    let mut kernel = ModelKernel::open_experimental_with_cpu_policy(
+        &candidate_bundle("pangolin-model-kernel-mini-zero-padded"),
+        CpuPolicy::SEQUENTIAL_1_1,
+    )
+    .expect("open zero-padded candidate");
+    let mut minimum_bases = vec![b'N'; 10_001];
+    minimum_bases[0] = b'A';
+    let minimum = ModelContext::new(minimum_bases).expect("minimum context");
+    let mut maximum_bases = vec![b'N'; 10_200];
+    maximum_bases[0] = b'C';
+    let maximum = ModelContext::new(maximum_bases).expect("maximum context");
+
+    let b1 = kernel
+        .infer_batch(&[pangopup_model::BatchItem {
+            context: &minimum,
+            strand: Strand::Plus,
+        }])
+        .expect("B1");
+    assert_eq!(b1.items().len(), 1);
+    assert_eq!(b1.items()[0].shape(), [1, 12, 1]);
+    assert_eq!(b1.items()[0].channel(1).expect("A channel"), &[1.0]);
+    assert_eq!(b1.accounting().batch_size, 1);
+
+    let b2 = kernel
+        .infer_batch(&[
+            pangopup_model::BatchItem {
+                context: &minimum,
+                strand: Strand::Plus,
+            },
+            pangopup_model::BatchItem {
+                context: &minimum,
+                strand: Strand::Minus,
+            },
+        ])
+        .expect("B2");
+    assert_eq!(b2.items().len(), 2);
+    assert_eq!(b2.items()[0].channel(1).expect("plus A"), &[1.0]);
+    assert_eq!(b2.items()[1].channel(4).expect("minus T"), &[1.0]);
+    assert_eq!(b2.accounting().batch_size, 2);
+
+    let b4 = kernel
+        .infer_batch(&[
+            pangopup_model::BatchItem {
+                context: &minimum,
+                strand: Strand::Plus,
+            },
+            pangopup_model::BatchItem {
+                context: &maximum,
+                strand: Strand::Plus,
+            },
+            pangopup_model::BatchItem {
+                context: &minimum,
+                strand: Strand::Minus,
+            },
+            pangopup_model::BatchItem {
+                context: &maximum,
+                strand: Strand::Minus,
+            },
+        ])
+        .expect("B4");
+    assert_eq!(
+        b4.items()
+            .iter()
+            .map(pangopup_model::ReplicateScores::score_length)
+            .collect::<Vec<_>>(),
+        [1, 200, 1, 200]
+    );
+    assert_eq!(b4.accounting().session_invocations, 1);
+    assert_eq!(b4.accounting().logical_context_evaluations, 4);
+    assert_eq!(b4.accounting().batch_size, 4);
+    assert_eq!(b4.accounting().padded_input_elements, 1_592);
+
+    let paired = kernel
+        .infer_variant(&[
+            pangopup_model::StrandPair {
+                reference: &minimum,
+                alternate: &maximum,
+                strand: Strand::Plus,
+            },
+            pangopup_model::StrandPair {
+                reference: &minimum,
+                alternate: &maximum,
+                strand: Strand::Minus,
+            },
+        ])
+        .expect("two-strand B4 pair grouping");
+    assert_eq!(paired.pairs().len(), 2);
+    assert_eq!(paired.pairs()[0].reference().score_length(), 1);
+    assert_eq!(paired.pairs()[0].alternate().score_length(), 200);
+    assert_eq!(
+        paired.pairs()[1].reference().channel(4).expect("minus T"),
+        &[1.0]
+    );
+    assert_eq!(paired.accounting().batch_size, 4);
+    assert_eq!(paired.accounting().padded_input_elements, 1_592);
+
+    assert!(matches!(
+        kernel.infer_batch(&[]),
+        Err(pangopup_model::ModelError::BatchCount {
+            observed: 0,
+            maximum: 4
+        })
+    ));
+    let too_many = [pangopup_model::BatchItem {
+        context: &minimum,
+        strand: Strand::Plus,
+    }; 5];
+    assert!(matches!(
+        kernel.infer_batch(&too_many),
+        Err(pangopup_model::ModelError::BatchCount {
+            observed: 5,
+            maximum: 4
+        })
+    ));
+}
+
+#[test]
+fn paired_candidate_runs_real_ort_at_b1_b2_unequal_extremes_and_rejects_shape_order() {
+    let mut kernel = ModelKernel::open_experimental_with_cpu_policy(
+        &candidate_bundle("pangolin-model-kernel-mini-paired-strand"),
+        CpuPolicy::SEQUENTIAL_1_1,
+    )
+    .expect("open paired candidate");
+    let mut reference_bases = vec![b'N'; 10_001];
+    reference_bases[0] = b'A';
+    let reference = ModelContext::new(reference_bases).expect("minimum reference");
+    let mut alternate_bases = vec![b'N'; 10_200];
+    alternate_bases[0] = b'C';
+    let alternate = ModelContext::new(alternate_bases).expect("maximum alternate");
+
+    let b1 = kernel
+        .infer_variant(&[pangopup_model::StrandPair {
+            reference: &reference,
+            alternate: &alternate,
+            strand: Strand::Plus,
+        }])
+        .expect("paired B1");
+    assert_eq!(b1.pairs().len(), 1);
+    assert_eq!(b1.pairs()[0].reference().shape(), [1, 12, 1]);
+    assert_eq!(b1.pairs()[0].alternate().shape(), [1, 12, 200]);
+    assert_eq!(b1.accounting().batch_size, 1);
+
+    let b2 = kernel
+        .infer_variant(&[
+            pangopup_model::StrandPair {
+                reference: &reference,
+                alternate: &alternate,
+                strand: Strand::Plus,
+            },
+            pangopup_model::StrandPair {
+                reference: &reference,
+                alternate: &alternate,
+                strand: Strand::Minus,
+            },
+        ])
+        .expect("paired B2");
+    assert_eq!(b2.pairs().len(), 2);
+    assert_eq!(
+        b2.pairs()[0].reference().channel(1).expect("plus A"),
+        &[1.0]
+    );
+    assert_eq!(
+        b2.pairs()[1].reference().channel(4).expect("minus T"),
+        &[1.0]
+    );
+    assert_eq!(b2.accounting().session_invocations, 1);
+    assert_eq!(b2.accounting().logical_context_evaluations, 4);
+    assert_eq!(b2.accounting().batch_size, 2);
+    assert_eq!(b2.accounting().padded_input_elements, 0);
+
+    let other_reference = ModelContext::new(vec![b'N'; 10_002]).expect("other reference");
+    assert!(matches!(
+        kernel.infer_variant(&[
+            pangopup_model::StrandPair {
+                reference: &reference,
+                alternate: &alternate,
+                strand: Strand::Plus,
+            },
+            pangopup_model::StrandPair {
+                reference: &other_reference,
+                alternate: &alternate,
+                strand: Strand::Minus,
+            },
+        ]),
+        Err(pangopup_model::ModelError::InvalidBundle(
+            "paired strand contexts have inconsistent allele lengths"
+        ))
+    ));
+    let too_many = [pangopup_model::StrandPair {
+        reference: &reference,
+        alternate: &alternate,
+        strand: Strand::Plus,
+    }; 3];
+    assert!(matches!(
+        kernel.infer_variant(&too_many),
+        Err(pangopup_model::ModelError::BatchCount {
+            observed: 3,
+            maximum: 2
+        })
+    ));
+}
+
+#[test]
 fn minus_strand_is_reverse_complemented_and_returned_in_genomic_order() {
     let mut bases = vec![b'N'; 10_017];
     bases[0] = b'A';
@@ -317,4 +531,64 @@ fn initialized_session_never_reopens_replaced_model_path() {
         .infer(&context, Strand::Plus)
         .expect("session retains authenticated graph");
     assert_eq!(scores.shape(), [1, 12, 1]);
+}
+
+#[test]
+fn v2_contract_rejects_rebound_representation_shapes_profile_and_unknown_fields() {
+    let legacy_bytes = fs::read(fixture_bundle().join("manifest.json")).expect("v1 manifest");
+    let legacy = parse_manifest_bytes(&legacy_bytes).expect("v1 manifest contract");
+    let manifest = ModelManifestV2 {
+        schema: "pangopup-model-bundle-v2".to_owned(),
+        kind: BundleKind::SyntheticTest,
+        profile: "pangopup-model-kernel-mini-zero-padded-v2".to_owned(),
+        source: legacy.source,
+        conversion: ConversionManifestV2 {
+            converter: legacy.conversion.converter,
+            checkpoint_inventory: legacy.conversion.checkpoint_inventory,
+            qualification_evidence: legacy.conversion.qualification_evidence,
+            environment: legacy.conversion.environment,
+            graph: GraphContractV2 {
+                representation: ModelRepresentation::ZeroPaddedBatch,
+                opset: 17,
+                inputs: vec![TensorContract {
+                    name: "sequence".to_owned(),
+                    element_type: "f32".to_owned(),
+                    shape: vec!["B".to_owned(), "4".to_owned(), "N".to_owned()],
+                }],
+                outputs: vec![TensorContract {
+                    name: "replicate_scores".to_owned(),
+                    element_type: "f32".to_owned(),
+                    shape: vec!["B".to_owned(), "12".to_owned(), "N-10000".to_owned()],
+                }],
+                channels: legacy.conversion.graph.channels,
+                exporter: ExporterSettingsV2 {
+                    dynamo: false,
+                    constant_folding: true,
+                    dynamic_axes: vec![0, 2],
+                },
+            },
+        },
+        members: legacy.members,
+    };
+    let bytes = canonical_manifest_v2_bytes(&manifest).expect("canonical v2 manifest");
+    let manifest = parse_manifest_v2_bytes(&bytes).expect("exact v2 manifest");
+    assert_eq!(
+        canonical_manifest_v2_bytes(&manifest).expect("canonical"),
+        bytes
+    );
+
+    let mut wrong_shape = manifest.clone();
+    wrong_shape.conversion.graph.inputs[0].shape[0] = "1".to_owned();
+    let rebound = canonical_manifest_v2_bytes(&wrong_shape).expect("canonical rebound");
+    assert!(parse_manifest_v2_bytes(&rebound).is_err());
+
+    let mut wrong_profile = manifest;
+    wrong_profile.profile = "pangopup-model-kernel-mini-v1".to_owned();
+    let rebound = canonical_manifest_v2_bytes(&wrong_profile).expect("canonical rebound");
+    assert!(parse_manifest_v2_bytes(&rebound).is_err());
+
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).expect("manifest JSON");
+    value["unexpected"] = serde_json::json!(true);
+    let rebound = serde_jcs::to_vec(&value).expect("canonical JSON");
+    assert!(parse_manifest_v2_bytes(&rebound).is_err());
 }

@@ -130,8 +130,11 @@ The separate checked `pangolin-model-v1` trust root now qualifies the raw model
 kernel itself. It authenticates every state tensor from each checkpoint and
 retains 45,756 independently generated selected-channel `f32` values. The
 reviewed converter produces one fixed-order, twelve-channel ONNX graph;
-`pangopup-model` authenticates the three-file bundle, runs a minimum-context
-probe, and compares all retained values through ONNX Runtime on CPU. Normal
+`pangopup-model` authenticates the three-file bundle and preserves the selected
+v1 singleton grammar. Two explicit closed v2 contracts and their
+representation-specific probes remain maintainer-only experiment machinery;
+ordinary runtime rejects them. Qualification compares all retained values
+through ONNX Runtime on CPU. Normal
 tests use a tiny same-schema synthetic graph rather than rerunning Python or
 shipping production weights.
 

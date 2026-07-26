@@ -256,6 +256,16 @@ host-specific frontier winner. The typed explicit policy opener is a low-level
 qualification seam, not a CLI setting. Maintainers can inspect
 or qualify an already-built bundle without Python or the original checkpoints:
 
+Ticket 022 compares the exact v1 singleton with two distinctly identified v2
+candidates: zero-padded context batching and independent paired
+reference/alternate inputs. The first run is retained but ineligible because
+the v2 exporter did not receive its declared dynamic axes. Corrected graphs
+repeated the full experiment; both policies were inconclusive from singleton
+drift and neither candidate met the independent replacement gates. Ordinary
+production dispatch remains singleton; maintainer conversion modes, tiny
+checked candidate fixtures, and the ignored comparison harness retain
+reproducibility.
+
 ```text
 pangopup-build model inspect --bundle <MODEL_BUNDLE>
 pangopup-build model qualify --bundle <MODEL_BUNDLE> \
@@ -543,8 +553,8 @@ Implemented today:
   stable warnings/errors, gene filtering after all-gene masking, and
   transactional JSONL/table batches.
 
-Not implemented yet: reference/alternate graph batching, HTTP service, container, persistent download progress/status,
-repair/GC/rollback, or result cache. Delivery, installation, and
+Not implemented yet: HTTP service, container, persistent download
+progress/status, repair/GC/rollback, or result cache. Delivery, installation, and
 compatible-profile activation for the
 compiled GRCh38 sequence index, mask, and model are also not implemented.
 Without fallback flags, SNV lookup retains its prior `not_found` behavior; a
@@ -588,7 +598,8 @@ The rolling outcome order is:
     provenance (complete);
 21. measure complete-request CPU threading and select the portable ordinary
     policy (complete);
-22. measure reference/alternate graph batching against that policy;
+22. measure reference/alternate graph batching against that policy
+    (complete: corrected experiment retained singleton);
 23. measure repeated complete requests and add a bounded result cache only if
     the evidence justifies one;
 24. create one coherent SNV, model, GRCh38 sequence index, and mask delivery
@@ -621,8 +632,9 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
   maintainer model evidence/conversion commands;
 - `pangopup-cli` — shipped lookup, pinned asset sync, local install/status, and
   output adapter; service commands remain future;
-- `pangopup-model` — authenticated model bundles, context/strand encoding, and
-  the raw single-owner ONNX Runtime CPU kernel;
+- `pangopup-model` — exact v1 and closed v2 authenticated model bundles,
+  context/strand encoding, bounded candidate batching, and the raw single-owner
+  ONNX Runtime CPU kernel;
 - `pangopup-engine` — fixed GRCh38 variant construction, compatible
   post-processing/masking, and ordered modeled results;
 - future `pangopup-http` — long-lived HTTP adapter over the same core.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import argparse
 import json
 from pathlib import Path
 import struct
@@ -26,28 +27,74 @@ def identity(filename: str, data: bytes) -> dict[str, object]:
     }
 
 
-def graph_bytes() -> bytes:
-    sequence = helper.make_tensor_value_info(
-        "sequence", TensorProto.FLOAT, [1, 4, "N"]
-    )
-    scores = helper.make_tensor_value_info(
-        "replicate_scores", TensorProto.FLOAT, [1, 12, "N_minus_10000"]
-    )
+def score_nodes(input_name: str, prefix: str, output_name: str) -> list[onnx.NodeProto]:
+    cropped = f"{prefix}_cropped"
+    return [
+        helper.make_node("MaxPool", [input_name], [cropped], kernel_shape=[10001]),
+        helper.make_node(
+            "Concat", [cropped, cropped, cropped], [output_name], axis=1
+        ),
+    ]
+
+
+def graph_bytes(representation: str) -> bytes:
+    if representation == "singleton":
+        inputs = [
+            helper.make_tensor_value_info(
+                "sequence", TensorProto.FLOAT, [1, 4, "N"]
+            )
+        ]
+        outputs = [
+            helper.make_tensor_value_info(
+                "replicate_scores", TensorProto.FLOAT, [1, 12, "N_minus_10000"]
+            )
+        ]
+        nodes = score_nodes("sequence", "sequence", "replicate_scores")
+    elif representation == "zero-padded-batch":
+        inputs = [
+            helper.make_tensor_value_info(
+                "sequence", TensorProto.FLOAT, ["B", 4, "N"]
+            )
+        ]
+        outputs = [
+            helper.make_tensor_value_info(
+                "replicate_scores",
+                TensorProto.FLOAT,
+                ["B", 12, "N_minus_10000"],
+            )
+        ]
+        nodes = score_nodes("sequence", "sequence", "replicate_scores")
+    elif representation == "paired-strand-batch":
+        inputs = [
+            helper.make_tensor_value_info(
+                "reference", TensorProto.FLOAT, ["B", 4, "N_ref"]
+            ),
+            helper.make_tensor_value_info(
+                "alternate", TensorProto.FLOAT, ["B", 4, "N_alt"]
+            ),
+        ]
+        outputs = [
+            helper.make_tensor_value_info(
+                "reference_scores",
+                TensorProto.FLOAT,
+                ["B", 12, "N_ref_minus_10000"],
+            ),
+            helper.make_tensor_value_info(
+                "alternate_scores",
+                TensorProto.FLOAT,
+                ["B", 12, "N_alt_minus_10000"],
+            ),
+        ]
+        nodes = score_nodes(
+            "reference", "reference", "reference_scores"
+        ) + score_nodes("alternate", "alternate", "alternate_scores")
+    else:
+        raise RuntimeError("unknown fixture representation")
     graph = helper.make_graph(
-        [
-            helper.make_node(
-                "MaxPool", ["sequence"], ["cropped"], kernel_shape=[10001]
-            ),
-            helper.make_node(
-                "Concat",
-                ["cropped", "cropped", "cropped"],
-                ["replicate_scores"],
-                axis=1,
-            ),
-        ],
+        nodes,
         "pangopup_model_kernel_mini",
-        [sequence],
-        [scores],
+        inputs,
+        outputs,
     )
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
     model.ir_version = 12
@@ -102,7 +149,7 @@ def f32_bits(value: float) -> str:
     return struct.pack("<f", value).hex()
 
 
-def write_fixture(output: Path) -> None:
+def write_fixture(output: Path, representation: str) -> None:
     if output.exists():
         raise RuntimeError("fixture output already exists")
     bundle = output / "bundle"
@@ -195,14 +242,89 @@ def write_fixture(output: Path) -> None:
     (evidence / "kernel-golden.jsonl").write_bytes(golden)
     (evidence / "manifest.json").write_bytes(evidence_manifest_bytes)
 
-    model = graph_bytes()
+    model = graph_bytes(representation)
     notice = (
         "Pangopup synthetic model-kernel test fixture\n\n"
         "This tiny ONNX graph contains no Pangolin checkpoint weights or genomic data. "
         "It exists only to exercise the authenticated model-bundle and ONNX Runtime path "
         "in offline tests.\n"
     ).encode()
-    graph_contract = {
+    channels = [
+        {
+            "checkpoint_ordinal": ordinal,
+            "selected_channel": 1 if ordinal <= 3 else 4 if ordinal <= 6 else 7 if ordinal <= 9 else 10,
+        }
+        for ordinal in range(1, 13)
+    ]
+    graph_contract_v1 = {
+        "channels": channels,
+        "exporter": {
+            "constant_folding": True,
+            "dynamo": False,
+            "dynamic_axis": 2,
+        },
+        "input": {"element_type": "f32", "name": "sequence", "shape": ["1", "4", "N"]},
+        "opset": 17,
+        "output": {
+            "element_type": "f32",
+            "name": "replicate_scores",
+            "shape": ["1", "12", "N-10000"],
+        },
+    }
+    if representation == "zero-padded-batch":
+        profile = "pangopup-model-kernel-mini-zero-padded-v2"
+        graph_contract = {
+            "channels": channels,
+            "exporter": {
+                "constant_folding": True,
+                "dynamo": False,
+                "dynamic_axes": [0, 2],
+            },
+            "inputs": [
+                {"element_type": "f32", "name": "sequence", "shape": ["B", "4", "N"]}
+            ],
+            "opset": 17,
+            "outputs": [
+                {
+                    "element_type": "f32",
+                    "name": "replicate_scores",
+                    "shape": ["B", "12", "N-10000"],
+                }
+            ],
+            "representation": representation,
+        }
+    elif representation == "paired-strand-batch":
+        profile = "pangopup-model-kernel-mini-paired-strand-v2"
+        graph_contract = {
+            "channels": channels,
+            "exporter": {
+                "constant_folding": True,
+                "dynamo": False,
+                "dynamic_axes": [0, 2],
+            },
+            "inputs": [
+                {"element_type": "f32", "name": "reference", "shape": ["B", "4", "N_ref"]},
+                {"element_type": "f32", "name": "alternate", "shape": ["B", "4", "N_alt"]},
+            ],
+            "opset": 17,
+            "outputs": [
+                {
+                    "element_type": "f32",
+                    "name": "reference_scores",
+                    "shape": ["B", "12", "N_ref-10000"],
+                },
+                {
+                    "element_type": "f32",
+                    "name": "alternate_scores",
+                    "shape": ["B", "12", "N_alt-10000"],
+                },
+            ],
+            "representation": representation,
+        }
+    else:
+        profile = "pangopup-model-kernel-mini-v1"
+        graph_contract = graph_contract_v1
+    graph_contract = graph_contract if representation != "singleton" else {
         "channels": [
             {
                 "checkpoint_ordinal": ordinal,
@@ -235,8 +357,12 @@ def write_fixture(output: Path) -> None:
         },
         "kind": "synthetic-test",
         "members": [identity("NOTICE", notice), identity("model.onnx", model)],
-        "profile": "pangopup-model-kernel-mini-v1",
-        "schema": "pangopup-model-bundle-v1",
+        "profile": profile,
+        "schema": (
+            "pangopup-model-bundle-v1"
+            if representation == "singleton"
+            else "pangopup-model-bundle-v2"
+        ),
         "source": source,
     }
     (bundle / "NOTICE").write_bytes(notice)
@@ -247,4 +373,12 @@ def write_fixture(output: Path) -> None:
 if __name__ == "__main__":
     if onnx.__version__ != "1.19.1" or sys.version_info[:3] != (3, 13, 5):
         raise RuntimeError("fixture generator environment is wrong")
-    write_fixture(Path(sys.argv[1]))
+    parser = argparse.ArgumentParser(allow_abbrev=False)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--representation",
+        choices=("singleton", "zero-padded-batch", "paired-strand-batch"),
+        required=True,
+    )
+    args = parser.parse_args()
+    write_fixture(args.output, args.representation)

@@ -2,10 +2,12 @@
 
 use crate::CommandError;
 use pangopup_model::{
-    BundleKind, CheckpointIdentity, ConversionEnvironment, ConversionManifest, ExporterSettings,
-    FileIdentity, GraphContract, MINI_PROFILE, ModelContext, ModelKernel, ModelManifest,
-    ModelSource, PRODUCTION_PROFILE, PRODUCTION_UPSTREAM_COMMIT, Strand, TensorContract,
-    canonical_manifest_bytes, inspect_bundle, production_checkpoints, sha256,
+    BundleKind, CheckpointIdentity, ConversionEnvironment, ConversionManifest, CpuPolicy,
+    ExporterSettings, ExporterSettingsV2, FileIdentity, GraphContract, GraphContractV2,
+    MINI_PROFILE, ModelContext, ModelKernel, ModelManifest, ModelManifestV2, ModelRepresentation,
+    ModelSource, PAIRED_PRODUCTION_PROFILE, PRODUCTION_PROFILE, PRODUCTION_UPSTREAM_COMMIT, Strand,
+    StrandPair, TensorContract, ZERO_PADDED_PRODUCTION_PROFILE, canonical_manifest_bytes,
+    canonical_manifest_v2_bytes, inspect_bundle, production_checkpoints, sha256,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -30,8 +32,15 @@ const MAX_INVENTORY_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_GOLDEN_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_HELPER_OUTPUT: usize = 1024 * 1024;
 const MODEL_SOURCE_BYTES: u64 = 3_011;
+const ACCEPTED_SINGLETON_MODEL_BYTES: u64 = 33_867_142;
+const ACCEPTED_SINGLETON_MODEL_SHA256: &str =
+    "sha256:3c2760472ce0af5feb693f562716b6cdc6887a7d0a00b7b5ec8ddad2a2d31f6b";
+const PAIRED_MODEL_BYTES_CEILING: u64 = ACCEPTED_SINGLETON_MODEL_BYTES * 105 / 100;
 const MODEL_SOURCE_SHA: &str =
     "sha256:4a1c5c2570aafe1452bb43332255321677e6c6c817adf84b9dd438e3ca4be6f8";
+const HISTORICAL_V1_CONVERTER_BYTES: u64 = 7_132;
+const HISTORICAL_V1_CONVERTER_SHA256: &str =
+    "sha256:82e1e3bf38da2b65a0bfe0d711688f0f886e53f8c9c58424410ae1c50328f2b3";
 const CORPUS_MANIFEST_SHA: &str =
     "sha256:fd12a0d6b503d1e572c0561eb43e66f19c55c4d073b25bced25be6303fd0553b";
 const CORPUS_CASES_SHA: &str =
@@ -69,6 +78,7 @@ pub struct ConvertArguments {
     pub python: PathBuf,
     pub evidence: PathBuf,
     pub output: PathBuf,
+    pub representation: ModelRepresentation,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -164,6 +174,7 @@ pub struct InspectOutcome {
     pub notice_bytes: u64,
     pub checkpoints: usize,
     pub channels: usize,
+    pub representation: ModelRepresentation,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -272,11 +283,37 @@ pub fn convert_model_bundle(arguments: &ConvertArguments) -> Result<ConvertOutco
                 arguments.upstream.as_os_str(),
                 OsStr::new("--output"),
                 model_path.as_os_str(),
+                OsStr::new("--representation"),
+                OsStr::new(match arguments.representation {
+                    ModelRepresentation::Singleton => "singleton",
+                    ModelRepresentation::ZeroPaddedBatch => "zero-padded-batch",
+                    ModelRepresentation::PairedStrandBatch => "paired-strand-batch",
+                }),
             ],
             "model converter helper",
             true,
         )?;
         let model = identity_for(&model_path, "model.onnx", pangopup_model::MAX_MODEL_BYTES)?;
+        if arguments.representation == ModelRepresentation::Singleton
+            && (model.bytes != ACCEPTED_SINGLETON_MODEL_BYTES
+                || model.sha256 != ACCEPTED_SINGLETON_MODEL_SHA256)
+        {
+            return Err(CommandError::new(
+                "MODEL_IDENTITY",
+                "singleton conversion did not reproduce the accepted graph bytes",
+            ));
+        }
+        if arguments.representation == ModelRepresentation::PairedStrandBatch
+            && model.bytes > PAIRED_MODEL_BYTES_CEILING
+        {
+            return Err(CommandError::new(
+                "MODEL_SIZE",
+                format!(
+                    "paired model bytes {} exceed five-percent ceiling {}",
+                    model.bytes, PAIRED_MODEL_BYTES_CEILING
+                ),
+            ));
+        }
         write_synced(&stage.join("NOTICE"), MODEL_NOTICE.as_bytes())?;
         let notice = identity_for(
             &stage.join("NOTICE"),
@@ -288,17 +325,29 @@ pub fn convert_model_bundle(arguments: &ConvertArguments) -> Result<ConvertOutco
             bytes: evidence.manifest_bytes.len() as u64,
             sha256: sha256(&evidence.manifest_bytes),
         };
-        let manifest = production_model_manifest(
-            evidence.manifest.members[0].clone(),
-            manifest_identity,
-            notice,
-            model,
-        );
-        let bytes = canonical_manifest_bytes(&manifest).map_err(model_error)?;
+        let bytes = match arguments.representation {
+            ModelRepresentation::Singleton => canonical_manifest_bytes(&production_model_manifest(
+                evidence.manifest.members[0].clone(),
+                manifest_identity,
+                notice,
+                model,
+            ))
+            .map_err(model_error)?,
+            representation => canonical_manifest_v2_bytes(&production_model_manifest_v2(
+                evidence.manifest.members[0].clone(),
+                manifest_identity,
+                notice,
+                model,
+                representation,
+            ))
+            .map_err(model_error)?,
+        };
         write_synced(&stage.join("manifest.json"), &bytes)?;
         sync_directory(&stage)?;
         let inspection = inspect_bundle(&stage).map_err(model_error)?;
-        let _kernel = ModelKernel::open(&stage).map_err(model_error)?;
+        let _kernel =
+            ModelKernel::open_experimental_with_cpu_policy(&stage, CpuPolicy::production_default())
+                .map_err(model_error)?;
         publish_stage(&stage, &parent, &arguments.output, &mut guard)?;
         Ok(ConvertOutcome {
             status: "ok",
@@ -328,6 +377,7 @@ pub fn inspect_model_bundle(bundle: &Path) -> Result<InspectOutcome, CommandErro
         notice_bytes: inspection.notice_bytes,
         checkpoints: inspection.checkpoints,
         channels: inspection.channels,
+        representation: inspection.representation,
     })
 }
 
@@ -351,7 +401,9 @@ fn qualify_model_bundle_after_open(
     after_open: impl FnOnce() -> Result<(), CommandError>,
 ) -> Result<QualifyOutcome, CommandError> {
     let evidence = open_evidence(evidence)?;
-    let mut kernel = ModelKernel::open(bundle).map_err(model_error)?;
+    let mut kernel =
+        ModelKernel::open_experimental_with_cpu_policy(bundle, CpuPolicy::production_default())
+            .map_err(model_error)?;
     let kind = kernel.bundle_kind();
     match kind {
         BundleKind::Production => require_production_evidence(&evidence)?,
@@ -369,11 +421,48 @@ fn qualify_model_bundle_after_open(
     let mut maximum = 0.0_f64;
     let mut arrays = 0_u64;
     let mut scalars = 0_u64;
-    for sequence in &sequences {
-        let context = ModelContext::new(sequence.bases.as_bytes()).map_err(model_error)?;
-        let scores = kernel
-            .infer(&context, sequence.strand)
-            .map_err(model_error)?;
+    let contexts = sequences
+        .iter()
+        .map(|sequence| ModelContext::new(sequence.bases.as_bytes()).map_err(model_error))
+        .collect::<Result<Vec<_>, _>>()?;
+    let runtime_scores = if kernel.representation() == ModelRepresentation::Singleton {
+        contexts
+            .iter()
+            .zip(&sequences)
+            .map(|(context, sequence)| kernel.infer(context, sequence.strand).map_err(model_error))
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        let mut scores = Vec::with_capacity(contexts.len());
+        for (context_pair, sequence_pair) in contexts.chunks_exact(2).zip(sequences.chunks_exact(2))
+        {
+            if sequence_pair[0].allele != "reference"
+                || sequence_pair[1].allele != "alternate"
+                || sequence_pair[0].case_id != sequence_pair[1].case_id
+                || sequence_pair[0].strand != sequence_pair[1].strand
+            {
+                return Err(invalid("qualification pair order"));
+            }
+            let result = kernel
+                .infer_variant(&[StrandPair {
+                    reference: &context_pair[0],
+                    alternate: &context_pair[1],
+                    strand: sequence_pair[0].strand,
+                }])
+                .map_err(model_error)?;
+            let pair = result
+                .into_pairs()
+                .pop()
+                .ok_or_else(|| invalid("missing candidate pair"))?;
+            let (reference, alternate) = pair.into_parts();
+            scores.push(reference);
+            scores.push(alternate);
+        }
+        scores
+    };
+    if runtime_scores.len() != sequences.len() {
+        return Err(invalid("qualification result count"));
+    }
+    for (sequence, scores) in sequences.iter().zip(runtime_scores) {
         for ordinal in 1..=12 {
             let key = (
                 sequence.case_id.as_str(),
@@ -443,7 +532,11 @@ fn production_evidence_manifest(inventory: FileIdentity, golden: FileIdentity) -
         profile: EVIDENCE_PROFILE.to_owned(),
         source: production_source(),
         evidence_helper: embedded_identity("tools/pangolin-model/evidence.py", EVIDENCE_HELPER),
-        converter_helper: embedded_identity("tools/pangolin-model/convert.py", CONVERTER_HELPER),
+        // Evidence v1 certifies reproduction of the accepted singleton graph,
+        // so its converter identity remains the historical Ticket 018 helper.
+        // New graph representations identify their live converter separately
+        // in the model-bundle manifest.
+        converter_helper: historical_v1_converter_identity(),
         corpus: expected_corpus(),
         environment: conversion_environment(),
         counts: production_counts(),
@@ -473,6 +566,36 @@ fn production_model_manifest(
     }
 }
 
+fn production_model_manifest_v2(
+    inventory: FileIdentity,
+    evidence_manifest: FileIdentity,
+    notice: FileIdentity,
+    model: FileIdentity,
+    representation: ModelRepresentation,
+) -> ModelManifestV2 {
+    let profile = match representation {
+        ModelRepresentation::ZeroPaddedBatch => ZERO_PADDED_PRODUCTION_PROFILE,
+        ModelRepresentation::PairedStrandBatch => PAIRED_PRODUCTION_PROFILE,
+        ModelRepresentation::Singleton => {
+            unreachable!("singleton retains the exact v1 manifest contract")
+        }
+    };
+    ModelManifestV2 {
+        schema: pangopup_model::MODEL_BUNDLE_SCHEMA_V2.to_owned(),
+        kind: BundleKind::Production,
+        profile: profile.to_owned(),
+        source: production_source(),
+        conversion: pangopup_model::ConversionManifestV2 {
+            converter: embedded_identity("tools/pangolin-model/convert.py", CONVERTER_HELPER),
+            checkpoint_inventory: inventory,
+            qualification_evidence: evidence_manifest,
+            environment: conversion_environment(),
+            graph: graph_contract_v2(representation),
+        },
+        members: vec![notice, model],
+    }
+}
+
 fn production_source() -> ModelSource {
     ModelSource {
         identity: "pangolin-1.0.2-5cf94b8-checkpoints-v1".to_owned(),
@@ -484,6 +607,14 @@ fn production_source() -> ModelSource {
             sha256: MODEL_SOURCE_SHA.to_owned(),
         },
         checkpoints: production_checkpoints(),
+    }
+}
+
+fn historical_v1_converter_identity() -> FileIdentity {
+    FileIdentity {
+        filename: "tools/pangolin-model/convert.py".to_owned(),
+        bytes: HISTORICAL_V1_CONVERTER_BYTES,
+        sha256: HISTORICAL_V1_CONVERTER_SHA256.to_owned(),
     }
 }
 
@@ -505,6 +636,45 @@ fn graph_contract() -> GraphContract {
             dynamo: false,
             constant_folding: true,
             dynamic_axis: 2,
+        },
+    }
+}
+
+fn graph_contract_v2(representation: ModelRepresentation) -> GraphContractV2 {
+    let tensor = |name: &str, shape: &[&str]| TensorContract {
+        name: name.to_owned(),
+        element_type: "f32".to_owned(),
+        shape: shape.iter().map(|value| (*value).to_owned()).collect(),
+    };
+    let (inputs, outputs) = match representation {
+        ModelRepresentation::ZeroPaddedBatch => (
+            vec![tensor("sequence", &["B", "4", "N"])],
+            vec![tensor("replicate_scores", &["B", "12", "N-10000"])],
+        ),
+        ModelRepresentation::PairedStrandBatch => (
+            vec![
+                tensor("reference", &["B", "4", "N_ref"]),
+                tensor("alternate", &["B", "4", "N_alt"]),
+            ],
+            vec![
+                tensor("reference_scores", &["B", "12", "N_ref-10000"]),
+                tensor("alternate_scores", &["B", "12", "N_alt-10000"]),
+            ],
+        ),
+        ModelRepresentation::Singleton => {
+            unreachable!("singleton has its own v1 graph contract")
+        }
+    };
+    GraphContractV2 {
+        representation,
+        opset: 17,
+        inputs,
+        outputs,
+        channels: pangopup_model::EXPECTED_CHANNEL_MAPPING.to_vec(),
+        exporter: ExporterSettingsV2 {
+            dynamo: false,
+            constant_folding: true,
+            dynamic_axes: vec![0, 2],
         },
     }
 }
@@ -615,8 +785,7 @@ fn validate_evidence_manifest(manifest: &EvidenceManifest) -> Result<(), Command
         if manifest.source != production_source()
             || manifest.evidence_helper
                 != embedded_identity("tools/pangolin-model/evidence.py", EVIDENCE_HELPER)
-            || manifest.converter_helper
-                != embedded_identity("tools/pangolin-model/convert.py", CONVERTER_HELPER)
+            || manifest.converter_helper != historical_v1_converter_identity()
             || manifest.corpus != expected_corpus()
             || manifest.environment != conversion_environment()
             || manifest.counts != production_counts()
@@ -1322,6 +1491,23 @@ mod tests {
         assert_eq!(counts.sequence_evaluations, 36);
         assert_eq!(counts.channel_arrays, 432);
         assert_eq!(counts.scalar_values, 45_756);
+    }
+
+    #[test]
+    fn newly_generated_v1_evidence_manifest_remains_consumable_by_the_checked_trust_root() {
+        let checked: EvidenceManifest =
+            serde_json::from_slice(CHECKED_EVIDENCE_MANIFEST).expect("checked evidence manifest");
+        let generated =
+            production_evidence_manifest(checked.members[0].clone(), checked.members[1].clone());
+        let generated_bytes =
+            canonical_evidence_manifest(&generated).expect("generated canonical manifest");
+
+        assert_eq!(generated_bytes, CHECKED_EVIDENCE_MANIFEST);
+        validate_evidence_manifest(&generated).expect("generated v1 evidence is accepted");
+        assert_eq!(
+            generated.converter_helper,
+            historical_v1_converter_identity()
+        );
     }
 
     #[test]

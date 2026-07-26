@@ -1,0 +1,3 @@
+Pangopup synthetic model-kernel test fixture
+
+This tiny ONNX graph contains no Pangolin checkpoint weights or genomic data. It exists only to exercise the authenticated model-bundle and ONNX Runtime path in offline tests.

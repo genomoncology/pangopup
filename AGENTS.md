@@ -14,8 +14,13 @@ The `pangopup-engine` crate now composes those providers into compatible
 variant-level scoring and lookup-first routing for the supported literal
 allele subset. The CLI accepts an explicit local reference/mask/model fallback
 set and emits exact modeled JSONL/table results. Complete-request CPU policy
-selection is established; graph batching, coherent asset delivery, caching,
-and the HTTP service remain target work. A reviewed retained benchmark selected the
+selection is established. Ticket 022 corrected and repeated the
+singleton/zero-padded/paired comparison after code review caught missing v2
+export axes. Both policies were inconclusive from singleton drift and neither
+candidate met the independent replacement gates, so ordinary dispatch remains
+singleton. Coherent asset delivery, caching, and the HTTP service remain target
+work. A
+reviewed retained benchmark selected the
 two-bit/ambiguity-run GRCh38 payload by speed; Ticket 011 hardened it as the
 production `PGRREF01` reader and qualified the complete 25-contig bundle. Read
 `README.md` first.
@@ -56,10 +61,11 @@ There is no `make check`. Run all three gates before committing.
   evidence/conversion adapters. The checked corpus and miniature model are
   replayed offline; normal gates must never invoke expensive Python capture or
   conversion paths. Builder-only dependencies must not enter runtime consumers.
-- `crates/pangopup-model` owns the closed model-bundle contract, context/strand
-  encoding, and one mutable CPU ONNX Runtime session returning twelve raw
-  channels. It does not own genomic variant construction, post-processing,
-  masking, routing, or a public score provider.
+- `crates/pangopup-model` owns the exact selected v1 singleton contract,
+  context/strand encoding, and one mutable CPU ONNX Runtime session returning
+  twelve raw channels. Closed v2 contracts and bounded candidate execution are
+  retained only for maintainer reproduction. It does not own genomic variant
+  construction, post-processing, masking, routing, or a public score provider.
 - `crates/pangopup-engine` owns fixed GRCh38 distance-50 variant construction,
   ensemble/indel arithmetic, order-sensitive masking, extrema, exact public
   modeled results, and the small lookup-first router/filter boundary. It does

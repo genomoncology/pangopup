@@ -144,3 +144,19 @@ fn semantically_rebound_mini_golden_is_rejected_by_real_inference() {
         qualify_model_bundle(&fixture("pangolin-model-kernel-mini/bundle"), &evidence).is_err()
     );
 }
+
+#[test]
+fn both_candidate_miniatures_qualify_against_their_independent_oracles() {
+    for fixture_name in [
+        "pangolin-model-kernel-mini-zero-padded",
+        "pangolin-model-kernel-mini-paired-strand",
+    ] {
+        let root = fixture(fixture_name);
+        let outcome = qualify_model_bundle(&root.join("bundle"), &root.join("evidence"))
+            .expect("candidate qualification");
+        assert_eq!(outcome.sequence_evaluations, 4);
+        assert_eq!(outcome.channel_arrays, 48);
+        assert_eq!(outcome.scalar_comparisons, 816);
+        assert_eq!(outcome.maximum_absolute_error, 0.0);
+    }
+}

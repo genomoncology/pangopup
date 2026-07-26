@@ -13,6 +13,7 @@ use pangopup_build::{
     reference::{build_reference_bundle, inspect_reference_bundle, reference_window},
     verify_bundle,
 };
+use pangopup_model::ModelRepresentation;
 use std::{env, path::Path, process::ExitCode};
 
 const USAGE: &str = "Usage: pangopup-build inspect <SOURCE_DIR>\n       pangopup-build prototype-roundtrip <SOURCE_DIR> <OUTPUT>\n       pangopup-build prototype-open <ARTIFACT>\n       pangopup-build benchmark-corpus <SOURCE_DIR> <OUTPUT> <SELECTED_MANIFEST>";
@@ -138,17 +139,34 @@ fn model_command(arguments: &[std::ffi::OsString]) -> ExitCode {
         "convert" => {
             let Ok(values) = parse_exact_flags(
                 &arguments[1..],
-                &["--upstream", "--python", "--evidence", "--output"],
+                &[
+                    "--upstream",
+                    "--python",
+                    "--evidence",
+                    "--output",
+                    "--representation",
+                ],
             ) else {
                 return json_usage(
-                    "model convert requires --upstream, --python, --evidence, and --output exactly once",
+                    "model convert requires --upstream, --python, --evidence, --output, and --representation exactly once",
                 );
+            };
+            let representation = match values[4].to_str() {
+                Some("singleton") => ModelRepresentation::Singleton,
+                Some("zero-padded-batch") => ModelRepresentation::ZeroPaddedBatch,
+                Some("paired-strand-batch") => ModelRepresentation::PairedStrandBatch,
+                _ => {
+                    return json_usage(
+                        "--representation requires singleton, zero-padded-batch, or paired-strand-batch",
+                    );
+                }
             };
             let arguments = ConvertArguments {
                 upstream: Path::new(values[0]).to_owned(),
                 python: Path::new(values[1]).to_owned(),
                 evidence: Path::new(values[2]).to_owned(),
                 output: Path::new(values[3]).to_owned(),
+                representation,
             };
             match convert_model_bundle(&arguments) {
                 Ok(value) => model_json(&value, 0),

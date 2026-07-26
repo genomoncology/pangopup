@@ -25,7 +25,9 @@ mask, and kernel providers into compatible masked distance-50 scores for the
 supported literal GRCh38 subset. Typed lookup-first routing and explicit-path
 CLI model output are established. A complete-request CPU comparison retains
 sequential `1/1` as the portable ordinary default and records fixed `8/1` as
-this host's frontier result. Reference/alternate batching, coherent model
+this host's frontier result. The corrected reference/alternate batching
+comparison retained singleton after both policies exceeded the drift limit and
+neither candidate met the independent replacement gates. Coherent model
 delivery, caching, and HTTP remain future.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
 and typed mmap provider are established; its transport, installation, and
@@ -55,8 +57,7 @@ The large source work is not a rebuild queue:
   33,871,613 bytes and passed all 45,756 PyTorch comparisons. The retained
   coordinator-owned production scorer qualification passed all 14 cases and
   21 ordered gene records under the selected ordinary CPU policy. The bundle
-  is not release-final until the next bounded graph-batching comparison decides
-  whether reference/alternate batching requires a different graph contract.
+  is the selected graph after the corrected batching comparison retained it.
 
 The GRCh38 sequence index, mask, and model therefore have local qualified
 content but no transport, XDG installation, compatible four-asset profile, or
@@ -383,18 +384,19 @@ qualification passed exact accepted identities. ADR 0017 and
 [`artifacts/021-measured-cpu-policy.md`](artifacts/021-measured-cpu-policy.md)
 retain the policy and evidence.
 
-## Next outcome — reference/alternate graph batching
+## Established — corrected reference/alternate graph batching
 
-The measured ordinary one-strand and two-strand requests remain materially
-slower than the fixed-host frontier, and the current ONNX graph fixes batch
-size one. Compare one small reference/alternate batching representation against
-the unchanged ordinary baseline, including both-strand work, exact M09/M10 and
-14-case compatibility, open/RSS cost, and complete-request p50. Do not add
-request concurrency, a session pool, cache, CLI settings, accelerator, or
-alternative runtime in that outcome. Retain the existing model identity unless
-a qualified changed graph earns a new one.
+The first candidate run is retained as historical evidence but cannot select a
+graph: the v2 manifests declared dynamic batch/length axes that were applied
+only to final graph metadata, not passed into PyTorch's exporter. Corrected v2
+conversion gave the exporter those axes, changed both candidate identities, and
+repeated the complete raw/public/performance matrix. Both policies were
+inconclusive from singleton drift; independently, neither candidate met the
+M09/M10 improvement and no-regression gates. Ordinary dispatch and the accepted
+model identity remain singleton. Both tiny checked candidates remain because
+retained experimental execution requires normal real-ORT coverage.
 
-## Later outcome — evidence-gated model-result caching
+## Next outcome — evidence-gated model-result caching
 
 Measure repeated complete model requests before adding a cache. If justified,
 cache only complete model results under a key that includes the literal variant,
@@ -456,7 +458,6 @@ public maintenance commands.
 
 ## Unknowns that require evidence
 
-- whether reference/alternate graph batching earns a changed model graph;
 - whether repeated complete requests justify any result cache;
 - whether MPS, CUDA, quantization, or another runtime adds material value;
 - the service session-pool and backpressure shape;

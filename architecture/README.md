@@ -13,8 +13,11 @@ GRCh38 variants, preserves compatible ensemble/indel/masking arithmetic, and
 routes authoritative lookup or explicit-path model fallback into ordered exact
 CLI results. Complete-request CPU qualification keeps the portable ordinary
 session at sequential `1/1` while retaining fixed `8/1` as this host's measured
-frontier result. Reference/alternate batching, coherent asset delivery,
-caching, and HTTP remain future work.
+frontier result. The first zero-padded and paired-strand batching run is
+ineligible because the v2 exporter omitted its declared dynamic axes. The
+corrected full experiment retained singleton through both the drift and
+replacement gates. Coherent asset delivery, caching, and HTTP remain future
+work.
 
 The closed three-codec reference comparison selected `acgt2-rle-v1`; its
 candidate modules, miniature, benchmark executable, and CLI have been removed
@@ -74,6 +77,8 @@ ADR 0012 defines that descriptive provenance boundary.
   — authoritative lookup, lazy identity-bound fallback, and stable modeled CLI output.
 - [`decisions/0017-measured-cpu-policy.md`](decisions/0017-measured-cpu-policy.md)
   — complete-request CPU measurement, host frontier, and portable ordinary default.
+- [`decisions/0018-reference-alternate-batching.md`](decisions/0018-reference-alternate-batching.md)
+  — the corrected exactness/performance experiment that retained singleton.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)

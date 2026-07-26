@@ -132,9 +132,11 @@ files. The binary and performance harness call the same library renderer, so
 measured JSONL/table serialization is the production byte path rather than a
 benchmark copy.
 
-`pangopup-model` owns the authenticated three-file model bundle, bounded
+`pangopup-model` owns the authenticated three-file model bundle, the unchanged
+v1 singleton contract, distinct closed v2 candidate contracts, bounded
 A/C/G/T/N context encoding, and one mutable CPU ONNX Runtime session returning
-twelve raw replicate channels in genomic orientation. Ordinary callers retain
+twelve raw replicate channels in genomic orientation. Candidate calls retain
+each item's original score length and genomic orientation. Ordinary callers retain
 the compiled sequential `1/1` policy; one typed low-level constructor supports
 bounded qualification without adding CLI or global configuration. It
 intentionally does not construct genomic variants or hide ensemble and masking
@@ -144,7 +146,9 @@ behavior.
 
 Owns the mutable single-owner composition of `ReferenceProvider`,
 `MaskProvider`, and `ModelKernel`. It fixes GRCh38, masked output, and distance
-50; constructs exact reference/alternate contexts; retains `f32` for
+50; constructs exact reference/alternate contexts; uses the selected singleton
+graph for ordinary reference/alternate work while retaining an experimental
+plus-before-minus grouping seam; retains `f32` for
 equal-length/insertion arithmetic and upstream-promoted `f64` for deletions;
 and masks one shared gain/loss pair in authenticated plus-then-minus gene
 order. Above the unfiltered scorer, one small typed router preserves
@@ -287,8 +291,8 @@ fallback is operational; coherent asset activation is not.
   publication and pinned sync;
 - foreground HTTP serving plus container and native service-manager
   integration; and
-- reference/alternate graph batching measured against the selected CPU
-  baseline before considering an accelerator backend.
+- evidence-gated complete-model-result caching after the corrected batching
+  experiment retained singleton.
 
 These extensions must preserve the exact, compact, fast SNV index rather than
 complicate or replace it.

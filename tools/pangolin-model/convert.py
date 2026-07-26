@@ -99,6 +99,16 @@ class CombinedPangolin(torch.nn.Module):
             dim=1,
         )
 
+class PairedPangolin(torch.nn.Module):
+    def __init__(self, combined: CombinedPangolin):
+        super().__init__()
+        self.combined = combined
+
+    def forward(
+        self, reference: torch.Tensor, alternate: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.combined(reference), self.combined(alternate)
+
 
 def set_dimension(dimension: onnx.TensorShapeProto.Dimension, value: int | str) -> None:
     dimension.ClearField("dim_value")
@@ -109,7 +119,7 @@ def set_dimension(dimension: onnx.TensorShapeProto.Dimension, value: int | str) 
         dimension.dim_param = value
 
 
-def convert(upstream: Path, output: Path) -> None:
+def convert(upstream: Path, output: Path, representation: str) -> None:
     if (
         sys.version_info[:3] != (3, 13, 5)
         or torch.__version__ != "2.7.1+cpu"
@@ -142,40 +152,96 @@ def convert(upstream: Path, output: Path) -> None:
         models.append(model)
         channels.append(selected_channel)
 
-    combined = CombinedPangolin(models, channels)
+    combined: torch.nn.Module = CombinedPangolin(models, channels)
     combined.eval()
+    if representation == "singleton":
+        arguments = (torch.zeros((1, 4, 10_101), dtype=torch.float32),)
+        input_names = ["sequence"]
+        output_names = ["replicate_scores"]
+        dynamic_axes = {
+            "sequence": {2: "N"},
+            "replicate_scores": {2: "N_minus_10000"},
+        }
+        input_shapes: tuple[tuple[int | str, ...], ...] = ((1, 4, "N"),)
+        output_shapes: tuple[tuple[int | str, ...], ...] = (
+            (1, 12, "N_minus_10000"),
+        )
+    elif representation == "zero-padded-batch":
+        arguments = (torch.zeros((2, 4, 10_101), dtype=torch.float32),)
+        input_names = ["sequence"]
+        output_names = ["replicate_scores"]
+        dynamic_axes = {
+            "sequence": {0: "B", 2: "N"},
+            "replicate_scores": {0: "B", 2: "N_minus_10000"},
+        }
+        input_shapes = (("B", 4, "N"),)
+        output_shapes = (("B", 12, "N_minus_10000"),)
+    elif representation == "paired-strand-batch":
+        combined = PairedPangolin(combined)
+        combined.eval()
+        arguments = (
+            torch.zeros((2, 4, 10_101), dtype=torch.float32),
+            torch.zeros((2, 4, 10_102), dtype=torch.float32),
+        )
+        input_names = ["reference", "alternate"]
+        output_names = ["reference_scores", "alternate_scores"]
+        dynamic_axes = {
+            "reference": {0: "B", 2: "N_ref"},
+            "alternate": {0: "B", 2: "N_alt"},
+            "reference_scores": {0: "B", 2: "N_ref_minus_10000"},
+            "alternate_scores": {0: "B", 2: "N_alt_minus_10000"},
+        }
+        input_shapes = (("B", 4, "N_ref"), ("B", 4, "N_alt"))
+        output_shapes = (
+            ("B", 12, "N_ref_minus_10000"),
+            ("B", 12, "N_alt_minus_10000"),
+        )
+    else:
+        fail("unknown representation")
+
     buffer = io.BytesIO()
     with torch.no_grad():
         torch.onnx.export(
             combined,
-            (torch.zeros((1, 4, 10_101), dtype=torch.float32),),
+            arguments,
             buffer,
             export_params=True,
             opset_version=17,
             do_constant_folding=True,
-            input_names=["sequence"],
-            output_names=["replicate_scores"],
-            dynamic_axes={
-                "sequence": {2: "N"},
-                "replicate_scores": {2: "N_minus_10000"},
-            },
+            input_names=input_names,
+            output_names=output_names,
+            # Preserve the exact accepted v1 singleton export bytes; that
+            # historical path applies its one dynamic axis to graph metadata
+            # below. V2 candidates must give the exporter the full dynamic
+            # batch/length contract so internal traced shapes are dynamic too.
+            dynamic_axes=(
+                dynamic_axes if representation != "singleton" else None
+            ),
             dynamo=False,
         )
     graph = onnx.load_model_from_string(buffer.getvalue())
-    if len(graph.graph.input) != 1 or len(graph.graph.output) != 1:
-        fail("exported graph has wrong input/output count")
-    graph.graph.input[0].name = "sequence"
-    graph.graph.output[0].name = "replicate_scores"
-    input_shape = graph.graph.input[0].type.tensor_type.shape.dim
-    output_shape = graph.graph.output[0].type.tensor_type.shape.dim
-    if len(input_shape) != 3 or len(output_shape) != 3:
-        fail("exported graph has wrong rank")
-    for dimension, value in zip(input_shape, (1, 4, "N"), strict=True):
-        set_dimension(dimension, value)
-    for dimension, value in zip(
-        output_shape, (1, 12, "N_minus_10000"), strict=True
+    if len(graph.graph.input) != len(input_names) or len(graph.graph.output) != len(
+        output_names
     ):
-        set_dimension(dimension, value)
+        fail("exported graph has wrong input/output count")
+    for outlet, name, expected_shape in zip(
+        graph.graph.input, input_names, input_shapes, strict=True
+    ):
+        outlet.name = name
+        shape = outlet.type.tensor_type.shape.dim
+        if len(shape) != 3:
+            fail("exported graph has wrong input rank")
+        for dimension, value in zip(shape, expected_shape, strict=True):
+            set_dimension(dimension, value)
+    for outlet, name, expected_shape in zip(
+        graph.graph.output, output_names, output_shapes, strict=True
+    ):
+        outlet.name = name
+        shape = outlet.type.tensor_type.shape.dim
+        if len(shape) != 3:
+            fail("exported graph has wrong output rank")
+        for dimension, value in zip(shape, expected_shape, strict=True):
+            set_dimension(dimension, value)
     onnx.checker.check_model(graph, full_check=True)
     output.write_bytes(graph.SerializeToString(deterministic=True))
 
@@ -184,8 +250,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.add_argument("--upstream", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--representation",
+        choices=("singleton", "zero-padded-batch", "paired-strand-batch"),
+        required=True,
+    )
     args = parser.parse_args()
-    convert(args.upstream, args.output)
+    convert(args.upstream, args.output, args.representation)
 
 
 if __name__ == "__main__":

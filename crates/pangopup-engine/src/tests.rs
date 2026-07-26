@@ -284,6 +284,68 @@ struct FixtureKernel {
     expected: ExpectedKernelCalls,
 }
 
+type CandidateCalls = Arc<Mutex<Vec<(usize, usize, Vec<Strand>)>>>;
+
+struct CandidateSpyKernel {
+    representation: ModelRepresentation,
+    calls: CandidateCalls,
+    fail: bool,
+}
+
+impl RawKernel for CandidateSpyKernel {
+    fn infer(&mut self, _: &[u8], _: Strand) -> Result<RawScores, ModelScoringError> {
+        panic!("candidate path must not invoke singleton inference")
+    }
+
+    fn representation(&self) -> ModelRepresentation {
+        self.representation
+    }
+
+    fn infer_variant(
+        &mut self,
+        reference: &[u8],
+        alternate: &[u8],
+        strands: &[Strand],
+    ) -> Result<(Vec<(RawScores, RawScores)>, InferenceAccounting), ModelScoringError> {
+        self.calls.lock().expect("candidate calls").push((
+            reference.len(),
+            alternate.len(),
+            strands.to_vec(),
+        ));
+        if self.fail {
+            return Err(ModelScoringError::ModelProvider);
+        }
+        let scores = strands
+            .iter()
+            .map(|_| {
+                (
+                    RawScores {
+                        score_length: reference.len() - CONTEXT_FLANKS,
+                        values: vec![0.0; CHANNELS * (reference.len() - CONTEXT_FLANKS)],
+                    },
+                    RawScores {
+                        score_length: alternate.len() - CONTEXT_FLANKS,
+                        values: vec![0.0; CHANNELS * (alternate.len() - CONTEXT_FLANKS)],
+                    },
+                )
+            })
+            .collect();
+        Ok((
+            scores,
+            InferenceAccounting {
+                session_invocations: 1,
+                logical_context_evaluations: strands.len() * 2,
+                batch_size: match self.representation {
+                    ModelRepresentation::ZeroPaddedBatch => strands.len() * 2,
+                    ModelRepresentation::PairedStrandBatch => strands.len(),
+                    ModelRepresentation::Singleton => unreachable!(),
+                },
+                padded_input_elements: 0,
+            },
+        ))
+    }
+}
+
 impl RawKernel for FixtureKernel {
     fn infer(&mut self, context: &[u8], strand: Strand) -> Result<RawScores, ModelScoringError> {
         let (expected_context, expected_strand, scores) = self
@@ -479,6 +541,7 @@ fn frozen_model_cases_replay_all_raw_calls_arrays_order_and_public_scores() {
             kernel: Box::new(FixtureKernel {
                 expected: Arc::clone(&shared_calls),
             }),
+            last_accounting: InferenceAccounting::default(),
         };
         let result = engine.score(&variant).expect("score fixture");
         assert!(
@@ -830,6 +893,7 @@ fn spy_engine(
             calls: 0,
             fail_on,
         }),
+        last_accounting: InferenceAccounting::default(),
     }
 }
 
@@ -1104,6 +1168,7 @@ fn checked_real_onnx_kernel_scores_in_memory_reference_and_mask() {
             },
         }),
         kernel: Box::new(ProductionKernel(kernel)),
+        last_accounting: InferenceAccounting::default(),
     };
     let result = engine.score(&variant).expect("real ONNX scoring");
     let records = result.records().expect("scored");
@@ -1112,6 +1177,120 @@ fn checked_real_onnx_kernel_scores_in_memory_reference_and_mask() {
     assert_eq!(records[0].score().gain_position().get(), -50);
     assert_eq!(records[0].score().loss_position().get(), -50);
     assert_eq!(records[0].warnings(), &[ModelWarning::NoAnnotatedSites]);
+}
+
+#[test]
+fn candidate_spy_groups_all_six_shapes_once_and_returns_no_partial_failure() {
+    let shapes = [
+        ("equal-one", "A", "C", false),
+        ("equal-two", "A", "C", true),
+        ("insertion-one", "A", "AC", false),
+        ("insertion-two", "A", "AC", true),
+        ("deletion-one", "AC", "A", false),
+        ("deletion-two", "AC", "A", true),
+    ];
+    for representation in [
+        ModelRepresentation::ZeroPaddedBatch,
+        ModelRepresentation::PairedStrandBatch,
+    ] {
+        for (id, reference, alternate, both) in shapes {
+            let contig = Grch38Contig::from_str("1").expect("contig");
+            let position = GenomicPosition::new(6_000).expect("position");
+            let variant =
+                Grch38Variant::new(contig, position, reference.to_owned(), alternate.to_owned())
+                    .expect("variant");
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let plus = vec![test_gene(&[])];
+            let minus = if both {
+                vec![test_gene(&[])]
+            } else {
+                Vec::new()
+            };
+            let mut engine = ScoringEngine {
+                reference: Box::new(FixtureReference {
+                    contig,
+                    start: GenomicPosition::new(950).expect("start"),
+                    bases: reference_context(reference.as_bytes()),
+                    provenance: dummy_provenance(),
+                }),
+                mask: Box::new(FixtureMask {
+                    contig,
+                    position,
+                    genes: MaskGenes { plus, minus },
+                }),
+                kernel: Box::new(CandidateSpyKernel {
+                    representation,
+                    calls: Arc::clone(&calls),
+                    fail: false,
+                }),
+                last_accounting: InferenceAccounting::default(),
+            };
+            let result = engine.score(&variant).expect("candidate score");
+            assert_eq!(
+                result.records().expect("records").len(),
+                if both { 2 } else { 1 },
+                "{representation} {id}"
+            );
+            let observed = calls.lock().expect("calls");
+            assert_eq!(observed.len(), 1, "{representation} {id}");
+            assert_eq!(
+                observed[0],
+                (
+                    CONTEXT_BASES + reference.len(),
+                    CONTEXT_BASES + alternate.len(),
+                    if both {
+                        vec![Strand::Plus, Strand::Minus]
+                    } else {
+                        vec![Strand::Plus]
+                    }
+                ),
+                "{representation} {id}"
+            );
+            assert_eq!(engine.last_accounting.session_invocations, 1);
+            assert_eq!(
+                engine.last_accounting.batch_size,
+                if representation == ModelRepresentation::ZeroPaddedBatch {
+                    if both { 4 } else { 2 }
+                } else if both {
+                    2
+                } else {
+                    1
+                }
+            );
+        }
+    }
+
+    let contig = Grch38Contig::from_str("1").expect("contig");
+    let position = GenomicPosition::new(6_000).expect("position");
+    let variant =
+        Grch38Variant::new(contig, position, "A".to_owned(), "AC".to_owned()).expect("variant");
+    let mut engine = ScoringEngine {
+        reference: Box::new(FixtureReference {
+            contig,
+            start: GenomicPosition::new(950).expect("start"),
+            bases: reference_context(b"A"),
+            provenance: dummy_provenance(),
+        }),
+        mask: Box::new(FixtureMask {
+            contig,
+            position,
+            genes: MaskGenes {
+                plus: vec![test_gene(&[])],
+                minus: vec![test_gene(&[])],
+            },
+        }),
+        kernel: Box::new(CandidateSpyKernel {
+            representation: ModelRepresentation::ZeroPaddedBatch,
+            calls: Arc::new(Mutex::new(Vec::new())),
+            fail: true,
+        }),
+        last_accounting: InferenceAccounting::default(),
+    };
+    assert!(matches!(
+        engine.score(&variant),
+        Err(ModelScoringError::ModelProvider)
+    ));
+    assert_eq!(engine.last_accounting, InferenceAccounting::default());
 }
 
 #[test]

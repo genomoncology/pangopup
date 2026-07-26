@@ -17,7 +17,8 @@ use pangopup_index::{
     reference::IdentifiedReferenceBundle,
 };
 use pangopup_model::{
-    CHANNELS, CONTEXT_FLANKS, ModelContext, ModelKernel, ReplicateScores, Strand,
+    CHANNELS, CONTEXT_FLANKS, InferenceAccounting, ModelContext, ModelKernel, ModelRepresentation,
+    ReplicateScores, Strand, StrandPair,
 };
 use std::{collections::BTreeSet, fmt};
 
@@ -37,11 +38,37 @@ impl VariantScorer {
         mask: impl MaskProvider + 'static,
         model: ModelKernel,
     ) -> Self {
+        assert_eq!(
+            model.representation(),
+            ModelRepresentation::Singleton,
+            "ordinary VariantScorer requires the selected singleton model"
+        );
+        Self::from_parts(reference, mask, model)
+    }
+
+    /// Construct a scorer for the retained Ticket 022 comparison harness.
+    ///
+    /// Ordinary callers must use [`Self::new`].
+    #[doc(hidden)]
+    pub fn new_experimental(
+        reference: impl ReferenceProvider + 'static,
+        mask: impl MaskProvider + 'static,
+        model: ModelKernel,
+    ) -> Self {
+        Self::from_parts(reference, mask, model)
+    }
+
+    fn from_parts(
+        reference: impl ReferenceProvider + 'static,
+        mask: impl MaskProvider + 'static,
+        model: ModelKernel,
+    ) -> Self {
         Self {
             engine: ScoringEngine {
                 reference: Box::new(reference),
                 mask: Box::new(ProductionMask::new(mask)),
                 kernel: Box::new(ProductionKernel(model)),
+                last_accounting: InferenceAccounting::default(),
             },
         }
     }
@@ -53,6 +80,16 @@ impl VariantScorer {
         variant: &Grch38Variant,
     ) -> Result<ModelScoreResult, ModelScoringError> {
         self.engine.score(variant)
+    }
+
+    #[must_use]
+    pub fn model_representation(&self) -> ModelRepresentation {
+        self.engine.kernel.representation()
+    }
+
+    #[must_use]
+    pub fn last_model_accounting(&self) -> InferenceAccounting {
+        self.engine.last_accounting
     }
 }
 
@@ -408,6 +445,19 @@ impl RawScores {
 
 trait RawKernel {
     fn infer(&mut self, context: &[u8], strand: Strand) -> Result<RawScores, ModelScoringError>;
+
+    fn representation(&self) -> ModelRepresentation {
+        ModelRepresentation::Singleton
+    }
+
+    fn infer_variant(
+        &mut self,
+        _reference: &[u8],
+        _alternate: &[u8],
+        _strands: &[Strand],
+    ) -> Result<(Vec<(RawScores, RawScores)>, InferenceAccounting), ModelScoringError> {
+        Err(ModelScoringError::ModelProvider)
+    }
 }
 
 struct ProductionKernel(ModelKernel);
@@ -420,16 +470,61 @@ impl RawKernel for ProductionKernel {
             .map(RawScores::from_replicates)
             .map_err(|_| ModelScoringError::ModelProvider)
     }
+
+    fn representation(&self) -> ModelRepresentation {
+        self.0.representation()
+    }
+
+    fn infer_variant(
+        &mut self,
+        reference: &[u8],
+        alternate: &[u8],
+        strands: &[Strand],
+    ) -> Result<(Vec<(RawScores, RawScores)>, InferenceAccounting), ModelScoringError> {
+        let reference =
+            ModelContext::new(reference).map_err(|_| ModelScoringError::ModelProvider)?;
+        let alternate =
+            ModelContext::new(alternate).map_err(|_| ModelScoringError::ModelProvider)?;
+        let pairs = strands
+            .iter()
+            .map(|strand| StrandPair {
+                reference: &reference,
+                alternate: &alternate,
+                strand: *strand,
+            })
+            .collect::<Vec<_>>();
+        let result = self
+            .0
+            .infer_variant(&pairs)
+            .map_err(|_| ModelScoringError::ModelProvider)?;
+        let accounting = result.accounting();
+        Ok((
+            result
+                .into_pairs()
+                .into_iter()
+                .map(|pair| {
+                    let (reference, alternate) = pair.into_parts();
+                    (
+                        RawScores::from_replicates(reference),
+                        RawScores::from_replicates(alternate),
+                    )
+                })
+                .collect(),
+            accounting,
+        ))
+    }
 }
 
 struct ScoringEngine {
     reference: Box<dyn ReferenceProvider>,
     mask: Box<dyn GeneMaskSource>,
     kernel: Box<dyn RawKernel>,
+    last_accounting: InferenceAccounting,
 }
 
 impl ScoringEngine {
     fn score(&mut self, variant: &Grch38Variant) -> Result<ModelScoreResult, ModelScoringError> {
+        self.last_accounting = InferenceAccounting::default();
         let shape = match classify(variant) {
             Ok(shape) => shape,
             Err(rejection) => return Ok(ModelScoreResult::rejected(rejection)),
@@ -496,17 +591,51 @@ impl ScoringEngine {
         }
 
         let mut records = Vec::with_capacity(genes.plus.len() + genes.minus.len());
-        if !genes.plus.is_empty() {
-            let reference_scores = self.infer_checked(&reference, Strand::Plus)?;
-            let alternate_scores = self.infer_checked(&alternate, Strand::Plus)?;
-            let arrays = post_ensemble(shape, &reference_scores, &alternate_scores)?;
-            records.extend(score_genes(arrays, &genes.plus, variant.position())?);
-        }
-        if !genes.minus.is_empty() {
-            let reference_scores = self.infer_checked(&reference, Strand::Minus)?;
-            let alternate_scores = self.infer_checked(&alternate, Strand::Minus)?;
-            let arrays = post_ensemble(shape, &reference_scores, &alternate_scores)?;
-            records.extend(score_genes(arrays, &genes.minus, variant.position())?);
+        if self.kernel.representation() == ModelRepresentation::Singleton {
+            if !genes.plus.is_empty() {
+                let reference_scores = self.infer_checked(&reference, Strand::Plus)?;
+                let alternate_scores = self.infer_checked(&alternate, Strand::Plus)?;
+                let arrays = post_ensemble(shape, &reference_scores, &alternate_scores)?;
+                records.extend(score_genes(arrays, &genes.plus, variant.position())?);
+            }
+            if !genes.minus.is_empty() {
+                let reference_scores = self.infer_checked(&reference, Strand::Minus)?;
+                let alternate_scores = self.infer_checked(&alternate, Strand::Minus)?;
+                let arrays = post_ensemble(shape, &reference_scores, &alternate_scores)?;
+                records.extend(score_genes(arrays, &genes.minus, variant.position())?);
+            }
+            let active_strands =
+                usize::from(!genes.plus.is_empty()) + usize::from(!genes.minus.is_empty());
+            self.last_accounting = InferenceAccounting {
+                session_invocations: active_strands * 2,
+                logical_context_evaluations: active_strands * 2,
+                batch_size: 1,
+                padded_input_elements: 0,
+            };
+        } else {
+            let mut strands = Vec::with_capacity(2);
+            if !genes.plus.is_empty() {
+                strands.push(Strand::Plus);
+            }
+            if !genes.minus.is_empty() {
+                strands.push(Strand::Minus);
+            }
+            let (pairs, accounting) = self
+                .kernel
+                .infer_variant(&reference, &alternate, &strands)?;
+            self.last_accounting = accounting;
+            if pairs.len() != strands.len() {
+                return Err(ModelScoringError::InvalidModelOutput);
+            }
+            for ((reference_scores, alternate_scores), strand) in pairs.into_iter().zip(strands) {
+                self.validate_pair(&reference, &alternate, &reference_scores, &alternate_scores)?;
+                let arrays = post_ensemble(shape, &reference_scores, &alternate_scores)?;
+                let strand_genes = match strand {
+                    Strand::Plus => &genes.plus,
+                    Strand::Minus => &genes.minus,
+                };
+                records.extend(score_genes(arrays, strand_genes, variant.position())?);
+            }
         }
         Ok(ModelScoreResult::scored(records))
     }
@@ -526,6 +655,23 @@ impl ScoringEngine {
             return Err(ModelScoringError::InvalidModelOutput);
         }
         Ok(scores)
+    }
+
+    fn validate_pair(
+        &self,
+        reference: &[u8],
+        alternate: &[u8],
+        reference_scores: &RawScores,
+        alternate_scores: &RawScores,
+    ) -> Result<(), ModelScoringError> {
+        reference_scores.validate()?;
+        alternate_scores.validate()?;
+        if reference_scores.score_length != reference.len() - CONTEXT_FLANKS
+            || alternate_scores.score_length != alternate.len() - CONTEXT_FLANKS
+        {
+            return Err(ModelScoringError::InvalidModelOutput);
+        }
+        Ok(())
     }
 }
 

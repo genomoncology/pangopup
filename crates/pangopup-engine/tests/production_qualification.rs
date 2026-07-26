@@ -1,17 +1,16 @@
 use pangopup_core::{Grch38Variant, ReferenceProvider};
 use pangopup_engine::VariantScorer;
 use pangopup_index::{mask::MaskDomainsOpen, reference::ReferenceBundleOpen};
-use pangopup_model::ModelKernel;
+use pangopup_model::{CpuPolicy, ModelKernel, ModelRepresentation, inspect_bundle};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
+    env,
     fs::{self, File},
     io::Read,
     path::{Path, PathBuf},
 };
 
-const MODEL_BUNDLE: &str = "/home/ian/workspace/data/pangopup-model-018/bundle";
-const MODEL_ID: &str = "sha256:4d8f2b8e7ee2dbf5d555c56693280d78d04ee2d0cf3346dfc35066e2a90aae43";
 const REFERENCE_BUNDLE: &str = "/home/ian/workspace/data/pangopup-reference-production-011/1303432912d9ddf9d56805d8e5956553340fa499b3b252dae44f8218fd815b01/bundle";
 const REFERENCE_ID: &str =
     "sha256:7c28334e1829505863ff77dba78c4cbc0d8ebe655f68c30ad70ab4fdc36adc5f";
@@ -101,8 +100,28 @@ fn hundredths(dtype: &str, bits: &str, loss: bool) -> u8 {
 #[ignore = "opens the retained production model, reference, and mask exactly once"]
 fn retained_production_assets_match_all_masked_model_cases() {
     let array_receipt_sha256 = checked_array_receipt_sha256();
-    let model = ModelKernel::open(Path::new(MODEL_BUNDLE)).expect("open production model");
-    assert_eq!(model.bundle_identity().as_str(), MODEL_ID);
+    let model_bundle = env::var_os("PANGOPUP_MODEL_BUNDLE")
+        .expect("set PANGOPUP_MODEL_BUNDLE to one authenticated candidate");
+    let policy_text =
+        env::var("PANGOPUP_CPU_POLICY").unwrap_or_else(|_| CpuPolicy::SEQUENTIAL_1_1.to_string());
+    let policy: CpuPolicy = policy_text.parse().expect("closed CPU policy");
+    assert!(
+        policy == CpuPolicy::SEQUENTIAL_1_1 || policy == CpuPolicy::SEQUENTIAL_8_1,
+        "qualification permits only Ticket 022 selected policies"
+    );
+    let inspection = inspect_bundle(Path::new(&model_bundle)).expect("inspect model bundle");
+    let model = match inspection.representation {
+        ModelRepresentation::Singleton => {
+            ModelKernel::open_with_cpu_policy(Path::new(&model_bundle), policy)
+        }
+        ModelRepresentation::ZeroPaddedBatch | ModelRepresentation::PairedStrandBatch => {
+            ModelKernel::open_experimental_with_cpu_policy(Path::new(&model_bundle), policy)
+        }
+    }
+    .expect("open production model");
+    let model_id = model.bundle_identity().to_string();
+    let model_profile = model.profile().to_owned();
+    let representation = model.representation().to_string();
     let reference =
         ReferenceBundleOpen::open(Path::new(REFERENCE_BUNDLE)).expect("open production reference");
     assert_eq!(reference.provenance().bundle_id(), REFERENCE_ID);
@@ -126,7 +145,11 @@ fn retained_production_assets_match_all_masked_model_cases() {
         .collect();
     assert_eq!(cases.len(), 14);
 
-    let mut scorer = VariantScorer::new(reference, mask, model);
+    let mut scorer = if inspection.representation == ModelRepresentation::Singleton {
+        VariantScorer::new(reference, mask, model)
+    } else {
+        VariantScorer::new_experimental(reference, mask, model)
+    };
     let mut record_count = 0_usize;
     for case in &cases {
         let variant = Grch38Variant::new(
@@ -185,10 +208,13 @@ fn retained_production_assets_match_all_masked_model_cases() {
     }
 
     println!(
-        "{{\"status\":\"qualified\",\"cases\":{},\"records\":{},\"model\":\"{}\",\"reference\":\"{}\",\"mask_bytes\":{},\"mask_sha256\":\"{}\",\"post_ensemble_receipt_sha256\":\"{}\"}}",
+        "{{\"status\":\"qualified\",\"cases\":{},\"records\":{},\"model\":\"{}\",\"model_profile\":\"{}\",\"representation\":\"{}\",\"policy\":\"{}\",\"reference\":\"{}\",\"mask_bytes\":{},\"mask_sha256\":\"{}\",\"post_ensemble_receipt_sha256\":\"{}\"}}",
         cases.len(),
         record_count,
-        MODEL_ID,
+        model_id,
+        model_profile,
+        representation,
+        policy,
         REFERENCE_ID,
         mask_identity.bytes(),
         mask_identity.sha256(),
