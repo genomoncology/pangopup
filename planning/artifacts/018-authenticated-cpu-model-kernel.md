@@ -140,6 +140,37 @@ variant-level, concurrent, HTTP, accelerator, or end-to-end claim. It also
 explains the lookup-first design: a precomputed SNV hit avoids seconds of model
 work.
 
+### Post-close informal PyTorch observation
+
+The coordinator subsequently measured the unmodified twelve-checkpoint
+PyTorch path on the same host with the same deterministic repeating-`ACGTN`
+contexts, all selected channels, three warmups, and twenty timed calls per
+length. This comparison does not change the accepted `1/1` Rust qualification
+contract or ADR 0014. Unlike the accepted Rust baseline, its one-off command
+and raw output were not retained. The Python values below are therefore an
+informal roadmap observation, not qualification, regression, or release
+evidence.
+
+| Runtime policy | 10,101 bases p50 / p95 | 10,200 bases p50 / p95 |
+|---|---:|---:|
+| PyTorch 2.7.1+cpu, observed default intra/inter `8/16` | 684,433,263 / 800,608,883 ns | 662,617,171 / 711,033,821 ns |
+| PyTorch 2.7.1+cpu, forced intra/inter `1/1`, CPU 0 | 3,033,059,194 / 3,136,913,580 ns | 3,191,415,648 / 3,357,714,259 ns |
+| Rust/ONNX Runtime 1.24.2, intra/inter `1/1`, CPU 0 | 2,334,544,116 / 2,797,753,804 ns | 2,221,989,361 / 2,748,089,929 ns |
+
+The observation suggests that the Rust kernel beats direct PyTorch under a
+like-for-like single-thread policy, while default multithreaded PyTorch is about
+3.3–3.5 times faster than the current forced-single-thread Rust policy. Each
+sample is one raw context, not a complete variant. Upstream variant scoring
+needs reference and alternate work and can need both strands, so these results
+must not be extrapolated into variant latency.
+
+The roadmap consequence is bounded: complete variant parity first, then test
+ONNX Runtime CPU thread policies, then reference/alternate batching or
+scheduling. The current ONNX graph fixes batch size one, so the retained bundle
+is a qualified raw-kernel candidate rather than a promised final release
+artifact. Accelerator backends and quantization come only after the CPU work is
+measured against complete requests.
+
 ## Normal-gate proof
 
 Normal tests use the checked synthetic bundle and real ONNX Runtime inference.

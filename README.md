@@ -417,7 +417,7 @@ the query path.
 
 Implemented today:
 
-- the five-crate Rust workspace and strict lint/test/spec gates;
+- the six-crate Rust workspace and strict lint/test/spec gates;
 - runtime `pangopup` CLI help/version behavior with two executable smoke specs;
 - GPL-3.0 source licensing, upstream Pangolin attribution, and CC BY 4.0
   dataset attribution;
@@ -527,10 +527,16 @@ The rolling outcome order is:
     (complete);
 19. compose reference, mask, raw model, and post-processing into lookup-first
     variant scoring;
-20. measured acceleration and evidence-gated result caching;
-21. one coherent model/reference/mask delivery and installed runtime profile;
-22. a foreground HTTP/status service plus Docker/systemd lifecycle integration;
-23. observability, security, performance, and release hardening.
+20. complete-request CPU thread and reference/alternate batching measurements,
+    followed by evidence-gated accelerator work and result caching;
+21. one coherent SNV/model/reference/mask delivery and installed runtime
+    profile, with local clean-machine and offline-restart proof;
+22. close publication prerequisites, publish exact model/reference/mask release
+    assets, and prove pinned fresh-machine sync plus CLI inference;
+23. a foreground HTTP/status service;
+24. non-root Docker and documented systemd lifecycle integration;
+25. observability, security, performance, and executable/container release
+    hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the
 next coordinator-authored and independently reviewed ticket is active work.

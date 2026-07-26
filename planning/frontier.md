@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-07-25
+Updated: 2026-07-26
 
 ## Current boundary
 
@@ -22,12 +22,41 @@ its delivery and model integration remain future. An authenticated combined
 ONNX representation and qualified single-owner CPU kernel now return the
 twelve raw Pangolin channels. Genomic variant construction, Pangolin
 post-processing, lookup-first fallback, model delivery, and HTTP remain future.
-The
-production reference bundle, authenticated builder, and typed mmap provider are
-established; its transport, installation, and publication remain future
+The production reference bundle, authenticated builder, and typed mmap provider
+are established; its transport, installation, and publication remain future
 delivery work. Future SNV and reference builds now use separate causal
 source/dependency fingerprints; their existing production assets remain
 immutable and readable.
+
+## Asset readiness — preserve, package, then publish
+
+The large source work is not a rebuild queue:
+
+- The SNV lookup is complete and public as the immutable eight-asset
+  `snv-grch38-v1` GitHub release. Its installed mmap member is
+  15,033,158,255 bytes; the accepted transport is two payload parts plus the
+  reviewed small members.
+- The exact 25-contig reference bundle is built and qualified. Its mmap member
+  is 772,091,760 bytes and its measured pinned-Zstandard representation is
+  656,781,805 bytes. Reuse the retained bundle; do not rebuild it.
+- The exact selected GENCODE domains member is built and qualified. It is
+  6,703,320 bytes, with SHA-256
+  `714b1ac12dd6053a09841fe03c0ebb20fd027f6ef50732f03e7a10b7918dd702`,
+  and its measured pinned-Zstandard representation is 3,933,486 bytes. Package
+  these retained bytes later; do not regenerate them.
+- The current authenticated ONNX bundle is built and qualified as a raw-kernel
+  candidate. It totals 33,871,613 bytes and passed all 45,756 PyTorch
+  comparisons. It is not release-final until complete variant scoring decides
+  whether reference/alternate batching requires a different graph contract.
+
+Reference, mask, and model therefore have local qualified content but no
+transport, XDG installation, compatible four-asset profile, or GitHub release.
+The next publication must reuse the accepted reference and mask bytes, freeze
+the final model identity, bind all four assets into one compatible profile, and
+pass clean-machine CLI inference. Compatible-profile activation must first
+close the recorded runtime asset trust/durability blocker; publication must
+also close the release-process and repository-security blockers. No additional
+asset should be uploaded merely because its payload exists.
 
 ## Established — pinned source ingestion contract
 
@@ -263,9 +292,18 @@ checkpoint, records all 3,024 state tensors, and retains 45,756 selected-channel
 `f32` values. The converted graph matched every value with maximum absolute
 error `5.364418029785156e-7`. Normal gates execute real ONNX Runtime against a
 tiny checked same-schema graph; they do not invoke Python, PyTorch, production
-weights, or a network. The developer CPU-pinned baseline measured raw warmed
-calls in seconds, reinforcing that every precomputed SNV hit remains
-authoritative. Production model delivery is not part of this outcome.
+weights, or a network.
+
+An informal same-host probe on the AMD Ryzen 7 5825U observed direct
+twelve-checkpoint PyTorch raw-context inference at about 0.66–0.68 seconds p50
+with its default thread settings and about 3.03–3.19 seconds p50 when forced to
+`1/1`. The accepted Rust/ONNX Runtime `1/1` kernel measured about 2.22–2.33
+seconds p50. The probe suggests Rust is faster than like-for-like single-thread
+Python, but the current forced-single-thread Rust policy is substantially
+slower than multithreaded PyTorch. Its command and raw output were not retained,
+so it informs the roadmap but is not qualification or release evidence. These
+are single raw-context calls, not complete variant, concurrent, CLI, or HTTP
+latency. Production model delivery is not part of this outcome.
 
 ## Next outcome — variant-level CPU scoring and lookup-first routing
 
@@ -282,10 +320,14 @@ provenance. This outcome must not add a cache or HTTP boundary.
 
 ## Later outcome — measured acceleration and evidence-gated caching
 
-The established single-thread CPU kernel is the baseline. Measure candidate
-thread policies, MPS/CUDA backends, alternative runtimes, or quantization only
-against the same oracle and representative end-to-end variant workloads.
-Adopt one only with preserved behavior and a material measured benefit.
+The established single-thread CPU kernel is the reproducible baseline, not the
+selected production policy. After complete variant parity exists, measure
+bounded ONNX Runtime CPU thread policies first. Then measure reference/alternate
+batching or scheduling, including strand work, because the current graph fixes
+batch size one. Set the session/concurrency budget against the complete request
+workload. Consider MPS/CUDA, alternative runtimes, quantization, or another
+backend only if those CPU changes remain insufficient. Adopt a change only with
+preserved behavior and a material measured benefit.
 
 Measure repeated complete model requests before adding a cache. If justified,
 cache only complete model results under a key that includes normalized variant,
@@ -301,16 +343,31 @@ private immutable store, then atomically select the coherent tuple rather than
 four unrelated active pointers. Prove offline restart, rollback, partial-
 upgrade failure, bounded provisioning/cancellation, durable non-secret
 progress, and descriptor-held read-only opens. This outcome also transports
-and publishes the already qualified reference without rebuilding it. It must
-precede production HTTP readiness.
+the already qualified reference without rebuilding it. It must precede
+production HTTP readiness and close the recorded runtime asset trust/durability
+issue before activation.
 
-## Later outcome — foreground service and deployment
+## Later outcome — release-ready asset publication
+
+Freeze exact model/reference/mask release identities only after the complete
+variant scorer and CPU policy are selected. Close the release-upload lifecycle
+and repository-security blockers; complete the applicable advisory/license
+policy, dependency inventory, SBOM, provenance, attribution, and immutable
+release review before public distribution. Publish only the reviewed,
+installable assets, then prove pinned sync, clean-machine CLI inference, and
+offline restart from that exact release. This outcome precedes HTTP and
+container publication.
+
+## Later outcome — foreground HTTP service
 
 Add a foreground `pangopup serve` HTTP process with stable batch JSON, bounded
 requests, health/readiness/status endpoints, timeouts, backpressure, and clean
 shutdown. Expose `pangopup status` as the CLI view of the same non-secret
-runtime and asset identities. Add a minimal non-root Docker image and
-documented systemd example.
+runtime and asset identities.
+
+## Later outcome — deployment
+
+Add a minimal non-root Docker image and documented systemd example.
 Docker, systemd, Kubernetes, or another external manager owns
 start/stop/restart; Pangopup does not become its own process supervisor.
 
@@ -322,9 +379,24 @@ dependency/license inventory, SBOM and provenance, signing where practical,
 upgrade/rollback rules, and cleanup of superseded immutable assets. Re-run the
 complete clean-machine acceptance proof for releases.
 
-Before the next public model, reference, executable, or container publication,
-close the recorded release-process and repository-security issues. Those
-issues do not block local mask-format selection.
+Before the next public model, reference, mask, executable, or container
+publication, close the recorded release-process and repository-security issues.
+Those issues do not block local scoring or packaging work.
+Close the recorded maintainer-interface/documentation drift before adding more
+public maintenance commands.
+
+## Unknowns that require evidence
+
+- the final supported normalization edge cases exposed by variant parity;
+- the winning CPU thread and reference/alternate batching policy;
+- whether repeated complete requests justify any result cache;
+- whether MPS, CUDA, quantization, or another runtime adds material value;
+- the service session-pool and backpressure shape;
+- the final release grouping and compression for reference, mask, and model;
+- production resource limits derived from complete-request measurements.
+
+These are intentional roadmap slots, not tickets. Do not select or implement
+one before its prerequisite evidence exists.
 
 ## Explicitly outside Pangopup
 

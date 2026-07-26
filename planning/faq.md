@@ -211,13 +211,29 @@ selected contig and never merges chrX/chrY pseudoautosomal copies.
 ### What latency should we expect?
 
 The retained Ticket 004 evidence reports measured warm one-open library lookup,
-fresh CLI batch, open-only, and serialization-only costs separately. Ticket 018
-records the raw CPU kernel separately: roughly 2.08 seconds p50 for a warmed
-10,101-base context and 2.45 seconds p50 for 10,200 bases on its pinned
-single-core development-host method. Those are raw model calls, not variant,
-HTTP, concurrent, accelerator, or end-to-end measurements. Cold lookup behavior
-is explicitly unmeasured because neither dataset size nor an OS/device
-procedure proved the queried pages were nonresident.
+fresh CLI batch, open-only, and serialization-only costs separately.
+
+An informal same-host probe on the AMD Ryzen 7 5825U observed direct
+twelve-checkpoint PyTorch inference over one raw context at p50 0.684 seconds
+for 10,101 bases and 0.663 seconds for 10,200 bases with its default thread
+settings. Forced to `1/1`, it observed 3.033 and 3.191 seconds. The accepted
+Rust/ONNX Runtime `1/1` kernel measured 2.335 and 2.222 seconds respectively.
+This suggests Rust is faster in the like-for-like single-thread comparison,
+while default multithreaded PyTorch is about 3.3–3.5 times faster than the
+current Rust policy. The one-off PyTorch command and raw output were not
+retained, so those Python figures guide follow-up work but are not qualification
+or release evidence.
+
+Those are raw single-context calls, not complete variant, concurrent, CLI,
+HTTP, accelerator, or end-to-end measurements. A modeled variant requires
+reference and alternate work and can require both strands; complete scheduling
+is not implemented, so multiplying these numbers into a product latency claim
+would be misleading. Variant parity comes first. Then Pangopup will measure
+ONNX Runtime thread policies and reference/alternate batching before considering
+accelerators or quantization.
+
+Cold lookup behavior is explicitly unmeasured because neither dataset size nor
+an OS/device procedure proved the queried pages were nonresident.
 
 ### Is JSON output still future work?
 
