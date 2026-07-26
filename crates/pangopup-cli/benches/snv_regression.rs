@@ -1,5 +1,6 @@
 use pangopup_cli::{OutputFormat, RenderRequest, render_requests};
-use pangopup_core::{DnaBase, EnsemblGeneId, GenomicPosition, Grch38Snv, ScoreProvider};
+use pangopup_core::{DnaBase, EnsemblGeneId, GenomicPosition, Grch38Snv, Grch38Variant};
+use pangopup_engine::{LookupFirstRouter, RouteDecision, RouteRequest};
 use pangopup_index::BundleOpen;
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -38,8 +39,13 @@ static ALLOCATOR: CountingAllocator = CountingAllocator;
 #[derive(Clone)]
 struct Query {
     variant: String,
-    snv: Grch38Snv,
+    routed_variant: Grch38Variant,
     gene: Option<EnsemblGeneId>,
+}
+
+struct RoutedHit {
+    query: Query,
+    expected: Vec<u8>,
 }
 
 #[derive(Clone, Copy)]
@@ -56,6 +62,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let bundle = fixture.join("bundle");
     let provider = BundleOpen::open(&bundle)?;
     let queries = load_queries(&fixture.join("requests.tsv"), &provider)?;
+    let router = LookupFirstRouter::new(provider);
+    let expected = fs::read(fixture.join("expected.jsonl"))?;
+    let expected_lines: Vec<_> = expected.split_inclusive(|byte| *byte == b'\n').collect();
+    let routed_hits = derive_routed_hits(&router, &queries, &expected_lines);
+    assert_eq!(
+        routed_hits.len(),
+        994,
+        "frozen corpus must retain 994 authoritative routed hits"
+    );
     println!(
         "mode\trequests\tresults\tp50_us\tp95_us\tp99_us\talloc_calls\talloc_bytes\tminor_faults\tmajor_faults\trss_delta_kib\toutput_bytes"
     );
@@ -84,19 +99,39 @@ fn main() -> Result<(), Box<dyn Error>> {
         (1, output.stdout.len())
     });
     for size in [1_usize, 10, 100, 1_000] {
-        sample("warm-provider-render", size, 100, || {
-            let rendered = queries[..size]
+        let selected = routed_hit_sample(&routed_hits, size);
+        let expected: Vec<u8> = selected
+            .iter()
+            .flat_map(|hit| hit.expected.iter().copied())
+            .collect();
+        let exact = materialize_routed(&router, &selected);
+        assert_eq!(
+            render_requests(OutputFormat::Jsonl, &exact).expect("render exactness"),
+            expected,
+            "routed benchmark oracle for {size} requests"
+        );
+        sample("warm-router-render", size, 100, || {
+            let rendered = selected
                 .iter()
-                .map(|query| {
-                    let result = provider.lookup(query.snv, query.gene).expect("lookup");
-                    RenderRequest::new(query.snv, result)
+                .map(|hit| {
+                    let query = &hit.query;
+                    let decision = router
+                        .inspect(RouteRequest::new(query.routed_variant.clone(), query.gene))
+                        .expect("route");
+                    let RouteDecision::Authoritative(result) = decision else {
+                        panic!("regression SNV must be authoritative")
+                    };
+                    RenderRequest::from_routed(result)
                 })
                 .collect::<Vec<_>>();
             let results = rendered
                 .iter()
                 .map(|request| {
-                    request.result().records().len()
-                        + request.result().source_reference_ambiguities().len()
+                    let result = request
+                        .result()
+                        .precomputed()
+                        .expect("precomputed regression route");
+                    result.records().len() + result.source_reference_ambiguities().len()
                 })
                 .sum();
             let output = render_requests(OutputFormat::Jsonl, &rendered).expect("render");
@@ -108,6 +143,40 @@ fn main() -> Result<(), Box<dyn Error>> {
         "RSS is ru_maxrss high-water delta; page-cache residency is uncontrolled, so no row is labeled cold."
     );
     Ok(())
+}
+
+fn derive_routed_hits(
+    router: &LookupFirstRouter<BundleOpen>,
+    queries: &[Query],
+    expected_lines: &[&[u8]],
+) -> Vec<RoutedHit> {
+    assert_eq!(
+        queries.len(),
+        expected_lines.len(),
+        "every frozen request must have one oracle line"
+    );
+    queries
+        .iter()
+        .zip(expected_lines)
+        .filter_map(|(query, expected)| {
+            let decision = router
+                .inspect(RouteRequest::new(query.routed_variant.clone(), query.gene))
+                .expect("derive routed hit corpus");
+            matches!(decision, RouteDecision::Authoritative(_)).then(|| RoutedHit {
+                query: query.clone(),
+                expected: expected.to_vec(),
+            })
+        })
+        .collect()
+}
+
+fn routed_hit_sample(hits: &[RoutedHit], size: usize) -> Vec<&RoutedHit> {
+    assert!(size <= 1_000, "benchmark sample is bounded at 1,000 rows");
+    let repeated = size.saturating_sub(hits.len());
+    hits.iter()
+        .take(size.min(hits.len()))
+        .chain(hits.iter().take(repeated))
+        .collect()
 }
 
 fn load_queries(path: &Path, provider: &BundleOpen) -> Result<Vec<Query>, Box<dyn Error>> {
@@ -134,7 +203,35 @@ fn load_queries(path: &Path, provider: &BundleOpen) -> Result<Vec<Query>, Box<dy
             } else {
                 Some(EnsemblGeneId::from_str(fields[4])?)
             };
-            Ok(Query { variant, snv, gene })
+            let routed_variant = Grch38Variant::new(
+                snv.contig(),
+                snv.position(),
+                snv.reference().to_string(),
+                snv.alternate().to_string(),
+            )?;
+            Ok(Query {
+                variant,
+                routed_variant,
+                gene,
+            })
+        })
+        .collect()
+}
+
+fn materialize_routed(
+    router: &LookupFirstRouter<BundleOpen>,
+    hits: &[&RoutedHit],
+) -> Vec<RenderRequest> {
+    hits.iter()
+        .map(|hit| {
+            let query = &hit.query;
+            let decision = router
+                .inspect(RouteRequest::new(query.routed_variant.clone(), query.gene))
+                .expect("route");
+            let RouteDecision::Authoritative(result) = decision else {
+                panic!("regression SNV must be authoritative")
+            };
+            RenderRequest::from_routed(result)
         })
         .collect()
 }

@@ -22,8 +22,9 @@ its delivery remains future. An authenticated combined
 ONNX representation and qualified single-owner CPU kernel now return the
 twelve raw Pangolin channels. `pangopup-engine` now composes the sequence,
 mask, and kernel providers into compatible masked distance-50 scores for the
-supported literal GRCh38 subset. Lookup-first fallback, CLI model output, CPU
-tuning, model delivery, caching, and HTTP remain future.
+supported literal GRCh38 subset. Typed lookup-first routing and explicit-path
+CLI model output are established. CPU tuning, coherent model delivery,
+caching, and HTTP remain future.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
 and typed mmap provider are established; its transport, installation, and
 release remain future delivery work. Future SNV and sequence-index builds use
@@ -334,18 +335,36 @@ opened the accepted model and reference identities plus the descriptor-hashed
 mask member and matched all 14 cases and 21 ordered gene records without
 rebuilding an asset.
 
-This outcome does not add lookup routing, delivery, caching, CLI product
-output, CPU tuning, or HTTP.
+Ticket 019 itself did not add lookup routing, delivery, caching, CLI product
+output, CPU tuning, or HTTP; the following outcome has since added routing and
+CLI model output.
 
-## Next outcome — lookup-first routing and CLI model results
+## Established — lookup-first routing and CLI model results
 
-The route must try the precomputed SNV lookup first, use the model only for
-supported misses/non-SNVs, and report exact route plus model, GRCh38 sequence
-index, and mask provenance. Expose the same typed result through stable CLI
-JSON and prove both the precomputed and modeled routes. This outcome must not
-add a cache or HTTP boundary.
+`pangopup-engine` now owns one typed lookup-first router. Authoritative
+precomputed records and source-reference ambiguities win; with caller-enabled
+fallback, a pure SNV miss or supported non-SNV is completed by one scorer
+bound to the exact reference, identified mask, and model identities. Model
+masking still sees all containing GENCODE genes before an optional stable-gene
+filter is applied.
 
-## Later outcome — measured CPU policy and evidence-gated acceleration
+The CLI enables fallback only through the complete explicit
+`--reference-bundle`/`--mask`/`--model-bundle` tuple. Without that tuple, all
+SNVs retain the byte-identical legacy lookup contract, including six honest
+`not_found` rows in the frozen 1,000-request corpus; a non-SNV reports
+`MODEL_ASSETS_REQUIRED`. Hit-only batches do not inspect supplied fallback
+paths. Mixed/model batches lazily open reference, mask, and model once, buffer
+the complete batch, and emit stable modeled JSONL or the existing table shape.
+
+Normal tests use one checked synthetic 25-contig route reference, a 260-byte
+domains member, the miniature authenticated ONNX bundle, and the established
+SNV fixture. They exercise the real PGRREF01, mask mmap, ONNX Runtime, scorer,
+router, renderer, and CLI without production assets. A separate benchmark
+derives 994 authoritative hits from the frozen regression and repeats its first
+six hits only for the 1,000-row diagnostic; the original 1,000-case regression
+remains unchanged and is not mislabeled hit-only.
+
+## Next outcome — measured CPU policy and evidence-gated acceleration
 
 The established single-thread CPU kernel is the reproducible baseline, not the
 selected production policy. With complete variant parity established, measure
@@ -418,7 +437,6 @@ public maintenance commands.
 
 ## Unknowns that require evidence
 
-- the routed gene-filter and unified provenance boundary;
 - the winning CPU thread and reference/alternate batching policy;
 - whether repeated complete requests justify any result cache;
 - whether MPS, CUDA, quantization, or another runtime adds material value;

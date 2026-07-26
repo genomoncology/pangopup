@@ -399,3 +399,10 @@ and independent direct-TSV JSONL expectations. One provider open exercises all
 requests; seven CLI batches cover the shared unfiltered batch and one batch per
 gene filter. This fast semantic corpus protects ordinary development and CI
 without requiring or scanning the retained production index.
+
+Ticket 020 keeps that lookup-only corpus byte-exact and places
+`LookupFirstRouter` in the warm hit benchmark. When the caller supplies a
+complete fallback set, a pure SNV miss becomes model-required; any record or
+source-reference ambiguity remains authoritative. Without fallback flags the
+legacy SNV-only miss remains `not_found`, so existing lookup installations and
+their regression oracle do not acquire a model dependency.

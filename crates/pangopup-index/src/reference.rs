@@ -14,6 +14,7 @@ use std::{
     fmt,
     fs::{self, File},
     io::{self, Read, Seek, SeekFrom, Write},
+    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
 };
 
@@ -21,6 +22,7 @@ pub const REFERENCE_SCHEMA: &str = "pangopup.reference.bundle.v1";
 pub const REFERENCE_FORMAT: &str = "pangopup.reference.acgt2-rle.v1";
 pub const PRODUCTION_PROFILE: &str = "refseq-grch38p14-primary-v1";
 pub const MINI_PROFILE: &str = "pangopup-reference-mini-v1";
+pub const ROUTE_TEST_PROFILE: &str = "pangopup-reference-route-test-v1";
 pub const MAX_MANIFEST_BYTES: u64 = 65_536;
 pub const MAX_NOTICE_BYTES: u64 = 16_384;
 pub const MAX_MEMBER_BYTES: u64 = 773_124_288;
@@ -28,6 +30,7 @@ pub const MAX_AMBIGUITY_RUNS: u64 = 65_536;
 pub const MAX_WINDOW_BYTES: usize = 1_048_576;
 pub const PRODUCTION_NOTICE: &str = "Pangopup RefSeq GRCh38.p14 reference bundle\n\nNCBI RefSeq GRCh38.p14 sequence\nAssembly: GRCh38.p14 (GCF_000001405.40)\nSource: https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.fna.gz\nAssembly report: https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_assembly_report.txt\nPolicy and acknowledgment/disclaimer: https://www.ncbi.nlm.nih.gov/home/about/policies/\n\nPangopup selected the 25 required assembled-molecule sequences (chr1–chr22, chrX, chrY, and non-nuclear chrM), renamed them to canonical chr aliases, uppercased exact IUPAC bases, and encoded them as pangopup.reference.acgt2-rle.v1. Pangopup does not claim a Creative Commons license for NCBI data.\n";
 pub const MINI_NOTICE: &str = "Pangopup synthetic reference fixture\n\nThis pangopup-reference-mini-v1 bundle contains synthetic GPL-3.0-only fixture data created by Pangopup. It is not a biological reference and must not be used for biological interpretation.\nLicense: https://www.gnu.org/licenses/gpl-3.0.html\n";
+pub const ROUTE_TEST_NOTICE: &str = "Pangopup synthetic route reference fixture\n\nThis pangopup-reference-route-test-v1 bundle contains synthetic GPL-3.0-only fixture data created by Pangopup. It is not a biological reference and must not be used for biological interpretation.\nLicense: https://www.gnu.org/licenses/gpl-3.0.html\n";
 
 const MAGIC: &[u8; 8] = b"PGRREF01";
 const VERSION: u16 = 1;
@@ -176,33 +179,116 @@ pub struct ReferenceBundleOpen {
     manifest: ReferenceManifest,
 }
 
+/// Exact identity of the reference member authenticated for explicit model
+/// fallback.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReferenceMemberIdentity {
+    bytes: u64,
+    sha256: String,
+}
+
+impl ReferenceMemberIdentity {
+    pub const fn bytes(&self) -> u64 {
+        self.bytes
+    }
+
+    pub fn sha256(&self) -> &str {
+        &self.sha256
+    }
+}
+
+/// A reference provider inseparably coupled to the descriptor whose bytes
+/// were hashed against its manifest before scoring.
+pub struct IdentifiedReferenceBundle {
+    provider: ReferenceBundleOpen,
+    _member: File,
+    identity: ReferenceMemberIdentity,
+}
+
+impl IdentifiedReferenceBundle {
+    pub const fn identity(&self) -> &ReferenceMemberIdentity {
+        &self.identity
+    }
+}
+
 impl ReferenceBundleOpen {
     pub fn open(bundle: &Path) -> Result<Self, ReferenceIndexError> {
-        let mut names = Vec::with_capacity(3);
-        for (count, entry) in fs::read_dir(bundle)?.enumerate() {
-            if count >= 3 {
-                return Err(ReferenceIndexError::Corrupt("bundle member set"));
-            }
-            let entry = entry?;
-            let metadata = fs::symlink_metadata(entry.path())?;
-            if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
-                return Err(ReferenceIndexError::Corrupt("bundle member type"));
-            }
-            names.push(
-                entry
-                    .file_name()
-                    .into_string()
-                    .map_err(|_| ReferenceIndexError::Corrupt("bundle member name"))?,
-            );
-        }
-        names.sort();
-        if names != ["NOTICE", "manifest.json", "reference.pgr"] {
-            return Err(ReferenceIndexError::Corrupt("bundle member set"));
-        }
+        validate_bundle_member_set(bundle)?;
         let manifest_bytes = read_bounded(&bundle.join("manifest.json"), MAX_MANIFEST_BYTES)?;
         let notice = read_bounded(&bundle.join("NOTICE"), MAX_NOTICE_BYTES)?;
         let reference = File::open(bundle.join("reference.pgr"))?;
         Self::open_authenticated(&manifest_bytes, &notice, &reference)
+    }
+
+    /// Authenticate the exact reference member used by explicit model
+    /// fallback, then map that same held descriptor.
+    ///
+    /// Unlike ordinary installed-runtime [`Self::open`], this bounded operation
+    /// reads and hashes the complete member. It verifies the manifest-declared
+    /// size and SHA-256 before constructing the provider, detects descriptor or
+    /// pathname replacement during hashing, and retains the authenticated
+    /// descriptor alongside the mmap capability.
+    pub fn open_identified(
+        bundle: &Path,
+    ) -> Result<IdentifiedReferenceBundle, ReferenceIndexError> {
+        Self::open_identified_with(bundle, || {}, |_| {})
+    }
+
+    fn open_identified_with(
+        bundle: &Path,
+        after_open: impl FnOnce(),
+        mut after_chunk: impl FnMut(u64),
+    ) -> Result<IdentifiedReferenceBundle, ReferenceIndexError> {
+        validate_bundle_member_set(bundle)?;
+        let manifest_bytes = read_bounded(&bundle.join("manifest.json"), MAX_MANIFEST_BYTES)?;
+        let notice = read_bounded(&bundle.join("NOTICE"), MAX_NOTICE_BYTES)?;
+        let manifest = parse_manifest(&manifest_bytes)?;
+        let member = &manifest.members[1];
+        let member_path = bundle.join("reference.pgr");
+        let mut reference = open_reference_descriptor(&member_path)?;
+        let before = checked_reference_metadata(&reference)?;
+        validate_members(&manifest, &notice, before.len())?;
+
+        after_open();
+        reference.seek(SeekFrom::Start(0))?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0_u8; 64 * 1024];
+        let mut observed = 0_u64;
+        loop {
+            let count = reference.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            observed = observed
+                .checked_add(count as u64)
+                .ok_or(ReferenceIndexError::Corrupt("reference member length"))?;
+            if observed > before.len() || observed > MAX_MEMBER_BYTES {
+                return Err(ReferenceIndexError::Corrupt("reference member length"));
+            }
+            hasher.update(&buffer[..count]);
+            after_chunk(observed);
+        }
+        if observed != before.len() {
+            return Err(ReferenceIndexError::Corrupt("reference member length"));
+        }
+        let after = checked_reference_metadata(&reference)?;
+        validate_retained_reference_path(&member_path, &before, &after)?;
+        let sha256 = format!("sha256:{:x}", hasher.finalize());
+        if member.size != observed || member.sha256 != sha256 {
+            return Err(ReferenceIndexError::Corrupt(
+                "reference member authentication",
+            ));
+        }
+
+        let provider = Self::open_authenticated(&manifest_bytes, &notice, &reference)?;
+        Ok(IdentifiedReferenceBundle {
+            provider,
+            _member: reference,
+            identity: ReferenceMemberIdentity {
+                bytes: observed,
+                sha256,
+            },
+        })
     }
 
     /// Open a qualification reader from already-authenticated bytes and a
@@ -491,6 +577,21 @@ impl ReferenceProvider for ReferenceBundleOpen {
     }
 }
 
+impl ReferenceProvider for IdentifiedReferenceBundle {
+    fn copy_window(
+        &self,
+        contig: Grch38Contig,
+        start: GenomicPosition,
+        destination: &mut [u8],
+    ) -> Result<(), ReferenceError> {
+        self.provider.copy_window(contig, start, destination)
+    }
+
+    fn provenance(&self) -> &ReferenceProvenance {
+        self.provider.provenance()
+    }
+}
+
 pub fn canonical_reference_manifest_bytes(
     manifest: &ReferenceManifest,
 ) -> Result<Vec<u8>, ReferenceIndexError> {
@@ -523,7 +624,10 @@ fn validate_manifest(manifest: &ReferenceManifest) -> Result<(), ReferenceIndexE
     if manifest.reference_format != REFERENCE_FORMAT {
         return Err(ReferenceIndexError::Incompatible("reference format"));
     }
-    if !matches!(manifest.profile.as_str(), PRODUCTION_PROFILE | MINI_PROFILE) {
+    if !matches!(
+        manifest.profile.as_str(),
+        PRODUCTION_PROFILE | MINI_PROFILE | ROUTE_TEST_PROFILE
+    ) {
         return Err(ReferenceIndexError::Incompatible("reference profile"));
     }
     if manifest.builder.version.is_empty()
@@ -567,12 +671,15 @@ fn validate_manifest(manifest: &ReferenceManifest) -> Result<(), ReferenceIndexE
             return Err(ReferenceIndexError::Corrupt("manifest aliases"));
         }
     }
-    let expected_lengths = if manifest.profile == PRODUCTION_PROFILE {
-        production_contig_lengths()
-    } else {
-        [
+    let expected_lengths = match manifest.profile.as_str() {
+        PRODUCTION_PROFILE => production_contig_lengths(),
+        MINI_PROFILE => [
             30, 16, 12, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 8, 8, 9,
-        ]
+        ],
+        ROUTE_TEST_PROFILE => [
+            10_101, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        ],
+        _ => unreachable!("profile checked above"),
     };
     if manifest
         .sequences
@@ -641,6 +748,29 @@ fn validate_manifest(manifest: &ReferenceManifest) -> Result<(), ReferenceIndexE
     {
         return Err(ReferenceIndexError::Corrupt("mini profile"));
     }
+    if manifest.profile == ROUTE_TEST_PROFILE
+        && (manifest.source.assembly != "synthetic-route-test"
+            || manifest.source.assembly_accession != ROUTE_TEST_PROFILE
+            || manifest.source.fasta.url != "urn:pangopup:fixture:reference-route-test-v1:source"
+            || manifest.source.fasta.compression.as_deref() != Some("none")
+            || manifest.source.fasta.bytes != 11_136
+            || manifest.source.fasta.sha256
+                != "sha256:81a5af971ad9c72b3a679a678ca05f2b050a865a622e272abc77eb1be43c3eb8"
+            || manifest.source.assembly_report.url
+                != "urn:pangopup:fixture:reference-route-test-v1:assembly-report"
+            || manifest.source.assembly_report.bytes != 2_112
+            || manifest.source.assembly_report.sha256
+                != "sha256:ca184c4c4448bdb9af66899d1d84f7925ab993528f774fe843a45825015a9c5f"
+            || manifest.sequences.total_bases != 10_125
+            || manifest.sequences.sequence_set_sha256
+                != "sha256:afb720dad5979f65694dab6ae80a497ef56db434d7d346e79cdcb0e7da97e0b3"
+            || manifest.sequences.extra_record_count != 0
+            || manifest.sequences.extra_accessions_sha256
+                != "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            || manifest.attribution.policy_url != "https://www.gnu.org/licenses/gpl-3.0.html")
+    {
+        return Err(ReferenceIndexError::Corrupt("route-test profile"));
+    }
     Ok(())
 }
 
@@ -649,10 +779,11 @@ fn validate_members(
     notice: &[u8],
     reference_size: u64,
 ) -> Result<(), ReferenceIndexError> {
-    let expected_notice = if manifest.profile == PRODUCTION_PROFILE {
-        PRODUCTION_NOTICE.as_bytes()
-    } else {
-        MINI_NOTICE.as_bytes()
+    let expected_notice = match manifest.profile.as_str() {
+        PRODUCTION_PROFILE => PRODUCTION_NOTICE.as_bytes(),
+        MINI_PROFILE => MINI_NOTICE.as_bytes(),
+        ROUTE_TEST_PROFILE => ROUTE_TEST_NOTICE.as_bytes(),
+        _ => return Err(ReferenceIndexError::Incompatible("reference profile")),
     };
     if notice != expected_notice
         || manifest.members[0].size != notice.len() as u64
@@ -1268,6 +1399,88 @@ fn align8(value: u64) -> Result<u64, ReferenceIndexError> {
         .ok_or(ReferenceIndexError::Corrupt("alignment"))
 }
 
+fn validate_bundle_member_set(bundle: &Path) -> Result<(), ReferenceIndexError> {
+    let mut names = Vec::with_capacity(3);
+    for (count, entry) in fs::read_dir(bundle)?.enumerate() {
+        if count >= 3 {
+            return Err(ReferenceIndexError::Corrupt("bundle member set"));
+        }
+        let entry = entry?;
+        let metadata = fs::symlink_metadata(entry.path())?;
+        if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+            return Err(ReferenceIndexError::Corrupt("bundle member type"));
+        }
+        names.push(
+            entry
+                .file_name()
+                .into_string()
+                .map_err(|_| ReferenceIndexError::Corrupt("bundle member name"))?,
+        );
+    }
+    names.sort();
+    if names != ["NOTICE", "manifest.json", "reference.pgr"] {
+        return Err(ReferenceIndexError::Corrupt("bundle member set"));
+    }
+    Ok(())
+}
+
+fn open_reference_descriptor(path: &Path) -> Result<File, ReferenceIndexError> {
+    let descriptor = rustix::fs::open(
+        path,
+        rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    )
+    .map_err(|error| ReferenceIndexError::Io(io::Error::from_raw_os_error(error.raw_os_error())))?;
+    Ok(File::from(descriptor))
+}
+
+fn checked_reference_metadata(file: &File) -> Result<fs::Metadata, ReferenceIndexError> {
+    let metadata = file.metadata()?;
+    if !metadata.is_file()
+        || metadata.nlink() != 1
+        || !(DENSE_OFFSET..=MAX_MEMBER_BYTES).contains(&metadata.len())
+    {
+        return Err(ReferenceIndexError::Corrupt(
+            "reference member length or type",
+        ));
+    }
+    Ok(metadata)
+}
+
+fn same_reference_state(left: &fs::Metadata, right: &fs::Metadata) -> bool {
+    left.dev() == right.dev()
+        && left.ino() == right.ino()
+        && left.len() == right.len()
+        && left.mtime() == right.mtime()
+        && left.mtime_nsec() == right.mtime_nsec()
+        && left.ctime() == right.ctime()
+        && left.ctime_nsec() == right.ctime_nsec()
+}
+
+fn validate_retained_reference_path(
+    path: &Path,
+    before: &fs::Metadata,
+    after: &fs::Metadata,
+) -> Result<(), ReferenceIndexError> {
+    if !same_reference_state(before, after) {
+        return Err(ReferenceIndexError::Corrupt(
+            "reference member changed during hashing",
+        ));
+    }
+    let path_metadata = fs::symlink_metadata(path)?;
+    if path_metadata.file_type().is_symlink()
+        || !path_metadata.is_file()
+        || path_metadata.nlink() != 1
+        || path_metadata.dev() != after.dev()
+        || path_metadata.ino() != after.ino()
+    {
+        return Err(ReferenceIndexError::Corrupt(
+            "reference member path replaced during hashing",
+        ));
+    }
+    Ok(())
+}
+
 fn read_bounded(path: &Path, maximum: u64) -> Result<Vec<u8>, ReferenceIndexError> {
     let file = File::open(path)?;
     let size = file.metadata()?.len();
@@ -1325,6 +1538,41 @@ fn le_u64(bytes: &[u8], offset: usize) -> Result<u64, ReferenceIndexError> {
 mod tests {
     use super::*;
     use memmap2::MmapOptions;
+    use std::os::unix::fs::symlink;
+
+    fn route_bundle_fixture() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/reference-route-test/bundle")
+    }
+
+    fn identified_scratch(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "pangopup-reference-identified-{label}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ))
+    }
+
+    fn copy_route_bundle(destination: &Path) {
+        fs::create_dir_all(destination).expect("create identified reference scratch");
+        let source = route_bundle_fixture();
+        for member in ["NOTICE", "manifest.json", "reference.pgr"] {
+            fs::copy(source.join(member), destination.join(member))
+                .expect("copy route reference member");
+        }
+    }
+
+    fn mutate_reference(path: &Path, value: u8) {
+        let mut file = File::options()
+            .read(true)
+            .write(true)
+            .open(path)
+            .expect("open reference mutation target");
+        file.seek(SeekFrom::Start(DENSE_OFFSET))
+            .expect("seek reference payload");
+        file.write_all(&[value]).expect("mutate reference payload");
+        file.sync_all().expect("sync reference payload mutation");
+    }
 
     fn decode_packed_scalar(packed: &[u8], first_packed: u64, begin: u64, destination: &mut [u8]) {
         for (offset, output) in destination.iter_mut().enumerate() {
@@ -1419,6 +1667,135 @@ mod tests {
             .range(&bytes, 4096, 128, "fixture")
             .expect("ordinary open range");
         assert_eq!(disabled.dense_bytes, 0);
+    }
+
+    #[test]
+    fn identified_reference_rejects_same_size_corruption_symlink_and_hash_races() {
+        let scratch = identified_scratch("controls");
+        if scratch.exists() {
+            fs::remove_dir_all(&scratch).expect("remove stale identified scratch");
+        }
+
+        let corrupt = scratch.join("corrupt");
+        copy_route_bundle(&corrupt);
+        mutate_reference(&corrupt.join("reference.pgr"), 1);
+        ReferenceBundleOpen::open(&corrupt)
+            .expect("ordinary cheap open deliberately does not hash dense payload");
+        assert!(matches!(
+            ReferenceBundleOpen::open_identified(&corrupt),
+            Err(ReferenceIndexError::Corrupt(
+                "reference member authentication"
+            ))
+        ));
+
+        let linked = scratch.join("linked");
+        copy_route_bundle(&linked);
+        fs::remove_file(linked.join("reference.pgr")).expect("remove copied member");
+        symlink(
+            route_bundle_fixture().join("reference.pgr"),
+            linked.join("reference.pgr"),
+        )
+        .expect("link reference member");
+        assert!(ReferenceBundleOpen::open_identified(&linked).is_err());
+
+        let mutation = scratch.join("mutation");
+        copy_route_bundle(&mutation);
+        let mutation_path = mutation.join("reference.pgr");
+        let mut mutated = false;
+        let result = ReferenceBundleOpen::open_identified_with(
+            &mutation,
+            || {},
+            |_| {
+                if !mutated {
+                    mutate_reference(&mutation_path, 1);
+                    mutated = true;
+                }
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(ReferenceIndexError::Corrupt(
+                "reference member changed during hashing" | "reference member authentication"
+            ))
+        ));
+
+        let replacement = scratch.join("replacement");
+        copy_route_bundle(&replacement);
+        let replacement_path = replacement.join("reference.pgr");
+        let retained_path = replacement.join("retained.pgr");
+        let mut replaced = false;
+        let result = ReferenceBundleOpen::open_identified_with(
+            &replacement,
+            || {},
+            |_| {
+                if !replaced {
+                    fs::rename(&replacement_path, &retained_path).expect("retain opened reference");
+                    fs::copy(
+                        route_bundle_fixture().join("reference.pgr"),
+                        &replacement_path,
+                    )
+                    .expect("replace reference pathname");
+                    replaced = true;
+                }
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(ReferenceIndexError::Corrupt(
+                "reference member changed during hashing"
+                    | "reference member path replaced during hashing"
+            ))
+        ));
+
+        fs::remove_dir_all(&scratch).expect("remove identified scratch");
+    }
+
+    #[test]
+    fn identified_reference_retains_the_authenticated_map_after_path_substitution() {
+        let scratch = identified_scratch("retained");
+        if scratch.exists() {
+            fs::remove_dir_all(&scratch).expect("remove stale identified scratch");
+        }
+        let bundle = scratch.join("bundle");
+        copy_route_bundle(&bundle);
+
+        let identified =
+            ReferenceBundleOpen::open_identified(&bundle).expect("identified reference open");
+        assert_eq!(identified.identity().bytes(), 6_648);
+        assert_eq!(
+            identified.identity().sha256(),
+            "sha256:fcd1441d5ff6d703acd52f5766ca597c6202044d4e3b330726d3460707cad880"
+        );
+
+        let member = bundle.join("reference.pgr");
+        fs::rename(&member, scratch.join("retained.pgr")).expect("rename authenticated member");
+        fs::copy(route_bundle_fixture().join("reference.pgr"), &member)
+            .expect("replace member pathname");
+        mutate_reference(&member, 1);
+
+        let mut authenticated = [0_u8; 4];
+        identified
+            .copy_window(
+                Grch38Contig::autosome(1).expect("chr1"),
+                GenomicPosition::new(1).expect("position"),
+                &mut authenticated,
+            )
+            .expect("read authenticated map");
+        assert_eq!(&authenticated, b"AAAA");
+
+        let replacement =
+            ReferenceBundleOpen::open(&bundle).expect("ordinary replacement structural open");
+        let mut substituted = [0_u8; 4];
+        replacement
+            .copy_window(
+                Grch38Contig::autosome(1).expect("chr1"),
+                GenomicPosition::new(1).expect("position"),
+                &mut substituted,
+            )
+            .expect("read replacement map");
+        assert_eq!(&substituted, b"CAAA");
+
+        fs::remove_dir_all(&scratch).expect("remove identified scratch");
     }
 
     #[test]

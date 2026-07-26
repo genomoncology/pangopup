@@ -1,5 +1,8 @@
 use super::*;
-use pangopup_core::{ReferenceProvenance, ValueError};
+use pangopup_core::{
+    DnaBase, GeneScoreRecord, LookupProvenance, PrecomputedProvenance, ReferenceProvenance,
+    SourceReferenceAmbiguity, ValueError,
+};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -1121,5 +1124,159 @@ fn core_rejects_identical_alleles_before_a_scorer_can_be_built() {
             "A"
         ),
         Err(ValueError::SameAlleles)
+    );
+}
+
+type LookupCalls = Arc<Mutex<Vec<(Grch38Snv, Option<EnsemblGeneId>)>>>;
+
+struct SpyLookup {
+    calls: LookupCalls,
+    response: LookupResult,
+}
+
+impl ScoreProvider for SpyLookup {
+    fn lookup(
+        &self,
+        snv: Grch38Snv,
+        gene: Option<EnsemblGeneId>,
+    ) -> Result<LookupResult, LookupError> {
+        self.calls.lock().expect("lookup calls").push((snv, gene));
+        Ok(self.response.clone())
+    }
+}
+
+fn lookup_provenance() -> LookupProvenance {
+    LookupProvenance::Precomputed(PrecomputedProvenance::new(
+        "sha256:lookup".to_owned(),
+        "10.5281/zenodo.15649338".to_owned(),
+        "source-md5".to_owned(),
+        true,
+        50,
+    ))
+}
+
+fn router_with(
+    records: Vec<GeneScoreRecord>,
+    ambiguities: Vec<SourceReferenceAmbiguity>,
+) -> (LookupFirstRouter<SpyLookup>, LookupCalls) {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    (
+        LookupFirstRouter::new(SpyLookup {
+            calls: Arc::clone(&calls),
+            response: LookupResult::new(records, ambiguities, lookup_provenance()),
+        }),
+        calls,
+    )
+}
+
+fn route_request(reference: &str, alternate: &str, gene: Option<EnsemblGeneId>) -> RouteRequest {
+    RouteRequest::new(
+        Grch38Variant::new(
+            Grch38Contig::autosome(1).expect("chr1"),
+            GenomicPosition::new(6_000).expect("position"),
+            reference,
+            alternate,
+        )
+        .expect("route variant"),
+        gene,
+    )
+}
+
+#[test]
+fn router_preserves_authoritative_records_and_ambiguities_without_model() {
+    let stable = EnsemblGeneId::from_str("ENSG00000000001").expect("stable");
+    let score = PangolinScore::new(
+        ScoreMagnitude::new(10).expect("gain"),
+        RelativePosition::new(1).expect("gain position"),
+        ScoreMagnitude::new(20).expect("loss"),
+        RelativePosition::new(-1).expect("loss position"),
+    );
+    for (records, ambiguities) in [
+        (vec![GeneScoreRecord::new(stable, score)], Vec::new()),
+        (
+            Vec::new(),
+            vec![SourceReferenceAmbiguity::new(stable, DnaBase::A)],
+        ),
+    ] {
+        let (router, calls) = router_with(records, ambiguities);
+        let decision = router
+            .inspect(route_request("A", "C", Some(stable)))
+            .expect("route");
+        assert!(matches!(
+            decision,
+            RouteDecision::Authoritative(RoutedResult::Precomputed { .. })
+        ));
+        assert_eq!(calls.lock().expect("calls").len(), 1);
+        assert_eq!(calls.lock().expect("calls")[0].1, Some(stable));
+    }
+}
+
+#[test]
+fn pure_snv_misses_require_model_and_non_snvs_skip_lookup() {
+    let stable = EnsemblGeneId::from_str("ENSG00000000001").expect("stable");
+    let (router, calls) = router_with(Vec::new(), Vec::new());
+    for gene in [None, Some(stable)] {
+        let decision = router
+            .inspect(route_request("A", "C", gene))
+            .expect("SNV route");
+        let RouteDecision::ModelRequired(required) = decision else {
+            panic!("pure miss must require model")
+        };
+        assert_eq!(required.gene(), gene);
+    }
+    assert_eq!(calls.lock().expect("calls").len(), 2);
+
+    let decision = router
+        .inspect(route_request("A", "AC", Some(stable)))
+        .expect("non-SNV route");
+    assert!(matches!(decision, RouteDecision::ModelRequired(_)));
+    assert_eq!(
+        calls.lock().expect("calls").len(),
+        2,
+        "non-SNV must not call lookup provider"
+    );
+}
+
+#[test]
+fn model_completion_masks_all_genes_before_filtering_and_preserves_order() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let first = test_gene(&[]);
+    let second = MaskGene {
+        identity: GencodeGeneId::from_str("ENSG00000000002.3").expect("second gene"),
+        boundaries: Vec::new(),
+    };
+    let scorer = VariantScorer {
+        engine: spy_engine(
+            Arc::clone(&events),
+            SpyReferenceOutcome::Bases(reference_context(b"A")),
+            Ok(MaskGenes {
+                plus: vec![first, second],
+                minus: Vec::new(),
+            }),
+            None,
+        ),
+    };
+    let mut fallback = ModelFallback {
+        scorer,
+        provenance: ModelProvenance {
+            model_bundle_id: "sha256:model".to_owned(),
+            model_profile: "test-model".to_owned(),
+            reference: dummy_provenance(),
+            mask_bytes: 123,
+            mask_sha256: "sha256:mask".to_owned(),
+        },
+    };
+    let filter = EnsemblGeneId::from_str("ENSG00000000002").expect("filter");
+    let required = ModelRequired {
+        request: route_request("A", "C", Some(filter)),
+    };
+    let result = fallback.complete(required).expect("model completion");
+    let records = result.modeled_records().expect("modeled records");
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].gene().to_string(), "ENSG00000000002.3");
+    assert_eq!(
+        *events.lock().expect("events"),
+        vec!["reference", "mask", "model:+", "model:+"],
+        "mask query happens once before model evaluation and filtering"
     );
 }

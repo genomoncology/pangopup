@@ -290,7 +290,14 @@ fn benchmark_serialization(
 ) -> Result<(), Box<dyn Error>> {
     let records: usize = materialized
         .iter()
-        .map(|request| request.result().records().len())
+        .map(|request| {
+            request
+                .result()
+                .precomputed()
+                .expect("lookup benchmark result")
+                .records()
+                .len()
+        })
         .sum();
     let (times, output, calls, bytes, delta) = sample(|| {
         let rendered = render_requests(format, materialized).expect("render");

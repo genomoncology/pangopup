@@ -1,0 +1,25 @@
+{
+  "schema": "pangopup-route-mask-v1",
+  "genes": [
+    {
+      "id": "ENSG00000000001.1",
+      "contig": "chr1",
+      "strand": "+",
+      "start": 1,
+      "end": 10101,
+      "rank": 0,
+      "canonical_boundaries": []
+    }
+  ],
+  "query": {
+    "contig": "chr1",
+    "position": 5051,
+    "plus": [
+      {
+        "id": "ENSG00000000001.1",
+        "boundaries": []
+      }
+    ],
+    "minus": []
+  }
+}

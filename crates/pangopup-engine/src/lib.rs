@@ -1,20 +1,25 @@
 //! Variant-level Pangolin scoring over the shipped reference, mask, and raw
 //! model providers.
 //!
-//! This crate owns the fixed GRCh38 distance-50 composition. It deliberately
-//! does not route through the precomputed SNV index or expose the raw model
-//! seam used by its compatibility tests.
+//! This crate owns the fixed GRCh38 distance-50 composition and the small
+//! lookup-first routing boundary above it. It does not own asset-opening or
+//! transport policy and does not expose the raw model seam used by its
+//! compatibility tests.
 
 use pangopup_core::{
-    GencodeGeneId, GenomicPosition, Grch38Contig, Grch38Variant, ModelGeneScoreRecord,
-    ModelRejection, ModelScoreResult, ModelScoringError, ModelWarning, PangolinScore,
-    ReferenceError, ReferenceProvider, RelativePosition, ScoreMagnitude,
+    DnaBase, EnsemblGeneId, GencodeGeneId, GenomicPosition, Grch38Contig, Grch38Snv, Grch38Variant,
+    LookupError, LookupResult, ModelGeneScoreRecord, ModelRejection, ModelScoreResult,
+    ModelScoringError, ModelWarning, PangolinScore, ReferenceError, ReferenceProvenance,
+    ReferenceProvider, RelativePosition, ScoreMagnitude, ScoreProvider,
 };
-use pangopup_index::mask::{MaskProvider, MaskQueryBuffer, MaskQueryGene};
+use pangopup_index::{
+    mask::{IdentifiedMaskDomains, MaskProvider, MaskQueryBuffer, MaskQueryGene},
+    reference::IdentifiedReferenceBundle,
+};
 use pangopup_model::{
     CHANNELS, CONTEXT_FLANKS, ModelContext, ModelKernel, ReplicateScores, Strand,
 };
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt};
 
 const DISTANCE: i16 = 50;
 const FLANK: u32 = 5_050;
@@ -48,6 +53,256 @@ impl VariantScorer {
         variant: &Grch38Variant,
     ) -> Result<ModelScoreResult, ModelScoringError> {
         self.engine.score(variant)
+    }
+}
+
+/// One owned request at the lookup-first routing boundary.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RouteRequest {
+    variant: Grch38Variant,
+    gene: Option<EnsemblGeneId>,
+}
+
+impl RouteRequest {
+    pub const fn new(variant: Grch38Variant, gene: Option<EnsemblGeneId>) -> Self {
+        Self { variant, gene }
+    }
+
+    pub const fn variant(&self) -> &Grch38Variant {
+        &self.variant
+    }
+
+    pub const fn gene(&self) -> Option<EnsemblGeneId> {
+        self.gene
+    }
+}
+
+/// A request that did not have an authoritative precomputed result.
+///
+/// Values can be created only by [`LookupFirstRouter::inspect`], so model
+/// completion necessarily consumes the exact variant and filter that were
+/// inspected.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelRequired {
+    request: RouteRequest,
+}
+
+impl ModelRequired {
+    pub const fn variant(&self) -> &Grch38Variant {
+        self.request.variant()
+    }
+
+    pub const fn gene(&self) -> Option<EnsemblGeneId> {
+        self.request.gene()
+    }
+}
+
+/// The result of the cheap lookup-first decision.
+#[derive(Clone, Debug, Eq, PartialEq)]
+// Keeping the authoritative value inline avoids one heap allocation on every
+// successful SNV hit, the highest-priority route.
+#[allow(clippy::large_enum_variant)]
+pub enum RouteDecision {
+    Authoritative(RoutedResult),
+    ModelRequired(ModelRequired),
+}
+
+/// Exact provenance bound to one concrete model fallback.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelProvenance {
+    model_bundle_id: String,
+    model_profile: String,
+    reference: ReferenceProvenance,
+    mask_bytes: u64,
+    mask_sha256: String,
+}
+
+impl ModelProvenance {
+    pub const fn scoring_semantics(&self) -> &'static str {
+        "pangopup-variant-score-v1"
+    }
+
+    pub fn model_bundle_id(&self) -> &str {
+        &self.model_bundle_id
+    }
+
+    pub fn model_profile(&self) -> &str {
+        &self.model_profile
+    }
+
+    pub const fn reference(&self) -> &ReferenceProvenance {
+        &self.reference
+    }
+
+    pub const fn mask_bytes(&self) -> u64 {
+        self.mask_bytes
+    }
+
+    pub fn mask_sha256(&self) -> &str {
+        &self.mask_sha256
+    }
+
+    pub const fn masked(&self) -> bool {
+        true
+    }
+
+    pub const fn window(&self) -> u32 {
+        DISTANCE as u32
+    }
+}
+
+/// One complete routed answer.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RoutedResult {
+    Precomputed {
+        variant: Grch38Variant,
+        result: LookupResult,
+    },
+    Modeled {
+        variant: Grch38Variant,
+        records: Vec<ModelGeneScoreRecord>,
+        provenance: ModelProvenance,
+    },
+}
+
+impl RoutedResult {
+    pub const fn variant(&self) -> &Grch38Variant {
+        match self {
+            Self::Precomputed { variant, .. } | Self::Modeled { variant, .. } => variant,
+        }
+    }
+
+    pub const fn precomputed(&self) -> Option<&LookupResult> {
+        match self {
+            Self::Precomputed { result, .. } => Some(result),
+            Self::Modeled { .. } => None,
+        }
+    }
+
+    pub fn modeled_records(&self) -> Option<&[ModelGeneScoreRecord]> {
+        match self {
+            Self::Precomputed { .. } => None,
+            Self::Modeled { records, .. } => Some(records),
+        }
+    }
+
+    pub const fn model_provenance(&self) -> Option<&ModelProvenance> {
+        match self {
+            Self::Precomputed { .. } => None,
+            Self::Modeled { provenance, .. } => Some(provenance),
+        }
+    }
+}
+
+/// The small lookup-first router over one precomputed score provider.
+pub struct LookupFirstRouter<P> {
+    provider: P,
+}
+
+impl<P: ScoreProvider> LookupFirstRouter<P> {
+    pub const fn new(provider: P) -> Self {
+        Self { provider }
+    }
+
+    /// Inspect a request without opening or invoking model components.
+    pub fn inspect(&self, request: RouteRequest) -> Result<RouteDecision, LookupError> {
+        let variant = request.variant();
+        if variant.reference().len() == 1 && variant.alternate().len() == 1 {
+            let reference = DnaBase::parse(variant.reference())
+                .expect("Grch38Variant guarantees one uppercase A/C/G/T base");
+            let alternate = DnaBase::parse(variant.alternate())
+                .expect("Grch38Variant guarantees one uppercase A/C/G/T base");
+            let snv = Grch38Snv::new(variant.contig(), variant.position(), reference, alternate)
+                .expect("Grch38Variant guarantees distinct alleles");
+            let result = self.provider.lookup(snv, request.gene())?;
+            if !result.records().is_empty() || !result.source_reference_ambiguities().is_empty() {
+                return Ok(RouteDecision::Authoritative(RoutedResult::Precomputed {
+                    variant: request.variant,
+                    result,
+                }));
+            }
+        }
+        Ok(RouteDecision::ModelRequired(ModelRequired { request }))
+    }
+}
+
+/// Expected or operational failure while completing a model-required route.
+#[derive(Debug)]
+pub enum ModelFallbackError {
+    Rejected(ModelRejection),
+    Scoring(ModelScoringError),
+}
+
+impl fmt::Display for ModelFallbackError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Rejected(error) => write!(formatter, "model rejected variant: {error}"),
+            Self::Scoring(error) => write!(formatter, "model scoring failed: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for ModelFallbackError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Rejected(_) => None,
+            Self::Scoring(error) => Some(error),
+        }
+    }
+}
+
+/// One scorer and the identities captured from its exact concrete components.
+pub struct ModelFallback {
+    scorer: VariantScorer,
+    provenance: ModelProvenance,
+}
+
+impl ModelFallback {
+    pub fn new(
+        reference: IdentifiedReferenceBundle,
+        mask: IdentifiedMaskDomains,
+        model: ModelKernel,
+    ) -> Self {
+        let reference_provenance = reference.provenance().clone();
+        let model_bundle_id = model.bundle_identity().to_string();
+        let model_profile = model.profile().to_owned();
+        let mask_identity = mask.identity();
+        let provenance = ModelProvenance {
+            model_bundle_id,
+            model_profile,
+            reference: reference_provenance,
+            mask_bytes: mask_identity.bytes(),
+            mask_sha256: format!("sha256:{}", mask_identity.sha256()),
+        };
+        Self {
+            scorer: VariantScorer::new(reference, mask, model),
+            provenance,
+        }
+    }
+
+    /// Complete exactly one token emitted by the lookup-first router.
+    pub fn complete(
+        &mut self,
+        required: ModelRequired,
+    ) -> Result<RoutedResult, ModelFallbackError> {
+        let result = self
+            .scorer
+            .score(required.variant())
+            .map_err(ModelFallbackError::Scoring)?;
+        let mut records = match result {
+            ModelScoreResult::Scored(records) => records,
+            ModelScoreResult::Rejected(rejection) => {
+                return Err(ModelFallbackError::Rejected(rejection));
+            }
+        };
+        if let Some(filter) = required.gene() {
+            records.retain(|record| record.gene().stable() == filter);
+        }
+        Ok(RoutedResult::Modeled {
+            variant: required.request.variant,
+            records,
+            provenance: self.provenance.clone(),
+        })
     }
 }
 

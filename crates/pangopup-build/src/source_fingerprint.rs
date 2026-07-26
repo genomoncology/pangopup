@@ -201,7 +201,7 @@ mod tests {
     const EXPECTED_SNV_SHA256: &str =
         "b3bdc4d9d8e710fb554fd47f0cfc6f6a7bb764451069e6ae4a98534d8c5dc6a2";
     const EXPECTED_REFERENCE_SHA256: &str =
-        "8c94a75f3f30b9a9b72dadffb9f232dd2b28a0258f30feb69fac7703f529f23d";
+        "4bc0e93b83b28e235a7d0f498976bfe1e97b39d13e4f8c940d4c03cfd3d641bf";
     static RESOLVER_SERIAL: AtomicU64 = AtomicU64::new(0);
     static MANIFEST_MODEL: OnceLock<ManifestModel> = OnceLock::new();
 

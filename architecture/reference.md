@@ -12,8 +12,12 @@ The immutable bundle contains only `NOTICE`, canonical `manifest.json`, and
 `reference.pgr`. Production profile `refseq-grch38p14-primary-v1` binds the
 exact NCBI RefSeq GRCh38.p14 gzip, assembly report, ordered accessions and
 lengths, 3,088,286,401-base logical digest, 680 ignored records, attribution,
-and both member hashes. `pangopup-reference-mini-v1` is a registered synthetic
-25-contig profile for normal tests; it cannot identify itself as GRCh38.
+and both member hashes. `pangopup-reference-mini-v1` is a registered small
+synthetic 25-contig profile. The distinct
+`pangopup-reference-route-test-v1` fixture has a 10,101-base all-A chr1 and 24
+one-base contigs so normal tests exercise one complete scorer context through
+the production reader. Neither synthetic profile can identify itself as
+GRCh38 or be installed as production evidence.
 
 `reference.pgr` uses production magic `PGRREF01`. It packs A/C/G/T into two
 bits and records exact IUPAC ambiguity runs in one bounded table. Its header,
@@ -30,6 +34,17 @@ runs. It then retains one read-only mmap and the small ambiguity table.
 Opening does not hash or scan dense sequence bytes. A successful window copies
 only the packed bytes it needs, overlays intersecting ambiguity runs, performs
 no heap allocation, and returns uppercase IUPAC.
+
+Explicit CLI fallback uses the stricter `open_identified` capability. It opens
+one regular single-link `reference.pgr` descriptor without following symlinks,
+reads at most the bounded member size while hashing it, verifies the
+manifest-declared size and SHA-256, rejects descriptor mutation or pathname
+replacement during hashing, maps that same descriptor, and retains it with the
+provider used by scoring. This deliberately reads the complete reference
+member—772,091,760 bytes for the qualified production bundle—once when a
+batch actually requires explicit fallback. It is not paid by authoritative
+SNV hits, and it does not change the cheap ordinary open used after a future
+installer has already authenticated immutable bytes.
 
 The provider rejects empty or out-of-range windows without changing the
 destination. chrM never wraps. Alias parsing is an adapter concern; the core
@@ -52,7 +67,8 @@ ambiguity state is retained.
 Before atomic no-replace publication, private certification hashes both
 members, checks dense padding and ambiguity placeholders, decodes all sequences
 through the production provider, reproduces the independent logical digest,
-and checks four synthetic or fourteen frozen Pangolin contexts. There is no
+and checks four miniature, one route-test, or fourteen frozen Pangolin
+contexts according to profile. There is no
 public exhaustive verification command and normal gates never read the NCBI
 source.
 
@@ -73,7 +89,8 @@ identity.
 
 A same-size two-bit substitution is a valid encoding and deliberately is not
 detected by cheap open. Build certification detects it through member and
-logical hashes. Future transport/install work must authenticate the
+logical hashes; explicit CLI fallback now detects it through its identified
+open. Future transport/install work must authenticate the
 manifest-bound member hash before activating a downloaded bundle; adding
 per-page checksums would tax the highest-priority query path and requires new
 measurement.

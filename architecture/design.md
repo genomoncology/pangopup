@@ -2,10 +2,9 @@
 
 ## Product boundary
 
-The first finished slice accepts a literal GRCh38 genomic SNV, finds every
-matching gene-specific record present in one pinned source archive, and returns
-the four published Pangolin values plus provenance. The complete service adds a
-model provider for supported variants without an index result.
+The shipped CLI accepts a literal GRCh38 genomic variant, preserves every
+authoritative gene-specific record present in one pinned source archive, and
+can run the model for caller-enabled SNV misses and supported non-SNVs.
 
 ```text
 CLI/HTTP structured genomic variant
@@ -77,11 +76,20 @@ plus-before-minus and authenticated within-strand order, optional stable-gene
 filtering, and normalized exon boundaries. The historical writer, alternate
 codecs, and source-format qualification APIs have been removed; retained
 reports and exactness fixtures preserve the selection evidence. Ordinary open
-remains cheap; a separate member-authentication open hashes the bounded bytes
-through the same held descriptor that is mapped and returns its verified
-identity. As specified by ADR 0013, the verified inode must remain immutable;
+remains cheap; `open_identified` hashes caller-supplied bounded bytes and
+returns one capability coupling the observed identity to the same held
+descriptor and mmap used by queries. As specified by ADR 0013, the identified
+inode must remain immutable;
 concurrent in-place mutation or truncation is outside the supported threat
 model.
+
+The reference reader has the same two-level policy. Ordinary
+`ReferenceBundleOpen::open` remains the cheap installed-runtime structural
+open. Explicit CLI fallback uses a coupled identified reference capability:
+it hashes the complete bounded `reference.pgr`, verifies the digest declared
+by the canonical manifest, maps that same retained descriptor, and moves the
+capability into `ModelFallback`. The full-member read is paid only when a
+batch truly requires explicit model scoring.
 
 ### `pangopup-build`
 
@@ -136,10 +144,13 @@ Owns the mutable single-owner composition of `ReferenceProvider`,
 50; constructs exact reference/alternate contexts; retains `f32` for
 equal-length/insertion arithmetic and upstream-promoted `f64` for deletions;
 and masks one shared gain/loss pair in authenticated plus-then-minus gene
-order. Its kernel test seam is private. It owns no lookup routing, gene filter,
-asset path discovery, delivery, cache, pool, CLI, HTTP, or concurrency claim.
+order. Above the unfiltered scorer, one small typed router preserves
+authoritative precomputed results, emits owned model-required tokens, and
+applies a stable-gene filter only after complete model scoring. Its kernel test
+seam is private. It owns no asset path discovery, delivery, cache, pool, CLI,
+HTTP, or concurrency policy.
 
-A future `pangopup-http` crate must consume the same eventual routed provider
+A future `pangopup-http` crate must consume the same routed result boundary
 rather than leak model runtime, HTTP, or cache types into the scoring API. The
 shipped assets crate owns explicit pinned remote sync plus its Linux
 XDG installation adapter. `pangopup-core` performs no network or home-directory
@@ -191,19 +202,20 @@ several valid score records. Pangopup returns every matching record by default
 and accepts an optional source-gene filter; it never guesses one best gene.
 
 The shipped variant scorer deliberately has no gene filter: it queries and
-masks every containing exact GENCODE identity before a future router may apply
-an unversioned filter. That later filter must match stable components only on
+masks every containing exact GENCODE identity before the router applies an
+unversioned filter. That filter matches stable components only on
 the already selected contig and must not merge chrX and chrY `_PAR_Y` copies.
 Exact mask query order is semantic because upstream Pangolin mutates shared
 score arrays while visiting overlapping same-strand genes.
 
-The current CLI slice accepts concrete SNVs only and tries the precomputed index.
-A concrete tuple whose reference does not match an ordinary indexed key is a
-typed-context `not_found` result because the lookup-only route does not consult
-the shipped GRCh38 sequence provider. The model scorer instead compares the
-literal REF at the context anchor and returns typed `ReferenceMismatch`; a
-later router will choose between these already defined behaviors. Every
-current lookup result identifies the precomputed bundle and source provenance.
+The current CLI accepts literal uppercase A/C/G/T alleles. Without a complete
+fallback tuple it retains lookup-only SNV behavior, including a typed
+`not_found`; a non-SNV requires model assets. With the tuple supplied, an
+authoritative precomputed record or source-reference ambiguity wins, while a
+pure SNV miss or non-SNV is completed through the model. The model scorer
+compares the literal REF at the context anchor and returns typed
+`ReferenceMismatch`. Every result identifies the concrete precomputed or
+model/reference/mask inputs used.
 
 See [`runtime-data.md`](runtime-data.md) for the small set of standalone assets
 needed by lookup and model execution.
@@ -236,9 +248,12 @@ Every result carries enough provenance to identify:
 
 ## Target runtime behavior
 
-Today the CLI opens either one explicitly supplied bundle or the atomically
-selected active Linux installation. Local install/status and active discovery
-and pinned remote sync are shipped; no HTTP adapter exists. In the target service,
+Today the CLI opens either one explicitly supplied SNV bundle or the atomically
+selected active Linux installation. It optionally opens one explicit local
+identified reference, identified mask, and model tuple only after a batch needs
+fallback.
+Local install/status and active discovery and pinned remote sync are shipped;
+no HTTP adapter exists. In the target service,
 before serving, an adapter asks remote sync to obtain one binary-pinned
 compatible transport and passes it through the same local installer. The core
 then opens one immutable bundle. A replacement bundle requires a new process.
@@ -259,15 +274,11 @@ never appears on the query path.
 
 The current sync profile provisions only the SNV transport. A future full
 service must pin a coherent set of SNV, compiled GRCh38 sequence index, mask,
-and converted model identities before it can report readiness. Existing
-sequence, mask, raw-model, and variant-scoring providers still need
-lookup-first routing and coherent asset activation before product fallback is
-operational.
+and converted model identities before it can report readiness. Explicit-path
+fallback is operational; coherent asset activation is not.
 
 ## Planned extensions not yet shipped
 
-- lookup-first routing through one typed result/provenance API;
-- stable CLI model output over the routed result;
 - application-level model-result caching only if measurements justify it;
 - separately versioned converted model, compiled GRCh38 sequence index, and mask
   publication and pinned sync;

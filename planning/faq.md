@@ -89,7 +89,8 @@ general transcript/protein reference system and is not splice scoring.
 The lookup path needs only the fixed-v1 score bundle. The shipped model scorer
 additionally needs the authenticated converted model bundle, local GRCh38 DNA
 bases, and a map of gene strand plus exon boundaries. Lookup-first routing is
-still future. The original checkpoint
+shipped through three explicit local CLI flags; coherent installation and
+automatic activation remain future. The original checkpoint
 containers are maintainer conversion inputs, not runtime inputs. The DNA is
 pinned NCBI RefSeq GRCh38.p14
 `GCF_000001405.40`. The boundary map is compiled from the GENCODE annotation
@@ -172,8 +173,17 @@ build input. The shipped reference builder compiles all 25 required primary
 sequences into the production `PGRREF01` mmap bundle, and its provider copies a
 bounded sequence window without parsing FASTA or loading the whole reference
 into heap memory. The variant scorer consumes that provider when opened
-explicitly and composes it with the mask and raw CPU kernel. Installation,
-lookup-first routing, and CLI model output remain unimplemented.
+explicitly and composes it with the mask and raw CPU kernel. The CLI can open
+all three local assets for fallback today; their installation and coherent
+four-asset activation remain unimplemented.
+
+For these caller-supplied paths, Pangopup hashes the complete bounded compiled
+reference member and verifies its manifest digest before scoring through an
+mmap of that same retained descriptor. That extra full-file read prevents
+provenance from describing different same-size sequence bytes. It occurs only
+when a request actually needs explicit fallback; authoritative SNV hits skip
+all three fallback paths. A future managed installation will authenticate the
+immutable reference during install and retain cheap structural startup.
 
 ### Which compact reference encoding will Pangopup use?
 
@@ -239,7 +249,9 @@ an OS/device procedure proved the queried pages were nonresident.
 
 No. The shipped `pangopup lookup` command already emits stable compact JSON
 Lines by default and exact tab-separated rows with `--format table`. Batch
-validation is transactional: an invalid request prevents partial stdout. The
+validation and model scoring are transactional: an invalid or rejected request
+prevents partial stdout. Modeled JSON identifies the model, sequence bundle,
+observed mask bytes, masking policy, and score semantics. The
 future HTTP service will define a separate batch JSON envelope over the same
 typed results; it does not replace or postpone the CLI contract.
 
@@ -268,7 +280,9 @@ use, locking, eviction, corruption recovery, and invalidation.
 
 Accept an explicit GRCh38 contig, position, reference, and alternate plus an
 optional Ensembl source-gene filter. Without a filter, return every matching
-gene-specific score. No implicit best-gene selection.
+gene-specific score. Literal uppercase A/C/G/T multi-base alleles are accepted
+when a complete explicit reference/mask/model fallback set is supplied. No
+implicit best-gene selection, normalization, or projection.
 
 ### How much HGVS does Pangopup own?
 

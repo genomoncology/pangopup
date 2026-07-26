@@ -1,13 +1,14 @@
 # Service Boundary
 
 This document records target service design. Pangopup does not yet ship an HTTP
-server, model routing, service lifecycle integration, container, metrics, or
-model-result cache. The shipped runtime interface is `pangopup lookup`, which
-already returns stable JSON Lines or exact tab-separated output.
+server, service lifecycle integration, container, metrics, or model-result
+cache. The shipped runtime interface is `pangopup lookup`; its typed
+lookup-first/model route already returns stable JSON Lines or exact
+tab-separated output from explicit local assets.
 
 ## One lookup-first core
 
-The future CLI and HTTP adapters call the same typed routing API:
+The current CLI and future HTTP adapter call the same typed routing API:
 
 ```text
 validated GRCh38 variant

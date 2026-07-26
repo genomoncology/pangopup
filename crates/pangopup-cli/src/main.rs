@@ -5,9 +5,17 @@ use pangopup_assets::{
 };
 use pangopup_cli::{OutputFormat, RenderRequest, render_requests};
 use pangopup_core::{
-    DnaBase, EnsemblGeneId, GenomicPosition, Grch38Contig, Grch38Snv, ScoreProvider,
+    DnaBase, EnsemblGeneId, GenomicPosition, Grch38Contig, Grch38Snv, Grch38Variant, ScoreProvider,
 };
-use pangopup_index::{BundleOpen, IndexError};
+use pangopup_engine::{
+    LookupFirstRouter, ModelFallback, ModelFallbackError, RouteDecision, RouteRequest,
+};
+use pangopup_index::{
+    BundleOpen, IndexError,
+    mask::MaskDomainsOpen,
+    reference::{ReferenceBundleOpen, required_accession},
+};
+use pangopup_model::ModelKernel;
 use serde::Serialize;
 use std::{
     ffi::OsString,
@@ -17,14 +25,21 @@ use std::{
     str::FromStr,
 };
 
-const HELP: &str = "Pangopup: exact Pangolin score lookup\n\nUsage:\n  pangopup assets sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets status [--data-dir <ABSOLUTE_PATH>]\n  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table]\n  pangopup --help\n  pangopup --version";
+const HELP: &str = "Pangopup: exact Pangolin score lookup\n\nUsage:\n  pangopup assets sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets status [--data-dir <ABSOLUTE_PATH>]\n  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>]\n  pangopup --help\n  pangopup --version";
 
 struct Arguments {
     bundle: Option<PathBuf>,
     data_dir: Option<OsString>,
-    variants: Vec<ParsedVariant>,
+    variants: Vec<Grch38Variant>,
     gene: Option<EnsemblGeneId>,
     format: OutputFormat,
+    fallback: Option<FallbackPaths>,
+}
+
+struct FallbackPaths {
+    model: PathBuf,
+    reference: PathBuf,
+    mask: PathBuf,
 }
 
 enum Command {
@@ -43,11 +58,11 @@ enum Command {
     },
 }
 
-struct ParsedVariant {
-    contig: String,
-    position: u32,
-    reference: DnaBase,
-    alternate: DnaBase,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FallbackComponent {
+    Reference,
+    Mask,
+    Model,
 }
 
 #[derive(Serialize)]
@@ -86,6 +101,15 @@ impl Failure {
         Self {
             code: "INVALID_GENE",
             message: message.into(),
+            exit: 2,
+        }
+    }
+
+    fn model_assets_required() -> Self {
+        Self {
+            code: "MODEL_ASSETS_REQUIRED",
+            message: "model scoring requires --model-bundle, --reference-bundle, and --mask"
+                .to_owned(),
             exit: 2,
         }
     }
@@ -211,46 +235,170 @@ fn data_root(explicit: Option<OsString>) -> Result<PathBuf, Failure> {
 }
 
 fn run_lookup(arguments: Arguments) -> Result<Vec<u8>, Failure> {
-    let bundle = match arguments.bundle {
+    run_lookup_with_observer(arguments, &mut |_| {})
+}
+
+fn run_lookup_with_observer(
+    arguments: Arguments,
+    observer: &mut dyn FnMut(FallbackComponent),
+) -> Result<Vec<u8>, Failure> {
+    if arguments.fallback.is_none()
+        && arguments
+            .variants
+            .iter()
+            .any(|variant| snv_from_variant(variant).is_none())
+    {
+        return Err(Failure::model_assets_required());
+    }
+    let Arguments {
+        bundle: bundle_path,
+        data_dir,
+        variants,
+        gene,
+        format,
+        fallback: fallback_paths,
+    } = arguments;
+    let bundle = match bundle_path {
         Some(path) => BundleOpen::open(&path).map_err(map_open_error)?,
         None => {
-            let root = data_root(arguments.data_dir)?;
+            let root = data_root(data_dir)?;
             open_active_bundle(&root).map_err(map_lookup_asset_error)?.1
         }
     };
-    let mut requests = Vec::with_capacity(arguments.variants.len());
-    for parsed in arguments.variants {
-        let (contig, length) = bundle.resolve_contig(&parsed.contig).ok_or_else(|| {
-            Failure::variant(format!("unsupported GRCh38 contig {}", parsed.contig))
-        })?;
-        if parsed.position > length {
-            return Err(Failure::variant(format!(
-                "position {} exceeds {} length {}",
-                parsed.position, contig, length
-            )));
+    // Preserve the original lookup-only contract when model fallback was not
+    // explicitly enabled. In particular, a pure SNV miss remains a rendered
+    // precomputed `not_found`; only a non-SNV requires model assets.
+    if fallback_paths.is_none() {
+        let mut requests = Vec::with_capacity(variants.len());
+        for variant in variants {
+            let snv = snv_from_variant(&variant).ok_or_else(Failure::model_assets_required)?;
+            let (_, length) = bundle
+                .resolve_contig(&variant.contig().to_string())
+                .ok_or_else(|| {
+                    Failure::variant(format!("unsupported GRCh38 contig {}", variant.contig()))
+                })?;
+            if variant.position().get() > length {
+                return Err(Failure::variant(format!(
+                    "position {} exceeds {} length {}",
+                    variant.position(),
+                    variant.contig(),
+                    length
+                )));
+            }
+            let result = bundle.lookup(snv, gene).map_err(map_lookup_error)?;
+            requests.push(RenderRequest::new(snv, result));
         }
-        let snv = Grch38Snv::new(
-            contig,
-            GenomicPosition::new(parsed.position)
-                .map_err(|error| Failure::variant(error.to_string()))?,
-            parsed.reference,
-            parsed.alternate,
-        )
-        .map_err(|error| Failure::variant(error.to_string()))?;
-        let result = bundle
-            .lookup(snv, arguments.gene)
-            .map_err(|error| Failure {
-                code: "LOOKUP_CORRUPT",
-                message: error.to_string(),
-                exit: 1,
-            })?;
-        requests.push(RenderRequest::new(snv, result));
+        return render_lookup_requests(format, &requests);
     }
-    render_requests(arguments.format, &requests).map_err(|error| Failure {
+
+    let router = LookupFirstRouter::new(bundle);
+    let mut decisions = Vec::with_capacity(variants.len());
+    let mut needs_model = false;
+    for variant in variants {
+        let decision = router
+            .inspect(RouteRequest::new(variant, gene))
+            .map_err(map_lookup_error)?;
+        needs_model |= matches!(decision, RouteDecision::ModelRequired(_));
+        decisions.push(decision);
+    }
+
+    let mut fallback = if needs_model {
+        Some(open_model_fallback(
+            fallback_paths
+                .as_ref()
+                .expect("complete fallback set was parsed"),
+            observer,
+        )?)
+    } else {
+        None
+    };
+    let mut requests = Vec::with_capacity(decisions.len());
+    for decision in decisions {
+        let routed = match decision {
+            RouteDecision::Authoritative(result) => result,
+            RouteDecision::ModelRequired(required) => fallback
+                .as_mut()
+                .expect("model-required batch opened one fallback")
+                .complete(required)
+                .map_err(map_model_fallback_error)?,
+        };
+        requests.push(RenderRequest::from_routed(routed));
+    }
+    render_lookup_requests(format, &requests)
+}
+
+fn snv_from_variant(variant: &Grch38Variant) -> Option<Grch38Snv> {
+    if variant.reference().len() != 1 || variant.alternate().len() != 1 {
+        return None;
+    }
+    let reference =
+        DnaBase::parse(variant.reference()).expect("one-base variant has one uppercase DNA base");
+    let alternate =
+        DnaBase::parse(variant.alternate()).expect("one-base variant has one uppercase DNA base");
+    Some(
+        Grch38Snv::new(variant.contig(), variant.position(), reference, alternate)
+            .expect("variant construction rejects equal alleles"),
+    )
+}
+
+fn map_lookup_error(error: pangopup_core::LookupError) -> Failure {
+    Failure {
+        code: "LOOKUP_CORRUPT",
+        message: error.to_string(),
+        exit: 1,
+    }
+}
+
+fn render_lookup_requests(
+    format: OutputFormat,
+    requests: &[RenderRequest],
+) -> Result<Vec<u8>, Failure> {
+    render_requests(format, requests).map_err(|error| Failure {
         code: "LOOKUP_CORRUPT",
         message: error.to_string(),
         exit: 1,
     })
+}
+
+fn open_model_fallback(
+    paths: &FallbackPaths,
+    observer: &mut dyn FnMut(FallbackComponent),
+) -> Result<ModelFallback, Failure> {
+    observer(FallbackComponent::Reference);
+    let reference =
+        ReferenceBundleOpen::open_identified(&paths.reference).map_err(|_| Failure {
+            code: "REFERENCE_BUNDLE_INVALID",
+            message: "reference bundle is invalid".to_owned(),
+            exit: 1,
+        })?;
+    observer(FallbackComponent::Mask);
+    let mask = MaskDomainsOpen::open_identified(&paths.mask).map_err(|_| Failure {
+        code: "MASK_INVALID",
+        message: "mask member is invalid".to_owned(),
+        exit: 1,
+    })?;
+    observer(FallbackComponent::Model);
+    let model = ModelKernel::open(&paths.model).map_err(|_| Failure {
+        code: "MODEL_BUNDLE_INVALID",
+        message: "model bundle is invalid".to_owned(),
+        exit: 1,
+    })?;
+    Ok(ModelFallback::new(reference, mask, model))
+}
+
+fn map_model_fallback_error(error: ModelFallbackError) -> Failure {
+    match error {
+        ModelFallbackError::Rejected(error) => Failure {
+            code: "MODEL_REJECTED",
+            message: error.to_string(),
+            exit: 2,
+        },
+        ModelFallbackError::Scoring(error) => Failure {
+            code: "MODEL_SCORING",
+            message: error.to_string(),
+            exit: 1,
+        },
+    }
 }
 
 fn parse_command(raw: &[OsString]) -> Result<Command, Failure> {
@@ -328,6 +476,9 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
     let mut variants = Vec::new();
     let mut gene = None;
     let mut format = OutputFormat::Jsonl;
+    let mut model_bundle = None;
+    let mut reference_bundle = None;
+    let mut mask = None;
     let mut seen_format = false;
     let mut index = 1;
     while index < raw.len() {
@@ -368,6 +519,21 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
                     _ => return Err(Failure::usage("--format must be jsonl or table")),
                 };
             }
+            "--model-bundle" => {
+                if model_bundle.replace(PathBuf::from(value)).is_some() {
+                    return Err(Failure::usage("--model-bundle may be supplied once"));
+                }
+            }
+            "--reference-bundle" => {
+                if reference_bundle.replace(PathBuf::from(value)).is_some() {
+                    return Err(Failure::usage("--reference-bundle may be supplied once"));
+                }
+            }
+            "--mask" => {
+                if mask.replace(PathBuf::from(value)).is_some() {
+                    return Err(Failure::usage("--mask may be supplied once"));
+                }
+            }
             _ => return Err(Failure::usage(format!("unknown lookup option {option}"))),
         }
         index += 1;
@@ -380,12 +546,26 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
     if variants.is_empty() {
         return Err(Failure::usage("lookup requires at least one --variant"));
     }
+    let fallback = match (model_bundle, reference_bundle, mask) {
+        (None, None, None) => None,
+        (Some(model), Some(reference), Some(mask)) => Some(FallbackPaths {
+            model,
+            reference,
+            mask,
+        }),
+        _ => {
+            return Err(Failure::usage(
+                "--model-bundle, --reference-bundle, and --mask must be supplied together",
+            ));
+        }
+    };
     Ok(Arguments {
         bundle,
         data_dir,
         variants,
         gene,
         format,
+        fallback,
     })
 }
 
@@ -457,7 +637,7 @@ fn map_lookup_asset_error(error: AssetError) -> Failure {
     }
 }
 
-fn parse_variant(value: &str) -> Result<ParsedVariant, Failure> {
+fn parse_variant(value: &str) -> Result<Grch38Variant, Failure> {
     let mut fields = value.split(':');
     let (Some(assembly), Some(contig), Some(position), Some(reference), Some(alternate), None) = (
         fields.next(),
@@ -474,9 +654,7 @@ fn parse_variant(value: &str) -> Result<ParsedVariant, Failure> {
     if assembly != "GRCh38" {
         return Err(Failure::variant("assembly must be GRCh38"));
     }
-    if !valid_contig_syntax(contig) {
-        return Err(Failure::variant("invalid contig spelling"));
-    }
+    let contig = parse_contig(contig).ok_or_else(|| Failure::variant("invalid contig spelling"))?;
     let position = position
         .bytes()
         .all(|byte| byte.is_ascii_digit())
@@ -484,53 +662,22 @@ fn parse_variant(value: &str) -> Result<ParsedVariant, Failure> {
         .flatten()
         .filter(|value| *value != 0)
         .ok_or_else(|| Failure::variant("position must be a nonzero decimal u32"))?;
-    let reference =
-        DnaBase::parse(reference).map_err(|error| Failure::variant(error.to_string()))?;
-    let alternate =
-        DnaBase::parse(alternate).map_err(|error| Failure::variant(error.to_string()))?;
-    if reference == alternate {
-        return Err(Failure::variant(
-            "reference and alternate bases must differ",
-        ));
-    }
-    Ok(ParsedVariant {
-        contig: contig.to_owned(),
-        position,
+    Grch38Variant::new(
+        contig,
+        GenomicPosition::new(position).map_err(|error| Failure::variant(error.to_string()))?,
         reference,
         alternate,
-    })
+    )
+    .map_err(|error| Failure::variant(error.to_string()))
 }
 
-fn valid_contig_syntax(value: &str) -> bool {
-    value.parse::<Grch38Contig>().is_ok()
-        || matches!(
-            value,
-            "NC_000001.11"
-                | "NC_000002.12"
-                | "NC_000003.12"
-                | "NC_000004.12"
-                | "NC_000005.10"
-                | "NC_000006.12"
-                | "NC_000007.14"
-                | "NC_000008.11"
-                | "NC_000009.12"
-                | "NC_000010.11"
-                | "NC_000011.10"
-                | "NC_000012.12"
-                | "NC_000013.11"
-                | "NC_000014.9"
-                | "NC_000015.10"
-                | "NC_000016.10"
-                | "NC_000017.11"
-                | "NC_000018.10"
-                | "NC_000019.10"
-                | "NC_000020.11"
-                | "NC_000021.9"
-                | "NC_000022.11"
-                | "NC_000023.11"
-                | "NC_000024.10"
-                | "NC_012920.1"
-        )
+fn parse_contig(value: &str) -> Option<Grch38Contig> {
+    value.parse::<Grch38Contig>().ok().or_else(|| {
+        (1_u8..=25).find_map(|code| {
+            let contig = Grch38Contig::from_code(code).ok()?;
+            (required_accession(contig) == value).then_some(contig)
+        })
+    })
 }
 
 fn map_open_error(error: IndexError) -> Failure {
@@ -562,6 +709,38 @@ fn fail(error: &Failure) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    fn repository_path(relative: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(relative)
+    }
+
+    fn lookup_arguments(values: &[String]) -> Arguments {
+        let raw: Vec<OsString> = values.iter().map(OsString::from).collect();
+        let Command::Lookup(arguments) = parse_command(&raw).expect("parse lookup") else {
+            panic!("lookup command")
+        };
+        arguments
+    }
+
+    fn fallback_values() -> Vec<String> {
+        vec![
+            "--reference-bundle".to_owned(),
+            repository_path("tests/fixtures/reference-route-test/bundle")
+                .display()
+                .to_string(),
+            "--mask".to_owned(),
+            repository_path("tests/fixtures/route-mask/domains.pgm")
+                .display()
+                .to_string(),
+            "--model-bundle".to_owned(),
+            repository_path("tests/fixtures/pangolin-model-kernel-mini/bundle")
+                .display()
+                .to_string(),
+        ]
+    }
 
     #[test]
     fn injected_sync_adapter_renders_exact_compact_json() {
@@ -612,5 +791,229 @@ mod tests {
             let raw: Vec<OsString> = args.into_iter().map(OsString::from).collect();
             assert!(parse_command(&raw).is_err());
         }
+    }
+
+    #[test]
+    fn general_variant_parser_is_closed_and_resolves_refseq_without_assets() {
+        for value in [
+            "GRCh38:chr1:5051:A:AC",
+            "GRCh38:1:5051:AA:A",
+            "GRCh38:NC_000001.11:5051:A:C",
+        ] {
+            assert!(parse_variant(value).is_ok(), "{value}");
+        }
+        for value in [
+            "GRCh37:chr1:5051:A:C",
+            "GRCh38:chr1:0:A:C",
+            "GRCh38:chr1:4294967296:A:C",
+            "GRCh38:chr1:5051::C",
+            "GRCh38:chr1:5051:A:",
+            "GRCh38:chr1:5051:a:C",
+            "GRCh38:chr1:5051:N:C",
+            "GRCh38:chr1:5051:A:A",
+            "GRCh38:chrUn:5051:A:C",
+            "GRCh38:NC_000001.10:5051:A:C",
+            " GRCh38:chr1:5051:A:C",
+        ] {
+            let failure = parse_variant(value).expect_err(value);
+            assert_eq!(failure.code, "INVALID_VARIANT", "{value}");
+            assert_eq!(failure.exit, 2, "{value}");
+        }
+    }
+
+    #[test]
+    fn fallback_flags_are_all_or_none_and_duplicates_are_usage_errors() {
+        for tail in [
+            vec!["--model-bundle", "/m"],
+            vec!["--model-bundle", "/m", "--reference-bundle", "/r"],
+            vec![
+                "--model-bundle",
+                "/m",
+                "--reference-bundle",
+                "/r",
+                "--mask",
+                "/x",
+                "--mask",
+                "/y",
+            ],
+        ] {
+            let mut raw = vec![
+                OsString::from("lookup"),
+                OsString::from("--bundle"),
+                OsString::from("/b"),
+                OsString::from("--variant"),
+                OsString::from("GRCh38:chr1:1:A:C"),
+            ];
+            raw.extend(tail.into_iter().map(OsString::from));
+            let failure = match parse_command(&raw) {
+                Ok(_) => panic!("invalid fallback grammar must fail"),
+                Err(failure) => failure,
+            };
+            assert_eq!(failure.code, "CLI_USAGE");
+            assert_eq!(failure.exit, 2);
+        }
+    }
+
+    #[test]
+    fn authoritative_hit_ignores_nonexistent_fallback_paths() {
+        let mut values = vec![
+            "lookup".to_owned(),
+            "--bundle".to_owned(),
+            repository_path("tests/fixtures/snv-regression/bundle")
+                .display()
+                .to_string(),
+            "--variant".to_owned(),
+            "GRCh38:chr12:6801301:G:A".to_owned(),
+            "--model-bundle".to_owned(),
+            "/does/not/exist/model".to_owned(),
+            "--reference-bundle".to_owned(),
+            "/does/not/exist/reference".to_owned(),
+            "--mask".to_owned(),
+            "/does/not/exist/mask".to_owned(),
+        ];
+        let arguments = lookup_arguments(&values);
+        let mut opens = Vec::new();
+        let output = run_lookup_with_observer(arguments, &mut |component| opens.push(component))
+            .expect("authoritative hit");
+        assert!(opens.is_empty(), "hit-only route must not inspect fallback");
+        assert!(
+            String::from_utf8(output)
+                .expect("UTF-8 output")
+                .contains("\"kind\":\"precomputed\"")
+        );
+        values.clear();
+    }
+
+    #[test]
+    fn mixed_batch_opens_each_fallback_component_once_and_preserves_order() {
+        let mut values = vec![
+            "lookup".to_owned(),
+            "--bundle".to_owned(),
+            repository_path("tests/fixtures/snv-regression/bundle")
+                .display()
+                .to_string(),
+            "--variant".to_owned(),
+            "GRCh38:chr12:6801301:G:A".to_owned(),
+            "--variant".to_owned(),
+            "GRCh38:chr1:5051:A:AC".to_owned(),
+        ];
+        values.extend(fallback_values());
+        let arguments = lookup_arguments(&values);
+        let mut opens = Vec::new();
+        let output = run_lookup_with_observer(arguments, &mut |component| opens.push(component))
+            .expect("mixed batch");
+        assert_eq!(
+            opens,
+            vec![
+                FallbackComponent::Reference,
+                FallbackComponent::Mask,
+                FallbackComponent::Model
+            ]
+        );
+        let text = String::from_utf8(output).expect("UTF-8");
+        let lines: Vec<_> = text.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("\"kind\":\"precomputed\""));
+        assert!(lines[1].contains("\"kind\":\"model\""));
+    }
+
+    #[test]
+    fn fallback_component_failures_are_ordered_stable_and_redacted() {
+        let good_reference = repository_path("tests/fixtures/reference-route-test/bundle");
+        let good_mask = repository_path("tests/fixtures/route-mask/domains.pgm");
+        let good_model = repository_path("tests/fixtures/pangolin-model-kernel-mini/bundle");
+        let secret = repository_path("target/secret-component-path");
+        if secret.exists() {
+            fs::remove_dir_all(&secret).expect("remove stale secret path");
+        }
+        for (paths, expected_code, expected_opens) in [
+            (
+                FallbackPaths {
+                    reference: secret.clone(),
+                    mask: secret.clone(),
+                    model: secret.clone(),
+                },
+                "REFERENCE_BUNDLE_INVALID",
+                vec![FallbackComponent::Reference],
+            ),
+            (
+                FallbackPaths {
+                    reference: good_reference.clone(),
+                    mask: secret.clone(),
+                    model: secret.clone(),
+                },
+                "MASK_INVALID",
+                vec![FallbackComponent::Reference, FallbackComponent::Mask],
+            ),
+            (
+                FallbackPaths {
+                    reference: good_reference.clone(),
+                    mask: good_mask.clone(),
+                    model: secret.clone(),
+                },
+                "MODEL_BUNDLE_INVALID",
+                vec![
+                    FallbackComponent::Reference,
+                    FallbackComponent::Mask,
+                    FallbackComponent::Model,
+                ],
+            ),
+        ] {
+            let mut opens = Vec::new();
+            let failure = match open_model_fallback(&paths, &mut |component| opens.push(component))
+            {
+                Ok(_) => panic!("component open must fail"),
+                Err(failure) => failure,
+            };
+            assert_eq!(failure.code, expected_code);
+            assert_eq!(failure.exit, 1);
+            assert_eq!(opens, expected_opens);
+            assert!(!failure.message.contains("secret-component-path"));
+        }
+        let paths = FallbackPaths {
+            reference: good_reference,
+            mask: good_mask,
+            model: good_model,
+        };
+        let mut opens = Vec::new();
+        open_model_fallback(&paths, &mut |component| opens.push(component))
+            .expect("complete fallback");
+        assert_eq!(
+            opens,
+            vec![
+                FallbackComponent::Reference,
+                FallbackComponent::Mask,
+                FallbackComponent::Model
+            ]
+        );
+    }
+
+    #[test]
+    fn model_required_missing_assets_and_rejection_have_stable_classes() {
+        let base = vec![
+            "lookup".to_owned(),
+            "--bundle".to_owned(),
+            repository_path("tests/fixtures/snv-regression/bundle")
+                .display()
+                .to_string(),
+            "--variant".to_owned(),
+            "GRCh38:chr1:5051:A:AC".to_owned(),
+        ];
+        let failure = run_lookup(lookup_arguments(&base)).expect_err("assets required");
+        assert_eq!(failure.code, "MODEL_ASSETS_REQUIRED");
+        assert_eq!(failure.exit, 2);
+
+        let mut rejected = base;
+        rejected[4] = "GRCh38:chr1:5051:A:TC".to_owned();
+        rejected.extend(fallback_values());
+        let failure = run_lookup(lookup_arguments(&rejected)).expect_err("model rejection");
+        assert_eq!(failure.code, "MODEL_REJECTED");
+        assert_eq!(failure.exit, 2);
+
+        let scoring = map_model_fallback_error(ModelFallbackError::Scoring(
+            pangopup_core::ModelScoringError::InvalidModelOutput,
+        ));
+        assert_eq!(scoring.code, "MODEL_SCORING");
+        assert_eq!(scoring.exit, 1);
     }
 }

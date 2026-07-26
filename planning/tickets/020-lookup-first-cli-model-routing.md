@@ -1,6 +1,6 @@
 # 020 — Route lookup misses and non-SNVs to model scoring through the CLI
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -429,11 +429,119 @@ No material ticket findings remain.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex (`/root/ticket020_implementation`)
+
+Implemented the accepted ticket without opening production assets, committing,
+pushing, downloading, or publishing. The implementation adds:
+
+- the owned `LookupFirstRouter`/`ModelRequired`/`ModelFallback` boundary in
+  `pangopup-engine`, with all-gene masking before stable-gene filtering;
+- descriptor-coupled identified opens for both the reference bundle and mask;
+- a checked 25-contig route-reference fixture and a checked 260-byte literal
+  route-mask fixture;
+- lazy, exactly-once explicit-path CLI fallback with transactional stable
+  failures and exact modeled JSONL/table rendering;
+- unchanged no-flag SNV lookup behavior plus enabled flagged SNV-miss and
+  non-SNV model paths;
+- the separate 994-hit routed benchmark corpus and its exact selected/repeated
+  oracle comparison; and
+- ADR 0016, updated architecture/user docs, executable specs, frontier, and
+  retained artifact 020.
+
+Implementation exposed the contradictory original no-flag miss requirement and
+then the missing flagged-SNV/true-hit benchmark cases. Development paused the
+affected semantics while the coordinator returned both amendments to the same
+ticket reviewer. After the second amendment was accepted, the implementation
+preserved all six frozen no-flag misses and added the exact
+`GRCh38:chr1:5051:A:C` model route.
+
+Final formatting changed the causal reference-builder source fingerprint after
+the route fixture's first build. The developer refreshed only the synthetic
+manifest and current miniature provenance expectation from a final builder
+run; `reference.pgr`, NOTICE, source inputs, legacy manifests, and production
+bytes/identities remained unchanged. The final reference source fingerprint is
+`4bc0e93b83b28e235a7d0f498976bfe1e97b39d13e4f8c940d4c03cfd3d641bf`;
+the checked route manifest/bundle ID is
+`6773713ad79462b8bfb2bce7f194041e85a0804b38f68282c965adc5f43f9493`.
+
+Focused results:
+
+```text
+cargo test --locked -p pangopup-engine
+  10 passed; 1 production qualification ignored
+cargo test --locked -p pangopup-index identified_open
+  2 passed
+cargo test --locked -p pangopup-index identified_reference
+  2 passed
+cargo test --locked -p pangopup-index --test route_mask
+  1 passed
+cargo test --locked -p pangopup-build --test reference
+  15 passed
+cargo test --locked -p pangopup-build source_fingerprint
+  15 passed
+cargo test --locked -p pangopup-build --test builder_provenance
+  4 passed
+cargo test --locked -p pangopup-cli --lib
+  4 passed
+cargo test --locked -p pangopup-cli --bin pangopup
+  8 passed
+cargo test --locked -p pangopup-cli --test model_routing --test snv_regression
+  6 passed; all 1,000 direct requests and seven CLI batches exact
+mustmatch test spec/model-routing.md
+  15 passed
+mustmatch test spec/cli.md
+  2 passed
+cargo test --locked -p pangopup-cli --bench snv_regression --no-run
+  compiled
+cargo fmt --all --check
+  passed
+```
+
+The routed benchmark ran once and its exact command/results are retained in
+`planning/artifacts/020-lookup-first-cli-model-routing.md`. Coordinator-only
+pre-review and post-reference-remediation M09 qualifications passed with the
+exact frozen record and accepted model/reference/mask identities recorded in
+that artifact. Independent code re-review accepted every remediation.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex (`/root/ticket020_code_review`)
+
+Initial verdict: **REJECT**.
+
+The initial code review found four material defects:
+
+1. explicit fallback trusted the reference manifest identity without
+   authenticating the scored `reference.pgr` bytes;
+2. an unflagged non-SNV could expose an SNV-bundle failure before the promised
+   `MODEL_ASSETS_REQUIRED` error;
+3. the mask pathname-replacement test replaced the path before hashing rather
+   than from the hash callback; and
+4. `architecture/runtime-data.md` still claimed lookup misses were not routed
+   to the model.
+
+Developer dispositions:
+
+1. `ReferenceBundleOpen::open_identified` now performs a bounded full-member
+   SHA-256 check against the canonical manifest, rejects descriptor/path races,
+   mmaps the same authenticated descriptor, and retains it for all queries.
+   Tests cover same-size corruption, symlinks, mutation and replacement during
+   hashing, and post-open path substitution.
+2. CLI input is pre-scanned before the SNV bundle is opened when fallback flags
+   are absent. Non-SNV-only and mixed batches now return the exact
+   `MODEL_ASSETS_REQUIRED` failure transactionally even when the supplied SNV
+   bundle path does not exist.
+3. The mask replacement control now fires inside the hashing chunk callback.
+4. Runtime-data and the associated reference/design/ADR/user documentation now
+   describe lookup-first routing and the explicit fallback authentication
+   cost correctly.
+
+Re-review verdict: **ACCEPT**. The same reviewer confirmed that reference bytes
+and provenance now come from the same authenticated retained descriptor,
+missing model assets take precedence for non-SNV requests, mask replacement is
+tested during hashing, and runtime documentation matches implemented routing.
+Focused Rust tests, all 15 model-routing specs, and `git diff --check` passed.
+No material findings remain.
 
 ## External Effect Evidence
 
@@ -441,4 +549,25 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex (`/root`)
+
+Post-remediation retained M09 production qualification: **PASS**. The
+strengthened explicit reference open authenticated the complete member before
+returning the same frozen record and accepted identities.
+
+Final gate:
+
+```text
+make lint
+  passed
+make test
+  passed (workspace exit 0)
+make spec
+  167 passed, 2 skipped
+git diff --check
+  passed
+```
+
+Ticket 020 is complete. Production assets were opened only for the two bounded
+review-stage M09 requests and were never rebuilt, converted, downloaded, or
+modified.

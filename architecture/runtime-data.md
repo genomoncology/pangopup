@@ -42,8 +42,9 @@ schema, format identity, manifest claims, and member-integrity checks.
 ## Model-scoring assets
 
 Variant-level model scoring is implemented as a library composition over
-explicitly opened providers. The three runtime assets are not yet installed as
-one profile or routed from lookup misses:
+explicitly opened providers. The three model-side runtime assets are not yet
+installed as one profile, but the CLI routes caller-enabled lookup misses and
+supported non-SNVs through explicit local paths:
 
 Running Pangolin for a lookup miss or non-SNV genuinely needs:
 
@@ -142,6 +143,19 @@ plus-alternate, minus-reference, then minus-alternate. It preserves `f32`
 equal-length/insertion arithmetic and deletion-promoted `f64`, then performs
 shared-array masking and exact hundredth conversion.
 
+The engine router tries a one-base substitution against the published provider
+first. Any record or source-reference ambiguity is authoritative. With CLI
+fallback enabled, a pure miss or non-SNV consumes one identity-bound scorer;
+the optional stable-gene filter is applied only after all-gene scoring. The CLI
+reports the exact model/reference identities and the observed SHA-256/length of
+the same descriptor-held mask mmap used by scoring. Explicit fallback also
+hashes the complete bounded `reference.pgr`, verifies the manifest-declared
+member digest, and scores through an mmap created from that same retained
+descriptor. This full reference read happens only when a batch actually needs
+explicit fallback. Ordinary installed-reference open remains structural and
+cheap; future coherent installation authenticates the member once before
+activation instead of rehashing it on every process open.
+
 That compatibility corpus proves its selected overlap and masking cases; it is
 not a complete all-gene order inventory. Ticket 012's retained authenticated
 canonical-export report and complete-domain comparison are the authority for
@@ -173,8 +187,8 @@ the submitted reference allele has been verified.
 Raw CPU-kernel compatibility is proved with maximum observed absolute error
 well below the accepted `1e-5` tolerance. Variant-level compatibility is also
 proved across the 14 scored cases, 36 raw evaluations, six rejections, and four
-controlled cases. Lookup routing, CLI model output, and complete-request CPU
-policy remain separate.
+controlled cases. Lookup routing and explicit-path CLI model output are
+shipped; complete-request CPU policy remains separate.
 MPS, CUDA, alternative runtimes, quantization, or other optimizations are
 accepted only if they preserve the same result/error behavior and improve
 measured end-to-end performance or resource use.
@@ -192,7 +206,8 @@ independent-per-gene policy requires a separately named profile.
 - gene descriptions, aliases, disease knowledge, or consequences;
 - PostgreSQL, SQLite, or gffutils as a runtime dependency.
 
-The shipped standalone lookup deployment is therefore the executable plus the
-fixed-v1 score bundle. The target complete deployment adds the converted model
-bundle, a compact GRCh38 sequence member, and a compact Pangolin masking
-member; a future lookup-only profile can omit those three.
+The shipped standalone lookup deployment is the executable plus the fixed-v1
+score bundle. Explicit-path fallback additionally needs the converted model
+bundle, compact GRCh38 sequence bundle, and compiled Pangolin mask member. A
+future coherent delivery profile will install and activate those four
+identities together; lookup-only use continues to omit the latter three.

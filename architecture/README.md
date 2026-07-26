@@ -10,8 +10,9 @@ post-processing behavior. The shipped authenticated CPU kernel now executes
 the twelve raw selected Pangolin channels through one ONNX Runtime session.
 The shipped `pangopup-engine` composition now constructs supported literal
 GRCh38 variants, preserves compatible ensemble/indel/masking arithmetic, and
-returns ordered exact modeled scores. Lookup-first fallback, CLI model output,
-CPU tuning, asset delivery, caching, and HTTP remain future work.
+routes authoritative lookup or explicit-path model fallback into ordered exact
+CLI results. CPU tuning, coherent asset delivery, caching, and HTTP remain
+future work.
 
 The closed three-codec reference comparison selected `acgt2-rle-v1`; its
 candidate modules, miniature, benchmark executable, and CLI have been removed
@@ -67,6 +68,8 @@ ADR 0012 defines that descriptive provenance boundary.
 - [`decisions/0015-variant-level-model-scoring.md`](decisions/0015-variant-level-model-scoring.md)
   — the literal request boundary, provider composition, dtype-aware
   post-processing, and ordered masking contract.
+- [`decisions/0016-lookup-first-cli-model-routing.md`](decisions/0016-lookup-first-cli-model-routing.md)
+  — authoritative lookup, lazy identity-bound fallback, and stable modeled CLI output.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)

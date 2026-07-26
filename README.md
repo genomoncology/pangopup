@@ -8,9 +8,10 @@ transport tooling, atomic Linux/XDG installation, and pinned resumable sync of
 the immutable public SNV transport. It also ships a frozen, independently
 captured upstream compatibility corpus plus an authenticated CPU ONNX kernel
 that returns the twelve raw Pangolin channels. It now also ships a
-variant-level Rust scorer for the supported literal GRCh38 SNV, MNV, insertion,
-and deletion subset. Lookup-first fallback routing, CLI model output, and an
-HTTP service are planned but not implemented. Ticket 012 has now
+variant-level Rust scorer and lookup-first CLI routing for the supported
+literal GRCh38 SNV, MNV, insertion, and deletion subset. Callers may supply one
+explicit local reference/mask/model set for fallback and receive exact modeled
+JSONL or table output. An HTTP service is planned but not implemented. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
 Ticket 014 promotes the exact selected bytes behind a domains-only production
@@ -32,16 +33,15 @@ The target service will answer each request through one of two paths:
 
 1. **SNV lookup:** return an exact precomputed Pangolin result from a compact,
    memory-mapped index.
-2. **Model scoring (library shipped; routing not implemented):** score a
-   supported literal variant against explicitly opened local GRCh38 sequence,
-   splice-mask, and model providers.
+2. **Model scoring:** score a supported literal variant against explicitly
+   opened local GRCh38 sequence, splice-mask, and model providers.
 
 An SNV is a single-nucleotide variant: one reference base replaced by one
 alternate base. The published Zenodo dataset already contains masked Pangolin
 scores for every SNV it covers, so recomputing those values with the neural
 network would be slower and could introduce small numeric differences.
 
-## How one request works today and in the target service
+## How one request works
 
 Pangopup accepts an explicit GRCh38 genomic variant:
 
@@ -55,8 +55,8 @@ Pangopup accepts an explicit GRCh38 genomic variant:
 }
 ```
 
-The shipped CLI validates an SNV and performs the left-hand lookup path below.
-The right-hand fallback is the planned routing behavior:
+The shipped CLI performs both paths below when a complete fallback set is
+supplied:
 
 ```text
 GRCh38 chromosome + position + REF + ALT
@@ -83,6 +83,27 @@ The response identifies whether its values came from `precomputed` lookup or
 gene-specific, one genomic variant can return several source-gene score records.
 A caller may provide an optional Ensembl gene filter; Pangopup never guesses a
 single best gene.
+
+Lookup-only use remains valid and preserves legacy SNV misses:
+
+```text
+pangopup lookup --bundle <SNV_BUNDLE> \
+  --variant GRCh38:17:43106534:C:A
+```
+
+To enable model fallback for an SNV miss or score a supported non-SNV, supply
+all three local model inputs together:
+
+```text
+pangopup lookup --bundle <SNV_BUNDLE> \
+  --variant GRCh38:17:43106534:C:CA \
+  --reference-bundle <REFERENCE_BUNDLE> \
+  --mask <DOMAINS_PGM> \
+  --model-bundle <MODEL_BUNDLE>
+```
+
+These flags identify already-built local assets; automatic delivery and
+coherent four-asset activation remain future work.
 
 Pangopup deliberately does not implement HGVS, transcript/protein projection,
 clinical interpretation, or general gene annotation. Callers must identify one
@@ -126,7 +147,7 @@ service will use four versioned assets:
 | Asset | Used for | Original source | Installed form |
 |---|---|---|---|
 | SNV score index | Shipped fast path | Zenodo precomputed scores | Certified three-file bundle with a fixed 11-byte mmap member |
-| Model weights | Qualified raw CPU kernel and variant scorer; fallback routing still planned | Upstream Pangolin checkpoints | Authenticated three-file ONNX bundle, not yet published or installed |
+| Model weights | Shipped raw CPU kernel, variant scorer, and explicit-path CLI fallback | Upstream Pangolin checkpoints | Authenticated three-file ONNX bundle, not yet published or installed |
 | GRCh38 sequence index | Shipped provider for fallback sequence windows and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Certified `PGRREF01` two-bit/ambiguity-run mmap bundle |
 | Splice mask | Shipped provider for fallback masking; delivery still planned | GENCODE release 38 annotation | Exact selected 6,703,320-byte `domains.pgm` mmap member |
 
@@ -511,17 +532,20 @@ Implemented today:
   returning twelve fixed-order channels;
 - a single-owner variant scorer that composes the reference, mask, and raw
   model providers for masked distance-50 results over the supported literal
-  GRCh38 subset.
+  GRCh38 subset;
+- a typed lookup-first router and explicit-path CLI model fallback with lazy
+  exactly-once component opens, a manifest-authenticated same-descriptor
+  reference mmap, an identified same-descriptor mask mmap, complete provenance,
+  stable warnings/errors, gene filtering after all-gene masking, and
+  transactional JSONL/table batches.
 
-Not implemented yet: lookup-miss/non-SNV routing, CLI model output, CPU-policy
-tuning, HTTP service, container, persistent download progress/status,
+Not implemented yet: CPU-policy tuning, HTTP service, container, persistent download progress/status,
 repair/GC/rollback, or result cache. Delivery, installation, and
 compatible-profile activation for the
-compiled GRCh38 sequence index, mask, and model are also not implemented. In
-this slice a syntactically valid concrete REF that does not match an ordinary
-indexed key is `not_found`; the explicit model scorer already validates REF
-against the shipped GRCh38 provider, and the future router will select between
-those defined paths.
+compiled GRCh38 sequence index, mask, and model are also not implemented.
+Without fallback flags, SNV lookup retains its prior `not_found` behavior; a
+non-SNV requires the explicit fallback set. With all fallback flags present, a
+pure SNV miss and every supported non-SNV route to the model.
 
 The rolling outcome order is:
 
@@ -557,7 +581,7 @@ The rolling outcome order is:
 19. compose the GRCh38 sequence index, mask, raw model, and post-processing
     into compatible variant-level scoring (complete);
 20. add lookup-first routing and stable CLI model JSON with route and asset
-    provenance;
+    provenance (complete);
 21. measure complete-request CPU threading and reference/alternate batching,
     freeze the model identity, and consider accelerators only if still needed;
 22. measure repeated complete requests and add a bounded result cache only if

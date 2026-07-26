@@ -4,6 +4,7 @@ use pangopup_build::reference::{
 };
 use pangopup_core::{GenomicPosition, Grch38Contig, ReferenceError, ReferenceProvider};
 use pangopup_index::reference::ReferenceBundleOpen;
+use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
     io::{Read, Seek, SeekFrom, Write},
@@ -35,6 +36,12 @@ impl Drop for Temp {
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/reference-production-mini")
+        .join(name)
+}
+
+fn route_fixture(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/reference-route-test")
         .join(name)
 }
 
@@ -118,6 +125,74 @@ fn miniature_build_reader_and_provenance_are_exact() {
     assert_eq!(
         opened.provenance().format(),
         "pangopup.reference.acgt2-rle.v1"
+    );
+}
+
+#[test]
+fn route_reference_rebuilds_byte_identically_and_covers_the_full_model_context() {
+    let temp = Temp::new("route");
+    let rebuilt = temp.0.join("bundle");
+    let outcome = build_reference_bundle(
+        "pangopup-reference-route-test-v1",
+        &route_fixture("source.fa"),
+        &route_fixture("assembly_report.txt"),
+        &rebuilt,
+    )
+    .expect("build route reference");
+    assert_eq!(
+        outcome.bundle_id,
+        "sha256:6773713ad79462b8bfb2bce7f194041e85a0804b38f68282c965adc5f43f9493"
+    );
+    assert_eq!(outcome.certification.total_bases, 10_125);
+    assert_eq!(outcome.certification.contexts_verified, 1);
+
+    let checked = route_fixture("bundle");
+    for (name, size, sha256) in [
+        (
+            "NOTICE",
+            291,
+            "57598dd8a7e6c8159d1e0e4af9660e2d567b4f383d72740ba9200f31bf7faa68",
+        ),
+        (
+            "manifest.json",
+            3_366,
+            "6773713ad79462b8bfb2bce7f194041e85a0804b38f68282c965adc5f43f9493",
+        ),
+        (
+            "reference.pgr",
+            6_648,
+            "fcd1441d5ff6d703acd52f5766ca597c6202044d4e3b330726d3460707cad880",
+        ),
+    ] {
+        let expected = fs::read(checked.join(name)).expect("read checked route member");
+        let actual = fs::read(rebuilt.join(name)).expect("read rebuilt route member");
+        assert_eq!(actual, expected, "{name} exact bytes");
+        assert_eq!(actual.len(), size, "{name} size");
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&actual)),
+            sha256,
+            "{name} SHA"
+        );
+    }
+
+    let opened = ReferenceBundleOpen::open(&checked).expect("open checked route bundle");
+    let mut complete = vec![0_u8; 10_101];
+    opened
+        .copy_window(
+            Grch38Contig::autosome(1).expect("chr1"),
+            GenomicPosition::new(1).expect("one"),
+            &mut complete,
+        )
+        .expect("copy exact model context");
+    assert!(complete.iter().all(|base| *base == b'A'));
+    let mut off_by_one = vec![0_u8; 10_102];
+    assert_eq!(
+        opened.copy_window(
+            Grch38Contig::autosome(1).expect("chr1"),
+            GenomicPosition::new(1).expect("one"),
+            &mut off_by_one,
+        ),
+        Err(ReferenceError::OutOfBounds)
     );
 }
 

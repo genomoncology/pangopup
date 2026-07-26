@@ -6,11 +6,11 @@ use flate2::bufread::GzDecoder;
 use pangopup_core::{GenomicPosition, Grch38Contig, ReferenceProvider};
 use pangopup_index::reference::{
     AttributionManifest, BuilderManifest, InputManifest, MINI_NOTICE, MINI_PROFILE, MemberManifest,
-    PRODUCTION_NOTICE, PRODUCTION_PROFILE, REFERENCE_FORMAT, REFERENCE_SCHEMA,
-    ReferenceAliasManifest, ReferenceBundleOpen, ReferenceContigPlan, ReferenceIndexError,
-    ReferenceManifest, ReferenceMemberWriter, SequenceManifest, SourceManifest,
-    canonical_reference_manifest_bytes, production_contig_lengths, production_fasta_url,
-    production_report_url, reference_bundle_id, required_accession,
+    PRODUCTION_NOTICE, PRODUCTION_PROFILE, REFERENCE_FORMAT, REFERENCE_SCHEMA, ROUTE_TEST_NOTICE,
+    ROUTE_TEST_PROFILE, ReferenceAliasManifest, ReferenceBundleOpen, ReferenceContigPlan,
+    ReferenceIndexError, ReferenceManifest, ReferenceMemberWriter, SequenceManifest,
+    SourceManifest, canonical_reference_manifest_bytes, production_contig_lengths,
+    production_fasta_url, production_report_url, reference_bundle_id, required_accession,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -32,6 +32,12 @@ const MINI_REPORT_BYTES: u64 = 2_082;
 const MINI_REPORT_SHA: &str = "024b92cbc00745ce7cbb8facd0f708bfee60281cb157ba70e5f93963b7c9a51a";
 const MINI_SEQUENCE_SHA: &str = "84f8c3a1ba478eaefdb0c7f7ece1bc2b52d5b1c44f283669adc44a740f56337c";
 const MINI_EXTRA_SHA: &str = "94503d1eade142e780f5db5c529275cffda81ace979371f0d54e1d2e80cf912f";
+const ROUTE_FASTA_BYTES: u64 = 11_136;
+const ROUTE_FASTA_SHA: &str = "81a5af971ad9c72b3a679a678ca05f2b050a865a622e272abc77eb1be43c3eb8";
+const ROUTE_REPORT_BYTES: u64 = 2_112;
+const ROUTE_REPORT_SHA: &str = "ca184c4c4448bdb9af66899d1d84f7925ab993528f774fe843a45825015a9c5f";
+const ROUTE_SEQUENCE_SHA: &str = "afb720dad5979f65694dab6ae80a497ef56db434d7d346e79cdcb0e7da97e0b3";
+const EMPTY_SHA: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const COMPATIBILITY_CORPUS_BYTES: usize = 220_071;
 const COMPATIBILITY_CORPUS_SHA: &str =
     "2aa557fd3b137966721d47ce073b2954c6a0bb1a6a64e9c4933dac69e88042c8";
@@ -486,10 +492,10 @@ pub fn certify_reference_bundle(bundle: &Path) -> Result<ReferenceCertification,
             "reference logical identity failed",
         ));
     }
-    let contexts = if manifest.profile == MINI_PROFILE {
-        verify_mini_contexts(&opened)?
-    } else {
-        verify_production_contexts(&opened)?
+    let contexts = match manifest.profile.as_str() {
+        MINI_PROFILE => verify_mini_contexts(&opened)?,
+        ROUTE_TEST_PROFILE => verify_route_context(&opened)?,
+        _ => verify_production_contexts(&opened)?,
     };
     Ok(ReferenceCertification {
         total_bases: total,
@@ -616,16 +622,18 @@ fn stream_source(
     source: &Path,
     writer: &mut ReferenceMemberWriter,
 ) -> Result<ObservedInput, CommandError> {
-    let maximum = if profile.name == PRODUCTION_PROFILE {
-        972_898_531
-    } else {
-        MINI_FASTA_BYTES
+    let maximum = match profile.name {
+        PRODUCTION_PROFILE => 972_898_531,
+        MINI_PROFILE => MINI_FASTA_BYTES,
+        ROUTE_TEST_PROFILE => ROUTE_FASTA_BYTES,
+        _ => unreachable!("closed profile"),
     };
     let (mut file, identity) = open_held_regular(source, maximum, "REFERENCE_INPUT")?;
-    let allowed_size = if profile.name == PRODUCTION_PROFILE {
-        identity.size == 972_898_531
-    } else {
-        matches!(identity.size, MINI_FASTA_BYTES | MINI_GZIP_BYTES)
+    let allowed_size = match profile.name {
+        PRODUCTION_PROFILE => identity.size == 972_898_531,
+        MINI_PROFILE => matches!(identity.size, MINI_FASTA_BYTES | MINI_GZIP_BYTES),
+        ROUTE_TEST_PROFILE => identity.size == ROUTE_FASTA_BYTES,
+        _ => false,
     };
     if !allowed_size {
         return Err(CommandError::new(
@@ -927,6 +935,26 @@ fn profile(name: &str) -> Result<Profile, CommandError> {
             max_records: 26,
             max_accession_bytes: 64,
         }),
+        ROUTE_TEST_PROFILE => Ok(Profile {
+            name: ROUTE_TEST_PROFILE,
+            assembly: "synthetic-route-test",
+            assembly_accession: ROUTE_TEST_PROFILE,
+            fasta_url: "urn:pangopup:fixture:reference-route-test-v1:source",
+            report_url: "urn:pangopup:fixture:reference-route-test-v1:assembly-report",
+            policy_url: "https://www.gnu.org/licenses/gpl-3.0.html",
+            notice: ROUTE_TEST_NOTICE,
+            lengths: [
+                10_101, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            ],
+            total_bases: 10_125,
+            sequence_sha: ROUTE_SEQUENCE_SHA,
+            extra_count: 0,
+            extra_sha: EMPTY_SHA,
+            contexts: 1,
+            max_decoded_bytes: ROUTE_FASTA_BYTES,
+            max_records: 25,
+            max_accession_bytes: 64,
+        }),
         _ => Err(CommandError::new(
             "CLI_USAGE",
             "reference profile is unsupported",
@@ -939,17 +967,26 @@ fn validate_source_identity(
     observed: &ObservedInput,
 ) -> Result<(), CommandError> {
     let sha = observed.sha256.strip_prefix("sha256:").unwrap_or("");
-    let valid = if profile.name == PRODUCTION_PROFILE {
-        observed.compression == "gzip"
-            && observed.bytes == 972_898_531
-            && sha == "11912a45a545bf01a10b2a7f10eb7a42924436b4d19b476b1899834fb7ba74a3"
-    } else {
-        (observed.compression == "none"
-            && observed.bytes == MINI_FASTA_BYTES
-            && sha == MINI_FASTA_SHA)
-            || (observed.compression == "gzip"
-                && observed.bytes == MINI_GZIP_BYTES
-                && sha == MINI_GZIP_SHA)
+    let valid = match profile.name {
+        PRODUCTION_PROFILE => {
+            observed.compression == "gzip"
+                && observed.bytes == 972_898_531
+                && sha == "11912a45a545bf01a10b2a7f10eb7a42924436b4d19b476b1899834fb7ba74a3"
+        }
+        MINI_PROFILE => {
+            (observed.compression == "none"
+                && observed.bytes == MINI_FASTA_BYTES
+                && sha == MINI_FASTA_SHA)
+                || (observed.compression == "gzip"
+                    && observed.bytes == MINI_GZIP_BYTES
+                    && sha == MINI_GZIP_SHA)
+        }
+        ROUTE_TEST_PROFILE => {
+            observed.compression == "none"
+                && observed.bytes == ROUTE_FASTA_BYTES
+                && sha == ROUTE_FASTA_SHA
+        }
+        _ => false,
     };
     if valid {
         Ok(())
@@ -965,13 +1002,19 @@ fn validate_report_identity(
     profile: &Profile,
     observed: &ObservedInput,
 ) -> Result<(), CommandError> {
-    let expected = if profile.name == PRODUCTION_PROFILE {
-        (
+    let expected = match profile.name {
+        PRODUCTION_PROFILE => (
             80_454,
             "64318ddff470b69b261a667d813210044f60d4ce654253a547db80ff73638d38",
-        )
-    } else {
-        (MINI_REPORT_BYTES, MINI_REPORT_SHA)
+        ),
+        MINI_PROFILE => (MINI_REPORT_BYTES, MINI_REPORT_SHA),
+        ROUTE_TEST_PROFILE => (ROUTE_REPORT_BYTES, ROUTE_REPORT_SHA),
+        _ => {
+            return Err(CommandError::new(
+                "REFERENCE_INPUT",
+                "reference profile is invalid",
+            ));
+        }
     };
     if observed.bytes == expected.0 && observed.sha256 == format!("sha256:{}", expected.1) {
         Ok(())
@@ -1210,6 +1253,24 @@ fn verify_mini_contexts(opened: &ReferenceBundleOpen) -> Result<u64, CommandErro
         }
     }
     Ok(4)
+}
+
+fn verify_route_context(opened: &ReferenceBundleOpen) -> Result<u64, CommandError> {
+    let mut actual = vec![0_u8; 10_101];
+    opened
+        .copy_window(
+            Grch38Contig::autosome(1).expect("chr1"),
+            GenomicPosition::new(1).expect("one"),
+            &mut actual,
+        )
+        .map_err(|_| CommandError::new("REFERENCE_BUNDLE", "route context decode failed"))?;
+    if actual.iter().any(|base| *base != b'A') {
+        return Err(CommandError::new(
+            "REFERENCE_BUNDLE",
+            "route context mismatch",
+        ));
+    }
+    Ok(1)
 }
 
 #[derive(serde::Deserialize)]

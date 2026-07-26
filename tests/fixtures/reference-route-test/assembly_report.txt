@@ -1,0 +1,26 @@
+# Synthetic pangopup-reference-route-test-v1 assembly report
+1	assembled-molecule	1	Chromosome	route1	=	NC_000001.11	Primary Assembly	10101	chr1
+2	assembled-molecule	2	Chromosome	route2	=	NC_000002.12	Primary Assembly	1	chr2
+3	assembled-molecule	3	Chromosome	route3	=	NC_000003.12	Primary Assembly	1	chr3
+4	assembled-molecule	4	Chromosome	route4	=	NC_000004.12	Primary Assembly	1	chr4
+5	assembled-molecule	5	Chromosome	route5	=	NC_000005.10	Primary Assembly	1	chr5
+6	assembled-molecule	6	Chromosome	route6	=	NC_000006.12	Primary Assembly	1	chr6
+7	assembled-molecule	7	Chromosome	route7	=	NC_000007.14	Primary Assembly	1	chr7
+8	assembled-molecule	8	Chromosome	route8	=	NC_000008.11	Primary Assembly	1	chr8
+9	assembled-molecule	9	Chromosome	route9	=	NC_000009.12	Primary Assembly	1	chr9
+10	assembled-molecule	10	Chromosome	route10	=	NC_000010.11	Primary Assembly	1	chr10
+11	assembled-molecule	11	Chromosome	route11	=	NC_000011.10	Primary Assembly	1	chr11
+12	assembled-molecule	12	Chromosome	route12	=	NC_000012.12	Primary Assembly	1	chr12
+13	assembled-molecule	13	Chromosome	route13	=	NC_000013.11	Primary Assembly	1	chr13
+14	assembled-molecule	14	Chromosome	route14	=	NC_000014.9	Primary Assembly	1	chr14
+15	assembled-molecule	15	Chromosome	route15	=	NC_000015.10	Primary Assembly	1	chr15
+16	assembled-molecule	16	Chromosome	route16	=	NC_000016.10	Primary Assembly	1	chr16
+17	assembled-molecule	17	Chromosome	route17	=	NC_000017.11	Primary Assembly	1	chr17
+18	assembled-molecule	18	Chromosome	route18	=	NC_000018.10	Primary Assembly	1	chr18
+19	assembled-molecule	19	Chromosome	route19	=	NC_000019.10	Primary Assembly	1	chr19
+20	assembled-molecule	20	Chromosome	route20	=	NC_000020.11	Primary Assembly	1	chr20
+21	assembled-molecule	21	Chromosome	route21	=	NC_000021.9	Primary Assembly	1	chr21
+22	assembled-molecule	22	Chromosome	route22	=	NC_000022.11	Primary Assembly	1	chr22
+23	assembled-molecule	X	Chromosome	routeX	=	NC_000023.11	Primary Assembly	1	chrX
+24	assembled-molecule	Y	Chromosome	routeY	=	NC_000024.10	Primary Assembly	1	chrY
+25	assembled-molecule	M	Chromosome	routeM	=	NC_012920.1	non-nuclear	1	chrM

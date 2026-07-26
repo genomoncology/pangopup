@@ -380,7 +380,9 @@ dependencies = [
  "libc",
  "pangopup-assets",
  "pangopup-core",
+ "pangopup-engine",
  "pangopup-index",
+ "pangopup-model",
  "serde",
  "serde_json",
 ]

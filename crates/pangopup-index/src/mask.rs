@@ -144,6 +144,26 @@ impl MaskMemberIdentity {
     }
 }
 
+/// One observed identity inseparably coupled to the exact retained mmap.
+///
+/// This is an identity receipt for caller-supplied bytes, not an installed
+/// compatibility profile or an assertion that the mask is biologically
+/// trusted.
+pub struct IdentifiedMaskDomains {
+    provider: MaskDomainsOpen,
+    identity: MaskMemberIdentity,
+}
+
+impl IdentifiedMaskDomains {
+    pub const fn identity(&self) -> &MaskMemberIdentity {
+        &self.identity
+    }
+
+    pub fn file_len(&self) -> u64 {
+        self.provider.file_len()
+    }
+}
+
 impl std::error::Error for MaskError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -279,6 +299,54 @@ impl MaskDomainsOpen {
         Self::open_file(open_descriptor(path)?)
     }
 
+    /// Identify and structurally open one explicit caller-supplied member.
+    ///
+    /// Hashing, pathname checks, mmap construction, and all later queries use
+    /// the same held regular, single-link descriptor.
+    pub fn open_identified(path: &Path) -> Result<IdentifiedMaskDomains, MaskError> {
+        Self::open_identified_with(path, || {}, |_| {})
+    }
+
+    fn open_identified_with(
+        path: &Path,
+        after_open: impl FnOnce(),
+        mut after_chunk: impl FnMut(u64),
+    ) -> Result<IdentifiedMaskDomains, MaskError> {
+        let mut file = open_descriptor(path)?;
+        let before = checked_metadata(&file)?;
+        after_open();
+
+        file.seek(SeekFrom::Start(0))?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0_u8; 64 * 1024];
+        let mut observed = 0_u64;
+        loop {
+            let count = file.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            observed = observed
+                .checked_add(count as u64)
+                .ok_or(MaskError::Authentication("member length"))?;
+            if observed > before.len() {
+                return Err(MaskError::Authentication("member length"));
+            }
+            hasher.update(&buffer[..count]);
+            after_chunk(observed);
+        }
+        if observed != before.len() {
+            return Err(MaskError::Authentication("member length"));
+        }
+        let after = checked_metadata(&file)?;
+        validate_retained_path(path, &before, &after)?;
+        let identity = MaskMemberIdentity {
+            bytes: observed,
+            sha256: format!("{:x}", hasher.finalize()),
+        };
+        let provider = Self::open_file(file)?;
+        Ok(IdentifiedMaskDomains { provider, identity })
+    }
+
     /// Authenticate and open one retained mask member for qualification.
     ///
     /// Hashing, structural validation, and mmap construction all use the same
@@ -341,18 +409,7 @@ impl MaskDomainsOpen {
         }
 
         let after = checked_metadata(&file)?;
-        if !same_file_state(&before, &after) {
-            return Err(MaskError::Authentication("member changed during hashing"));
-        }
-        let path_metadata = fs::symlink_metadata(path)?;
-        if path_metadata.file_type().is_symlink()
-            || !path_metadata.is_file()
-            || path_metadata.nlink() != 1
-            || path_metadata.dev() != after.dev()
-            || path_metadata.ino() != after.ino()
-        {
-            return Err(MaskError::Authentication("path replaced during hashing"));
-        }
+        validate_retained_path(path, &before, &after)?;
 
         let identity = MaskMemberIdentity {
             bytes: observed,
@@ -714,6 +771,26 @@ fn same_file_state(left: &fs::Metadata, right: &fs::Metadata) -> bool {
         && left.ctime_nsec() == right.ctime_nsec()
 }
 
+fn validate_retained_path(
+    path: &Path,
+    before: &fs::Metadata,
+    after: &fs::Metadata,
+) -> Result<(), MaskError> {
+    if !same_file_state(before, after) {
+        return Err(MaskError::Authentication("member changed during hashing"));
+    }
+    let path_metadata = fs::symlink_metadata(path)?;
+    if path_metadata.file_type().is_symlink()
+        || !path_metadata.is_file()
+        || path_metadata.nlink() != 1
+        || path_metadata.dev() != after.dev()
+        || path_metadata.ino() != after.ino()
+    {
+        return Err(MaskError::Authentication("path replaced during hashing"));
+    }
+    Ok(())
+}
+
 impl MaskProvider for MaskDomainsOpen {
     #[inline]
     fn query(
@@ -729,6 +806,19 @@ impl MaskProvider for MaskDomainsOpen {
             output.clear();
         }
         result
+    }
+}
+
+impl MaskProvider for IdentifiedMaskDomains {
+    #[inline]
+    fn query(
+        &self,
+        contig: Grch38Contig,
+        position: GenomicPosition,
+        stable_gene: Option<EnsemblGeneId>,
+        output: &mut MaskQueryBuffer,
+    ) -> Result<(), MaskError> {
+        self.provider.query(contig, position, stable_gene, output)
     }
 }
 
@@ -793,7 +883,11 @@ fn le_u64(bytes: &[u8], offset: usize) -> Result<u64, MaskError> {
 #[cfg(test)]
 mod qualification_tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::{
+        io::{Seek, SeekFrom, Write},
+        os::unix::fs::symlink,
+        path::PathBuf,
+    };
 
     const FIXTURE_BYTES: u64 = 880;
     const FIXTURE_SHA256: &str = "76d4513ba12fea21f509a3b61d01c90b2f503c24b139c2a50a4c08569994cc43";
@@ -827,6 +921,108 @@ mod qualification_tests {
                 "member changed during hashing" | "path replaced during hashing"
             ))
         ));
+        fs::remove_dir_all(&scratch).expect("remove scratch");
+    }
+
+    #[test]
+    fn identified_open_rejects_symlink_mutation_and_replacement() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/gencode-mask-mini/domains.pgm");
+        let scratch = std::env::temp_dir().join(format!(
+            "pangopup-mask-identified-controls-{}",
+            std::process::id()
+        ));
+        if scratch.exists() {
+            fs::remove_dir_all(&scratch).expect("remove stale scratch");
+        }
+        fs::create_dir(&scratch).expect("create scratch");
+
+        let path = scratch.join("domains.pgm");
+        fs::copy(&fixture, &path).expect("copy fixture");
+        let link = scratch.join("linked.pgm");
+        symlink(&path, &link).expect("create symlink");
+        assert!(MaskDomainsOpen::open_identified(&link).is_err());
+
+        let mutation_path = path.clone();
+        let mut mutated = false;
+        let result = MaskDomainsOpen::open_identified_with(
+            &path,
+            || {},
+            |_| {
+                if !mutated {
+                    let mut file = File::options()
+                        .write(true)
+                        .open(&mutation_path)
+                        .expect("open mutation target");
+                    file.seek(SeekFrom::Start(200)).expect("seek mutation");
+                    file.write_all(&[1]).expect("mutate during hash");
+                    file.sync_all().expect("sync mutation");
+                    mutated = true;
+                }
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(MaskError::Authentication("member changed during hashing"))
+        ));
+
+        fs::copy(&fixture, &path).expect("restore fixture");
+        let replacement_path = path.clone();
+        let held = scratch.join("opened.pgm");
+        let replacement_fixture = fixture.clone();
+        let mut replaced = false;
+        let result = MaskDomainsOpen::open_identified_with(
+            &path,
+            || {},
+            |_| {
+                if !replaced {
+                    fs::rename(&replacement_path, &held).expect("rename opened member");
+                    fs::copy(&replacement_fixture, &replacement_path).expect("replace path");
+                    replaced = true;
+                }
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(MaskError::Authentication(
+                "member changed during hashing" | "path replaced during hashing"
+            ))
+        ));
+        fs::remove_dir_all(&scratch).expect("remove scratch");
+    }
+
+    #[test]
+    fn identified_open_reports_and_queries_the_same_retained_descriptor() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/gencode-mask-mini/domains.pgm");
+        let scratch = std::env::temp_dir().join(format!(
+            "pangopup-mask-identified-held-{}",
+            std::process::id()
+        ));
+        if scratch.exists() {
+            fs::remove_dir_all(&scratch).expect("remove stale scratch");
+        }
+        fs::create_dir(&scratch).expect("create scratch");
+        let path = scratch.join("domains.pgm");
+        fs::copy(&fixture, &path).expect("copy fixture");
+
+        let identified = MaskDomainsOpen::open_identified(&path).expect("identified open");
+        assert_eq!(identified.identity().bytes(), FIXTURE_BYTES);
+        assert_eq!(identified.identity().sha256(), FIXTURE_SHA256);
+        let retained = scratch.join("retained.pgm");
+        fs::rename(&path, &retained).expect("rename identified path");
+        fs::write(&path, b"replacement").expect("replace pathname");
+
+        let mut output = MaskQueryBuffer::default();
+        identified
+            .query(
+                Grch38Contig::autosome(1).expect("chr1"),
+                GenomicPosition::new(2).expect("position"),
+                None,
+                &mut output,
+            )
+            .expect("query retained mmap");
+        assert_eq!(output.plus()[0].identity().to_string(), "ENSG00000000001.1");
         fs::remove_dir_all(&scratch).expect("remove scratch");
     }
 }

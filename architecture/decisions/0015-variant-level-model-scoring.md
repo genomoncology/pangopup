@@ -2,6 +2,9 @@
 
 Status: accepted
 
+Superseded in part by ADR 0016: routing and post-score stable-gene filtering
+now live in `pangopup-engine`; `VariantScorer` itself remains unfiltered.
+
 ## Decision
 
 Add one `pangopup-engine` composition crate above the existing core, index, and
