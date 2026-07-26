@@ -23,8 +23,10 @@ ONNX representation and qualified single-owner CPU kernel now return the
 twelve raw Pangolin channels. `pangopup-engine` now composes the sequence,
 mask, and kernel providers into compatible masked distance-50 scores for the
 supported literal GRCh38 subset. Typed lookup-first routing and explicit-path
-CLI model output are established. CPU tuning, coherent model delivery,
-caching, and HTTP remain future.
+CLI model output are established. A complete-request CPU comparison retains
+sequential `1/1` as the portable ordinary default and records fixed `8/1` as
+this host's frontier result. Reference/alternate batching, coherent model
+delivery, caching, and HTTP remain future.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
 and typed mmap provider are established; its transport, installation, and
 release remain future delivery work. Future SNV and sequence-index builds use
@@ -52,9 +54,9 @@ The large source work is not a rebuild queue:
   raw-kernel evidence and normal-fixture variant-scoring parity. It totals
   33,871,613 bytes and passed all 45,756 PyTorch comparisons. The retained
   coordinator-owned production scorer qualification passed all 14 cases and
-  21 ordered gene records. The bundle is not release-final until
-  CPU-policy work decides whether reference/alternate batching requires a
-  different graph contract.
+  21 ordered gene records under the selected ordinary CPU policy. The bundle
+  is not release-final until the next bounded graph-batching comparison decides
+  whether reference/alternate batching requires a different graph contract.
 
 The GRCh38 sequence index, mask, and model therefore have local qualified
 content but no transport, XDG installation, compatible four-asset profile, or
@@ -308,12 +310,12 @@ An informal same-host probe on the AMD Ryzen 7 5825U observed direct
 twelve-checkpoint PyTorch raw-context inference at about 0.66–0.68 seconds p50
 with its default thread settings and about 3.03–3.19 seconds p50 when forced to
 `1/1`. The accepted Rust/ONNX Runtime `1/1` kernel measured about 2.22–2.33
-seconds p50. The probe suggests Rust is faster than like-for-like single-thread
-Python, but the current forced-single-thread Rust policy is substantially
-slower than multithreaded PyTorch. Its command and raw output were not retained,
-so it informs the roadmap but is not qualification or release evidence. These
-are single raw-context calls, not complete variant, concurrent, CLI, or HTTP
-latency. Production model delivery is not part of this outcome.
+seconds p50. The probe suggested Rust was faster than like-for-like
+single-thread Python but said nothing reliable about complete variants. Its
+command and raw output were not retained, so it is historical diagnosis rather
+than qualification or release evidence. The later retained complete-request
+policy outcome is the authority for current CPU behavior. Production model
+delivery is not part of this outcome.
 
 ## Established — variant-level CPU scoring
 
@@ -364,16 +366,33 @@ derives 994 authoritative hits from the frozen regression and repeats its first
 six hits only for the 1,000-row diagnostic; the original 1,000-case regression
 remains unchanged and is not mislabeled hit-only.
 
-## Next outcome — measured CPU policy and evidence-gated acceleration
+## Established — measured complete-request CPU policy
 
-The established single-thread CPU kernel is the reproducible baseline, not the
-selected production policy. With complete variant parity established, measure
-bounded ONNX Runtime CPU thread policies first. Then measure reference/alternate
-batching or scheduling, including strand work, because the current graph fixes
-batch size one. Set the session/concurrency budget against the complete request
-workload. Consider MPS/CUDA, alternative runtimes, quantization, or another
-backend only if those CPU changes remain insufficient. Adopt a change only with
-preserved behavior and a material measured benefit.
+One retained comparison ran eight bounded ONNX Runtime policies through exact
+M09 one-strand and M10 two-strand `VariantScorer` requests. Every candidate
+matched the frozen public records and stayed below twice the sequential `1/1`
+RSS. Fixed sequential `8/1` was this host's frontier winner at p50 about 1.05
+seconds for M09 and 2.64 seconds for M10, with a worst baseline ratio of 0.305.
+
+Affinity-aware sequential `auto/1` improved M09 but did not improve M10, so it
+failed the portable-default gate. Ordinary `ModelKernel::open` therefore
+remains sequential `1/1`; fixed `8/1` is host characterization for later
+service scheduling, not user configuration or a universal default. A fresh
+ordinary-policy rerun and the retained 14-case/21-record production
+qualification passed exact accepted identities. ADR 0017 and
+[`artifacts/021-measured-cpu-policy.md`](artifacts/021-measured-cpu-policy.md)
+retain the policy and evidence.
+
+## Next outcome — reference/alternate graph batching
+
+The measured ordinary one-strand and two-strand requests remain materially
+slower than the fixed-host frontier, and the current ONNX graph fixes batch
+size one. Compare one small reference/alternate batching representation against
+the unchanged ordinary baseline, including both-strand work, exact M09/M10 and
+14-case compatibility, open/RSS cost, and complete-request p50. Do not add
+request concurrency, a session pool, cache, CLI settings, accelerator, or
+alternative runtime in that outcome. Retain the existing model identity unless
+a qualified changed graph earns a new one.
 
 ## Later outcome — evidence-gated model-result caching
 
@@ -437,7 +456,7 @@ public maintenance commands.
 
 ## Unknowns that require evidence
 
-- the winning CPU thread and reference/alternate batching policy;
+- whether reference/alternate graph batching earns a changed model graph;
 - whether repeated complete requests justify any result cache;
 - whether MPS, CUDA, quantization, or another runtime adds material value;
 - the service session-pool and backpressure shape;

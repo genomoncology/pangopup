@@ -134,8 +134,11 @@ benchmark copy.
 
 `pangopup-model` owns the authenticated three-file model bundle, bounded
 A/C/G/T/N context encoding, and one mutable CPU ONNX Runtime session returning
-twelve raw replicate channels in genomic orientation. It intentionally does
-not construct genomic variants or hide ensemble and masking behavior.
+twelve raw replicate channels in genomic orientation. Ordinary callers retain
+the compiled sequential `1/1` policy; one typed low-level constructor supports
+bounded qualification without adding CLI or global configuration. It
+intentionally does not construct genomic variants or hide ensemble and masking
+behavior.
 
 ### `pangopup-engine`
 
@@ -284,7 +287,8 @@ fallback is operational; coherent asset activation is not.
   publication and pinned sync;
 - foreground HTTP serving plus container and native service-manager
   integration; and
-- measured accelerator backends only after CPU compatibility is proved.
+- reference/alternate graph batching measured against the selected CPU
+  baseline before considering an accelerator backend.
 
 These extensions must preserve the exact, compact, fast SNV index rather than
 complicate or replace it.

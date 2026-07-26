@@ -11,8 +11,10 @@ the twelve raw selected Pangolin channels through one ONNX Runtime session.
 The shipped `pangopup-engine` composition now constructs supported literal
 GRCh38 variants, preserves compatible ensemble/indel/masking arithmetic, and
 routes authoritative lookup or explicit-path model fallback into ordered exact
-CLI results. CPU tuning, coherent asset delivery, caching, and HTTP remain
-future work.
+CLI results. Complete-request CPU qualification keeps the portable ordinary
+session at sequential `1/1` while retaining fixed `8/1` as this host's measured
+frontier result. Reference/alternate batching, coherent asset delivery,
+caching, and HTTP remain future work.
 
 The closed three-codec reference comparison selected `acgt2-rle-v1`; its
 candidate modules, miniature, benchmark executable, and CLI have been removed
@@ -70,6 +72,8 @@ ADR 0012 defines that descriptive provenance boundary.
   post-processing, and ordered masking contract.
 - [`decisions/0016-lookup-first-cli-model-routing.md`](decisions/0016-lookup-first-cli-model-routing.md)
   — authoritative lookup, lazy identity-bound fallback, and stable modeled CLI output.
+- [`decisions/0017-measured-cpu-policy.md`](decisions/0017-measured-cpu-policy.md)
+  — complete-request CPU measurement, host frontier, and portable ordinary default.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)

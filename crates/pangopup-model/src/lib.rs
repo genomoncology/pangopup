@@ -15,7 +15,9 @@ use std::{
     fmt,
     fs::{self, File, OpenOptions},
     io::{self, Read, Seek, SeekFrom},
+    num::NonZeroUsize,
     path::Path,
+    str::FromStr,
 };
 
 #[cfg(unix)]
@@ -35,10 +37,188 @@ pub const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 pub const MAX_NOTICE_BYTES: u64 = 64 * 1024;
 pub const MAX_MODEL_BYTES: u64 = 48 * 1024 * 1024;
 pub const MAX_AGGREGATE_BYTES: u64 = 49 * 1024 * 1024;
+pub const ORT_CRATE_VERSION: &str = "2.0.0-rc.12";
+pub const ONNX_RUNTIME_VERSION: &str = "1.24.2";
 
 const EXACT_MEMBERS: [&str; 3] = ["NOTICE", "manifest.json", "model.onnx"];
 const PRODUCTION_MODEL_SOURCE_SHA256: &str =
     "sha256:4a1c5c2570aafe1452bb43332255321677e6c6c817adf84b9dd438e3ca4be6f8";
+
+/// ONNX Runtime's graph execution mode for one model session.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CpuExecutionMode {
+    Sequential,
+    Parallel,
+}
+
+/// ONNX Runtime's within-node thread policy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IntraOpThreads {
+    /// Leave the thread count unset so ONNX Runtime can use its affinity-aware
+    /// automatic policy.
+    Auto,
+    Fixed(NonZeroUsize),
+}
+
+/// Immutable CPU session policy for the low-level model kernel.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CpuPolicy {
+    execution: CpuExecutionMode,
+    intra_op: IntraOpThreads,
+    inter_op: NonZeroUsize,
+}
+
+impl CpuPolicy {
+    pub const SEQUENTIAL_AUTO_1: Self = Self {
+        execution: CpuExecutionMode::Sequential,
+        intra_op: IntraOpThreads::Auto,
+        inter_op: NonZeroUsize::MIN,
+    };
+    pub const SEQUENTIAL_1_1: Self = Self {
+        execution: CpuExecutionMode::Sequential,
+        intra_op: IntraOpThreads::Fixed(NonZeroUsize::MIN),
+        inter_op: NonZeroUsize::MIN,
+    };
+    pub const SEQUENTIAL_2_1: Self = Self {
+        execution: CpuExecutionMode::Sequential,
+        intra_op: IntraOpThreads::Fixed(NonZeroUsize::new(2).expect("nonzero")),
+        inter_op: NonZeroUsize::MIN,
+    };
+    pub const SEQUENTIAL_4_1: Self = Self {
+        execution: CpuExecutionMode::Sequential,
+        intra_op: IntraOpThreads::Fixed(NonZeroUsize::new(4).expect("nonzero")),
+        inter_op: NonZeroUsize::MIN,
+    };
+    pub const SEQUENTIAL_8_1: Self = Self {
+        execution: CpuExecutionMode::Sequential,
+        intra_op: IntraOpThreads::Fixed(NonZeroUsize::new(8).expect("nonzero")),
+        inter_op: NonZeroUsize::MIN,
+    };
+    pub const PARALLEL_1_2: Self = Self {
+        execution: CpuExecutionMode::Parallel,
+        intra_op: IntraOpThreads::Fixed(NonZeroUsize::MIN),
+        inter_op: NonZeroUsize::new(2).expect("nonzero"),
+    };
+    pub const PARALLEL_1_4: Self = Self {
+        execution: CpuExecutionMode::Parallel,
+        intra_op: IntraOpThreads::Fixed(NonZeroUsize::MIN),
+        inter_op: NonZeroUsize::new(4).expect("nonzero"),
+    };
+    pub const PARALLEL_1_8: Self = Self {
+        execution: CpuExecutionMode::Parallel,
+        intra_op: IntraOpThreads::Fixed(NonZeroUsize::MIN),
+        inter_op: NonZeroUsize::new(8).expect("nonzero"),
+    };
+
+    /// The reviewed policy used by ordinary callers.
+    ///
+    /// This remains a compiled choice rather than runtime configuration.
+    #[must_use]
+    pub const fn production_default() -> Self {
+        Self::SEQUENTIAL_1_1
+    }
+
+    pub fn new(
+        execution: CpuExecutionMode,
+        intra_op: IntraOpThreads,
+        inter_op: NonZeroUsize,
+    ) -> Result<Self, CpuPolicyError> {
+        if let IntraOpThreads::Fixed(threads) = intra_op {
+            i32::try_from(threads.get())
+                .map_err(|_| CpuPolicyError::ThreadCountOutOfRange("intra-op"))?;
+        }
+        i32::try_from(inter_op.get())
+            .map_err(|_| CpuPolicyError::ThreadCountOutOfRange("inter-op"))?;
+        if execution == CpuExecutionMode::Sequential && inter_op != NonZeroUsize::MIN {
+            return Err(CpuPolicyError::SequentialInterOp);
+        }
+        Ok(Self {
+            execution,
+            intra_op,
+            inter_op,
+        })
+    }
+
+    #[must_use]
+    pub const fn execution(self) -> CpuExecutionMode {
+        self.execution
+    }
+
+    #[must_use]
+    pub const fn intra_op(self) -> IntraOpThreads {
+        self.intra_op
+    }
+
+    #[must_use]
+    pub const fn inter_op(self) -> NonZeroUsize {
+        self.inter_op
+    }
+}
+
+impl fmt::Display for CpuPolicy {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let execution = match self.execution {
+            CpuExecutionMode::Sequential => "sequential",
+            CpuExecutionMode::Parallel => "parallel",
+        };
+        match self.intra_op {
+            IntraOpThreads::Auto => {
+                write!(formatter, "{execution}:auto/{}", self.inter_op)
+            }
+            IntraOpThreads::Fixed(threads) => {
+                write!(formatter, "{execution}:{threads}/{}", self.inter_op)
+            }
+        }
+    }
+}
+
+impl FromStr for CpuPolicy {
+    type Err = CpuPolicyError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "sequential:auto/1" => Ok(Self::SEQUENTIAL_AUTO_1),
+            "sequential:1/1" => Ok(Self::SEQUENTIAL_1_1),
+            "sequential:2/1" => Ok(Self::SEQUENTIAL_2_1),
+            "sequential:4/1" => Ok(Self::SEQUENTIAL_4_1),
+            "sequential:8/1" => Ok(Self::SEQUENTIAL_8_1),
+            "parallel:1/2" => Ok(Self::PARALLEL_1_2),
+            "parallel:1/4" => Ok(Self::PARALLEL_1_4),
+            "parallel:1/8" => Ok(Self::PARALLEL_1_8),
+            _ => Err(CpuPolicyError::UnknownCandidate),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CpuPolicyError {
+    SequentialInterOp,
+    ThreadCountOutOfRange(&'static str),
+    UnknownCandidate,
+}
+
+impl fmt::Display for CpuPolicyError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SequentialInterOp => {
+                formatter.write_str("sequential CPU policy requires one inter-op thread")
+            }
+            Self::ThreadCountOutOfRange(field) => {
+                write!(
+                    formatter,
+                    "{field} CPU thread count exceeds ONNX Runtime's signed 32-bit domain"
+                )
+            }
+            Self::UnknownCandidate => formatter.write_str(
+                "unknown CPU policy candidate; expected sequential:auto/1, sequential:1/1, \
+                 sequential:2/1, sequential:4/1, sequential:8/1, parallel:1/2, \
+                 parallel:1/4, or parallel:1/8",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for CpuPolicyError {}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -340,17 +520,28 @@ pub struct ModelKernel {
 
 impl ModelKernel {
     pub fn open(bundle: &Path) -> Result<Self, ModelError> {
+        Self::open_with_cpu_policy(bundle, CpuPolicy::production_default())
+    }
+
+    /// Open an authenticated model bundle with an explicit CPU session policy.
+    ///
+    /// This low-level seam exists for qualification and callers that own their
+    /// complete scheduling policy. Normal callers should use [`Self::open`].
+    pub fn open_with_cpu_policy(bundle: &Path, policy: CpuPolicy) -> Result<Self, ModelError> {
         let authenticated = authenticate_bundle(bundle)?;
         let mut builder = Session::builder()
             .map_err(runtime_error)?
             .with_optimization_level(GraphOptimizationLevel::All)
             .map_err(runtime_error)?
-            .with_parallel_execution(false)
+            .with_parallel_execution(policy.execution == CpuExecutionMode::Parallel)
             .map_err(runtime_error)?
-            .with_intra_threads(1)
-            .map_err(runtime_error)?
-            .with_inter_threads(1)
+            .with_inter_threads(policy.inter_op.get())
             .map_err(runtime_error)?;
+        if let IntraOpThreads::Fixed(threads) = policy.intra_op {
+            builder = builder
+                .with_intra_threads(threads.get())
+                .map_err(runtime_error)?;
+        }
         let session = builder
             .commit_from_memory(&authenticated.model_bytes)
             .map_err(runtime_error)?;

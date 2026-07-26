@@ -1,9 +1,10 @@
 use pangopup_model::{
-    ModelContext, ModelKernel, Strand, bundle_identity, canonical_manifest_bytes, inspect_bundle,
-    parse_manifest_bytes, sha256,
+    CpuExecutionMode, CpuPolicy, CpuPolicyError, IntraOpThreads, ModelContext, ModelKernel, Strand,
+    bundle_identity, canonical_manifest_bytes, inspect_bundle, parse_manifest_bytes, sha256,
 };
 use std::{
     fs,
+    num::NonZeroUsize,
     path::{Path, PathBuf},
 };
 use tempfile::TempDir;
@@ -75,6 +76,128 @@ fn checked_miniature_runs_real_ort_at_both_length_bounds() {
                 .all(|value| *value == expected)
         );
     }
+}
+
+#[test]
+fn cpu_policy_candidates_are_closed_and_round_trip() {
+    let candidates = [
+        CpuPolicy::SEQUENTIAL_AUTO_1,
+        CpuPolicy::SEQUENTIAL_1_1,
+        CpuPolicy::SEQUENTIAL_2_1,
+        CpuPolicy::SEQUENTIAL_4_1,
+        CpuPolicy::SEQUENTIAL_8_1,
+        CpuPolicy::PARALLEL_1_2,
+        CpuPolicy::PARALLEL_1_4,
+        CpuPolicy::PARALLEL_1_8,
+    ];
+    for candidate in candidates {
+        assert_eq!(
+            candidate.to_string().parse::<CpuPolicy>(),
+            Ok(candidate),
+            "{candidate}"
+        );
+    }
+    for invalid in [
+        "",
+        "sequential",
+        "sequential:auto/0",
+        "sequential:3/1",
+        "sequential:1/2",
+        "parallel:auto/2",
+        "parallel:1/3",
+        "SEQUENTIAL:1/1",
+    ] {
+        assert_eq!(
+            invalid.parse::<CpuPolicy>(),
+            Err(CpuPolicyError::UnknownCandidate),
+            "{invalid}"
+        );
+    }
+}
+
+#[test]
+fn cpu_policy_validates_sequential_inter_op_and_pins_default() {
+    assert_eq!(
+        CpuPolicy::new(
+            CpuExecutionMode::Sequential,
+            IntraOpThreads::Auto,
+            NonZeroUsize::new(2).expect("nonzero")
+        ),
+        Err(CpuPolicyError::SequentialInterOp)
+    );
+    assert_eq!(
+        CpuPolicy::new(
+            CpuExecutionMode::Parallel,
+            IntraOpThreads::Fixed(NonZeroUsize::MIN),
+            NonZeroUsize::new(2).expect("nonzero")
+        )
+        .expect("valid parallel policy"),
+        CpuPolicy::PARALLEL_1_2
+    );
+    assert_eq!(CpuPolicy::production_default(), CpuPolicy::SEQUENTIAL_1_1);
+}
+
+#[test]
+fn cpu_policy_rejects_thread_counts_outside_the_ort_domain() {
+    let maximum = NonZeroUsize::new(i32::MAX as usize).expect("positive i32 maximum");
+    let too_large =
+        NonZeroUsize::new(i32::MAX as usize + 1).expect("usize represents i32 maximum plus one");
+
+    assert!(
+        CpuPolicy::new(
+            CpuExecutionMode::Parallel,
+            IntraOpThreads::Fixed(maximum),
+            maximum
+        )
+        .is_ok()
+    );
+    assert_eq!(
+        CpuPolicy::new(
+            CpuExecutionMode::Parallel,
+            IntraOpThreads::Fixed(too_large),
+            NonZeroUsize::MIN
+        ),
+        Err(CpuPolicyError::ThreadCountOutOfRange("intra-op"))
+    );
+    assert_eq!(
+        CpuPolicy::new(CpuExecutionMode::Parallel, IntraOpThreads::Auto, too_large),
+        Err(CpuPolicyError::ThreadCountOutOfRange("inter-op"))
+    );
+
+    for candidate in [
+        "sequential:auto/1",
+        "sequential:1/1",
+        "sequential:2/1",
+        "sequential:4/1",
+        "sequential:8/1",
+        "parallel:1/2",
+        "parallel:1/4",
+        "parallel:1/8",
+    ] {
+        assert!(candidate.parse::<CpuPolicy>().is_ok(), "{candidate}");
+    }
+}
+
+#[test]
+fn miniature_runs_under_both_cpu_execution_families() {
+    let context = ModelContext::new(vec![b'A'; 10_001]).expect("valid context");
+    let mut sequential =
+        ModelKernel::open_with_cpu_policy(&fixture_bundle(), CpuPolicy::SEQUENTIAL_AUTO_1)
+            .expect("open sequential automatic policy");
+    let sequential_scores = sequential
+        .infer(&context, Strand::Plus)
+        .expect("sequential inference");
+
+    let mut parallel =
+        ModelKernel::open_with_cpu_policy(&fixture_bundle(), CpuPolicy::PARALLEL_1_2)
+            .expect("open parallel policy");
+    let parallel_scores = parallel
+        .infer(&context, Strand::Plus)
+        .expect("parallel inference");
+
+    assert_eq!(sequential_scores.shape(), [1, 12, 1]);
+    assert_eq!(parallel_scores.shape(), sequential_scores.shape());
+    assert_eq!(parallel_scores.values(), sequential_scores.values());
 }
 
 #[test]

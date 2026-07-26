@@ -13,8 +13,9 @@ authenticated ONNX Runtime CPU kernel returning twelve raw Pangolin channels.
 The `pangopup-engine` crate now composes those providers into compatible
 variant-level scoring and lookup-first routing for the supported literal
 allele subset. The CLI accepts an explicit local reference/mask/model fallback
-set and emits exact modeled JSONL/table results. Coherent asset delivery, CPU
-tuning, caching, and the HTTP service remain target work. A reviewed retained benchmark selected the
+set and emits exact modeled JSONL/table results. Complete-request CPU policy
+selection is established; graph batching, coherent asset delivery, caching,
+and the HTTP service remain target work. A reviewed retained benchmark selected the
 two-bit/ambiguity-run GRCh38 payload by speed; Ticket 011 hardened it as the
 production `PGRREF01` reader and qualified the complete 25-contig bundle. Read
 `README.md` first.

@@ -188,7 +188,10 @@ Raw CPU-kernel compatibility is proved with maximum observed absolute error
 well below the accepted `1e-5` tolerance. Variant-level compatibility is also
 proved across the 14 scored cases, 36 raw evaluations, six rejections, and four
 controlled cases. Lookup routing and explicit-path CLI model output are
-shipped; complete-request CPU policy remains separate.
+shipped. Complete-request CPU qualification retains sequential `1/1` as the
+portable ordinary policy because affinity-aware `auto/1` failed the two-strand
+improvement gate. Fixed `8/1` is the measured winner for the retained host, not
+a portable default or part of model asset identity.
 MPS, CUDA, alternative runtimes, quantization, or other optimizations are
 accepted only if they preserve the same result/error behavior and improve
 measured end-to-end performance or resource use.

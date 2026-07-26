@@ -249,7 +249,11 @@ The separate `pangolin-model-v1` trust root authenticates every state tensor in
 the twelve checkpoints and 45,756 independently generated raw-channel values.
 `pangopup-model` opens one bounded three-file ONNX bundle, executes a
 single-owner ONNX Runtime CPU session at `1/1` threads, and returns the twelve
-channels without hiding ensemble or masking behavior. Maintainers can inspect
+channels without hiding ensemble or masking behavior. A retained complete-
+request comparison keeps that portable ordinary default: affinity-aware
+`auto/1` did not improve the two-strand case, while fixed `8/1` was the
+host-specific frontier winner. The typed explicit policy opener is a low-level
+qualification seam, not a CLI setting. Maintainers can inspect
 or qualify an already-built bundle without Python or the original checkpoints:
 
 ```text
@@ -539,7 +543,7 @@ Implemented today:
   stable warnings/errors, gene filtering after all-gene masking, and
   transactional JSONL/table batches.
 
-Not implemented yet: CPU-policy tuning, HTTP service, container, persistent download progress/status,
+Not implemented yet: reference/alternate graph batching, HTTP service, container, persistent download progress/status,
 repair/GC/rollback, or result cache. Delivery, installation, and
 compatible-profile activation for the
 compiled GRCh38 sequence index, mask, and model are also not implemented.
@@ -582,18 +586,19 @@ The rolling outcome order is:
     into compatible variant-level scoring (complete);
 20. add lookup-first routing and stable CLI model JSON with route and asset
     provenance (complete);
-21. measure complete-request CPU threading and reference/alternate batching,
-    freeze the model identity, and consider accelerators only if still needed;
-22. measure repeated complete requests and add a bounded result cache only if
+21. measure complete-request CPU threading and select the portable ordinary
+    policy (complete);
+22. measure reference/alternate graph batching against that policy;
+23. measure repeated complete requests and add a bounded result cache only if
     the evidence justifies one;
-23. create one coherent SNV, model, GRCh38 sequence index, and mask delivery
+24. create one coherent SNV, model, GRCh38 sequence index, and mask delivery
     profile, with local clean-machine and offline-restart proof;
-24. close publication prerequisites, publish only the derived model,
+25. close publication prerequisites, publish only the derived model,
     GRCh38 sequence index, and mask runtime assets, and prove pinned
     fresh-machine sync plus CLI inference;
-25. a foreground HTTP/status service with CLI and HTTP acceptance tests;
-26. non-root Docker and documented systemd lifecycle integration;
-27. observability, security, performance, and executable/container release
+26. a foreground HTTP/status service with CLI and HTTP acceptance tests;
+27. non-root Docker and documented systemd lifecycle integration;
+28. observability, security, performance, and executable/container release
     hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the

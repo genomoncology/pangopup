@@ -231,16 +231,20 @@ settings. Forced to `1/1`, it observed 3.033 and 3.191 seconds. The accepted
 Rust/ONNX Runtime `1/1` kernel measured 2.335 and 2.222 seconds respectively.
 This suggests Rust is faster in the like-for-like single-thread comparison,
 while default multithreaded PyTorch is about 3.3–3.5 times faster than the
-current Rust policy. The one-off PyTorch command and raw output were not
+ordinary Rust policy. The one-off PyTorch command and raw output were not
 retained, so those Python figures guide follow-up work but are not qualification
 or release evidence.
 
 Those are raw single-context calls, not complete variant, concurrent, CLI,
 HTTP, accelerator, or end-to-end measurements. A modeled variant requires
 reference and alternate work and can require both strands, so multiplying
-these numbers into a product latency claim would be misleading. Variant parity
-is now established; Pangopup will next measure ONNX Runtime thread policies and
-reference/alternate batching before considering accelerators or quantization.
+these numbers into a product latency claim would be misleading. The retained
+complete-request comparison found fixed sequential `8/1` fastest on this host,
+at about 1.05 seconds p50 for M09 and 2.64 seconds for two-strand M10.
+Affinity-aware `auto/1` failed the M10 improvement gate, so ordinary sessions
+remain portable sequential `1/1`; fixed host results are not latency promises.
+Reference/alternate graph batching is the next measured optimization before
+accelerators or quantization.
 
 Cold lookup behavior is explicitly unmeasured because neither dataset size nor
 an OS/device procedure proved the queried pages were nonresident.

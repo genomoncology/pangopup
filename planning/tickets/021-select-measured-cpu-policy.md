@@ -1,6 +1,6 @@
 # 021 — Select the CPU policy from complete variant measurements
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -214,11 +214,74 @@ implementable, reproducible, and consistent with the one-ticket process.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex sub-agent `/root/ticket021_implementation`
+
+Implemented the typed `CpuPolicy`/`ModelKernel::open_with_cpu_policy` seam,
+closed eight-candidate parser, direct ONNX Runtime execution/intra/inter mapping,
+fast miniature inference and validation controls, ADR 0017, and an ignored
+complete-`VariantScorer` production measurement. The harness authenticates and
+opens the three production components once, rejects a noncanonical policy or
+affinity, checks every M09/M10 warmup and sample against the frozen public
+records, and emits one JSON object with component-open timing, p50/descriptive
+p95, RSS, runtime/asset identities, and qualification.
+
+Focused non-production evidence:
+
+- `cargo test --locked -p pangopup-model --test bundle`: 11 passed;
+- `cargo test --locked -p pangopup-engine --lib`: 10 passed;
+- `cargo test --locked -p pangopup-engine --test cpu_policy_measurement
+  --no-run`: compiled;
+- locked clippy for `pangopup-model` and `pangopup-engine`, all targets, with
+  warnings denied: passed; and
+- `cargo fmt --all` plus `git diff --check`: passed.
+
+The developer also ran the complete non-production gate after the focused
+checks: `make lint` passed, `make test` passed with only the declared
+maintainer/production tests ignored, and `make spec` reported 167 passed and 2
+skipped.
+
+No production asset was opened, downloaded, rebuilt, changed, or published.
+The retained artifact contains the exact coordinator commands and results.
+The coordinator-owned production run found sequential fixed `8/1` to be this
+host's measured frontier winner. Affinity-aware `auto/1` failed the M10
+improvement gate, so ordinary `ModelKernel::open` correctly remains sequential
+`1/1`. A fresh selected-default rerun was exact, and the ordinary-default
+production qualification passed all 14 cases and 21 records with the accepted
+model/reference/mask/post-ensemble identities. ADR 0017, README, architecture,
+runtime-data, FAQ, and frontier now distinguish that portable default from the
+host-specific winner and select reference/alternate graph batching as the next
+bounded outcome.
+
+Code-review remediation closes the public constructor's numeric boundary
+before `ort` can cast `usize` to its signed 32-bit C thread-count parameter.
+Fast tests cover the exact accepted maximum and the first rejected intra-op
+and inter-op values while rechecking all eight constants/parser spellings.
+`AGENTS.md` now also reports CPU-policy selection as established and graph
+batching as remaining work.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex sub-agent `/root/ticket021_code_review`
+
+Initial review found three issues:
+
+- the public constructor accepted thread counts above ONNX Runtime's signed
+  32-bit C parameter domain before `ort` narrowed `usize`;
+- the retained artifact summarized CPU topology instead of preserving the
+  required exact `lscpu` command and output; and
+- `AGENTS.md` still described CPU tuning as future work.
+
+The same developer added typed numeric-domain validation and independent
+intra/inter boundary tests, and corrected `AGENTS.md`. The coordinator appended
+the exact previously captured 16-row topology output. Focused remediation
+checks passed.
+
+Final re-review: **ACCEPT**. The reviewer independently confirmed all three
+findings closed, model tests 12/12, the ignored harness compiled without
+running, locked all-target model/engine clippy passed with warnings denied, and
+the diff was clean. The reviewer found no remaining correctness, security,
+performance-evidence, lookup-regression, architecture, or documentation issue
+and did not open production assets.
 
 ## External Effect Evidence
 
@@ -228,4 +291,20 @@ This ticket performs no download, upload, release, or other external mutation.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex `/root`
+
+After independent code-review acceptance:
+
+- `make lint`: passed;
+- `make test`: passed, with only declared maintainer/production tests ignored;
+- `make spec`: 167 passed, 2 skipped;
+- `git diff --check`: passed; and
+- stale-claim scan: CPU-policy selection is consistently established,
+  host-specific `8/1` is not presented as the portable default, ordinary
+  `1/1` remains explicit, and reference/alternate graph batching is the one
+  next outcome.
+
+The coordinator also confirmed the retained raw candidate lines, arithmetic,
+fresh selected-default rerun, 14-case/21-record production qualification,
+accepted asset identities, topology output, and OpenMP-symbol check. No asset
+was rebuilt, changed, downloaded, uploaded, or published.
