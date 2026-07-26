@@ -10,8 +10,10 @@ public `snv-grch38-v1` lookup-data release, pinned resumable remote sync, and a
 strict frozen upstream compatibility corpus with a bounded offline inspector,
 the qualified compiled RefSeq GRCh38.p14 sequence-index bundle/provider, and an
 authenticated ONNX Runtime CPU kernel returning twelve raw Pangolin channels.
-Variant-level model scoring/fallback and the HTTP service remain target work
-and are not implemented. A reviewed retained benchmark selected the
+The `pangopup-engine` crate now composes those providers into compatible
+variant-level scoring for the supported literal allele subset. Lookup-first
+fallback routing, CLI model output, asset delivery, CPU tuning, caching, and
+the HTTP service remain target work. A reviewed retained benchmark selected the
 two-bit/ambiguity-run GRCh38 payload by speed; Ticket 011 hardened it as the
 production `PGRREF01` reader and qualified the complete 25-contig bundle. Read
 `README.md` first.
@@ -56,6 +58,10 @@ There is no `make check`. Run all three gates before committing.
   encoding, and one mutable CPU ONNX Runtime session returning twelve raw
   channels. It does not own genomic variant construction, post-processing,
   masking, routing, or a public score provider.
+- `crates/pangopup-engine` owns fixed GRCh38 distance-50 variant construction,
+  ensemble/indel arithmetic, order-sensitive masking, extrema, and exact public
+  modeled results. It does not own lookup routing, transport, caching, CLI, or
+  concurrency policy.
 - `crates/pangopup-cli` adapts command-line strings and output to the typed API;
   it contains no scoring or index logic.
 - `architecture/` records durable boundaries and accepted decisions.

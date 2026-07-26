@@ -674,9 +674,9 @@ fn write_logical_locus(output: &mut File, locus: InputLocus) -> Result<(), io::E
             DnaBase::T => 3,
         };
         record[offset + 1] = alternative.score.gain().hundredths();
-        record[offset + 2] = (alternative.score.gain_position().get() as i16 + 50) as u8;
+        record[offset + 2] = (alternative.score.gain_position().get() + 50) as u8;
         record[offset + 3] = alternative.score.loss().hundredths();
-        record[offset + 4] = (alternative.score.loss_position().get() as i16 + 50) as u8;
+        record[offset + 4] = (alternative.score.loss_position().get() + 50) as u8;
     }
     output.write_all(&record)
 }
@@ -1117,6 +1117,11 @@ fn parse_relative(text: &str) -> Result<RelativePosition, String> {
     let value = text
         .parse::<i16>()
         .map_err(|_| format!("invalid relative position {text}"))?;
+    if !(-50..=50).contains(&value) {
+        return Err(format!(
+            "relative position {text} is outside the fixed-v1 range -50..=50"
+        ));
+    }
     RelativePosition::new(value).map_err(|error| error.to_string())
 }
 

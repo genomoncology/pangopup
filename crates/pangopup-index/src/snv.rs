@@ -54,6 +54,8 @@ const TREE_NODE_SIZE: usize = 32;
 const EXCEPTION_SIZE: usize = 40;
 const PAGE_SIZE: u64 = 4096;
 const NONE: u64 = u64::MAX;
+const FIXED_V1_MIN_POSITION: i16 = -50;
+const FIXED_V1_MAX_POSITION: i16 = 50;
 pub const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 
 pub const INDEX_FORMAT: &str = "pangopup.fixed11.v1";
@@ -1030,6 +1032,9 @@ fn canonicalize(
     for locus in input {
         match *locus {
             InputLocus::Ordinary(mut locus) => {
+                for alternative in &locus.alternatives {
+                    validate_fixed_v1_score(alternative.score)?;
+                }
                 locus
                     .alternatives
                     .sort_by_key(|value| base_code(value.alternate));
@@ -1048,6 +1053,9 @@ fn canonicalize(
                 ordinary.push(locus);
             }
             InputLocus::Ambiguous(mut locus) => {
+                for alternative in &locus.alternatives {
+                    validate_fixed_v1_score(alternative.score)?;
+                }
                 locus
                     .alternatives
                     .sort_by_key(|value| base_code(value.alternate));
@@ -1130,7 +1138,7 @@ fn encode_segment_payload(loci: Vec<OrdinaryInputLocus>) -> Result<SegmentBuild,
         .ok_or(IndexError::Arithmetic("fixed payload length"))?;
     let mut payload = Vec::with_capacity(payload_len);
     for locus in &loci {
-        payload.extend_from_slice(&encode_fixed_locus(locus));
+        payload.extend_from_slice(&encode_fixed_locus(locus)?);
     }
     Ok(SegmentBuild {
         gene: first.gene,
@@ -1249,9 +1257,9 @@ fn encode_exception(bytes: &mut Vec<u8>, locus: &AmbiguousInputLocus) -> Result<
     for (index, alternate) in locus.alternatives.iter().enumerate() {
         let score_offset = start + 24 + index * 4;
         bytes[score_offset] = alternate.score.gain().hundredths();
-        bytes[score_offset + 1] = position_code(alternate.score.gain_position());
+        bytes[score_offset + 1] = position_code(alternate.score.gain_position())?;
         bytes[score_offset + 2] = alternate.score.loss().hundredths();
-        bytes[score_offset + 3] = position_code(alternate.score.loss_position());
+        bytes[score_offset + 3] = position_code(alternate.score.loss_position())?;
     }
     Ok(())
 }
@@ -2325,22 +2333,22 @@ fn decode_exception(bytes: &[u8], offset: u64) -> Result<AmbiguousInputLocus, In
     })
 }
 
-fn encode_pair(magnitude: ScoreMagnitude, position: RelativePosition) -> u16 {
-    u16::from(magnitude.hundredths()) | ((position.get() as i16 + 50) as u16) << 7
+fn encode_pair(magnitude: ScoreMagnitude, position: RelativePosition) -> Result<u16, IndexError> {
+    Ok(u16::from(magnitude.hundredths()) | (u16::from(position_code(position)?) << 7))
 }
 
-fn encode_fixed_locus(locus: &OrdinaryInputLocus) -> [u8; 11] {
+fn encode_fixed_locus(locus: &OrdinaryInputLocus) -> Result<[u8; 11], IndexError> {
     let mut bits = u128::from(base_code(locus.reference));
     for (index, alternative) in locus.alternatives.iter().enumerate() {
-        let gain = encode_pair(alternative.score.gain(), alternative.score.gain_position());
-        let loss = encode_pair(alternative.score.loss(), alternative.score.loss_position());
+        let gain = encode_pair(alternative.score.gain(), alternative.score.gain_position())?;
+        let loss = encode_pair(alternative.score.loss(), alternative.score.loss_position())?;
         let score = u32::from(gain) | (u32::from(loss) << 14);
         bits |= u128::from(score) << (3 + index * 28);
     }
     let expanded = bits.to_le_bytes();
     let mut record = [0_u8; 11];
     record.copy_from_slice(&expanded[..11]);
-    record
+    Ok(record)
 }
 
 fn decode_fixed_locus(raw: &[u8], snv: Grch38Snv) -> Result<Option<PangolinScore>, IndexError> {
@@ -2434,13 +2442,26 @@ fn decode_pair_code(value: u16) -> Result<(ScoreMagnitude, RelativePosition), In
     ))
 }
 
-fn position_code(position: RelativePosition) -> u8 {
-    (position.get() as i16 + 50) as u8
+fn validate_fixed_v1_score(score: PangolinScore) -> Result<(), IndexError> {
+    position_code(score.gain_position())?;
+    position_code(score.loss_position())?;
+    Ok(())
+}
+fn position_code(position: RelativePosition) -> Result<u8, IndexError> {
+    let position = position.get();
+    if !(FIXED_V1_MIN_POSITION..=FIXED_V1_MAX_POSITION).contains(&position) {
+        return Err(IndexError::InvalidInput("fixed-v1 relative position"));
+    }
+    u8::try_from(position - FIXED_V1_MIN_POSITION)
+        .map_err(|_| IndexError::InvalidInput("fixed-v1 relative position"))
 }
 fn decode_score_byte(value: u8) -> Result<ScoreMagnitude, IndexError> {
     ScoreMagnitude::new(u16::from(value)).map_err(|_| IndexError::Corrupt("exception score code"))
 }
 fn decode_position_byte(value: u8) -> Result<RelativePosition, IndexError> {
+    if value > 100 {
+        return Err(IndexError::Corrupt("exception position code"));
+    }
     RelativePosition::new(i16::from(value) - 50)
         .map_err(|_| IndexError::Corrupt("exception position code"))
 }
@@ -2571,6 +2592,68 @@ mod tests {
                 })
             })
             .collect()
+    }
+
+    #[test]
+    fn fixed_v1_rejects_widened_positions_before_encoding_and_while_decoding() {
+        for position in [51, 78] {
+            let mut ordinary_input = ordinary("ENSG00000000001", 100, 1);
+            let InputLocus::Ordinary(locus) = &mut ordinary_input[0] else {
+                panic!("ordinary helper returned an exception");
+            };
+            locus.alternatives[0].score = score(1, position, 0, -50);
+
+            let ordinary_path = path(&format!("ordinary-position-{position}"));
+            assert!(
+                write_index(&ordinary_path, &ordinary_input)
+                    .expect_err("fixed-v1 writer must reject widened ordinary position")
+                    .to_string()
+                    .contains("fixed-v1 relative position")
+            );
+            assert!(!ordinary_path.exists());
+
+            let ambiguous_input = [InputLocus::Ambiguous(AmbiguousInputLocus {
+                gene: "ENSG00000000002".parse().expect("gene"),
+                contig: "chr1".parse().expect("contig"),
+                position: GenomicPosition::new(100).expect("position"),
+                omitted: DnaBase::T,
+                alternatives: [
+                    InputAlternative {
+                        alternate: DnaBase::A,
+                        score: score(1, position, 0, -50),
+                    },
+                    InputAlternative {
+                        alternate: DnaBase::C,
+                        score: default_score().expect("score"),
+                    },
+                    InputAlternative {
+                        alternate: DnaBase::G,
+                        score: default_score().expect("score"),
+                    },
+                ],
+            })];
+            let exception_path = path(&format!("exception-position-{position}"));
+            assert!(
+                write_index(&exception_path, &ambiguous_input)
+                    .expect_err("fixed-v1 writer must reject widened exception position")
+                    .to_string()
+                    .contains("fixed-v1 relative position")
+            );
+            assert!(!exception_path.exists());
+        }
+
+        for code in 101_u16..=127 {
+            assert!(
+                decode_pair_code(code << 7).is_err(),
+                "ordinary position code {code} must remain corrupt"
+            );
+        }
+        for code in 101_u8..=199 {
+            assert!(
+                decode_position_byte(code).is_err(),
+                "exception position code {code} must remain corrupt"
+            );
+        }
     }
 
     #[test]

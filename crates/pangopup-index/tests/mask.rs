@@ -6,6 +6,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
+    os::unix::fs::symlink,
     path::{Path, PathBuf},
     str::FromStr,
     sync::atomic::{AtomicU64, Ordering},
@@ -143,6 +144,39 @@ fn production_domains_api_matches_the_independent_miniature_oracle() {
     )
     .expect("miss");
     assert!(output.plus().is_empty() && output.minus().is_empty());
+}
+
+#[test]
+fn qualification_authenticates_the_held_member_and_rejects_bad_inputs() {
+    const BYTES: u64 = 880;
+    const SHA256: &str = "76d4513ba12fea21f509a3b61d01c90b2f503c24b139c2a50a4c08569994cc43";
+
+    let scratch = Scratch::new();
+    let path = scratch_member(&scratch);
+    let (provider, identity) =
+        MaskDomainsOpen::open_qualification(&path, BYTES, SHA256).expect("qualified open");
+    assert_eq!(provider.file_len(), BYTES);
+    assert_eq!(identity.bytes(), BYTES);
+    assert_eq!(identity.sha256(), SHA256);
+
+    assert!(matches!(
+        MaskDomainsOpen::open_qualification(
+            &path,
+            BYTES,
+            "06d4513ba12fea21f509a3b61d01c90b2f503c24b139c2a50a4c08569994cc43"
+        ),
+        Err(MaskError::Authentication("member SHA-256"))
+    ));
+
+    let mutation = mutate(&path, "qualification-mutation", |bytes| bytes[200] ^= 1);
+    assert!(matches!(
+        MaskDomainsOpen::open_qualification(&mutation, BYTES, SHA256),
+        Err(MaskError::Authentication("member SHA-256"))
+    ));
+
+    let link = scratch.path().join("linked.pgm");
+    symlink(&path, &link).expect("create symlink");
+    assert!(MaskDomainsOpen::open_qualification(&link, BYTES, SHA256).is_err());
 }
 
 #[test]

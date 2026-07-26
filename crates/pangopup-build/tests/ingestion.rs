@@ -110,8 +110,8 @@ struct FixtureFacts {
     saw_nonzero_at_plus_50: bool,
     last_position: Option<u32>,
     positions_in_order: bool,
-    wrap53_gt: Option<(u8, i8, u8, i8)>,
-    tp53_gt: Option<(u8, i8, u8, i8)>,
+    wrap53_gt: Option<(u8, i16, u8, i16)>,
+    tp53_gt: Option<(u8, i16, u8, i16)>,
 }
 
 impl SourceVisitor for FixtureFacts {

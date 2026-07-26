@@ -4,6 +4,7 @@ members = [
     "crates/pangopup-build",
     "crates/pangopup-cli",
     "crates/pangopup-core",
+    "crates/pangopup-engine",
     "crates/pangopup-index",
     "crates/pangopup-model",
 ]

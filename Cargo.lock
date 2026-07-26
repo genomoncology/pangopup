@@ -390,6 +390,18 @@ name = "pangopup-core"
 version = "0.1.0"
 
 [[package]]
+name = "pangopup-engine"
+version = "0.1.0"
+dependencies = [
+ "pangopup-core",
+ "pangopup-index",
+ "pangopup-model",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "pangopup-index"
 version = "0.1.0"
 dependencies = [

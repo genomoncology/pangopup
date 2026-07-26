@@ -7,7 +7,15 @@
 
 use memmap2::Mmap;
 use pangopup_core::{EnsemblGeneId, GencodeGeneId, GenomicPosition, Grch38Contig};
-use std::{fmt, fs::File, io, ops::Range, os::unix::fs::MetadataExt, path::Path};
+use sha2::{Digest, Sha256};
+use std::{
+    fmt,
+    fs::{self, File},
+    io::{self, Read, Seek, SeekFrom},
+    ops::Range,
+    os::unix::fs::MetadataExt,
+    path::Path,
+};
 
 const MAGIC: &[u8; 8] = b"PGMBEN01";
 const VERSION: u16 = 1;
@@ -89,6 +97,7 @@ impl MaskQueryGene {
 #[derive(Debug)]
 pub enum MaskError {
     Io(io::Error),
+    Authentication(&'static str),
     UnsupportedCodec,
     Invalid(&'static str),
     Bounds(&'static str),
@@ -100,6 +109,9 @@ impl fmt::Display for MaskError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(_) => formatter.write_str("GENCODE mask I/O failed"),
+            Self::Authentication(reason) => {
+                write!(formatter, "GENCODE mask authentication failed: {reason}")
+            }
             Self::UnsupportedCodec => {
                 formatter.write_str("GENCODE mask is not the selected domains codec")
             }
@@ -112,6 +124,23 @@ impl fmt::Display for MaskError {
                 write!(formatter, "GENCODE mask arithmetic overflow: {reason}")
             }
         }
+    }
+}
+
+/// Exact identity authenticated by a qualification open.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MaskMemberIdentity {
+    bytes: u64,
+    sha256: String,
+}
+
+impl MaskMemberIdentity {
+    pub const fn bytes(&self) -> u64 {
+        self.bytes
+    }
+
+    pub fn sha256(&self) -> &str {
+        &self.sha256
     }
 }
 
@@ -233,6 +262,9 @@ struct DomainWire {
 
 /// One read-only mmap of the selected `PGMBEN01` v1 domains member.
 pub struct MaskDomainsOpen {
+    // The qualification path hashes and maps through this exact descriptor.
+    // Retain it so the authenticated inode outlives the mapped provider.
+    _file: File,
     mmap: Mmap,
     sections: [Section; SECTION_COUNT],
     directories: Vec<DirectoryEntry>,
@@ -244,25 +276,96 @@ impl MaskDomainsOpen {
     /// Exact whole-file identity belongs to asset installation and is not
     /// recomputed during ordinary runtime open.
     pub fn open(path: &Path) -> Result<Self, MaskError> {
-        let descriptor = rustix::fs::open(
-            path,
-            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC,
-            rustix::fs::Mode::empty(),
-        )
-        .map_err(|error| MaskError::Io(io::Error::from_raw_os_error(error.raw_os_error())))?;
-        Self::open_file(File::from(descriptor))
+        Self::open_file(open_descriptor(path)?)
+    }
+
+    /// Authenticate and open one retained mask member for qualification.
+    ///
+    /// Hashing, structural validation, and mmap construction all use the same
+    /// held descriptor. The pathname is checked after hashing so replacement
+    /// during the operation fails instead of producing a misleading receipt.
+    /// As required by ADR 0013, the verified inode must remain immutable;
+    /// concurrent in-place mutation or truncation is outside the threat model.
+    pub fn open_qualification(
+        path: &Path,
+        expected_bytes: u64,
+        expected_sha256: &str,
+    ) -> Result<(Self, MaskMemberIdentity), MaskError> {
+        Self::open_qualification_with(path, expected_bytes, expected_sha256, || {})
+    }
+
+    fn open_qualification_with(
+        path: &Path,
+        expected_bytes: u64,
+        expected_sha256: &str,
+        after_open: impl FnOnce(),
+    ) -> Result<(Self, MaskMemberIdentity), MaskError> {
+        if expected_sha256.len() != 64
+            || !expected_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(MaskError::Authentication("expected SHA-256"));
+        }
+        let mut file = open_descriptor(path)?;
+        let before = checked_metadata(&file)?;
+        if before.len() != expected_bytes {
+            return Err(MaskError::Authentication("member length"));
+        }
+
+        after_open();
+
+        file.seek(SeekFrom::Start(0))?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0_u8; 64 * 1024];
+        let mut observed = 0_u64;
+        loop {
+            let count = file.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            observed = observed
+                .checked_add(count as u64)
+                .ok_or(MaskError::Authentication("member length"))?;
+            if observed > expected_bytes {
+                return Err(MaskError::Authentication("member length"));
+            }
+            hasher.update(&buffer[..count]);
+        }
+        if observed != expected_bytes {
+            return Err(MaskError::Authentication("member length"));
+        }
+        let sha256 = format!("{:x}", hasher.finalize());
+        if sha256 != expected_sha256 {
+            return Err(MaskError::Authentication("member SHA-256"));
+        }
+
+        let after = checked_metadata(&file)?;
+        if !same_file_state(&before, &after) {
+            return Err(MaskError::Authentication("member changed during hashing"));
+        }
+        let path_metadata = fs::symlink_metadata(path)?;
+        if path_metadata.file_type().is_symlink()
+            || !path_metadata.is_file()
+            || path_metadata.nlink() != 1
+            || path_metadata.dev() != after.dev()
+            || path_metadata.ino() != after.ino()
+        {
+            return Err(MaskError::Authentication("path replaced during hashing"));
+        }
+
+        let identity = MaskMemberIdentity {
+            bytes: observed,
+            sha256,
+        };
+        let provider = Self::open_file(file)?;
+        Ok((provider, identity))
     }
 
     fn open_file(file: File) -> Result<Self, MaskError> {
-        let metadata = file.metadata()?;
+        let metadata = checked_metadata(&file)?;
         let length =
             usize::try_from(metadata.len()).map_err(|_| MaskError::Resource("member bytes"))?;
-        if !metadata.is_file()
-            || metadata.nlink() != 1
-            || !(HEADER_BYTES..=MAX_MEMBER_BYTES).contains(&length)
-        {
-            return Err(MaskError::Invalid("member length or type"));
-        }
 
         // SAFETY: the read-only map is owned by this reader and every byte
         // access is bounds checked before decoding.
@@ -375,6 +478,7 @@ impl MaskDomainsOpen {
         }
 
         Ok(Self {
+            _file: file,
             mmap,
             sections,
             directories,
@@ -577,6 +681,39 @@ impl MaskDomainsOpen {
     }
 }
 
+fn open_descriptor(path: &Path) -> Result<File, MaskError> {
+    let descriptor = rustix::fs::open(
+        path,
+        rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    )
+    .map_err(|error| MaskError::Io(io::Error::from_raw_os_error(error.raw_os_error())))?;
+    Ok(File::from(descriptor))
+}
+
+fn checked_metadata(file: &File) -> Result<fs::Metadata, MaskError> {
+    let metadata = file.metadata()?;
+    let length =
+        usize::try_from(metadata.len()).map_err(|_| MaskError::Resource("member bytes"))?;
+    if !metadata.is_file()
+        || metadata.nlink() != 1
+        || !(HEADER_BYTES..=MAX_MEMBER_BYTES).contains(&length)
+    {
+        return Err(MaskError::Invalid("member length or type"));
+    }
+    Ok(metadata)
+}
+
+fn same_file_state(left: &fs::Metadata, right: &fs::Metadata) -> bool {
+    left.dev() == right.dev()
+        && left.ino() == right.ino()
+        && left.len() == right.len()
+        && left.mtime() == right.mtime()
+        && left.mtime_nsec() == right.mtime_nsec()
+        && left.ctime() == right.ctime()
+        && left.ctime_nsec() == right.ctime_nsec()
+}
+
 impl MaskProvider for MaskDomainsOpen {
     #[inline]
     fn query(
@@ -651,4 +788,45 @@ fn le_u64(bytes: &[u8], offset: usize) -> Result<u64, MaskError> {
         .and_then(|value| value.try_into().ok())
         .map(u64::from_le_bytes)
         .ok_or(MaskError::Invalid("u64"))
+}
+
+#[cfg(test)]
+mod qualification_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    const FIXTURE_BYTES: u64 = 880;
+    const FIXTURE_SHA256: &str = "76d4513ba12fea21f509a3b61d01c90b2f503c24b139c2a50a4c08569994cc43";
+
+    #[test]
+    fn replacement_after_descriptor_open_fails_qualification() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/gencode-mask-mini/domains.pgm");
+        let scratch = std::env::temp_dir().join(format!(
+            "pangopup-mask-qualification-replace-{}",
+            std::process::id()
+        ));
+        if scratch.exists() {
+            fs::remove_dir_all(&scratch).expect("remove stale scratch");
+        }
+        fs::create_dir(&scratch).expect("create scratch");
+        let path = scratch.join("domains.pgm");
+        let held = scratch.join("opened.pgm");
+        fs::copy(&fixture, &path).expect("copy fixture");
+
+        let replacement_path = path.clone();
+        let replacement_fixture = fixture.clone();
+        let result =
+            MaskDomainsOpen::open_qualification_with(&path, FIXTURE_BYTES, FIXTURE_SHA256, || {
+                fs::rename(&replacement_path, &held).expect("rename opened member");
+                fs::copy(&replacement_fixture, &replacement_path).expect("replace path");
+            });
+        assert!(matches!(
+            result,
+            Err(MaskError::Authentication(
+                "member changed during hashing" | "path replaced during hashing"
+            ))
+        ));
+        fs::remove_dir_all(&scratch).expect("remove scratch");
+    }
 }

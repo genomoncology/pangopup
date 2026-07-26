@@ -7,16 +7,18 @@ provider and authenticated builder, deterministic local release
 transport tooling, atomic Linux/XDG installation, and pinned resumable sync of
 the immutable public SNV transport. It also ships a frozen, independently
 captured upstream compatibility corpus plus an authenticated CPU ONNX kernel
-that returns the twelve raw Pangolin channels. Variant-level model fallback
-and an HTTP service are planned but not implemented. Ticket 012 has now
+that returns the twelve raw Pangolin channels. It now also ships a
+variant-level Rust scorer for the supported literal GRCh38 SNV, MNV, insertion,
+and deletion subset. Lookup-first fallback routing, CLI model output, and an
+HTTP service are planned but not implemented. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
 Ticket 014 promotes the exact selected bytes behind a domains-only production
 mmap provider without rebuilding or renaming the format. The one-time
 candidate writer and qualification program have since been removed; their
 retained reports and exactness corpus remain as historical evidence. Compiled
-GRCh38 sequence-index, mask, and model delivery plus variant-level model
-execution remain future work. The completed three-format reference experiment
+GRCh38 sequence-index, mask, and model delivery remain future work. The
+completed three-format reference experiment
 has likewise been removed from the compiled workspace;
 its retained selection evidence led to the independent production `PGRREF01`
 reader, provider, and builder that remain. Future SNV and GRCh38 sequence-index
@@ -30,9 +32,9 @@ The target service will answer each request through one of two paths:
 
 1. **SNV lookup:** return an exact precomputed Pangolin result from a compact,
    memory-mapped index.
-2. **Model fallback (not implemented):** when no lookup record exists, run a
-   bundled Pangolin model against a local GRCh38 sequence window and splice-site
-   annotation.
+2. **Model scoring (library shipped; routing not implemented):** score a
+   supported literal variant against explicitly opened local GRCh38 sequence,
+   splice-mask, and model providers.
 
 An SNV is a single-nucleotide variant: one reference base replaced by one
 alternate base. The published Zenodo dataset already contains masked Pangolin
@@ -124,7 +126,7 @@ service will use four versioned assets:
 | Asset | Used for | Original source | Installed form |
 |---|---|---|---|
 | SNV score index | Shipped fast path | Zenodo precomputed scores | Certified three-file bundle with a fixed 11-byte mmap member |
-| Model weights | Qualified raw CPU kernel; fallback routing still planned | Upstream Pangolin checkpoints | Authenticated three-file ONNX bundle, not yet published or installed |
+| Model weights | Qualified raw CPU kernel and variant scorer; fallback routing still planned | Upstream Pangolin checkpoints | Authenticated three-file ONNX bundle, not yet published or installed |
 | GRCh38 sequence index | Shipped provider for fallback sequence windows and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Certified `PGRREF01` two-bit/ambiguity-run mmap bundle |
 | Splice mask | Shipped provider for fallback masking; delivery still planned | GENCODE release 38 annotation | Exact selected 6,703,320-byte `domains.pgm` mmap member |
 
@@ -137,13 +139,13 @@ The GRCh38 sequence index maintenance builder accepts the exact pinned NCBI
 FASTA and assembly report, selects the 25 required assembled molecules,
 certifies every decoded base and the frozen model contexts, and creates an
 immutable three-file bundle. Runtime code memory-maps `reference.pgr` and copies
-only the requested window into caller-owned memory. The future model fallback
-will use this compiled GRCh38 sequence index directly, so a full installation
-needs it. Pangopup will distribute the compact `PGRREF01` bundle, not republish
-the raw NCBI FASTA. The same principle applies to GENCODE: the implemented
-provider opens the compiled `domains.pgm` mask, and future fallback will use it;
-GTF/gffutils were one-time selection inputs, not runtime data or current
-build-crate dependencies.
+only the requested window into caller-owned memory. The model scorer uses this
+compiled GRCh38 sequence index directly when a caller opens it, so a full
+installation needs it. Pangopup will distribute the compact `PGRREF01` bundle,
+not republish the raw NCBI FASTA. The same principle applies to GENCODE: the
+model scorer consumes the compiled `domains.pgm` provider; GTF/gffutils were
+one-time selection inputs, not runtime data or current build-crate
+dependencies.
 
 The release boundary is the small set of derived files the shipped or future
 full runtime opens. Pangopup does **not** republish the 13 GB Zenodo archive or
@@ -239,6 +241,15 @@ Normal gates use a tiny checked synthetic graph and never rebuild the
 production model. See
 [ADR 0014](architecture/decisions/0014-authenticated-onnx-cpu-kernel.md) and
 the [qualification report](planning/artifacts/018-authenticated-cpu-model-kernel.md).
+
+`pangopup-engine` constructs fixed distance-50 reference and alternate
+contexts, preserves upstream dtype-specific indel arithmetic, averages the
+four tissue groups, applies shared-array masking in authenticated gene order,
+and returns exact hundredths with ordered versioned GENCODE identities. Normal
+tests replay all 14 scored cases, 36 raw sequence evaluations, six rejections,
+and four controlled cases without production assets or Python. See
+[ADR 0015](architecture/decisions/0015-variant-level-model-scoring.md) and the
+[scoring evidence](planning/artifacts/019-variant-level-model-scoring.md).
 
 ## Shipped SNV release, local transport, and installation
 
@@ -497,16 +508,20 @@ Implemented today:
   candidate and qualification source has been removed;
 - an authenticated, bounded ONNX model bundle contract, locked independent
   checkpoint evidence/conversion tooling, and one qualified raw CPU kernel
-  returning twelve fixed-order channels.
+  returning twelve fixed-order channels;
+- a single-owner variant scorer that composes the reference, mask, and raw
+  model providers for masked distance-50 results over the supported literal
+  GRCh38 subset.
 
-Not implemented yet: genomic variant construction and post-processing over the
-raw model kernel, lookup-miss/non-SNV routing, HTTP service, container,
-persistent download progress/status, repair/GC/rollback, or result
-cache. Delivery, installation, and compatible-profile activation for the
+Not implemented yet: lookup-miss/non-SNV routing, CLI model output, CPU-policy
+tuning, HTTP service, container, persistent download progress/status,
+repair/GC/rollback, or result cache. Delivery, installation, and
+compatible-profile activation for the
 compiled GRCh38 sequence index, mask, and model are also not implemented. In
 this slice a syntactically valid concrete REF that does not match an ordinary
-indexed key is `not_found`; runtime reference-allele validation begins only
-when model routing consumes the shipped GRCh38 sequence provider.
+indexed key is `not_found`; the explicit model scorer already validates REF
+against the shipped GRCh38 provider, and the future router will select between
+those defined paths.
 
 The rolling outcome order is:
 
@@ -540,7 +555,7 @@ The rolling outcome order is:
 18. package the pinned checkpoints and implement raw CPU-kernel parity
     (complete);
 19. compose the GRCh38 sequence index, mask, raw model, and post-processing
-    into compatible variant-level scoring;
+    into compatible variant-level scoring (complete);
 20. add lookup-first routing and stable CLI model JSON with route and asset
     provenance;
 21. measure complete-request CPU threading and reference/alternate batching,
@@ -567,7 +582,7 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
 
 ## Workspace
 
-- `pangopup-core` — public typed vocabulary, routing, and provider capabilities;
+- `pangopup-core` — public typed vocabulary and provider capabilities;
 - `pangopup-index` — private format codec and validated mmap reader;
 - `pangopup-assets` — installed-bundle certification, deterministic local
   transport, pinned resumable TLS sync, and secure Linux local-store/activation
@@ -579,6 +594,8 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
   output adapter; service commands remain future;
 - `pangopup-model` — authenticated model bundles, context/strand encoding, and
   the raw single-owner ONNX Runtime CPU kernel;
+- `pangopup-engine` — fixed GRCh38 variant construction, compatible
+  post-processing/masking, and ordered modeled results;
 - future `pangopup-http` — long-lived HTTP adapter over the same core.
 
 ## Development

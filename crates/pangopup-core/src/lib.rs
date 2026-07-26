@@ -8,6 +8,7 @@ pub enum ValueError {
     InvalidContig(String),
     ZeroPosition,
     InvalidBase(String),
+    InvalidAllele(String),
     SameAlleles,
     InvalidGene(String),
     InvalidGencodeGene(String),
@@ -21,7 +22,11 @@ impl fmt::Display for ValueError {
             Self::InvalidContig(value) => write!(f, "unsupported GRCh38 primary contig {value}"),
             Self::ZeroPosition => f.write_str("genomic position must be one-based"),
             Self::InvalidBase(value) => write!(f, "DNA base must be A, C, G, or T, got {value}"),
-            Self::SameAlleles => f.write_str("reference and alternate bases must differ"),
+            Self::InvalidAllele(value) => write!(
+                f,
+                "DNA allele must be a nonempty uppercase A/C/G/T sequence, got {value}"
+            ),
+            Self::SameAlleles => f.write_str("reference and alternate alleles must differ"),
             Self::InvalidGene(value) => {
                 write!(
                     f,
@@ -39,7 +44,7 @@ impl fmt::Display for ValueError {
                 )
             }
             Self::RelativePositionOutOfRange(value) => {
-                write!(f, "relative position must be in -50..=50, got {value}")
+                write!(f, "relative position must be in -50..=149, got {value}")
             }
         }
     }
@@ -329,20 +334,19 @@ impl fmt::Display for ScoreMagnitude {
     }
 }
 
-/// A genomic-coordinate delta in Pangolin's configured ±50 window.
+/// A genomic-coordinate delta in Pangolin's fixed distance-50 result.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct RelativePosition(i8);
+pub struct RelativePosition(i16);
 
 impl RelativePosition {
     pub fn new(value: i16) -> Result<Self, ValueError> {
-        i8::try_from(value)
-            .ok()
-            .filter(|value| (-50..=50).contains(value))
-            .map(Self)
+        (-50..=149)
+            .contains(&value)
+            .then_some(Self(value))
             .ok_or(ValueError::RelativePositionOutOfRange(value))
     }
 
-    pub const fn get(self) -> i8 {
+    pub const fn get(self) -> i16 {
         self.0
     }
 }
@@ -394,6 +398,65 @@ impl Grch38Snv {
 
     pub const fn alternate(self) -> DnaBase {
         self.alternate
+    }
+}
+
+/// One literal concrete GRCh38 genomic variant accepted by model scoring.
+///
+/// The submitted tuple is its identity. Construction does not trim, align, or
+/// otherwise normalize either allele.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct Grch38Variant {
+    contig: Grch38Contig,
+    position: GenomicPosition,
+    reference: String,
+    alternate: String,
+}
+
+impl Grch38Variant {
+    pub fn new(
+        contig: Grch38Contig,
+        position: GenomicPosition,
+        reference: impl Into<String>,
+        alternate: impl Into<String>,
+    ) -> Result<Self, ValueError> {
+        let reference = reference.into();
+        let alternate = alternate.into();
+        for allele in [&reference, &alternate] {
+            if allele.is_empty()
+                || !allele
+                    .as_bytes()
+                    .iter()
+                    .all(|base| matches!(base, b'A' | b'C' | b'G' | b'T'))
+            {
+                return Err(ValueError::InvalidAllele(allele.clone()));
+            }
+        }
+        if reference == alternate {
+            return Err(ValueError::SameAlleles);
+        }
+        Ok(Self {
+            contig,
+            position,
+            reference,
+            alternate,
+        })
+    }
+
+    pub const fn contig(&self) -> Grch38Contig {
+        self.contig
+    }
+
+    pub const fn position(&self) -> GenomicPosition {
+        self.position
+    }
+
+    pub fn reference(&self) -> &str {
+        &self.reference
+    }
+
+    pub fn alternate(&self) -> &str {
+        &self.alternate
     }
 }
 
@@ -461,6 +524,147 @@ impl fmt::Display for LossText {
 pub struct GeneScoreRecord {
     gene: EnsemblGeneId,
     score: PangolinScore,
+}
+
+/// A non-fatal condition attached to one modeled gene score.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ModelWarning {
+    NoAnnotatedSites,
+}
+
+/// One ordered, exact GENCODE-specific modeled score.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelGeneScoreRecord {
+    gene: GencodeGeneId,
+    score: PangolinScore,
+    warnings: Vec<ModelWarning>,
+}
+
+impl ModelGeneScoreRecord {
+    pub fn new(gene: GencodeGeneId, score: PangolinScore, warnings: Vec<ModelWarning>) -> Self {
+        Self {
+            gene,
+            score,
+            warnings,
+        }
+    }
+
+    pub const fn gene(&self) -> GencodeGeneId {
+        self.gene
+    }
+
+    pub const fn score(&self) -> PangolinScore {
+        self.score
+    }
+
+    pub fn warnings(&self) -> &[ModelWarning] {
+        &self.warnings
+    }
+}
+
+/// Expected reasons a valid literal request cannot be modeled.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ModelRejection {
+    UnsupportedVariantShape,
+    AlleleTooLong {
+        reference_length: usize,
+        alternate_length: usize,
+    },
+    InsufficientReferenceContext,
+    ReferenceMismatch,
+    UnsupportedReferenceSymbol {
+        offset: usize,
+        symbol: u8,
+    },
+    NotInGene,
+}
+
+impl fmt::Display for ModelRejection {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedVariantShape => formatter.write_str("unsupported variant shape"),
+            Self::AlleleTooLong {
+                reference_length,
+                alternate_length,
+            } => write!(
+                formatter,
+                "model alleles exceed 100 bases (REF {reference_length}, ALT {alternate_length})"
+            ),
+            Self::InsufficientReferenceContext => {
+                formatter.write_str("insufficient GRCh38 reference context")
+            }
+            Self::ReferenceMismatch => formatter.write_str("submitted REF does not match GRCh38"),
+            Self::UnsupportedReferenceSymbol { offset, symbol } => write!(
+                formatter,
+                "reference symbol 0x{symbol:02x} at window offset {offset} is not A/C/G/T/N"
+            ),
+            Self::NotInGene => formatter.write_str("variant is not contained in a GENCODE gene"),
+        }
+    }
+}
+
+/// Operational failures while composing the three model-scoring providers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ModelScoringError {
+    ReferenceProvider(ReferenceError),
+    MaskProvider,
+    ModelProvider,
+    InvalidModelOutput,
+}
+
+impl fmt::Display for ModelScoringError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ReferenceProvider(error) => {
+                write!(formatter, "reference provider failed: {error}")
+            }
+            Self::MaskProvider => formatter.write_str("mask provider failed"),
+            Self::ModelProvider => formatter.write_str("model provider failed"),
+            Self::InvalidModelOutput => formatter.write_str("model output is invalid"),
+        }
+    }
+}
+
+impl std::error::Error for ModelScoringError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ReferenceProvider(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+/// Complete ordered outcome of one variant-level model-scoring request.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ModelScoreResult {
+    Scored(Vec<ModelGeneScoreRecord>),
+    Rejected(ModelRejection),
+}
+
+impl ModelScoreResult {
+    pub fn scored(records: Vec<ModelGeneScoreRecord>) -> Self {
+        Self::Scored(records)
+    }
+
+    pub const fn rejected(rejection: ModelRejection) -> Self {
+        Self::Rejected(rejection)
+    }
+
+    pub fn records(&self) -> Option<&[ModelGeneScoreRecord]> {
+        match self {
+            Self::Scored(records) => Some(records),
+            Self::Rejected(_) => None,
+        }
+    }
+
+    pub const fn rejection(&self) -> Option<&ModelRejection> {
+        match self {
+            Self::Scored(_) => None,
+            Self::Rejected(rejection) => Some(rejection),
+        }
+    }
 }
 
 impl GeneScoreRecord {
@@ -731,10 +935,10 @@ mod tests {
             Err(ValueError::ScoreOutOfRange(101))
         );
         assert!(RelativePosition::new(-50).is_ok());
-        assert!(RelativePosition::new(50).is_ok());
+        assert!(RelativePosition::new(149).is_ok());
         assert_eq!(
-            RelativePosition::new(51),
-            Err(ValueError::RelativePositionOutOfRange(51))
+            RelativePosition::new(150),
+            Err(ValueError::RelativePositionOutOfRange(150))
         );
     }
 
@@ -796,6 +1000,21 @@ mod tests {
             Grch38Snv::new(Grch38Contig::X, position, DnaBase::A, DnaBase::A),
             Err(ValueError::SameAlleles)
         );
+
+        let variant =
+            Grch38Variant::new(Grch38Contig::X, position, "AC", "AT").expect("literal MNV");
+        assert_eq!(variant.reference(), "AC");
+        assert_eq!(variant.alternate(), "AT");
+        assert_eq!(
+            Grch38Variant::new(Grch38Contig::X, position, "A", "A"),
+            Err(ValueError::SameAlleles)
+        );
+        for invalid in ["", "N", "a", "ACN"] {
+            assert!(matches!(
+                Grch38Variant::new(Grch38Contig::X, position, invalid, "T"),
+                Err(ValueError::InvalidAllele(_))
+            ));
+        }
     }
 
     #[test]

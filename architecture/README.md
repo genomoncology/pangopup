@@ -8,9 +8,10 @@ immutable public `snv-grch38-v1` release, and pinned resumable remote sync.
 The checked `pangopup-compat-v1` oracle now fixes upstream model and
 post-processing behavior. The shipped authenticated CPU kernel now executes
 the twelve raw selected Pangolin channels through one ONNX Runtime session.
-Variant construction, Pangolin post-processing, lookup-first fallback, model
-asset delivery, compiled GRCh38 sequence-index delivery, mask delivery, and HTTP
-remain future work on the same standalone Rust core.
+The shipped `pangopup-engine` composition now constructs supported literal
+GRCh38 variants, preserves compatible ensemble/indel/masking arithmetic, and
+returns ordered exact modeled scores. Lookup-first fallback, CLI model output,
+CPU tuning, asset delivery, caching, and HTTP remain future work.
 
 The closed three-codec reference comparison selected `acgt2-rle-v1`; its
 candidate modules, miniature, benchmark executable, and CLI have been removed
@@ -63,6 +64,9 @@ ADR 0012 defines that descriptive provenance boundary.
 - [`decisions/0014-authenticated-onnx-cpu-kernel.md`](decisions/0014-authenticated-onnx-cpu-kernel.md)
   — the authenticated combined ONNX representation, independent qualification,
   and single-owner CPU kernel boundary.
+- [`decisions/0015-variant-level-model-scoring.md`](decisions/0015-variant-level-model-scoring.md)
+  — the literal request boundary, provider composition, dtype-aware
+  post-processing, and ordered masking contract.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)

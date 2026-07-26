@@ -77,7 +77,7 @@ commands are deliberately unnecessary.
 The mmap lookup path relies on the operating-system page cache. A persistent
 application cache is considered only for model inference after representative
 end-to-end measurements show meaningful repeated work. If adopted, its key
-must include the normalized variant and every scoring identity: gene/masking
+must include the literal variant and every scoring identity: gene/masking
 context, checkpoint, compiled GRCh38 sequence index, mask, window, and
 inference parameters.
 

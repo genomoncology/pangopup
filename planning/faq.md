@@ -86,9 +86,10 @@ general transcript/protein reference system and is not splice scoring.
 
 ### What reference and annotation data does model fallback need?
 
-The lookup path needs only the fixed-v1 score bundle. The future fallback path
+The lookup path needs only the fixed-v1 score bundle. The shipped model scorer
 additionally needs the authenticated converted model bundle, local GRCh38 DNA
-bases, and a map of gene strand plus exon boundaries. The original checkpoint
+bases, and a map of gene strand plus exon boundaries. Lookup-first routing is
+still future. The original checkpoint
 containers are maintainer conversion inputs, not runtime inputs. The DNA is
 pinned NCBI RefSeq GRCh38.p14
 `GCF_000001405.40`. The boundary map is compiled from the GENCODE annotation
@@ -170,9 +171,9 @@ The GRCh38 reference source is distributed by NCBI as FASTA, but raw FASTA is
 build input. The shipped reference builder compiles all 25 required primary
 sequences into the production `PGRREF01` mmap bundle, and its provider copies a
 bounded sequence window without parsing FASTA or loading the whole reference
-into heap memory. Installation and model routing do not consume that provider
-yet. The raw CPU model kernel is implemented, but genomic context construction,
-masking/post-processing, and fallback routing remain unimplemented.
+into heap memory. The variant scorer consumes that provider when opened
+explicitly and composes it with the mask and raw CPU kernel. Installation,
+lookup-first routing, and CLI model output remain unimplemented.
 
 ### Which compact reference encoding will Pangopup use?
 
@@ -185,8 +186,8 @@ although IUPAC4 touched two fewer logical pages. Normal tests use the small
 25-contig synthetic production fixture. Ticket 011 hardened the winner as the
 complete production `PGRREF01` bundle/provider. The discarded candidate codecs,
 miniature, benchmark executable, and CLI have been removed; retained reports
-and decisions preserve the selection evidence. Delivery and model integration
-remain future work.
+and decisions preserve the selection evidence. Delivery remains future work;
+model integration is shipped through `pangopup-engine`.
 
 ### Which compact GENCODE mask encoding will Pangopup use?
 
@@ -226,11 +227,10 @@ or release evidence.
 
 Those are raw single-context calls, not complete variant, concurrent, CLI,
 HTTP, accelerator, or end-to-end measurements. A modeled variant requires
-reference and alternate work and can require both strands; complete scheduling
-is not implemented, so multiplying these numbers into a product latency claim
-would be misleading. Variant parity comes first. Then Pangopup will measure
-ONNX Runtime thread policies and reference/alternate batching before considering
-accelerators or quantization.
+reference and alternate work and can require both strands, so multiplying
+these numbers into a product latency claim would be misleading. Variant parity
+is now established; Pangopup will next measure ONNX Runtime thread policies and
+reference/alternate batching before considering accelerators or quantization.
 
 Cold lookup behavior is explicitly unmeasured because neither dataset size nor
 an OS/device procedure proved the queried pages were nonresident.
@@ -256,8 +256,8 @@ service behavior in containers and native deployments.
 
 Only if measurements justify it. The operating-system page cache already helps
 the SNV mmap path, while model results have a more complicated identity. Any
-future model cache key must include the normalized variant, gene/masking
-context, checkpoint, GRCh38 sequence-index and mask identities, window, and
+future model cache key must include the literal variant, gene/masking context,
+checkpoint, GRCh38 sequence-index and mask identities, window, and
 inference parameters. A ticket must first demonstrate a representative repeated
 workload whose latency or compute cost improves enough to justify memory/disk
 use, locking, eviction, corruption recovery, and invalidation.

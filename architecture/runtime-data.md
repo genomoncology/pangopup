@@ -39,12 +39,11 @@ public and qualified v1 bundles remain immutable and readable after the
 provenance split. Runtime compatibility continues to come from the bundle
 schema, format identity, manifest claims, and member-integrity checks.
 
-## Model fallback assets
+## Model-scoring assets
 
-Variant-level model fallback is not implemented. The raw CPU kernel and the
-reference and mask runtime providers now exist independently, but they are not
-wired together, installed as one profile, or routed from lookup misses.
-Completing that route requires three local assets:
+Variant-level model scoring is implemented as a library composition over
+explicitly opened providers. The three runtime assets are not yet installed as
+one profile or routed from lookup misses:
 
 Running Pangolin for a lookup miss or non-SNV genuinely needs:
 
@@ -135,6 +134,14 @@ probe, and compares all retained values through ONNX Runtime on CPU. Normal
 tests use a tiny same-schema synthetic graph rather than rerunning Python or
 shipping production weights.
 
+`pangopup-engine` composes these providers for the literal supported allele
+subset. For position `P` and REF length `R`, it requests `10,100 + R` bases
+starting at `P - 5,050`, validates the anchor, constructs the alternate, queries
+every containing gene without a filter, and invokes plus-reference,
+plus-alternate, minus-reference, then minus-alternate. It preserves `f32`
+equal-length/insertion arithmetic and deletion-promoted `f64`, then performs
+shared-array masking and exact hundredth conversion.
+
 That compatibility corpus proves its selected overlap and masking cases; it is
 not a complete all-gene order inventory. Ticket 012's retained authenticated
 canonical-export report and complete-domain comparison are the authority for
@@ -163,17 +170,18 @@ Small numeric differences with identical masking are more likely to come from
 model/checkpoint or numeric-runtime differences than from reference bases once
 the submitted reference allele has been verified.
 
-Raw CPU-kernel compatibility is now proved with maximum observed absolute error
-well below the accepted `1e-5` tolerance. Variant-level compatibility still
-requires context construction and the frozen Pangolin post-processing replay.
+Raw CPU-kernel compatibility is proved with maximum observed absolute error
+well below the accepted `1e-5` tolerance. Variant-level compatibility is also
+proved across the 14 scored cases, 36 raw evaluations, six rejections, and four
+controlled cases. Lookup routing, CLI model output, and complete-request CPU
+policy remain separate.
 MPS, CUDA, alternative runtimes, quantization, or other optimizations are
 accepted only if they preserve the same result/error behavior and improve
 measured end-to-end performance or resource use.
 
-The current Python implementation also mutates its gain/loss arrays while
-masking each gene. The strict compatibility profile retains observed SQLite
-gene order and proves that a later same-strand gene sees earlier mutations. A
-Rust fallback claiming this profile must preserve that behavior; an improved
+The current Python implementation mutates its gain/loss arrays while masking
+each gene. The Rust scorer preserves the retained SQLite gene order and proves
+that a later same-strand gene sees earlier mutations. An improved
 independent-per-gene policy requires a separately named profile.
 
 ## What Pangopup deliberately does not ship

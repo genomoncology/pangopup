@@ -127,9 +127,9 @@ struct JsonResult<'a> {
 struct JsonRecord {
     gene: String,
     gain_score: String,
-    gain_position: i8,
+    gain_position: i16,
     loss_score: String,
-    loss_position: i8,
+    loss_position: i16,
 }
 
 impl From<&GeneScoreRecord> for JsonRecord {

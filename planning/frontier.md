@@ -18,10 +18,12 @@ semantics and records the selection of constant-membership domains from three
 mmap candidates in one full-source comparison. The one-time candidate and
 qualification source has been removed. The exact retained domains
 member is now available through a production, domains-only typed mmap provider;
-its delivery and model integration remain future. An authenticated combined
+its delivery remains future. An authenticated combined
 ONNX representation and qualified single-owner CPU kernel now return the
-twelve raw Pangolin channels. Genomic variant construction, Pangolin
-post-processing, lookup-first fallback, model delivery, and HTTP remain future.
+twelve raw Pangolin channels. `pangopup-engine` now composes the sequence,
+mask, and kernel providers into compatible masked distance-50 scores for the
+supported literal GRCh38 subset. Lookup-first fallback, CLI model output, CPU
+tuning, model delivery, caching, and HTTP remain future.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
 and typed mmap provider are established; its transport, installation, and
 release remain future delivery work. Future SNV and sequence-index builds use
@@ -45,10 +47,13 @@ The large source work is not a rebuild queue:
   `714b1ac12dd6053a09841fe03c0ebb20fd027f6ef50732f03e7a10b7918dd702`,
   and its measured pinned-Zstandard representation is 3,933,486 bytes. Package
   these retained bytes later; do not regenerate them.
-- The current authenticated ONNX bundle is built and qualified as a raw-kernel
-  candidate. It totals 33,871,613 bytes and passed all 45,756 PyTorch
-  comparisons. It is not release-final until complete variant scoring decides
-  whether reference/alternate batching requires a different graph contract.
+- The current authenticated ONNX bundle is built and qualified through
+  raw-kernel evidence and normal-fixture variant-scoring parity. It totals
+  33,871,613 bytes and passed all 45,756 PyTorch comparisons. The retained
+  coordinator-owned production scorer qualification passed all 14 cases and
+  21 ordered gene records. The bundle is not release-final until
+  CPU-policy work decides whether reference/alternate batching requires a
+  different graph contract.
 
 The GRCh38 sequence index, mask, and model therefore have local qualified
 content but no transport, XDG installation, compatible four-asset profile, or
@@ -309,20 +314,30 @@ so it informs the roadmap but is not qualification or release evidence. These
 are single raw-context calls, not complete variant, concurrent, CLI, or HTTP
 latency. Production model delivery is not part of this outcome.
 
-## Next outcome — variant-level CPU scoring
+## Established — variant-level CPU scoring
 
-Define the supported genomic request and normalization boundary, then compose
-the existing GRCh38 sequence provider, mask provider, raw CPU kernel, and
-frozen post-processing semantics. Construct exact reference/alternate contexts,
-average the retained replicate groups, reconcile indel arrays, preserve
-order-sensitive masking, select extrema/positions, and prove the complete
-compatibility corpus before exposing a public model result.
+`pangopup-engine` accepts an owned literal `Grch38Variant` and composes the
+existing GRCh38 sequence provider, mask provider, and mutable raw CPU kernel.
+It supports SNVs, equal-length MNVs, and left-anchored insertions/deletions up
+to 100 bases without normalization. Fixed distance-50 contexts, exact REF
+validation, A/C/G/T/N reference policy, all-gene mask queries, plus-before-minus
+execution, dtype-aware indel reconciliation, first extrema, shared-array
+masking, and exact hundredths are now one typed result boundary.
 
-This outcome accepts explicit local paths to the already built model, GRCh38
-sequence index, and mask. It does not add lookup routing, delivery, caching,
-CLI product output, or HTTP.
+Normal tests replay all 14 modeled cases and 36 exact raw evaluations from the
+two frozen trust roots, all six rejections, and all four controlled cases. A
+3,026-byte receipt fixes exact post-ensemble array identities derived from the
+independent kernel goldens; public masked scores, positions, and gene order
+match the compatibility oracle. One checked synthetic ONNX integration uses
+in-memory reference/mask providers. The coordinator-owned ignored harness
+opened the accepted model and reference identities plus the descriptor-hashed
+mask member and matched all 14 cases and 21 ordered gene records without
+rebuilding an asset.
 
-## Following outcome — lookup-first routing and CLI model results
+This outcome does not add lookup routing, delivery, caching, CLI product
+output, CPU tuning, or HTTP.
+
+## Next outcome — lookup-first routing and CLI model results
 
 The route must try the precomputed SNV lookup first, use the model only for
 supported misses/non-SNVs, and report exact route plus model, GRCh38 sequence
@@ -333,7 +348,7 @@ add a cache or HTTP boundary.
 ## Later outcome — measured CPU policy and evidence-gated acceleration
 
 The established single-thread CPU kernel is the reproducible baseline, not the
-selected production policy. After complete variant parity exists, measure
+selected production policy. With complete variant parity established, measure
 bounded ONNX Runtime CPU thread policies first. Then measure reference/alternate
 batching or scheduling, including strand work, because the current graph fixes
 batch size one. Set the session/concurrency budget against the complete request
@@ -344,7 +359,7 @@ preserved behavior and a material measured benefit.
 ## Later outcome — evidence-gated model-result caching
 
 Measure repeated complete model requests before adding a cache. If justified,
-cache only complete model results under a key that includes normalized variant,
+cache only complete model results under a key that includes the literal variant,
 gene/masking context, model checkpoint, GRCh38 sequence-index and mask
 identities, window, and inference parameters; prove bounds, concurrency,
 corruption handling, and invalidation.
@@ -403,7 +418,7 @@ public maintenance commands.
 
 ## Unknowns that require evidence
 
-- the final supported normalization edge cases exposed by variant parity;
+- the routed gene-filter and unified provenance boundary;
 - the winning CPU thread and reference/alternate batching policy;
 - whether repeated complete requests justify any result cache;
 - whether MPS, CUDA, quantization, or another runtime adds material value;

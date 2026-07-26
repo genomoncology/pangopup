@@ -1,6 +1,6 @@
 # 019 — Score supported GRCh38 variants through the Pangolin model
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -141,7 +141,9 @@ CPU tuning remain separate outcomes.
   wrong digest, replacement path, symlink, and mutation before verification
   fail. This is not a general mask bundle, transport, install, or startup hash
   policy; the later coherent asset profile owns ordinary runtime
-  authentication.
+  authentication. ADR 0013's immutable-inode contract remains authoritative:
+  concurrent in-place mutation or truncation after verification is outside the
+  supported threat model.
 
 ### Tests, qualification, and documentation
 
@@ -243,7 +245,8 @@ CPU tuning remain separate outcomes.
 8. **Mask qualification trust:** hash the mask once through the same descriptor
    used to create the mmap and retain that descriptor. A pathname hash followed
    by an ordinary open has a replacement race; hashing on every normal startup
-   would defeat the existing cheap-open boundary.
+   would defeat the existing cheap-open boundary. This does not broaden ADR
+   0013's threat model beyond an immutable verified inode.
 
 ## Dependencies
 
@@ -300,11 +303,104 @@ then returned `ACCEPT`.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex sub-agent (`/root/ticket019_implement`)
+
+Implemented the owned literal variant/model result vocabulary, widened model
+positions without changing SNV encoding, added the single `pangopup-engine`
+composition, and added same-descriptor mask qualification with verified member
+identity. Normal Rust tests replay all 14 model cases/36 raw calls, all six
+rejections, all four controls, provider short-circuiting, order-mutating
+masking, dtype-aware indels/rounding, `+149`, and one checked real-ONNX
+integration. Exact derived arrays are bound by the 3,026-byte
+`post-ensemble-sha256.tsv` receipt at SHA-256
+`3ac237ec676de1530a4cdebbb19d71a16d5e0a2a718788a0a0245891c2ad7d9b`.
+
+Focused developer validation:
+
+- `cargo fmt --all -- --check` — passed.
+- `cargo clippy --locked -p pangopup-core -p pangopup-index -p
+  pangopup-engine --all-targets -- -D warnings` — passed.
+- `cargo test --locked -p pangopup-core -p pangopup-index -p
+  pangopup-engine` — passed: core 5, engine 7, index 17; the two explicit
+  retained-production tests were ignored.
+- `git diff --check` — passed.
+
+The developer did not open or rebuild production assets. The coordinator then
+ran the prepared ignored 14-case qualification before code review:
+`cargo test --locked -p pangopup-engine --test production_qualification -- --ignored --nocapture`.
+It passed all 14 cases and 21 ordered gene records while authenticating the
+accepted model and reference bundle identities, the descriptor-held
+6,703,320-byte mask at SHA-256
+`714b1ac12dd6053a09841fe03c0ebb20fd027f6ef50732f03e7a10b7918dd702`,
+and reporting post-ensemble receipt SHA-256
+`3ac237ec676de1530a4cdebbb19d71a16d5e0a2a718788a0a0245891c2ad7d9b`.
+Normal tests independently authenticated the exact checked receipt.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex sub-agent (`/root/ticket019_code_review`)
+
+Initial verdict: `REJECT`.
+
+The review found four material issues:
+
+1. Widening `RelativePosition::get()` to `i16` left the CLI JSON adapter and
+   one builder ingestion test typed as `i8`, so workspace compilation failed.
+2. The shared widening removed the fixed-v1 writer's effective `-50..=50`
+   guard. Logical `+51` could create self-invalid bytes, `+78` could overlap a
+   neighboring packed field, and exception codes `101..=199` were no longer
+   rejected as corrupt.
+3. The causal SNV/reference source fingerprints and checked miniature
+   provenance were stale after their inventoried core/SNV source changed.
+4. The FAQ duplicated contradictory normalized/literal cache-key prose and
+   the frontier still called the completed production qualification pending.
+
+The reviewer also noted that mask identity claims must remain within ADR
+0013's immutable-inode threat model and recommended hashing the checked
+post-ensemble receipt inside the ignored qualification instead of printing an
+unchecked constant.
+
+Remediation preserves the accepted scoring and fixed-v1 format designs:
+
+- CLI JSON fields and the ingestion facts adapter now use `i16`; existing
+  1,000-case SNV JSON and table byte-oracle tests remain exact.
+- SNV source parsing, writer canonicalization, both encoders, and both
+  decoders enforce fixed-v1 `-50..=50`. Tests reject logical `+51` and `+78`
+  for ordinary and exception inputs, reject all representable ordinary codes
+  `101..=127`, and reject exception codes `101..=199`.
+- The final causal source identities are SNV
+  `b3bdc4d9d8e710fb554fd47f0cfc6f6a7bb764451069e6ae4a98534d8c5dc6a2`
+  and reference
+  `8c94a75f3f30b9a9b72dadffb9f232dd2b28a0258f30feb69fac7703f529f23d`.
+  Bounded repository-native miniature regeneration changed only provenance
+  manifests and bundle-ID-bearing JSONL; SNV/reference payloads and production
+  identity constants remained unchanged.
+- FAQ/frontier/service cache prose now consistently says literal variant, and
+  both frontier qualification statements record the completed 14-case/21-row
+  run.
+- The ignored qualification now directly bounds, sizes, hashes, and compares
+  the 3,026-byte post-ensemble receipt before printing its digest. It was
+  compiled but not rerun by the developer. Mask API, ADR, ticket, design, and
+  retained evidence explicitly preserve ADR 0013's immutable-inode limit.
+
+Focused remediation checks passed:
+
+- `cargo check --locked --workspace --all-features`;
+- 15 source-fingerprint controls, byte-exact SNV regeneration, four provenance
+  migration controls, the transport identity oracle, 13 ingestion controls,
+  13 full-bundle controls, and 14 reference controls;
+- 11 index unit tests plus six mask and one allocation test; the retained
+  production mask test remained ignored;
+- seven engine tests; the retained production qualification remained ignored;
+- four CLI unit tests and all three 1,000-case regression/adapter tests; and
+- focused all-target clippy with warnings denied.
+
+The same reviewer rechecked the complete remediated diff and returned
+`ACCEPT`. It confirmed workspace/all-target compilation, every fixed-v1 guard,
+the causal fingerprint and miniature-provenance invariants, unchanged payload
+and production identities, corrected documentation, the bounded receipt
+check, and the immutable-inode qualification language. It found no remaining
+material issue or Ticket 020+ scope.
 
 ## External Effect Evidence
 
@@ -312,4 +408,26 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex (`/root`)
+
+After independent acceptance, the coordinator found one stale current claim
+in `architecture/design.md`: the lookup slice was called normalized even
+though its tuple is literal. The same developer corrected that single word,
+recorded the remediation, and the same code reviewer returned `ACCEPT` again.
+
+Final gate on the accepted diff:
+
+- `make lint` — passed;
+- `make test` — passed across the complete Rust workspace, with only the
+  explicitly retained production qualifications ignored;
+- `make spec` — passed, 152 scenarios with two intentional skips; and
+- `git diff --check` — passed.
+
+The coordinator also confirmed that the production SNV, reference, mask, and
+model assets were neither rebuilt nor modified. Ticket 019 is complete.
+
+The coordinator's post-gate stale-document check found one remaining
+`architecture/design.md` sentence describing the lookup SNV as normalized.
+The documentation now says literal GRCh38 SNV, matching validation behavior
+and the no-normalization identity contract. This correction changes no code,
+format, fixture, or runtime behavior.

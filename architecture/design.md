@@ -2,7 +2,7 @@
 
 ## Product boundary
 
-The first finished slice accepts a normalized GRCh38 genomic SNV, finds every
+The first finished slice accepts a literal GRCh38 genomic SNV, finds every
 matching gene-specific record present in one pinned source archive, and returns
 the four published Pangolin values plus provenance. The complete service adds a
 model provider for supported variants without an index result.
@@ -50,6 +50,13 @@ certification but are not silently reinterpreted as SNVs. An affected lookup
 returns a typed ambiguous-source-reference outcome unless a future, separately
 documented reference-remapping policy is adopted.
 
+The owned `Grch38Variant` represents the model scorer's literal concrete
+allele tuple. It permits supported shapes up to 100 bases but performs no
+trimming, left alignment, equivalence collapsing, HGVS parsing, or transcript
+projection. `ModelScoreResult` keeps expected rejections separate from
+reference, mask, and model-provider failures and preserves exact GENCODE result
+order.
+
 ### `pangopup-index`
 
 Owns the runtime side and shared codec of the private storage contract:
@@ -68,8 +75,13 @@ codecs and implements a `Send + Sync` `MaskProvider` over caller-owned reusable
 storage. It preserves exact versioned/PAR identity, `(start,end]` membership,
 plus-before-minus and authenticated within-strand order, optional stable-gene
 filtering, and normalized exon boundaries. The historical writer, alternate
-codecs, and qualification APIs have been removed; retained reports and
-exactness fixtures preserve the selection evidence.
+codecs, and source-format qualification APIs have been removed; retained
+reports and exactness fixtures preserve the selection evidence. Ordinary open
+remains cheap; a separate member-authentication open hashes the bounded bytes
+through the same held descriptor that is mapped and returns its verified
+identity. As specified by ADR 0013, the verified inode must remain immutable;
+concurrent in-place mutation or truncation is outside the supported threat
+model.
 
 ### `pangopup-build`
 
@@ -115,11 +127,21 @@ benchmark copy.
 `pangopup-model` owns the authenticated three-file model bundle, bounded
 A/C/G/T/N context encoding, and one mutable CPU ONNX Runtime session returning
 twelve raw replicate channels in genomic orientation. It intentionally does
-not consume `pangopup-core` genomic types yet: variant construction, ensemble
-arithmetic, masking, extrema, and the public scoring provider remain a later
-boundary. A future `pangopup-http` crate must consume the same eventual core
-provider rather than leak model runtime, HTTP, or cache types into the scoring
-API. The shipped assets crate owns explicit pinned remote sync plus its Linux
+not construct genomic variants or hide ensemble and masking behavior.
+
+### `pangopup-engine`
+
+Owns the mutable single-owner composition of `ReferenceProvider`,
+`MaskProvider`, and `ModelKernel`. It fixes GRCh38, masked output, and distance
+50; constructs exact reference/alternate contexts; retains `f32` for
+equal-length/insertion arithmetic and upstream-promoted `f64` for deletions;
+and masks one shared gain/loss pair in authenticated plus-then-minus gene
+order. Its kernel test seam is private. It owns no lookup routing, gene filter,
+asset path discovery, delivery, cache, pool, CLI, HTTP, or concurrency claim.
+
+A future `pangopup-http` crate must consume the same eventual routed provider
+rather than leak model runtime, HTTP, or cache types into the scoring API. The
+shipped assets crate owns explicit pinned remote sync plus its Linux
 XDG installation adapter. `pangopup-core` performs no network or home-directory
 access. The future HTTP adapter runs in the
 foreground; process lifecycle belongs to external managers as described in
@@ -130,7 +152,9 @@ foreground; process lifecycle belongs to external managers as described in
 A genomic allele alone is not always one Pangolin annotation. The source is
 partitioned by Ensembl gene, genes can overlap, and annotation masking can make
 scores gene-specific. The core result is therefore zero, one, or several
-gene-specific score records in deterministic Ensembl-gene order.
+gene-specific score records. Precomputed lookup sorts by stable Ensembl ID;
+model scoring preserves authenticated plus-before-minus query order because
+masking makes that order semantic.
 
 “All overlaps” means all matching source gene records in the pinned archive. It
 does not claim completeness against a newer or otherwise unspecified GENCODE
@@ -166,27 +190,29 @@ Ensembl gene and masking is gene-specific, so the same genomic allele can have
 several valid score records. Pangopup returns every matching record by default
 and accepts an optional source-gene filter; it never guesses one best gene.
 
-For a future model request, that existing unversioned filter matches every
-containing exact GENCODE identity with the same stable component on the already
-selected contig. It does not collapse versions or merge chrX and chrY `_PAR_Y`
-copies. Exact mask query order is semantic because upstream Pangolin mutates
-shared score arrays while visiting overlapping same-strand genes.
+The shipped variant scorer deliberately has no gene filter: it queries and
+masks every containing exact GENCODE identity before a future router may apply
+an unversioned filter. That later filter must match stable components only on
+the already selected contig and must not merge chrX and chrY `_PAR_Y` copies.
+Exact mask query order is semantic because upstream Pangolin mutates shared
+score arrays while visiting overlapping same-strand genes.
 
 The current CLI slice accepts concrete SNVs only and tries the precomputed index.
 A concrete tuple whose reference does not match an ordinary indexed key is a
 typed-context `not_found` result because the lookup-only route does not consult
-the shipped GRCh38 sequence provider. A later model slice may route misses and
-supported non-SNVs through the pinned compiled GRCh38 sequence index and mask;
-it must define its own reference-mismatch behavior. Every current result
-identifies the precomputed bundle and source provenance.
+the shipped GRCh38 sequence provider. The model scorer instead compares the
+literal REF at the context anchor and returns typed `ReferenceMismatch`; a
+later router will choose between these already defined behaviors. Every
+current lookup result identifies the precomputed bundle and source provenance.
 
 See [`runtime-data.md`](runtime-data.md) for the small set of standalone assets
 needed by lookup and model execution.
 
 ## Exactness
 
-The source scores are decimal hundredths and relative positions are integers in
-the configured ±50 window. Core types preserve gain magnitude and loss
+The source scores are decimal hundredths. Relative positions span `-50..=149`
+for the fixed model boundary so a 100-base reference allele remains fully
+representable; existing SNV bytes remain within `±50`. Core types preserve gain magnitude and loss
 magnitude as integers, with sign implied and validated by the field, rather than
 using binary floating point. Rendering gain `0.21` or loss `-0.21` from integer
 21 is exact and stable.
@@ -234,14 +260,14 @@ never appears on the query path.
 The current sync profile provisions only the SNV transport. A future full
 service must pin a coherent set of SNV, compiled GRCh38 sequence index, mask,
 and converted model identities before it can report readiness. Existing
-sequence, mask, and raw-model providers do not yet make variant-level fallback
+sequence, mask, raw-model, and variant-scoring providers still need
+lookup-first routing and coherent asset activation before product fallback is
 operational.
 
 ## Planned extensions not yet shipped
 
-- genomic context construction and Pangolin post-processing over the shipped
-  raw CPU kernel for supported lookup misses and non-SNVs;
 - lookup-first routing through one typed result/provenance API;
+- stable CLI model output over the routed result;
 - application-level model-result caching only if measurements justify it;
 - separately versioned converted model, compiled GRCh38 sequence index, and mask
   publication and pinned sync;
