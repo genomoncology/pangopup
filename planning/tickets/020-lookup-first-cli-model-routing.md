@@ -53,7 +53,9 @@ contract that can later sit unchanged behind HTTP.
   - `--reference-bundle <DIR>`; and
   - `--mask <FILE>`.
 - Keep `--bundle` versus `--data-dir`, `--gene`, and `--format` behavior
-  unchanged. The lookup-only command remains valid without model flags.
+  unchanged. With none of the three model flags, the command remains the
+  legacy SNV lookup-only mode: authoritative hits, ambiguities, and pure
+  `not_found` results all retain their exact existing output.
 - Parse `--variant GRCh38:CONTIG:POS:REF:ALT` into nonempty literal uppercase
   A/C/G/T allele strings before opening any asset. Continue accepting the
   current primary contig spellings and exact RefSeq accessions. Reject lowercase,
@@ -62,14 +64,17 @@ contract that can later sit unchanged behind HTTP.
 - The general parser performs no trimming, left alignment, equivalence
   collapsing, HGVS parsing, transcript projection, or mutation-type inference.
 - A partially supplied fallback set is `CLI_USAGE` with exit 2.
-- If any request needs the model and no fallback set was supplied, fail with
-  `MODEL_ASSETS_REQUIRED`, exit 2, one compact JSON line on stderr, and no
-  stdout.
-- A batch first resolves every request's lookup decision. Open the reference,
-  identified mask, and model exactly once, and only if at least one decision
-  requires the model. A hit-only batch must neither inspect nor validate the
-  three supplied fallback paths, so nonexistent fallback paths do not slow or
-  break authoritative lookup hits.
+- A non-SNV cannot run in lookup-only mode. If any request is non-SNV and no
+  fallback set was supplied, fail with `MODEL_ASSETS_REQUIRED`, exit 2, one
+  compact JSON line on stderr, and no stdout. A pure SNV lookup miss without
+  fallback flags is not this error; it renders the legacy precomputed
+  `not_found` result.
+- When the complete fallback set is supplied, a batch first resolves every
+  request's lookup decision and routes pure SNV misses/non-SNVs to the model.
+  Open the reference, identified mask, and model exactly once, and only if at
+  least one decision requires the model. A hit-only batch must neither inspect
+  nor validate the three supplied fallback paths, so nonexistent fallback
+  paths do not slow or break authoritative lookup hits.
 - If fallback is required, component-open precedence is deterministic:
   reference first, identified mask second, model third. Report the first
   failure and do not inspect later components.
@@ -199,17 +204,21 @@ GRCh38	chr1	5052	A	AG	not_found	.	.	.	.	.	.	.	.	sha256:1111111111111111111111111
   - request order and model gene order are preserved; and
   - one rejection/error leaves no partial routed batch.
 - CLI/unit/integration tests prove closed flag grammar, general allele parsing,
-  every stable error code/exit/stream, redaction, hit-only zero fallback opens,
-  exactly one fallback open for mixed/modeled batches, and exact JSONL/table
-  bytes. The private opener seam must also prove reference-before-mask-before-
-  model failure precedence and that later components are untouched.
+  every stable error code/exit/stream, redaction, exact legacy SNV
+  lookup-only misses, hit-only zero fallback opens, exactly one fallback open
+  for mixed/modeled batches, and exact JSONL/table bytes. The private opener
+  seam must also prove reference-before-mask-before-model failure precedence
+  and that later components are untouched.
 - Add `spec/model-routing.md` using only checked synthetic assets. It must
   exercise authoritative hit with nonexistent model paths, model-required
-  without paths, a modeled non-SNV, a mixed hit/model batch in request order,
-  model output with and without `--gene`, table output, invalid fallback
-  grammar, rejection, asset-open failure, and transactional stdout.
+  non-SNV without paths, a legacy SNV miss without paths, a modeled non-SNV, a
+  flagged SNV miss `GRCh38:chr1:5051:A:C` that reaches the model, a mixed
+  hit/model batch in request order, model output with and without `--gene`,
+  table output, invalid fallback grammar, rejection, asset-open failure, and
+  transactional stdout.
 - Retain the existing seven-batch/1,000-request precomputed regression
-  unchanged.
+  unchanged in legacy no-fallback mode; it includes six honest `not_found`
+  requests and must not be described as hit-only.
 
 ### Qualification and performance evidence
 
@@ -219,13 +228,17 @@ GRCh38	chr1	5052	A	AG	not_found	.	.	.	.	.	.	.	.	sha256:1111111111111111111111111
   records and provenance with the existing compatibility oracle and accepted
   identities. Do not rebuild, convert, download, or scan the complete source
   corpus, and do not add a routine production verifier.
-- Extend the existing non-gating `pangopup-cli` SNV regression benchmark so its
-  warm 1/10/100/1,000 hit-only rows include the new router, then render and
-  compare exact oracle bytes. Keep its fresh-process CLI row. Run it once on
-  the final implementation and record routed results beside the Ticket 006
-  provider/render baseline. This is diagnostic evidence, not a
-  hardware-specific wall-clock gate. Model CPU tuning and batching are the
-  next ticket, not this one.
+- Keep the existing 1,000-request benchmark/regression honest as legacy
+  provider/render evidence; its six misses mean it is not a hit-only router
+  corpus. Add a separate derived routed-hit corpus from the same frozen
+  requests by selecting the 994 authoritative record/ambiguity cases in
+  original order and, for the 1,000 row only, appending the first six of those
+  hits again. Benchmark warm 1/10/100/1,000 routed hits and compare the exact
+  correspondingly selected/repeated oracle bytes. Keep the fresh-process
+  legacy CLI row. Run it once on the final implementation and record the
+  routed results beside the Ticket 006 provider/render baseline. This is
+  diagnostic evidence, not a hardware-specific wall-clock gate. Model CPU
+  tuning and batching are the next ticket, not this one.
 
 ### Documentation
 
@@ -265,6 +278,8 @@ GRCh38	chr1	5052	A	AG	not_found	.	.	.	.	.	.	.	.	sha256:1111111111111111111111111
   orchestration crate.
 - Existing lookup-only CLI output remains byte-identical across all 1,000
   checked requests.
+- Without fallback flags, pure SNV misses stay byte-identical `not_found`;
+  non-SNVs fail transactionally with `MODEL_ASSETS_REQUIRED`.
 - A supported lookup miss/non-SNV produces exact modeled JSONL/table output
   from one explicit local fallback set, with complete JSON provenance.
 - Hit-only batches perform zero fallback opens; a mixed or modeled batch opens
@@ -278,7 +293,8 @@ GRCh38	chr1	5052	A	AG	not_found	.	.	.	.	.	.	.	.	sha256:1111111111111111111111111
 - One retained production CLI inference matches the frozen oracle without
   rebuilding an asset.
 - The hit-only benchmark records exactness and current 1/10/100/1,000
-  diagnostics without turning wall-clock observations into a gate.
+  router diagnostics over an explicitly derived all-authoritative corpus,
+  without turning wall-clock observations into a gate.
 - `make lint`, `make test`, and `make spec` pass.
 
 ## Decisions
@@ -305,6 +321,11 @@ GRCh38	chr1	5052	A	AG	not_found	.	.	.	.	.	.	.	.	sha256:1111111111111111111111111
 7. **Performance:** put the router inside the hit-only benchmark path and
    record it once. Do not tune the model while introducing routing because
    that would confound compatibility and latency changes.
+8. **Explicit mode selection:** absence of all fallback flags preserves the
+   existing SNV-only lookup contract; presence of all three enables fallback.
+   This keeps six real `not_found` cases in the frozen 1,000-request oracle
+   stable without special-casing fixture data. Non-SNV input still makes the
+   need for model assets explicit.
 
 ## Dependencies
 
@@ -378,11 +399,33 @@ The review found ten material ambiguities. This revision:
 10. permits only a private open-counter seam and fixes reference→mask→model
     failure precedence.
 
-Re-review verdict: **ACCEPT**. The same reviewer confirmed that all ten blockers
+First re-review verdict: **ACCEPT**. The same reviewer confirmed that all ten blockers
 are resolved and that the ticket is independently implementable, byte-exact,
 ownership-safe, and explicit about fixture identities, descriptor integrity,
 ADR supersession, benchmark coverage, failure precedence, and documentation
 scope. No material findings remain.
+
+Implementation then exposed one contradictory acceptance pair: the frozen
+1,000-request CLI oracle contains six real pure SNV misses, so it cannot remain
+byte-identical if every miss without model flags becomes
+`MODEL_ASSETS_REQUIRED`. The coordinator amended only the CLI mode boundary:
+no flags retain legacy SNV `not_found`; all three flags enable SNV-miss
+fallback; non-SNV input without them still requires model assets. Router
+library semantics remain unchanged.
+
+First amendment re-review: **BLOCKER**.
+
+The amendment reviewer then found that the new mode boundary lacked a flagged
+SNV-miss model case and that the frozen 1,000 requests were still mislabeled
+hit-only despite their six misses. This revision adds the exact
+`chr1:5051 A>C` flagged model case, names the 1,000-case legacy evidence
+honestly, and defines a separate stable 1/10/100/1,000 all-authoritative routed
+corpus (994 original hits plus six deterministic repeats only for the
+1,000-row).
+
+Second amendment re-review: **ACCEPT**. The same reviewer accepted the explicit
+flagged SNV-miss case and the separately derived true hit-only router corpus.
+No material ticket findings remain.
 
 ## Implementation Evidence
 
