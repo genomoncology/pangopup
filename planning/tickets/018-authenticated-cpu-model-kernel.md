@@ -130,7 +130,7 @@ considers thread tuning, another runtime, MPS, CUDA, or quantization.
 - The inventory binds, in strict model-state order, every tensor's checkpoint
   ordinal, name, shape, dtype, element count, canonical little-endian byte
   count, and value SHA-256. It requires exactly 252 entries and 699,116
-  elements per checkpoint, including exactly sixteen `int64`
+  elements per checkpoint, including exactly thirty-two `int64`
   batch-normalization counters; all other tensors are `f32`.
 - The independent golden helper loads each model strictly, calls `eval()`, runs
   without gradients, and selects channels independently as:
@@ -273,7 +273,7 @@ considers thread tuning, another runtime, MPS, CUDA, or quantization.
   ```
 
 - Checked production evidence has twelve checkpoints × 252 tensor records and
-  exactly 699,116 elements/16 int64 counters per checkpoint. Mutation tests
+  exactly 699,116 elements/32 int64 counters per checkpoint. Mutation tests
   prove these facts cannot be rebound together with an edited evidence
   manifest.
 - The preserved production bundle contains exactly three files, is
@@ -365,9 +365,45 @@ accepted production output no-replace/reuse-only. The same reviewer rechecked
 the complete amended contract against the local sources and accepted it with
 no remaining findings.
 
+Implementation then disproved one numeric prerequisite before publishing any
+evidence: each checkpoint contains 32, not 16, scalar `int64`
+`num_batches_tracked` tensors. The coordinator independently authenticated the
+first checkpoint, reproduced 252 entries/699,116 elements/32 int64 counters,
+and amended only that count in scope and acceptance. Material-amendment
+re-review by the same reviewer accepted the corrected contract. The reviewer
+confirmed that 16 residual blocks × two batch-normalization layers yields the
+32 scalar counters and that no other scope changed.
+
 ## Implementation Evidence
 
-Developer: pending
+Developer: Gauss (`/root/ticket018_implement`)
+
+Developer evidence-generation result:
+
+- purpose: generate the independently executed checked trust-root candidate;
+- source: upstream commit `5cf94b8db938c658391b4305cd7ce33297d44ff7`
+  and the exact frozen compatibility corpus;
+- helper identity:
+  `sha256:b75a5eedef95df8fd5f9cdee931645bdd941ae13287ff979bc8a297ce4c5427c`;
+- locked environment identity:
+  `sha256:6d2f3ded757d1806e270ee72b6dc80190aee8a1c1bd295c90406cafbdcbba63d`;
+- command: `cargo run --locked -p pangopup-build --bin pangopup-build -- model evidence
+  --upstream /home/ian/foss/Pangolin --python
+  tools/pangolin-model/.venv/bin/python --corpus
+  tests/fixtures/pangolin-compat-v1 --output
+  /tmp/pangopup-model-evidence-018-dev`;
+- result: stopped at the first authenticated checkpoint because the reviewed
+  contract's counter count is false. `final.1.0.3.v2` has exactly 252 state
+  entries and 699,116 elements, but 32 `int64` tensors named
+  `resblocks.{0..15}.bn{1,2}.num_batches_tracked`, not 16. The remaining 220
+  tensors are `f32`;
+- control behavior: the helper rejected this mismatch before writing accepted
+  evidence; the no-replace staging guard removed the partial directory;
+- output: `/tmp/pangopup-model-evidence-018-dev`; no production path;
+- blocker disposition: the coordinator independently reproduced the result and
+  amended the success checklist, evidence schema contract, and mutation
+  control to exactly 32 counters. Implementation remains stopped until the
+  same independent ticket reviewer accepts that material correction.
 
 ## Adversarial Code Review
 
