@@ -22,11 +22,11 @@ its delivery and model integration remain future. An authenticated combined
 ONNX representation and qualified single-owner CPU kernel now return the
 twelve raw Pangolin channels. Genomic variant construction, Pangolin
 post-processing, lookup-first fallback, model delivery, and HTTP remain future.
-The production reference bundle, authenticated builder, and typed mmap provider
-are established; its transport, installation, and publication remain future
-delivery work. Future SNV and reference builds now use separate causal
-source/dependency fingerprints; their existing production assets remain
-immutable and readable.
+The compiled production GRCh38 sequence-index bundle, authenticated builder,
+and typed mmap provider are established; its transport, installation, and
+release remain future delivery work. Future SNV and sequence-index builds use
+separate causal source/dependency fingerprints; their existing production
+assets remain immutable and readable.
 
 ## Asset readiness — preserve, package, then publish
 
@@ -36,9 +36,10 @@ The large source work is not a rebuild queue:
   `snv-grch38-v1` GitHub release. Its installed mmap member is
   15,033,158,255 bytes; the accepted transport is two payload parts plus the
   reviewed small members.
-- The exact 25-contig reference bundle is built and qualified. Its mmap member
-  is 772,091,760 bytes and its measured pinned-Zstandard representation is
-  656,781,805 bytes. Reuse the retained bundle; do not rebuild it.
+- The exact compiled 25-contig GRCh38 sequence index is built and qualified.
+  Its mmap member is 772,091,760 bytes and its measured pinned-Zstandard
+  representation is 656,781,805 bytes. Reuse the retained bundle; do not
+  rebuild it or distribute its raw NCBI FASTA input.
 - The exact selected GENCODE domains member is built and qualified. It is
   6,703,320 bytes, with SHA-256
   `714b1ac12dd6053a09841fe03c0ebb20fd027f6ef50732f03e7a10b7918dd702`,
@@ -49,14 +50,17 @@ The large source work is not a rebuild queue:
   comparisons. It is not release-final until complete variant scoring decides
   whether reference/alternate batching requires a different graph contract.
 
-Reference, mask, and model therefore have local qualified content but no
-transport, XDG installation, compatible four-asset profile, or GitHub release.
-The next publication must reuse the accepted reference and mask bytes, freeze
-the final model identity, bind all four assets into one compatible profile, and
-pass clean-machine CLI inference. Compatible-profile activation must first
-close the recorded runtime asset trust/durability blocker; publication must
-also close the release-process and repository-security blockers. No additional
-asset should be uploaded merely because its payload exists.
+The GRCh38 sequence index, mask, and model therefore have local qualified
+content but no transport, XDG installation, compatible four-asset profile, or
+GitHub release. The next publication must reuse the accepted compiled GRCh38
+sequence index and mask bytes, freeze the final model identity, bind all four
+derived runtime assets into one compatible profile, and pass clean-machine CLI
+inference.
+Compatible-profile activation must first close the recorded runtime asset
+trust/durability blocker; publication must also close the release-process and
+repository-security blockers. No raw Zenodo, NCBI, or GENCODE source input is a
+Pangopup release asset. Original checkpoints are not installed runtime members;
+their separate source-availability policy is a model-publication prerequisite.
 
 ## Established — pinned source ingestion contract
 
@@ -95,7 +99,7 @@ queried pages were nonresident.
 
 The production builder canonicalizes one gene at a time, spools the fixed-v1
 payload and normalized primary reference to disk, certifies every ordinary
-source reference against pinned RefSeq GRCh38.p14, and publishes one immutable
+source reference against pinned RefSeq GRCh38.p14, and creates one immutable
 three-file bundle only after complete offline verification. The canonical
 manifest binds source/reference identities, exact member hashes, corpus counts,
 attribution, and matching independent source/decoded logical-stream digests.
@@ -305,20 +309,28 @@ so it informs the roadmap but is not qualification or release evidence. These
 are single raw-context calls, not complete variant, concurrent, CLI, or HTTP
 latency. Production model delivery is not part of this outcome.
 
-## Next outcome — variant-level CPU scoring and lookup-first routing
+## Next outcome — variant-level CPU scoring
 
 Define the supported genomic request and normalization boundary, then compose
-the existing reference provider, mask provider, raw CPU kernel, and frozen
-post-processing semantics. Construct exact reference/alternate contexts,
+the existing GRCh38 sequence provider, mask provider, raw CPU kernel, and
+frozen post-processing semantics. Construct exact reference/alternate contexts,
 average the retained replicate groups, reconcile indel arrays, preserve
 order-sensitive masking, select extrema/positions, and prove the complete
 compatibility corpus before exposing a public model result.
 
-The route must try the precomputed SNV lookup first, use the model only for
-supported misses/non-SNVs, and report exact route plus model/reference/mask
-provenance. This outcome must not add a cache or HTTP boundary.
+This outcome accepts explicit local paths to the already built model, GRCh38
+sequence index, and mask. It does not add lookup routing, delivery, caching,
+CLI product output, or HTTP.
 
-## Later outcome — measured acceleration and evidence-gated caching
+## Following outcome — lookup-first routing and CLI model results
+
+The route must try the precomputed SNV lookup first, use the model only for
+supported misses/non-SNVs, and report exact route plus model, GRCh38 sequence
+index, and mask provenance. Expose the same typed result through stable CLI
+JSON and prove both the precomputed and modeled routes. This outcome must not
+add a cache or HTTP boundary.
+
+## Later outcome — measured CPU policy and evidence-gated acceleration
 
 The established single-thread CPU kernel is the reproducible baseline, not the
 selected production policy. After complete variant parity exists, measure
@@ -329,34 +341,37 @@ workload. Consider MPS/CUDA, alternative runtimes, quantization, or another
 backend only if those CPU changes remain insufficient. Adopt a change only with
 preserved behavior and a material measured benefit.
 
+## Later outcome — evidence-gated model-result caching
+
 Measure repeated complete model requests before adding a cache. If justified,
 cache only complete model results under a key that includes normalized variant,
-gene/masking context, model checkpoint, reference/mask identity, window, and
-inference parameters; prove bounds, concurrency, corruption handling, and
-invalidation.
+gene/masking context, model checkpoint, GRCh38 sequence-index and mask
+identities, window, and inference parameters; prove bounds, concurrency,
+corruption handling, and invalidation.
 
 ## Later outcome — one compatible installed runtime profile
 
 Define one immutable compatibility profile that binds the independently
-versioned SNV, model, reference, and mask identities. Install each asset into a
-private immutable store, then atomically select the coherent tuple rather than
-four unrelated active pointers. Prove offline restart, rollback, partial-
-upgrade failure, bounded provisioning/cancellation, durable non-secret
-progress, and descriptor-held read-only opens. This outcome also transports
-the already qualified reference without rebuilding it. It must precede
-production HTTP readiness and close the recorded runtime asset trust/durability
-issue before activation.
+versioned SNV, model, compiled GRCh38 sequence index, and mask identities.
+Install each asset into a private immutable store, then atomically select the
+coherent tuple rather than four unrelated active pointers. Prove offline
+restart, rollback, partial-upgrade failure, bounded provisioning/cancellation,
+durable non-secret progress, and descriptor-held read-only opens. This outcome
+transports the already qualified compiled GRCh38 sequence index without
+rebuilding it or including the raw FASTA. It must precede production HTTP
+readiness and close the recorded runtime asset trust/durability issue before
+activation.
 
 ## Later outcome — release-ready asset publication
 
-Freeze exact model/reference/mask release identities only after the complete
-variant scorer and CPU policy are selected. Close the release-upload lifecycle
-and repository-security blockers; complete the applicable advisory/license
-policy, dependency inventory, SBOM, provenance, attribution, and immutable
-release review before public distribution. Publish only the reviewed,
-installable assets, then prove pinned sync, clean-machine CLI inference, and
-offline restart from that exact release. This outcome precedes HTTP and
-container publication.
+Freeze exact model, GRCh38 sequence index, and mask release identities only
+after the complete variant scorer and CPU policy are selected. Close the
+release-upload lifecycle and repository-security blockers; complete the
+applicable advisory/license policy, dependency inventory, SBOM, provenance,
+attribution, and immutable release review before public distribution. Publish
+only the reviewed derived runtime assets—never their raw upstream inputs—then
+prove pinned sync, clean-machine CLI inference, and offline restart from that
+exact release. This outcome precedes HTTP and container publication.
 
 ## Later outcome — foreground HTTP service
 
@@ -379,9 +394,10 @@ dependency/license inventory, SBOM and provenance, signing where practical,
 upgrade/rollback rules, and cleanup of superseded immutable assets. Re-run the
 complete clean-machine acceptance proof for releases.
 
-Before the next public model, reference, mask, executable, or container
-publication, close the recorded release-process and repository-security issues.
-Those issues do not block local scoring or packaging work.
+Before the next public model, compiled GRCh38 sequence index, mask, executable,
+or container publication, close the recorded release-process and
+repository-security issues. Those issues do not block local scoring or
+packaging work.
 Close the recorded maintainer-interface/documentation drift before adding more
 public maintenance commands.
 
@@ -392,7 +408,8 @@ public maintenance commands.
 - whether repeated complete requests justify any result cache;
 - whether MPS, CUDA, quantization, or another runtime adds material value;
 - the service session-pool and backpressure shape;
-- the final release grouping and compression for reference, mask, and model;
+- the final release grouping and compression for the GRCh38 sequence index,
+  mask, and model;
 - production resource limits derived from complete-request measurements.
 
 These are intentional roadmap slots, not tickets. Do not select or implement

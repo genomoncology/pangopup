@@ -2,7 +2,7 @@
 
 Pangopup is a standalone GPL-3.0 Rust project for high-performance,
 Pangolin-compatible splice scoring on GRCh38 genomic variants. Today it ships
-an exact precomputed-SNV library and CLI, a production mmap GRCh38 reference
+an exact precomputed-SNV library and CLI, a production mmap GRCh38 sequence
 provider and authenticated builder, deterministic local release
 transport tooling, atomic Linux/XDG installation, and pinned resumable sync of
 the immutable public SNV transport. It also ships a frozen, independently
@@ -14,17 +14,17 @@ constant-membership `domains` encoding by a retained speed-first comparison.
 Ticket 014 promotes the exact selected bytes behind a domains-only production
 mmap provider without rebuilding or renaming the format. The one-time
 candidate writer and qualification program have since been removed; their
-retained reports and exactness corpus remain as historical evidence. Mask and
-model delivery plus variant-level model execution remain future work. The
-completed three-format
-reference experiment has likewise been removed from the compiled workspace;
+retained reports and exactness corpus remain as historical evidence. Compiled
+GRCh38 sequence-index, mask, and model delivery plus variant-level model
+execution remain future work. The completed three-format reference experiment
+has likewise been removed from the compiled workspace;
 its retained selection evidence led to the independent production `PGRREF01`
-reader, provider, and builder that remain. Future SNV and reference builds now
-also carry separate, artifact-local source provenance, so unrelated tooling
-changes no longer churn their identities while already published/qualified v1
-assets remain readable. The completed SNV-format comparison has also been
-removed from the compiled workspace; its retained report explains why the
-production fixed-v1 implementation remains selected.
+reader, provider, and builder that remain. Future SNV and GRCh38 sequence-index
+builds now also carry separate, artifact-local source provenance, so unrelated
+tooling changes no longer churn their identities while already
+published/qualified v1 assets remain readable. The completed SNV-format
+comparison has also been removed from the compiled workspace; its retained
+report explains why the production fixed-v1 implementation remains selected.
 
 The target service will answer each request through one of two paths:
 
@@ -125,7 +125,7 @@ service will use four versioned assets:
 |---|---|---|---|
 | SNV score index | Shipped fast path | Zenodo precomputed scores | Certified three-file bundle with a fixed 11-byte mmap member |
 | Model weights | Qualified raw CPU kernel; fallback routing still planned | Upstream Pangolin checkpoints | Authenticated three-file ONNX bundle, not yet published or installed |
-| GRCh38 sequence | Shipped provider for fallback sequence windows and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Certified `PGRREF01` two-bit/ambiguity-run mmap bundle |
+| GRCh38 sequence index | Shipped provider for fallback sequence windows and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Certified `PGRREF01` two-bit/ambiguity-run mmap bundle |
 | Splice mask | Shipped provider for fallback masking; delivery still planned | GENCODE release 38 annotation | Exact selected 6,703,320-byte `domains.pgm` mmap member |
 
 NCBI supplies the reference genome sequence; it does not supply the Pangolin
@@ -133,15 +133,27 @@ model. The maintainer converter already produces a verified, unquantized
 combined ONNX graph from the twelve pinned checkpoints. A later release outcome
 will publish and install that bundle as a separate GPL asset.
 
-The reference maintenance builder accepts the exact pinned NCBI FASTA and
-assembly report, selects the 25 required assembled molecules, certifies every
-decoded base and the frozen model contexts, and publishes an immutable
-three-file bundle. Runtime code memory-maps `reference.pgr` and copies only the
-requested window into caller-owned memory. Delivery and XDG installation of
-this separate asset remain future work; a target full installation downloads
-the compiled bundle, not the raw FASTA. The same principle
-applies to GENCODE: GTF/gffutils were one-time selection inputs, not runtime
-data or current build-crate dependencies.
+The GRCh38 sequence index maintenance builder accepts the exact pinned NCBI
+FASTA and assembly report, selects the 25 required assembled molecules,
+certifies every decoded base and the frozen model contexts, and creates an
+immutable three-file bundle. Runtime code memory-maps `reference.pgr` and copies
+only the requested window into caller-owned memory. The future model fallback
+will use this compiled GRCh38 sequence index directly, so a full installation
+needs it. Pangopup will distribute the compact `PGRREF01` bundle, not republish
+the raw NCBI FASTA. The same principle applies to GENCODE: the implemented
+provider opens the compiled `domains.pgm` mask, and future fallback will use it;
+GTF/gffutils were one-time selection inputs, not runtime data or current
+build-crate dependencies.
+
+The release boundary is the small set of derived files the shipped or future
+full runtime opens. Pangopup does **not** republish the 13 GB Zenodo archive or
+extracted TSVs, the NCBI FASTA/assembly report, or the GENCODE GTF/SQLite
+database. It distributes, or plans to distribute, the compiled SNV index,
+converted ONNX model, compact GRCh38 sequence index, and compact splice mask
+because those are the files the standalone runtime maps or executes. Original
+Pangolin checkpoints are conversion inputs rather than installed runtime
+members; their source availability will be settled by the license-complete
+model source release before ONNX publication.
 
 ### GENCODE mask runtime and retained selection evidence
 
@@ -472,10 +484,11 @@ Implemented today:
   Python executable and a generic venv launcher/`pyvenv.cfg`, executes only the
   held base descriptor, bypasses `.pth` and bytecode startup paths, and binds
   every loaded file-backed or interpreter-owned module before and after use;
-- a production `PGRREF01` reference bundle, reader, provider, and builder based
-  on the retained comparison that selected `acgt2-rle-v1` by speed. The
-  discarded candidate codecs, miniature, benchmark executable, and CLI have
-  been removed; their reports and decisions remain historical evidence;
+- a production `PGRREF01` GRCh38 sequence-index bundle, reader, provider, and
+  builder based on the retained comparison that selected `acgt2-rle-v1` by
+  speed. The discarded candidate codecs, miniature, benchmark executable, and
+  CLI have been removed; their reports and decisions remain historical
+  evidence;
 - exact versioned/PAR GENCODE identity and mask semantics, a production
   domains-only mmap provider, a checked miniature binary/oracle, and a retained
   fixed 1,000-query comparison manifest. The one retained comparison selected
@@ -489,10 +502,11 @@ Implemented today:
 Not implemented yet: genomic variant construction and post-processing over the
 raw model kernel, lookup-miss/non-SNV routing, HTTP service, container,
 persistent download progress/status, repair/GC/rollback, or result
-cache. Production mask installation, transport, release publication, and model
-routing are also not implemented. In this slice a syntactically valid concrete REF that
-does not match an ordinary indexed key is `not_found`; runtime FASTA validation
-begins only when model routing consumes the shipped reference provider.
+cache. Delivery, installation, and compatible-profile activation for the
+compiled GRCh38 sequence index, mask, and model are also not implemented. In
+this slice a syntactically valid concrete REF that does not match an ordinary
+indexed key is `not_found`; runtime reference-allele validation begins only
+when model routing consumes the shipped GRCh38 sequence provider.
 
 The rolling outcome order is:
 
@@ -525,21 +539,28 @@ The rolling outcome order is:
     fixed-v1 path and durable evidence (complete);
 18. package the pinned checkpoints and implement raw CPU-kernel parity
     (complete);
-19. compose reference, mask, raw model, and post-processing into lookup-first
-    variant scoring;
-20. complete-request CPU thread and reference/alternate batching measurements,
-    followed by evidence-gated accelerator work and result caching;
-21. one coherent SNV/model/reference/mask delivery and installed runtime
+19. compose the GRCh38 sequence index, mask, raw model, and post-processing
+    into compatible variant-level scoring;
+20. add lookup-first routing and stable CLI model JSON with route and asset
+    provenance;
+21. measure complete-request CPU threading and reference/alternate batching,
+    freeze the model identity, and consider accelerators only if still needed;
+22. measure repeated complete requests and add a bounded result cache only if
+    the evidence justifies one;
+23. create one coherent SNV, model, GRCh38 sequence index, and mask delivery
     profile, with local clean-machine and offline-restart proof;
-22. close publication prerequisites, publish exact model/reference/mask release
-    assets, and prove pinned fresh-machine sync plus CLI inference;
-23. a foreground HTTP/status service;
-24. non-root Docker and documented systemd lifecycle integration;
-25. observability, security, performance, and executable/container release
+24. close publication prerequisites, publish only the derived model,
+    GRCh38 sequence index, and mask runtime assets, and prove pinned
+    fresh-machine sync plus CLI inference;
+25. a foreground HTTP/status service with CLI and HTTP acceptance tests;
+26. non-root Docker and documented systemd lifecycle integration;
+27. observability, security, performance, and executable/container release
     hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the
 next coordinator-authored and independently reviewed ticket is active work.
+The compatible-profile outcome will be delivered through multiple bounded
+tickets when it reaches the frontier; it is not one oversized ticket.
 
 See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
 [`architecture/README.md`](architecture/README.md) for the durable design.

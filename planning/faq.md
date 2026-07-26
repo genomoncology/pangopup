@@ -257,10 +257,10 @@ service behavior in containers and native deployments.
 Only if measurements justify it. The operating-system page cache already helps
 the SNV mmap path, while model results have a more complicated identity. Any
 future model cache key must include the normalized variant, gene/masking
-context, checkpoint, reference and mask identities, window, and inference
-parameters. A ticket must first demonstrate a representative repeated workload
-whose latency or compute cost improves enough to justify memory/disk use,
-locking, eviction, corruption recovery, and invalidation.
+context, checkpoint, GRCh38 sequence-index and mask identities, window, and
+inference parameters. A ticket must first demonstrate a representative repeated
+workload whose latency or compute cost improves enough to justify memory/disk
+use, locking, eviction, corruption recovery, and invalidation.
 
 ## Settled product choices
 
@@ -294,14 +294,19 @@ removed.
 ### How are large artifacts delivered?
 
 The target is separately versioned GitHub release assets: executable, CC BY
-fixed-v1 lookup transport set, GPL converted model bundle, GRCh38 reference
-member, and
-GENCODE masking member. The lookup set is canonical metadata, copied small
-bundle members, and deterministic parts of one compressed score stream; it is
-not one tar archive. Verify and reassemble it once during local installation,
-then map the expanded data at runtime. Immutable SNV release publication,
-pinned resumable sync, local pack/verify/unpack, and Linux
-install/status/active discovery are shipped.
+fixed-v1 lookup transport set, GPL converted model bundle, compiled GRCh38
+sequence index, and compiled GENCODE masking member. These are derived
+files Pangopup directly maps or executes. Pangopup does not republish the raw
+Zenodo archive/TSVs, NCBI FASTA/assembly report, GENCODE GTF/SQLite database, or
+other upstream data inputs. Original Pangolin checkpoints are conversion inputs
+rather than installed runtime members; the model publication review will settle
+their separate source availability.
+
+The lookup set is canonical metadata, copied small bundle members, and
+deterministic parts of one compressed score stream; it is not one tar archive.
+Verify and reassemble it once during local installation, then map the expanded
+data at runtime. Immutable SNV release publication, pinned resumable sync,
+local pack/verify/unpack, and Linux install/status/active discovery are shipped.
 
 ### What does lookup output look like?
 

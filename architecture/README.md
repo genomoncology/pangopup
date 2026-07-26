@@ -9,14 +9,15 @@ The checked `pangopup-compat-v1` oracle now fixes upstream model and
 post-processing behavior. The shipped authenticated CPU kernel now executes
 the twelve raw selected Pangolin channels through one ONNX Runtime session.
 Variant construction, Pangolin post-processing, lookup-first fallback, model
-asset delivery, and HTTP remain future work on the same standalone Rust core.
+asset delivery, compiled GRCh38 sequence-index delivery, mask delivery, and HTTP
+remain future work on the same standalone Rust core.
 
 The closed three-codec reference comparison selected `acgt2-rle-v1`; its
 candidate modules, miniature, benchmark executable, and CLI have been removed
 from the compiled workspace. Retained reports and decisions preserve that
 historical selection evidence. The separate production `PGRREF01` bundle,
 authenticated builder, cheap-open mmap reader, and typed caller-buffer provider
-are the only current reference implementation.
+are the current compiled GRCh38 sequence-index implementation.
 
 GENCODE masking is at a different boundary. Ticket 012 authenticated an exact
 ordered GENCODE v38 logical source and compared three private `PGMBEN01`

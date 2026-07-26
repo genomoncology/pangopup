@@ -175,10 +175,10 @@ shared score arrays while visiting overlapping same-strand genes.
 The current CLI slice accepts concrete SNVs only and tries the precomputed index.
 A concrete tuple whose reference does not match an ordinary indexed key is a
 typed-context `not_found` result because the lookup-only route does not consult
-the shipped reference provider. A later model slice may route misses and
-supported non-SNVs through pinned reference and mask assets; it must define its
-own reference-mismatch behavior. Every current result identifies the
-precomputed bundle and source provenance.
+the shipped GRCh38 sequence provider. A later model slice may route misses and
+supported non-SNVs through the pinned compiled GRCh38 sequence index and mask;
+it must define its own reference-mismatch behavior. Every current result
+identifies the precomputed bundle and source provenance.
 
 See [`runtime-data.md`](runtime-data.md) for the small set of standalone assets
 needed by lookup and model execution.
@@ -232,9 +232,10 @@ fixed-width mmap; transport compression is removed once at installation and
 never appears on the query path.
 
 The current sync profile provisions only the SNV transport. A future full
-service must pin a coherent set of SNV, reference, mask, and converted-model
-identities before it can report readiness. Existing reference, mask, and raw
-model providers do not yet make variant-level fallback operational.
+service must pin a coherent set of SNV, compiled GRCh38 sequence index, mask,
+and converted model identities before it can report readiness. Existing
+sequence, mask, and raw-model providers do not yet make variant-level fallback
+operational.
 
 ## Planned extensions not yet shipped
 
@@ -242,7 +243,8 @@ model providers do not yet make variant-level fallback operational.
   raw CPU kernel for supported lookup misses and non-SNVs;
 - lookup-first routing through one typed result/provenance API;
 - application-level model-result caching only if measurements justify it;
-- separately versioned model/reference/mask publication and pinned sync;
+- separately versioned converted model, compiled GRCh38 sequence index, and mask
+  publication and pinned sync;
 - foreground HTTP serving plus container and native service-manager
   integration; and
 - measured accelerator backends only after CPU compatibility is proved.

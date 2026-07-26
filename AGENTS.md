@@ -8,7 +8,7 @@ builder and verifier, fixed 11-byte mmap reader, typed score-provider API,
 batch lookup CLI, Linux local-user asset installation/discovery, the immutable
 public `snv-grch38-v1` lookup-data release, pinned resumable remote sync, and a
 strict frozen upstream compatibility corpus with a bounded offline inspector,
-the qualified production RefSeq GRCh38.p14 reference bundle/provider, and an
+the qualified compiled RefSeq GRCh38.p14 sequence-index bundle/provider, and an
 authenticated ONNX Runtime CPU kernel returning twelve raw Pangolin channels.
 Variant-level model scoring/fallback and the HTTP service remain target work
 and are not implemented. A reviewed retained benchmark selected the
@@ -18,7 +18,8 @@ production `PGRREF01` reader and qualified the complete 25-contig bundle. Read
 Ticket 014 now exposes Ticket 012's selected byte-identical GENCODE v38
 `domains` member through the production `pangopup_index::mask` mmap provider;
 the one-time candidate/qualification source has been removed while its retained
-selection evidence remains. Mask and model delivery remain future work.
+selection evidence remains. Compiled sequence-index, mask, and model delivery
+remain future work.
 
 ## Repository contract shape
 

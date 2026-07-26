@@ -17,9 +17,9 @@ The program is complete when:
   behavior, and transport size retained as release evidence;
 - a retained upstream-derived corpus proves supported CPU model inference,
   masking, errors, and numeric tolerances against the pinned Pangolin version;
-- model weights, compact GRCh38 sequence, and compact GENCODE masking data have
-  pinned identities, reproducible builders or conversions, checksums, notices,
-  and compatibility rules;
+- the converted model, compiled GRCh38 sequence index, and compiled GENCODE
+  mask have pinned identities, reproducible builders or conversions, checksums,
+  notices, and compatibility rules;
 - one typed routing API reports whether each result came from precomputed data
   or model inference, and supported lookup misses/non-SNVs fail or score
   deterministically rather than silently changing semantics;
@@ -30,8 +30,9 @@ The program is complete when:
   bounded, identity-safe, concurrency-safe, and justified by measured repeated
   model inference;
 - release automation publishes immutable, separately versioned executable,
-  lookup, model, reference, and mask assets with provenance, checksums,
-  attribution, security metadata, and a clean-machine acceptance proof; and
+  compiled lookup, converted model, GRCh38 sequence index, and mask assets with
+  provenance, checksums, attribution, security metadata, and a clean-machine
+  acceptance proof, while never mirroring their raw upstream inputs; and
 - user, operator, architecture, and contributor documentation describes the
   shipped system accurately and the complete lint/test/spec gate is green.
 
@@ -65,13 +66,17 @@ Developers never commit or push.
    lookup and model fallback require no external application, database, or
    network service.
 5. **Compatible model fallback.** Lookup misses and supported non-SNV variants
-   run through versioned model, reference, and masking assets with an explicit
-   genomic-allele/normalization identity and measured parity against the
-   upstream implementation.
-6. **Operationally simple delivery.** Immutable executable, lookup, model,
-   reference, and masking assets are separately versioned and verified. One
-   pinned compatibility profile downloads missing members and atomically
-   selects a coherent installed tuple, which the process opens once.
+   run through versioned converted model, compiled GRCh38 sequence index, and
+   mask assets with an explicit genomic-allele/normalization identity and
+   measured parity against the upstream implementation.
+6. **Operationally simple delivery.** Immutable executable, compiled lookup,
+   converted model, GRCh38 sequence index, and mask assets are separately
+   versioned and verified. One pinned compatibility profile downloads missing
+   members and atomically selects a coherent installed tuple, which the process
+   opens once. Raw Zenodo, NCBI, and GENCODE inputs are never mirrored as
+   Pangopup release assets. Original checkpoints are not runtime members; the
+   model source release separately satisfies the final source-availability
+   policy.
 7. **License-complete packaging.** GPL source/model obligations and the score
    dataset's CC BY attribution are explicit, separate, and retained in every
    applicable release artifact.

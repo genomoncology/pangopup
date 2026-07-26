@@ -2,7 +2,8 @@
 
 Status: open
 Found by: 2026-07-24 adversarial project review
-Priority: block the next public model, reference, executable, or container release
+Priority: block the next public model, compiled GRCh38 sequence index, mask,
+executable, or container release
 
 ## Observation
 

@@ -16,8 +16,9 @@ history or Git LFS.
 
 Release families keep independently versioned concerns separate. The SNV
 lookup uses one shipped eight-file release asset set whose installable transport
-is the closed five-file subset. The executable/model/reference/mask names below
-are intended future families, not currently published assets:
+is the closed five-file subset. The executable, converted model, compiled
+GRCh38 sequence index, and compiled mask names below are intended future
+families, not currently published assets:
 
 ```text
 pangopup-<version>-<target>.tar.zst
@@ -33,9 +34,17 @@ SNV release asset set:
     release-profile.json
     SHA256SUMS
 pangopup-models-<upstream-version>-<conversion>.tar.zst
-pangopup-reference-grch38p14-<format>.tar.zst
+pangopup-sequence-grch38p14-<format>.tar.zst
 pangopup-mask-gencode38-<format>.tar.zst
 ```
+
+These future archives contain only Pangopup's derived runtime members. The raw
+Zenodo archive and extracted TSVs, NCBI FASTA and assembly report, GENCODE GTF
+and SQLite database are upstream inputs or maintainer evidence and are never
+mirrored as Pangopup runtime release assets. Original Pangolin checkpoint
+containers are also not installed runtime members; the license-complete model
+source release determines their separate source availability before ONNX
+publication.
 
 The SNV transport compresses only the exact `scores.pgi` byte stream as one
 deterministic Zstandard frame, then cuts that stream into ordered
@@ -96,9 +105,9 @@ The future model archive will carry the authenticated three-file
 and Pangolin notice. Original checkpoint containers and qualification goldens
 are maintainer inputs/evidence, not installed runtime members. Keeping concerns
 separate lets lookup-only installations avoid model bytes and lets data, model,
-reference, mask, and executable releases evolve without pretending they share
-a version. The reference and mask assets are optional unless model fallback is
-enabled.
+GRCh38 sequence index, mask, and executable releases evolve without pretending
+they share a version. The sequence index and mask assets are optional unless
+model fallback is enabled.
 
 Every published asset name is immutable and content-addressed by the release
 manifest. GitHub immutable releases are mandatory: publication is blocked
@@ -120,16 +129,18 @@ format or installer:
    a documented exact manual-install path; and
 4. pinned remote sync with resumable downloads into the same installer.
 
-All four SNV delivery stages are shipped. Later model/reference/mask delivery
-receives its own coordinator-authored and independently reviewed contract.
+All four SNV delivery stages are shipped. Later converted model, GRCh38
+sequence index, and mask delivery receives its own coordinator-authored and
+independently reviewed contract.
 
 Retained evidence selected the `acgt2-rle-v1` reference payload by speed from
 three exact mmap candidates on the pinned six-contig RefSeq input. It now feeds
 a separate production `PGRREF01` bundle and provider. The discarded candidate
 files, miniature, benchmark executable, and CLI have been removed; their
 reports and decisions remain historical evidence rather than runtime assets.
-Reference XDG installation, transport, and release publication remain
-separately reviewed future work.
+Compiled GRCh38 sequence index XDG installation, transport, and release
+publication remain separately reviewed future work. The raw FASTA and assembly
+report do not.
 
 Ticket 012's canonical export, unselected candidates, phase receipts, and
 benchmark report are retained private historical evidence and must not be
@@ -144,7 +155,7 @@ them.
 
 The binary embeds the canonical `snv-grch38-v1` release profile for one
 compatible lookup asset set. A future full profile will separately identify
-model, reference, and masking assets.
+the converted model, compiled GRCh38 sequence index, and mask assets.
 
 The shipped local command accepts an already available transport:
 
@@ -232,8 +243,8 @@ deterministic one-billion-byte parts. A canonical manifest binds part order,
 sizes, hashes, encoder identity, the complete stream, copied small members, and
 the exact reconstructed score identity. Verification streams across parts;
 unpack publishes the unchanged three-file fixed-v1 bundle. Partial or mixed
-installs fail closed. Model, reference, and masking assets remain separately
-versioned.
+installs fail closed. Converted model, compiled GRCh38 sequence index, and mask
+assets remain separately versioned.
 
 ## Publication acceptance
 
@@ -248,6 +259,9 @@ only when automation or a retained run proves, from a clean supported machine:
 - corruption, a missing part, and mixed-release parts fail closed without
   replacing a previous valid installation.
 
-Future model/reference/mask publication extends the same proof with pinned
-compatibility-corpus inference. Signing, SBOM, build provenance, and rollback
-policy are later release-hardening outcomes, not shipped claims.
+Future converted model, GRCh38 sequence index, and mask publication extends the
+same proof with pinned compatibility-corpus inference. Applicable
+dependency/license inventory, SBOM, build provenance, attribution, and
+repository-security checks are required before those public releases. Signing
+and broader rollback policy remain later release-hardening outcomes, not
+shipped claims.

@@ -17,10 +17,10 @@ validated GRCh38 variant
 ```
 
 Every result identifies its route and the exact lookup bundle or model,
-reference, mask, and inference parameters involved. A precomputed SNV hit is
-authoritative and must not be recomputed merely because the model is available.
-Adapters own transport parsing and rendering, not scoring, masking, index
-layout, or model-runtime types.
+compiled GRCh38 sequence index, mask, and inference parameters involved. A
+precomputed SNV hit is authoritative and must not be recomputed merely because
+the model is available. Adapters own transport parsing and rendering, not
+scoring, masking, index layout, or model-runtime types.
 
 ## Foreground lifecycle
 
@@ -78,7 +78,8 @@ The mmap lookup path relies on the operating-system page cache. A persistent
 application cache is considered only for model inference after representative
 end-to-end measurements show meaningful repeated work. If adopted, its key
 must include the normalized variant and every scoring identity: gene/masking
-context, checkpoint, reference, mask, window, and inference parameters.
+context, checkpoint, compiled GRCh38 sequence index, mask, window, and
+inference parameters.
 
 Any cache slice must bound size, define eviction, serialize concurrent fills,
 recover from corruption, prove identity-based invalidation, and show latency or
