@@ -1,0 +1,4 @@
+crates/pangopup-build/src/lib.rs	pub mod reference ;
+crates/pangopup-build/src/reference.rs	pub use crate :: reference_builder :: { ReferenceBuildMember , ReferenceBuildOutcome , build_reference_bundle , } ;
+crates/pangopup-index/src/reference.rs	pub use crate :: reference_wire :: * ;
+crates/pangopup-index/src/reference.rs	pub use crate :: reference_writer :: ReferenceMemberWriter ;

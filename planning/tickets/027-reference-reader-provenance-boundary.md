@@ -1,6 +1,6 @@
 # 027 — Separate reference reading from byte-producing provenance
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -209,11 +209,59 @@ feasible.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex sub-agent `/root/ticket027_implementation`
+
+- Split `PGRREF01` mechanically behind the existing public facade into shared
+  wire/layout, one writer, and one reader/provider. Ordinary, identified,
+  qualification, and installed held opens converge on that reader.
+- Added the explicit unsafe installed-descriptor admission boundary and opaque
+  safe provider. A deterministic substitute-and-restore test proves queries
+  remain on the held inode.
+- Split byte-producing build code from certification/inspection/qualification
+  code. Reference builder provenance v2 contains only causal byte inputs,
+  locked dependency/root projections, and the behavior-derived 25-contig core
+  contract. SNV v1's hard fingerprint remains unchanged.
+- The checked current-v1 miniature oracle and v2 build have identical
+  `reference.pgr`/`NOTICE`; changing only `builder.source_sha256` reconstructs
+  the pinned v1 canonical manifest. Legacy manifests still open.
+- Static tests retain all Ticket 024 production identities without opening the
+  production member. No production build/read/copy/install/network or external
+  effect occurred.
+- Initial code review found that grouped Rust imports escaped the root-wiring
+  projection and that the two public reference facades were not causally
+  bound. The implementation now derives and checks the
+  `source_fingerprint` module edge plus a canonical facade-wiring projection
+  for the crate-level public build facade declaration, build entry point, wire
+  layout, and writer. Mutation controls prove those rebindings—including an
+  exact `#[path="replacement.rs"] pub mod reference` outer rebind—change v2
+  while reader-only facade exports remain excluded.
+- Focused reader/admission, builder provenance, miniature/reference, resource,
+  corruption, concurrency, zero-allocation, and legacy tests pass.
+- Full post-remediation developer gate: `make lint` passed; `make test` passed;
+  `make spec` passed with 194 passed/3 skipped; `git diff --check` passed.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex sub-agent `/root/ticket027_code_review`
+
+Initial verdict: **REJECT**. The reviewer found that the v2 root projection
+missed a grouped `source_fingerprint` module import and that public facade
+reexports could redirect the build or index implementation without changing
+the digest. Both gaps are remediated as described above; same-reviewer
+verification rejected one remaining outer edge.
+
+First re-review verdict: **REJECT**. The inner facade edges were bound, but the
+outer `pangopup-build/src/lib.rs` declaration could still redirect the entire
+public facade. The checked facade projection now independently derives that
+public module edge, and its exact path-rebinding mutation control changes the
+v2 digest.
+
+Final verdict: **ACCEPT**. The reviewer confirmed that the outer module edge,
+fingerprint-module edge, build/index causal facade edges, and exact mutation
+controls close every identified routing bypass while reader-only exports
+remain neutral. The final v2 digest is
+`09cd44449b77592e4b9948cc0756e736b01ecf5220b3d5312c52b12b6b6e9c65`;
+no material finding remains.
 
 ## External Effect Evidence
 
@@ -221,4 +269,11 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex `/root`
+
+Reviewed the accepted final diff, verified the rejected Ticket 026 stash
+remained unapplied, and reran the repository gate on 2026-07-27:
+`make lint`, `make test`, `make spec` (`194 passed, 3 skipped`), and
+`git diff --check` all passed. Production identities are tested statically;
+no production reference member was opened, read, copied, rebuilt, installed,
+repacked, or published.

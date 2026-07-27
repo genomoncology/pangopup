@@ -9,9 +9,9 @@ use std::fmt;
 const ALGORITHM: &[u8] = include_bytes!("source_fingerprint/algorithm.v1");
 const SNV_INVENTORY_DECLARATION: &[u8] = include_bytes!("source_fingerprint/snv-inventory.v1");
 const REFERENCE_INVENTORY_DECLARATION: &[u8] =
-    include_bytes!("source_fingerprint/reference-inventory.v1");
+    include_bytes!("source_fingerprint/reference-inventory.v2");
 const SNV_DOMAIN: &[u8] = b"pangopup.snv-builder-source.v1";
-const REFERENCE_DOMAIN: &[u8] = b"pangopup.reference-builder-source.v1";
+const REFERENCE_DOMAIN: &[u8] = b"pangopup.reference-builder-source.v2";
 
 #[derive(Clone, Copy)]
 struct Entry<'a> {
@@ -80,36 +80,40 @@ const REFERENCE_ENTRIES: &[Entry<'static>] = &[
         bytes: include_bytes!("command_error.rs"),
     },
     Entry {
-        path: "crates/pangopup-build/src/reference.rs",
-        bytes: include_bytes!("reference.rs"),
+        path: "crates/pangopup-build/src/reference_builder.rs",
+        bytes: include_bytes!("reference_builder.rs"),
     },
     Entry {
-        path: "crates/pangopup-core/src/lib.rs",
-        bytes: include_bytes!("../../pangopup-core/src/lib.rs"),
+        path: "crates/pangopup-index/src/reference_wire.rs",
+        bytes: include_bytes!("../../pangopup-index/src/reference_wire.rs"),
     },
     Entry {
-        path: "crates/pangopup-index/src/reference.rs",
-        bytes: include_bytes!("../../pangopup-index/src/reference.rs"),
+        path: "crates/pangopup-index/src/reference_writer.rs",
+        bytes: include_bytes!("../../pangopup-index/src/reference_writer.rs"),
     },
     Entry {
-        path: "dependencies/reference-builder-cargo-lock.v1",
-        bytes: include_bytes!("source_fingerprint/reference-builder-cargo-lock.v1"),
+        path: "dependencies/reference-builder-cargo-lock.v2",
+        bytes: include_bytes!("source_fingerprint/reference-builder-cargo-lock.v2"),
     },
     Entry {
-        path: "dependencies/reference-builder-linux-lock.v1",
-        bytes: include_bytes!("source_fingerprint/reference-builder-linux-lock.v1"),
+        path: "dependencies/reference-builder-linux-lock.v2",
+        bytes: include_bytes!("source_fingerprint/reference-builder-linux-lock.v2"),
     },
     Entry {
-        path: "dependencies/reference-builder-roots.v1",
-        bytes: include_bytes!("source_fingerprint/reference-builder-roots.v1"),
+        path: "dependencies/reference-builder-roots.v2",
+        bytes: include_bytes!("source_fingerprint/reference-builder-roots.v2"),
     },
     Entry {
-        path: "tests/fixtures/pangolin-compat-v1/cases.jsonl",
-        bytes: include_bytes!("../../../tests/fixtures/pangolin-compat-v1/cases.jsonl"),
+        path: "projections/reference-core-contract.v2",
+        bytes: include_bytes!("source_fingerprint/reference-core-contract.v2"),
     },
     Entry {
-        path: "wiring/reference-root-wiring.v1",
-        bytes: include_bytes!("source_fingerprint/reference-root-wiring.v1"),
+        path: "wiring/reference-facade-wiring.v2",
+        bytes: include_bytes!("source_fingerprint/reference-facade-wiring.v2"),
+    },
+    Entry {
+        path: "wiring/reference-root-wiring.v2",
+        bytes: include_bytes!("source_fingerprint/reference-root-wiring.v2"),
     },
 ];
 
@@ -188,6 +192,7 @@ pub(crate) fn reference_source_sha256() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pangopup_core::Grch38Contig;
     use std::{
         collections::{BTreeMap, BTreeSet},
         fs,
@@ -201,7 +206,7 @@ mod tests {
     const EXPECTED_SNV_SHA256: &str =
         "b3bdc4d9d8e710fb554fd47f0cfc6f6a7bb764451069e6ae4a98534d8c5dc6a2";
     const EXPECTED_REFERENCE_SHA256: &str =
-        "4bc0e93b83b28e235a7d0f498976bfe1e97b39d13e4f8c940d4c03cfd3d641bf";
+        "09cd44449b77592e4b9948cc0756e736b01ecf5220b3d5312c52b12b6b6e9c65";
     static RESOLVER_SERIAL: AtomicU64 = AtomicU64::new(0);
     static MANIFEST_MODEL: OnceLock<ManifestModel> = OnceLock::new();
 
@@ -222,25 +227,31 @@ mod tests {
     ];
     const REFERENCE_PATHS: &[&str] = &[
         "crates/pangopup-build/src/command_error.rs",
-        "crates/pangopup-build/src/reference.rs",
-        "crates/pangopup-core/src/lib.rs",
-        "crates/pangopup-index/src/reference.rs",
-        "dependencies/reference-builder-cargo-lock.v1",
-        "dependencies/reference-builder-linux-lock.v1",
-        "dependencies/reference-builder-roots.v1",
-        "tests/fixtures/pangolin-compat-v1/cases.jsonl",
-        "wiring/reference-root-wiring.v1",
+        "crates/pangopup-build/src/reference_builder.rs",
+        "crates/pangopup-index/src/reference_wire.rs",
+        "crates/pangopup-index/src/reference_writer.rs",
+        "dependencies/reference-builder-cargo-lock.v2",
+        "dependencies/reference-builder-linux-lock.v2",
+        "dependencies/reference-builder-roots.v2",
+        "projections/reference-core-contract.v2",
+        "wiring/reference-facade-wiring.v2",
+        "wiring/reference-root-wiring.v2",
     ];
     const REPRESENTATIVE_EXCLUDED: &[&str] = &[
         "crates/pangopup-build/build.rs",
         "crates/pangopup-build/src/lib.rs",
+        "crates/pangopup-build/src/reference.rs",
+        "crates/pangopup-build/src/reference_certification.rs",
         "crates/pangopup-index/src/mask.rs",
         "crates/pangopup-index/src/lib.rs",
+        "crates/pangopup-index/src/reference.rs",
+        "crates/pangopup-index/src/reference_admission.rs",
+        "crates/pangopup-index/src/reference_reader.rs",
         "crates/pangopup-assets/src/sync.rs",
         "crates/pangopup-assets/src/release.rs",
         "crates/pangopup-assets/src/lib.rs",
         "crates/pangopup-cli/src/main.rs",
-        "dependencies/reference-builder-direct-uses.v1",
+        "dependencies/reference-builder-direct-uses.v2",
         "dependencies/snv-builder-direct-uses.v1",
     ];
 
@@ -354,6 +365,31 @@ mod tests {
         let text = std::str::from_utf8(bytes).expect("UTF-8 inventory declaration");
         assert!(text.ends_with('\n'));
         text.lines().collect()
+    }
+
+    #[test]
+    fn reference_core_contract_is_derived_from_all_compiled_contig_behavior() {
+        let mut derived = String::new();
+        let mut codes = BTreeSet::new();
+        let mut names = BTreeSet::new();
+        for code in 1_u8..=25 {
+            let contig = Grch38Contig::from_code(code).expect("all production contig codes");
+            assert_eq!(contig.code(), code, "from_code round trip");
+            let name = contig.to_string();
+            assert!(codes.insert(code), "duplicate contig code");
+            assert!(
+                names.insert(name.clone()),
+                "duplicate canonical contig name"
+            );
+            derived.push_str(&format!("{code}\t{name}\n"));
+        }
+        assert_eq!(Grch38Contig::M.code(), 25);
+        assert_eq!(Grch38Contig::M.to_string(), "chrM");
+        assert_ne!(Grch38Contig::M, Grch38Contig::autosome(1).expect("chr1"));
+        assert_eq!(
+            derived.as_bytes(),
+            include_bytes!("source_fingerprint/reference-core-contract.v2")
+        );
     }
 
     #[derive(Debug, Eq, PartialEq)]
@@ -923,6 +959,32 @@ mod tests {
         .collect()
     }
 
+    fn actual_reference_facade_sources() -> BTreeMap<String, RootSource> {
+        [
+            (
+                "pangopup-build",
+                "crates/pangopup-build/src/reference.rs",
+                include_bytes!("reference.rs").as_slice(),
+            ),
+            (
+                "pangopup-index",
+                "crates/pangopup-index/src/reference.rs",
+                include_bytes!("../../pangopup-index/src/reference.rs").as_slice(),
+            ),
+        ]
+        .into_iter()
+        .map(|(package, path, bytes)| {
+            (
+                package.to_owned(),
+                RootSource {
+                    path: path.to_owned(),
+                    bytes: bytes.to_vec(),
+                },
+            )
+        })
+        .collect()
+    }
+
     fn matching_group_end(tokens: &[RustToken], open: usize) -> Result<usize, String> {
         let (open_text, close_text) = match tokens.get(open).map(|token| token.text.as_str()) {
             Some("(") => ("(", ")"),
@@ -1268,7 +1330,13 @@ mod tests {
         workspace: &WorkspaceDependencies,
     ) -> Result<BTreeSet<String>, String> {
         let required_modules = selected_root_modules(entries)?;
-        let requests = workspace_root_requests(entries, workspace)?;
+        let mut requests = workspace_root_requests(entries, workspace)?;
+        if entries
+            .iter()
+            .any(|entry| entry.path == "projections/reference-core-contract.v2")
+        {
+            requests.remove("pangopup-core");
+        }
         let mut projection = BTreeSet::new();
         let mut parsed = BTreeMap::<String, Vec<RootItem>>::new();
         for package in required_modules.keys().chain(requests.keys()) {
@@ -1353,6 +1421,66 @@ mod tests {
         lines.into_iter().map(ToOwned::to_owned).collect()
     }
 
+    fn derive_reference_facade_wiring(
+        roots: &BTreeMap<String, RootSource>,
+        facades: &BTreeMap<String, RootSource>,
+    ) -> Result<BTreeSet<String>, String> {
+        let mut projection = BTreeSet::new();
+        let build_root = roots
+            .get("pangopup-build")
+            .ok_or_else(|| "pangopup-build root source is absent".to_owned())?;
+        let build_reference_modules: Vec<_> = parse_root_items(&build_root.bytes)?
+            .into_iter()
+            .filter_map(|item| match item {
+                RootItem::Module {
+                    name,
+                    public,
+                    normalized,
+                } if public && name == "reference" => Some(normalized),
+                _ => None,
+            })
+            .collect();
+        if build_reference_modules.len() != 1 {
+            return Err("pangopup-build must expose one public reference facade module".to_owned());
+        }
+        projection.insert(format!(
+            "{}\t{}",
+            build_root.path, build_reference_modules[0]
+        ));
+
+        for (package, expected_sources) in [
+            ("pangopup-build", ["reference_builder"].as_slice()),
+            (
+                "pangopup-index",
+                ["reference_wire", "reference_writer"].as_slice(),
+            ),
+        ] {
+            let facade = facades
+                .get(package)
+                .ok_or_else(|| format!("{package} reference facade is absent"))?;
+            let items = parse_root_items(&facade.bytes)?;
+            for expected_source in expected_sources {
+                let needle = format!(":: {expected_source} ::");
+                let matches: Vec<_> = items
+                    .iter()
+                    .filter_map(|item| match item {
+                        RootItem::Reexport { normalized, .. } if normalized.contains(&needle) => {
+                            Some(normalized)
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                if matches.len() != 1 {
+                    return Err(format!(
+                        "{package} must have one causal reference facade reexport from {expected_source}"
+                    ));
+                }
+                projection.insert(format!("{}\t{}", facade.path, matches[0]));
+            }
+        }
+        Ok(projection)
+    }
+
     fn derive_external_dependencies(
         entries: &[Entry<'_>],
         manifests: &ManifestDependencies,
@@ -1397,7 +1525,16 @@ mod tests {
     ) -> Result<BTreeMap<String, ManifestDependency>, String> {
         let derived = derive_external_dependencies(entries, manifests)?;
         if roots.keys().ne(derived.keys()) {
-            return Err("derived external dependencies and roots differ".to_owned());
+            let candidates = entries
+                .iter()
+                .filter(|entry| entry.path.ends_with(".rs"))
+                .map(|entry| (entry.path, source_dependency_candidates(entry.bytes)))
+                .collect::<Vec<_>>();
+            return Err(format!(
+                "derived external dependencies and roots differ: declared={:?} derived={:?} candidates={candidates:?}",
+                roots.keys().collect::<Vec<_>>(),
+                derived.keys().collect::<Vec<_>>()
+            ));
         }
         for (name, dependency) in &derived {
             let root = &roots[name];
@@ -1711,10 +1848,7 @@ mod tests {
     fn source_fingerprint_family_inputs_are_discriminating() {
         let snv_baseline = snv_source_sha256();
         let reference_baseline = reference_source_sha256();
-        let shared = [
-            "crates/pangopup-build/src/command_error.rs",
-            "crates/pangopup-core/src/lib.rs",
-        ];
+        let shared = ["crates/pangopup-build/src/command_error.rs"];
 
         for path in SNV_PATHS
             .iter()
@@ -1902,7 +2036,7 @@ mod tests {
     fn source_fingerprint_dependency_projections_are_canonical() {
         for bytes in [
             include_bytes!("source_fingerprint/snv-builder-linux-lock.v1").as_slice(),
-            include_bytes!("source_fingerprint/reference-builder-linux-lock.v1").as_slice(),
+            include_bytes!("source_fingerprint/reference-builder-linux-lock.v2").as_slice(),
         ] {
             let text = std::str::from_utf8(bytes).expect("UTF-8 dependency projection");
             assert!(text.ends_with('\n'));
@@ -1916,7 +2050,7 @@ mod tests {
         }
         for bytes in [
             include_bytes!("source_fingerprint/snv-builder-roots.v1").as_slice(),
-            include_bytes!("source_fingerprint/reference-builder-roots.v1").as_slice(),
+            include_bytes!("source_fingerprint/reference-builder-roots.v2").as_slice(),
         ] {
             let text = std::str::from_utf8(bytes).expect("UTF-8 dependency roots");
             assert!(text.ends_with('\n'));
@@ -1930,7 +2064,7 @@ mod tests {
         }
         for bytes in [
             include_bytes!("source_fingerprint/snv-builder-direct-uses.v1").as_slice(),
-            include_bytes!("source_fingerprint/reference-builder-direct-uses.v1").as_slice(),
+            include_bytes!("source_fingerprint/reference-builder-direct-uses.v2").as_slice(),
         ] {
             let text = std::str::from_utf8(bytes).expect("UTF-8 direct uses");
             assert!(text.ends_with('\n'));
@@ -1949,10 +2083,10 @@ mod tests {
             include_bytes!("source_fingerprint/snv-builder-cargo-lock.v1"),
         );
         assert_projection_matches_isolated_resolution(
-            "pangopup-ticket013-reference-resolver",
-            include_bytes!("source_fingerprint/reference-builder-linux-lock.v1"),
-            include_bytes!("source_fingerprint/reference-builder-roots.v1"),
-            include_bytes!("source_fingerprint/reference-builder-cargo-lock.v1"),
+            "pangopup-ticket027-reference-resolver",
+            include_bytes!("source_fingerprint/reference-builder-linux-lock.v2"),
+            include_bytes!("source_fingerprint/reference-builder-roots.v2"),
+            include_bytes!("source_fingerprint/reference-builder-cargo-lock.v2"),
         );
     }
 
@@ -2060,7 +2194,14 @@ mod tests {
             derive_root_wiring(REFERENCE_ENTRIES, &roots, &workspace)
                 .expect("derived reference root wiring"),
             checked_root_wiring(include_bytes!(
-                "source_fingerprint/reference-root-wiring.v1"
+                "source_fingerprint/reference-root-wiring.v2"
+            ))
+        );
+        assert_eq!(
+            derive_reference_facade_wiring(&roots, &actual_reference_facade_sources())
+                .expect("derived reference facade wiring"),
+            checked_root_wiring(include_bytes!(
+                "source_fingerprint/reference-facade-wiring.v2"
             ))
         );
     }
@@ -2111,6 +2252,94 @@ mod tests {
     }
 
     #[test]
+    fn reference_v2_root_and_causal_facade_rebinds_fail_but_reader_exports_do_not() {
+        let workspace = actual_workspace_dependencies();
+        let expected_root = checked_root_wiring(include_bytes!(
+            "source_fingerprint/reference-root-wiring.v2"
+        ));
+        let mut root_rebind = actual_root_sources();
+        replace_root_bytes(
+            root_rebind.get_mut("pangopup-build").expect("build root"),
+            "mod source_fingerprint;",
+            "#[path = \"replacement.rs\"] mod source_fingerprint;",
+        );
+        assert_ne!(
+            derive_root_wiring(REFERENCE_ENTRIES, &root_rebind, &workspace)
+                .expect("reference source-fingerprint root rebind"),
+            expected_root
+        );
+
+        let expected_facade = checked_root_wiring(include_bytes!(
+            "source_fingerprint/reference-facade-wiring.v2"
+        ));
+        let mut facade_root_rebind = actual_root_sources();
+        replace_root_bytes(
+            facade_root_rebind
+                .get_mut("pangopup-build")
+                .expect("build root"),
+            "pub mod reference;",
+            "#[path=\"replacement.rs\"] pub mod reference;",
+        );
+        let observed =
+            derive_reference_facade_wiring(&facade_root_rebind, &actual_reference_facade_sources());
+        assert!(
+            observed.is_err()
+                || observed
+                    .as_ref()
+                    .is_ok_and(|value| value != &expected_facade),
+            "the public reference facade module rebind must fail or change the projection"
+        );
+
+        for (package, from, to) in [
+            (
+                "pangopup-build",
+                "build_reference_bundle",
+                "rebound_build_reference_bundle",
+            ),
+            (
+                "pangopup-index",
+                "pub use crate::reference_wire::*;",
+                "pub use crate::reference_reader::*;",
+            ),
+            (
+                "pangopup-index",
+                "ReferenceMemberWriter",
+                "ReboundReferenceMemberWriter",
+            ),
+        ] {
+            let mut rebound = actual_reference_facade_sources();
+            replace_root_bytes(
+                rebound.get_mut(package).expect("reference facade"),
+                from,
+                to,
+            );
+            let observed = derive_reference_facade_wiring(&actual_root_sources(), &rebound);
+            assert!(
+                observed.is_err()
+                    || observed
+                        .as_ref()
+                        .is_ok_and(|value| value != &expected_facade),
+                "{package} causal facade rebind must fail or change the projection"
+            );
+        }
+
+        let mut reader_only = actual_reference_facade_sources();
+        replace_root_bytes(
+            reader_only
+                .get_mut("pangopup-index")
+                .expect("index reference facade"),
+            "ReferenceMemberIdentity",
+            "ReboundReferenceMemberIdentity",
+        );
+        assert_eq!(
+            derive_reference_facade_wiring(&actual_root_sources(), &reader_only)
+                .expect("reader-only facade edit"),
+            expected_facade,
+            "reader-only API changes remain outside reference v2"
+        );
+    }
+
+    #[test]
     fn source_fingerprint_direct_roots_derive_from_sources_and_manifests() {
         let roots = dependency_roots(include_bytes!("source_fingerprint/snv-builder-roots.v1"));
         let manifests = actual_manifest_dependencies();
@@ -2126,13 +2355,13 @@ mod tests {
             .expect("SNV diagnostic uses agree with derived roots");
 
         let reference_roots = dependency_roots(include_bytes!(
-            "source_fingerprint/reference-builder-roots.v1"
+            "source_fingerprint/reference-builder-roots.v2"
         ));
         let reference_derived =
             source_manifest_dependency_contract(&reference_roots, REFERENCE_ENTRIES, &manifests)
                 .expect("source- and manifest-derived reference roots");
         let reference_uses = direct_uses(include_bytes!(
-            "source_fingerprint/reference-builder-direct-uses.v1"
+            "source_fingerprint/reference-builder-direct-uses.v2"
         ));
         diagnostic_uses_match(&reference_uses, &reference_derived, REFERENCE_ENTRIES)
             .expect("reference diagnostic uses agree with derived roots");

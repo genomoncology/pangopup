@@ -204,12 +204,6 @@ fn source_fingerprint_reference_members_and_legacy_reader_are_invariant() {
             .expect("legacy reference manifest hash")
     );
     assert_eq!(
-        sha256(&migrated_manifest),
-        migration["reference"]["migrated_manifest"]["sha256"]
-            .as_str()
-            .expect("migrated reference manifest hash")
-    );
-    assert_eq!(
         sha256(&fs::read(generated.join("NOTICE")).expect("reference notice")),
         migration["reference"]["notice"]["sha256"]
             .as_str()
@@ -222,18 +216,26 @@ fn source_fingerprint_reference_members_and_legacy_reader_are_invariant() {
             .expect("reference member hash")
     );
 
-    let mut rebound: Value =
+    let mut v1_rebound: Value =
         serde_json::from_slice(&migrated_manifest).expect("reference manifest JSON");
-    let migrated_source = rebound["builder"]["source_sha256"]
+    let migrated_source = v1_rebound["builder"]["source_sha256"]
         .as_str()
         .expect("reference source fingerprint")
         .to_owned();
-    assert_ne!(migrated_source, INCUMBENT_SOURCE);
-    rebound["builder"]["source_sha256"] = Value::String(INCUMBENT_SOURCE.to_owned());
     assert_eq!(
-        serde_jcs::to_vec(&rebound).expect("canonical rebound reference manifest"),
-        legacy_manifest,
-        "the manifest migration must change only builder.source_sha256"
+        migrated_source,
+        "sha256:09cd44449b77592e4b9948cc0756e736b01ecf5220b3d5312c52b12b6b6e9c65"
+    );
+    v1_rebound["builder"]["source_sha256"] = Value::String(
+        "sha256:4bc0e93b83b28e235a7d0f498976bfe1e97b39d13e4f8c940d4c03cfd3d641bf".to_owned(),
+    );
+    let v1_bytes = serde_jcs::to_vec(&v1_rebound).expect("canonical v1 reference manifest");
+    assert_eq!(
+        sha256(&v1_bytes),
+        migration["reference"]["migrated_manifest"]["sha256"]
+            .as_str()
+            .expect("v1 reference manifest hash"),
+        "v2 must differ from v1 only at builder.source_sha256"
     );
 
     let snv_source = serde_json::from_slice::<Value>(

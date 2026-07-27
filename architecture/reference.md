@@ -35,6 +35,13 @@ Opening does not hash or scan dense sequence bytes. A successful window copies
 only the packed bytes it needs, overlays intersecting ambiguity runs, performs
 no heap allocation, and returns uppercase IUPAC.
 
+The format implementation is split into shared wire/layout, one writer, and
+one reader/provider. Installed runtime admission can hand that reader the exact
+descriptor already authenticated by installation through an explicit unsafe
+authority boundary. The resulting opaque capability retains and maps that
+descriptor, never reopens its pathname, and gives safe callers only the normal
+reference-provider behavior.
+
 Explicit CLI fallback uses the stricter `open_identified` capability. It opens
 one regular single-link `reference.pgr` descriptor without following symlinks,
 reads at most the bounded member size while hashing it, verifies the
@@ -81,11 +88,11 @@ feature-gated qualification adapter, and opt-in CLI heap reporter have been
 removed; qualification is not a current command or ordinary test lifecycle.
 The direct bounded-memory and zero-allocation production tests remain.
 
-The evaluator still embedded in the production builder source has no current
-adapter. It is retained only because that source participates in the recorded
-production builder fingerprint. Removing it requires a separately reviewed
-provenance-decoupling change rather than silently changing the production
-identity.
+Post-build inspection, exhaustive certification, compatibility contexts, and
+qualification policy are separate from the byte-producing adapter. Future
+builds describe only byte-producing inputs with
+`pangopup.reference-builder-source.v2`; the existing production identity is
+unchanged.
 
 A same-size two-bit substitution is a valid encoding and deliberately is not
 detected by cheap open. Build certification detects it through member and

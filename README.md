@@ -642,12 +642,15 @@ The rolling outcome order is:
     (complete);
 25. install and atomically select that profile from trusted local inputs
     (complete; runtime consumption remains next);
-26. close publication prerequisites, publish only the derived model,
+26. separate the sole reference reader from byte-producing provenance and add
+    held-descriptor installed admission (complete);
+27. consume the activated installed profile for lookup-first model fallback;
+28. close publication prerequisites, publish only the derived model,
     GRCh38 sequence index, and mask runtime assets, and prove pinned
     fresh-machine sync plus CLI inference;
-27. a foreground HTTP/status service with CLI and HTTP acceptance tests;
-28. non-root Docker and documented systemd lifecycle integration;
-29. observability, security, performance, and executable/container release
+29. a foreground HTTP/status service with CLI and HTTP acceptance tests;
+30. non-root Docker and documented systemd lifecycle integration;
+31. observability, security, performance, and executable/container release
     hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the

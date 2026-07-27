@@ -1,0 +1,6 @@
+flate2	^1.1.5	1.1.9	default	-
+rustix	^1.1.4	1.1.4	default	fs
+serde	^1.0.228	1.0.229	default	derive
+serde_jcs	^0.1.0	0.1.0	default	-
+serde_json	^1.0.149	1.0.151	default	-
+sha2	^0.10.9	0.10.9	default	-

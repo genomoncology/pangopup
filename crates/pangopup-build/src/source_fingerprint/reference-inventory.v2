@@ -1,0 +1,10 @@
+crates/pangopup-build/src/command_error.rs
+crates/pangopup-build/src/reference_builder.rs
+crates/pangopup-index/src/reference_wire.rs
+crates/pangopup-index/src/reference_writer.rs
+dependencies/reference-builder-cargo-lock.v2
+dependencies/reference-builder-linux-lock.v2
+dependencies/reference-builder-roots.v2
+projections/reference-core-contract.v2
+wiring/reference-facade-wiring.v2
+wiring/reference-root-wiring.v2

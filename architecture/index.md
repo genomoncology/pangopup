@@ -295,7 +295,7 @@ The manifest's `builder.source_sha256` describes the code and locked dependency
 evidence used to construct that artifact. It is not a runtime compatibility
 key. Future fixed-v1 SNV builds use
 `pangopup.snv-builder-source.v1`; future production-reference builds use
-`pangopup.reference-builder-source.v1`.
+`pangopup.reference-builder-source.v2`.
 
 Each source digest covers a checked inventory declaration and artifact-local
 source/dependency bytes compiled into the builder. Logical paths are sorted and
@@ -303,10 +303,17 @@ length-framed, and duplicate paths fail. Shared causal vocabulary and the
 fingerprint algorithm intentionally affect both families. Production mask,
 sync, release, CLI, model, and HTTP code affect neither.
 
+Reference v2 additionally excludes mmap reader/query and post-build
+certification code. It binds the shared wire codecs, writer, byte-producing
+adapter, causal dependencies/wiring, and a checked behavioral projection of
+all 25 compiled `Grch38Contig` codes and names instead of hashing the mixed
+core source file. SNV v1 retains its existing whole-core behavior.
+
 Existing v1 manifests with the former repository-wide source fingerprint
 remain readable under the unchanged schema and integrity rules. Their members
 are not rebuilt merely to change descriptive provenance. See
-[ADR 0012](decisions/0012-artifact-specific-builder-provenance.md).
+[ADR 0012](decisions/0012-artifact-specific-builder-provenance.md) and
+[ADR 0022](decisions/0022-reference-reader-provenance-boundary.md).
 
 ## Release transport is not runtime encoding
 

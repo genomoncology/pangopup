@@ -1,0 +1,6 @@
+flate2	crates/pangopup-build/src/reference_builder.rs	flate2::
+rustix	crates/pangopup-build/src/reference_builder.rs	rustix::
+serde	crates/pangopup-build/src/reference_builder.rs	serde::
+serde_jcs	crates/pangopup-index/src/reference_wire.rs	serde_jcs::
+serde_json	crates/pangopup-build/src/command_error.rs	serde_json::
+sha2	crates/pangopup-build/src/reference_builder.rs	sha2::

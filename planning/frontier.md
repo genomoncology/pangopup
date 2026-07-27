@@ -287,11 +287,10 @@ builder and qualification surfaces have now been removed. The retained
 The three bounded experiment-removal slices are complete. The production SNV,
 mask, and reference readers, selected assets, focused production fixtures, and
 durable evidence remain, while their discarded candidate codecs, writers,
-benchmark executables, CLIs, and dedicated specs no longer compile. The
-reference evaluator still coupled to the recorded production source fingerprint
-has no adapter and remains until a separately reviewed provenance change can
-remove it without silently changing asset identity. No further repository-diet
-work is implied by this outcome.
+benchmark executables, CLIs, and dedicated specs no longer compile. Reference
+byte production and post-build certification now live in separate modules, so
+retained evaluation policy is no longer part of future byte-producing
+provenance. No further repository-diet work is implied by this outcome.
 
 ## Established — authenticated raw CPU model kernel
 
@@ -419,7 +418,7 @@ idempotent reuse, shared-lock behavior, and transition failure/retry are
 covered by miniature tests. Lookup/runtime discovery, remote provisioning,
 rollback/GC, and publication are deliberately separate later outcomes.
 
-## Next outcome — reference reader/provenance prerequisite
+## Established — reference reader/provenance boundary
 
 Installed-profile consumption exposed an existing coupling:
 `pangopup-index::reference` mixes the runtime mmap reader with the
@@ -427,17 +426,22 @@ byte-producing writer, while `pangopup.reference-builder-source.v1` hashes the
 whole module. Do not work around that coupling with a second PGRREF01 decoder
 or a public raw-file trust bypass.
 
-The next bounded outcome mechanically separates builder-causal wire/writer
-inputs from reader-only code, defines
+Ticket 027 mechanically separated builder-causal wire/writer inputs from
+reader-only code, defined
 `pangopup.reference-builder-source.v2` over only byte-producing inputs, and
-adds one shared crate-private held-descriptor reader entry point behind opaque
-installed admission. It must prove that existing v1/production artifacts and
-the canonical four-asset profile remain valid. It must not read, copy, repack,
-or rebuild the retained 772 MB production member.
+added one shared held-descriptor reader entry point behind opaque installed
+admission. Miniature v1/v2 payload and notice bytes are identical, the compiled
+25-contig projection and causal inventory are independently checked, and the
+production/profile identities remain statically pinned. The retained 772 MB
+production member was not opened, copied, repacked, or rebuilt.
 
-After that prerequisite, redraft installed-profile consumption from the
+## Next outcome — installed-profile consumption
+
+Redraft installed-profile consumption from the
 reviewed Ticket 026 behavior and reapply only the useful routing/test work from
-the preserved rejected stash.
+the preserved rejected stash. Runtime discovery must use the activated
+four-asset profile, pass the installer's exact held reference descriptor
+through the new opaque capability, and preserve lookup-first laziness.
 
 ## Later outcome — release-ready asset publication
 

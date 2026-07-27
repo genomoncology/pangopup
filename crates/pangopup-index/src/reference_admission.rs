@@ -1,7 +1,11 @@
 //! Bounded reference-manifest admission for the disposable model cache.
 
 use crate::reference::{
-    ReferenceIndexError, ReferenceManifest, canonical_reference_manifest_bytes, reference_bundle_id,
+    ReferenceBundleOpen, ReferenceIndexError, ReferenceManifest,
+    canonical_reference_manifest_bytes, open_held_installed, reference_bundle_id,
+};
+use pangopup_core::{
+    GenomicPosition, Grch38Contig, ReferenceError, ReferenceProvenance, ReferenceProvider,
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -24,6 +28,53 @@ pub struct ReferenceAdmission {
     assembly: String,
     assembly_accession: String,
     sequence_set_sha256: String,
+}
+
+/// Opaque capability for one installed member already authenticated by the
+/// installer. Safe callers can query it but cannot substitute a claimed
+/// identity or raw file.
+pub struct InstalledReference {
+    provider: ReferenceBundleOpen,
+}
+
+impl InstalledReference {
+    pub fn manifest(&self) -> &ReferenceManifest {
+        self.provider.manifest()
+    }
+}
+
+impl ReferenceProvider for InstalledReference {
+    fn copy_window(
+        &self,
+        contig: Grch38Contig,
+        start: GenomicPosition,
+        destination: &mut [u8],
+    ) -> Result<(), ReferenceError> {
+        self.provider.copy_window(contig, start, destination)
+    }
+
+    fn provenance(&self) -> &ReferenceProvenance {
+        self.provider.provenance()
+    }
+}
+
+/// Admit the exact descriptor authenticated by installation.
+///
+/// # Safety
+///
+/// The caller must have read canonical bounded manifest/NOTICE bytes and
+/// authenticated this exact regular, single-link descriptor against the
+/// manifest's size and SHA-256 while holding the installation lock. The member
+/// must remain immutable and untruncated for the returned value's lifetime.
+pub unsafe fn admit_installed_reference(
+    manifest_bytes: &[u8],
+    notice_bytes: &[u8],
+    reference: File,
+) -> Result<InstalledReference, ReferenceIndexError> {
+    // SAFETY: this function is the explicit authority boundary and forwards
+    // the caller's documented installed-bundle guarantees unchanged.
+    let provider = unsafe { open_held_installed(manifest_bytes, notice_bytes, reference)? };
+    Ok(InstalledReference { provider })
 }
 
 impl ReferenceAdmission {
@@ -142,4 +193,76 @@ fn valid_sha(value: &str) -> bool {
     value.len() == 71
         && value.starts_with("sha256:")
         && value[7..].bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        io::{Seek, SeekFrom, Write},
+        path::{Path, PathBuf},
+    };
+
+    fn fixture() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/reference-route-test/bundle")
+    }
+
+    type UnsafeAdmission =
+        unsafe fn(&[u8], &[u8], File) -> Result<InstalledReference, ReferenceIndexError>;
+
+    #[test]
+    fn held_admission_maps_the_supplied_inode_after_path_substitution() {
+        let scratch = std::env::temp_dir().join(format!(
+            "pangopup-held-admission-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        if scratch.exists() {
+            fs::remove_dir_all(&scratch).expect("remove stale scratch");
+        }
+        fs::create_dir(&scratch).expect("create scratch");
+        for member in ["NOTICE", "manifest.json", "reference.pgr"] {
+            fs::copy(fixture().join(member), scratch.join(member)).expect("copy fixture");
+        }
+        let manifest = fs::read(scratch.join("manifest.json")).expect("manifest");
+        let notice = fs::read(scratch.join("NOTICE")).expect("notice");
+        let held = File::open(scratch.join("reference.pgr")).expect("held member");
+
+        fs::rename(
+            scratch.join("reference.pgr"),
+            scratch.join("retained-reference.pgr"),
+        )
+        .expect("retain inode");
+        fs::copy(
+            fixture().join("reference.pgr"),
+            scratch.join("reference.pgr"),
+        )
+        .expect("substitute path");
+        let mut substitute = File::options()
+            .write(true)
+            .open(scratch.join("reference.pgr"))
+            .expect("open substitute");
+        substitute
+            .seek(SeekFrom::Start(4096))
+            .expect("seek substitute");
+        substitute.write_all(&[1]).expect("mutate substitute");
+
+        let _: UnsafeAdmission = admit_installed_reference;
+        // SAFETY: the fixture descriptor and canonical bounded metadata were
+        // authenticated together before this deterministic path substitution.
+        let admitted = unsafe { admit_installed_reference(&manifest, &notice, held) }
+            .expect("admit held descriptor");
+        let mut bases = [0_u8; 4];
+        admitted
+            .copy_window(
+                Grch38Contig::autosome(1).expect("chr1"),
+                GenomicPosition::new(1).expect("position"),
+                &mut bases,
+            )
+            .expect("query held descriptor");
+        assert_eq!(&bases, b"AAAA");
+
+        fs::remove_dir_all(scratch).expect("remove scratch");
+    }
 }

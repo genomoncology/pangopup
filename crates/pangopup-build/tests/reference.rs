@@ -3,7 +3,9 @@ use pangopup_build::reference::{
     production_context_dense_pages, reference_window,
 };
 use pangopup_core::{GenomicPosition, Grch38Contig, ReferenceError, ReferenceProvider};
-use pangopup_index::reference::ReferenceBundleOpen;
+use pangopup_index::reference::{
+    ReferenceBundleOpen, ReferenceManifest, canonical_reference_manifest_bytes,
+};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
@@ -129,6 +131,65 @@ fn miniature_build_reader_and_provenance_are_exact() {
 }
 
 #[test]
+fn v2_miniature_preserves_the_independent_current_v1_byte_oracle() {
+    const V1_SOURCE: &str =
+        "sha256:4bc0e93b83b28e235a7d0f498976bfe1e97b39d13e4f8c940d4c03cfd3d641bf";
+    const V2_SOURCE: &str =
+        "sha256:09cd44449b77592e4b9948cc0756e736b01ecf5220b3d5312c52b12b6b6e9c65";
+    let temp = Temp::new("v1-oracle");
+    let bundle = build(&temp, "source.fa.gz", "bundle");
+
+    let reference = fs::read(bundle.join("reference.pgr")).expect("reference member");
+    assert_eq!(reference.len(), 4_560);
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&reference)),
+        "0ef815ffb3fbb897e880e56afcb57e1edb41f3707784f591c0457581c2e9a3d5"
+    );
+    let notice = fs::read(bundle.join("NOTICE")).expect("notice member");
+    assert_eq!(notice.len(), 279);
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&notice)),
+        "faea3b1976bf4e15f95bad3906144d83b4441f860d3c5b87ab406205e47262db"
+    );
+
+    let v2_bytes = fs::read(bundle.join("manifest.json")).expect("v2 manifest");
+    let mut v1: ReferenceManifest = serde_json::from_slice(&v2_bytes).expect("manifest JSON");
+    assert_eq!(v1.builder.source_sha256, V2_SOURCE);
+    v1.builder.source_sha256 = V1_SOURCE.to_owned();
+    let v1_bytes = canonical_reference_manifest_bytes(&v1).expect("canonical v1 oracle");
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&v1_bytes)),
+        "8617204d0678ea23aa00e288e94bbf2622cf3884cf26562f65fb85eda5b18bd2"
+    );
+    assert_ne!(v1_bytes, v2_bytes);
+}
+
+#[test]
+fn production_identity_is_statically_preserved_without_opening_the_member() {
+    let profile_bytes =
+        include_bytes!("../../../planning/artifacts/024-four-asset-runtime-profile.json");
+    assert_eq!(
+        format!("sha256:{:x}", Sha256::digest(profile_bytes)),
+        "sha256:0efc5b7d9e966935775f9b19ef33eae75cb304cc5d5ba3f1d700ccddc6ddbd8c"
+    );
+    let profile: serde_json::Value =
+        serde_json::from_slice(profile_bytes).expect("checked runtime profile");
+    assert_eq!(
+        profile["reference"]["bundle_id"],
+        "sha256:7c28334e1829505863ff77dba78c4cbc0d8ebe655f68c30ad70ab4fdc36adc5f"
+    );
+    assert_eq!(profile["reference"]["member_bytes"], 772_091_760_u64);
+    assert_eq!(
+        profile["reference"]["member_sha256"],
+        "sha256:cdec4b6230c3b660b658f71e11cb79d760d74f906873e81dc53ba7347ee3da82"
+    );
+    assert_eq!(
+        profile["reference"]["sequence_set_sha256"],
+        "sha256:2a970f2c70fcb5ff4baa179a8d801f8cf7509ca32b86dac789344e9d49927fa4"
+    );
+}
+
+#[test]
 fn route_reference_rebuilds_byte_identically_and_covers_the_full_model_context() {
     let temp = Temp::new("route");
     let rebuilt = temp.0.join("bundle");
@@ -139,10 +200,6 @@ fn route_reference_rebuilds_byte_identically_and_covers_the_full_model_context()
         &rebuilt,
     )
     .expect("build route reference");
-    assert_eq!(
-        outcome.bundle_id,
-        "sha256:6773713ad79462b8bfb2bce7f194041e85a0804b38f68282c965adc5f43f9493"
-    );
     assert_eq!(outcome.certification.total_bases, 10_125);
     assert_eq!(outcome.certification.contexts_verified, 1);
 
@@ -152,11 +209,6 @@ fn route_reference_rebuilds_byte_identically_and_covers_the_full_model_context()
             "NOTICE",
             291,
             "57598dd8a7e6c8159d1e0e4af9660e2d567b4f383d72740ba9200f31bf7faa68",
-        ),
-        (
-            "manifest.json",
-            3_366,
-            "6773713ad79462b8bfb2bce7f194041e85a0804b38f68282c965adc5f43f9493",
         ),
         (
             "reference.pgr",
@@ -174,6 +226,18 @@ fn route_reference_rebuilds_byte_identically_and_covers_the_full_model_context()
             "{name} SHA"
         );
     }
+    let current: ReferenceManifest =
+        serde_json::from_slice(&fs::read(rebuilt.join("manifest.json")).expect("new manifest"))
+            .expect("new manifest JSON");
+    let mut historical: ReferenceManifest =
+        serde_json::from_slice(&fs::read(checked.join("manifest.json")).expect("old manifest"))
+            .expect("old manifest JSON");
+    assert_eq!(
+        current.builder.source_sha256,
+        "sha256:09cd44449b77592e4b9948cc0756e736b01ecf5220b3d5312c52b12b6b6e9c65"
+    );
+    historical.builder.source_sha256 = current.builder.source_sha256.clone();
+    assert_eq!(current, historical, "only builder provenance changes");
 
     let opened = ReferenceBundleOpen::open(&checked).expect("open checked route bundle");
     let mut complete = vec![0_u8; 10_101];

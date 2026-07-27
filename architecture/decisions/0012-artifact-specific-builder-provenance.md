@@ -55,6 +55,11 @@ compatibility key. Existing v1 readers continue to accept immutable legacy
 manifests carrying the former repository-wide fingerprint, provided their
 ordinary schema and integrity checks pass.
 
+ADR 0022 supersedes the reference half of this decision for future builds:
+reference provenance is now `pangopup.reference-builder-source.v2`, excludes
+reader/certification code, and binds a behavior-derived contig projection.
+The SNV v1 decision is unchanged.
+
 The implementation and migration evidence are retained in
 [`../../planning/artifacts/013-artifact-builder-provenance.md`](../../planning/artifacts/013-artifact-builder-provenance.md).
 
