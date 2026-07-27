@@ -1,7 +1,7 @@
 use pangopup_assets::{
-    AssetError, AssetErrorKind, CachePathInputs, DataPathInputs, LocalStatus, SyncOutcome,
-    install_transport, local_status, open_active_bundle, resolve_cache_root, resolve_data_root,
-    sync_assets,
+    AssetError, AssetErrorKind, CachePathInputs, DataPathInputs, LocalStatus, RuntimeLocalStatus,
+    SyncOutcome, install_runtime_profile, install_transport, local_status, open_active_bundle,
+    resolve_cache_root, resolve_data_root, runtime_local_status, sync_assets,
 };
 use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
 use pangopup_cli::{OutputFormat, RenderRequest, render_requests};
@@ -29,7 +29,7 @@ use std::{
     str::FromStr,
 };
 
-const HELP: &str = "Pangopup: exact Pangolin score lookup\n\nUsage:\n  pangopup assets sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets status [--data-dir <ABSOLUTE_PATH>]\n  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]\n  pangopup --help\n  pangopup --version";
+const HELP: &str = "Pangopup: exact Pangolin score lookup\n\nUsage:\n  pangopup assets sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets status [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets runtime status [--data-dir <ABSOLUTE_PATH>]\n  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]\n  pangopup --help\n  pangopup --version";
 
 struct Arguments {
     bundle: Option<PathBuf>,
@@ -67,6 +67,16 @@ enum Command {
         data_dir: Option<OsString>,
     },
     Status {
+        data_dir: Option<OsString>,
+    },
+    RuntimeInstall {
+        profile: PathBuf,
+        model_bundle: PathBuf,
+        reference_bundle: PathBuf,
+        mask: PathBuf,
+        data_dir: Option<OsString>,
+    },
+    RuntimeStatus {
         data_dir: Option<OsString>,
     },
     Sync {
@@ -209,6 +219,54 @@ fn run_with_sync(raw: &[OsString], syncer: &SyncRunner) -> Result<Vec<u8>, Failu
                 }),
             }
         }
+        Command::RuntimeInstall {
+            profile,
+            model_bundle,
+            reference_bundle,
+            mask,
+            data_dir,
+        } => {
+            let root = data_root(data_dir)?;
+            let result =
+                install_runtime_profile(&profile, &model_bundle, &reference_bundle, &mask, &root)
+                    .map_err(map_runtime_error)?;
+            json_line(&result)
+        }
+        Command::RuntimeStatus { data_dir } => {
+            let root = data_root(data_dir)?;
+            match runtime_local_status(&root).map_err(map_runtime_error)? {
+                RuntimeLocalStatus::Missing { data_dir } => json_line(&MissingStatus {
+                    status: "missing",
+                    data_dir,
+                }),
+                RuntimeLocalStatus::Installing { data_dir } => json_line(&MissingStatus {
+                    status: "installing",
+                    data_dir,
+                }),
+                RuntimeLocalStatus::Ready {
+                    profile_id,
+                    snv_bundle_id,
+                    model_bundle_id,
+                    reference_bundle_id,
+                    mask_sha256,
+                    model_path,
+                    reference_path,
+                    mask_path,
+                    installing,
+                } => json_line(&RuntimeReadyStatus {
+                    status: "ready",
+                    profile_id,
+                    snv_bundle_id,
+                    model_bundle_id,
+                    reference_bundle_id,
+                    mask_sha256,
+                    model_path,
+                    reference_path,
+                    mask_path,
+                    installing,
+                }),
+            }
+        }
         Command::Sync {
             offline,
             data_dir,
@@ -227,6 +285,20 @@ fn run_with_sync(raw: &[OsString], syncer: &SyncRunner) -> Result<Vec<u8>, Failu
 struct MissingStatus {
     status: &'static str,
     data_dir: PathBuf,
+}
+
+#[derive(Serialize)]
+struct RuntimeReadyStatus {
+    status: &'static str,
+    profile_id: String,
+    snv_bundle_id: String,
+    model_bundle_id: String,
+    reference_bundle_id: String,
+    mask_sha256: String,
+    model_path: PathBuf,
+    reference_path: PathBuf,
+    mask_path: PathBuf,
+    installing: bool,
 }
 
 #[derive(Serialize)]
@@ -626,6 +698,9 @@ fn parse_assets(raw: &[OsString]) -> Result<Command, Failure> {
         .get(1)
         .and_then(|value| value.to_str())
         .ok_or_else(|| Failure::usage("assets requires sync, install, or status"))?;
+    if action == "runtime" {
+        return parse_runtime_assets(raw);
+    }
     let mut data_dir = None;
     let mut cache_dir = None;
     let mut transport = None;
@@ -679,6 +754,73 @@ fn parse_assets(raw: &[OsString]) -> Result<Command, Failure> {
             cache_dir,
         }),
         _ => Err(Failure::usage("assets requires sync, install, or status")),
+    }
+}
+
+fn parse_runtime_assets(raw: &[OsString]) -> Result<Command, Failure> {
+    let action = raw
+        .get(2)
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| Failure::usage("assets runtime requires install or status"))?;
+    let mut data_dir = None;
+    let mut profile = None;
+    let mut model_bundle = None;
+    let mut reference_bundle = None;
+    let mut mask = None;
+    let mut index = 3;
+    while index < raw.len() {
+        let option = raw[index]
+            .to_str()
+            .ok_or_else(|| Failure::usage("arguments must be UTF-8"))?;
+        index += 1;
+        let value = raw
+            .get(index)
+            .ok_or_else(|| Failure::usage(format!("{option} requires a value")))?;
+        let slot = match option {
+            "--data-dir" => &mut data_dir,
+            "--profile" if action == "install" => &mut profile,
+            "--model-bundle" if action == "install" => &mut model_bundle,
+            "--reference-bundle" if action == "install" => &mut reference_bundle,
+            "--mask" if action == "install" => &mut mask,
+            _ => {
+                return Err(Failure::usage(format!(
+                    "unknown assets runtime option {option}"
+                )));
+            }
+        };
+        if slot.replace(value.clone()).is_some() {
+            return Err(Failure::usage(format!("{option} may be supplied once")));
+        }
+        index += 1;
+    }
+    match action {
+        "install" => Ok(Command::RuntimeInstall {
+            profile: PathBuf::from(
+                profile
+                    .ok_or_else(|| Failure::usage("assets runtime install requires --profile"))?,
+            ),
+            model_bundle: PathBuf::from(
+                model_bundle.ok_or_else(|| {
+                    Failure::usage("assets runtime install requires --model-bundle")
+                })?,
+            ),
+            reference_bundle: PathBuf::from(reference_bundle.ok_or_else(|| {
+                Failure::usage("assets runtime install requires --reference-bundle")
+            })?),
+            mask: PathBuf::from(
+                mask.ok_or_else(|| Failure::usage("assets runtime install requires --mask"))?,
+            ),
+            data_dir,
+        }),
+        "status"
+            if profile.is_none()
+                && model_bundle.is_none()
+                && reference_bundle.is_none()
+                && mask.is_none() =>
+        {
+            Ok(Command::RuntimeStatus { data_dir })
+        }
+        _ => Err(Failure::usage("assets runtime requires install or status")),
     }
 }
 
@@ -908,6 +1050,27 @@ fn map_status_error(error: AssetError) -> Failure {
     }
 }
 
+fn map_runtime_error(error: AssetError) -> Failure {
+    let code = match error.kind() {
+        AssetErrorKind::TransportIncompatible => "PROFILE_INCOMPATIBLE",
+        AssetErrorKind::StagingInvalid => "PROFILE_UNSAFE",
+        AssetErrorKind::BundleInvalid => "PROFILE_CORRUPT",
+        _ => error.kind().code(),
+    };
+    Failure {
+        code,
+        message: error.to_string(),
+        exit: if matches!(
+            error.kind(),
+            AssetErrorKind::PathInvalid | AssetErrorKind::PathUnavailable
+        ) {
+            2
+        } else {
+            1
+        },
+    }
+}
+
 fn map_sync_error(error: AssetError) -> Failure {
     Failure {
         code: error.kind().code(),
@@ -1090,6 +1253,61 @@ mod tests {
         ] {
             let raw: Vec<OsString> = args.into_iter().map(OsString::from).collect();
             assert!(parse_command(&raw).is_err());
+        }
+    }
+
+    #[test]
+    fn runtime_asset_grammar_is_closed_and_status_json_is_exact() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let data = temp.path().join("data");
+        let status = [
+            OsString::from("assets"),
+            OsString::from("runtime"),
+            OsString::from("status"),
+            OsString::from("--data-dir"),
+            data.clone().into_os_string(),
+        ];
+        let bytes = run(&status).expect("missing runtime status");
+        assert_eq!(
+            bytes,
+            format!(
+                "{{\"status\":\"missing\",\"data_dir\":{}}}\n",
+                serde_json::to_string(&data).expect("path JSON")
+            )
+            .as_bytes()
+        );
+
+        let complete = [
+            "assets",
+            "runtime",
+            "install",
+            "--profile",
+            "/tmp/profile.json",
+            "--model-bundle",
+            "/tmp/model",
+            "--reference-bundle",
+            "/tmp/reference",
+            "--mask",
+            "/tmp/domains.pgm",
+            "--data-dir",
+            "/tmp/pangopup-data",
+        ]
+        .map(OsString::from);
+        assert!(matches!(
+            parse_command(&complete).expect("runtime install grammar"),
+            Command::RuntimeInstall { .. }
+        ));
+        for invalid in [
+            vec!["assets", "runtime"],
+            vec!["assets", "runtime", "start"],
+            vec!["assets", "runtime", "status", "--mask", "/tmp/mask"],
+            vec!["assets", "runtime", "install", "--profile", "/tmp/profile"],
+        ] {
+            let raw: Vec<OsString> = invalid.into_iter().map(OsString::from).collect();
+            let Err(error) = parse_command(&raw) else {
+                panic!("invalid grammar was accepted");
+            };
+            assert_eq!(error.code, "CLI_USAGE");
         }
     }
 

@@ -42,10 +42,12 @@ schema, format identity, manifest claims, and member-integrity checks.
 ## Model-scoring assets
 
 Variant-level model scoring is implemented as a library composition over
-explicitly opened providers. The four assets are now bound by one canonical
-path-free compatibility profile, but are not yet installed or activated as one
-profile. The CLI routes caller-enabled lookup misses and supported non-SNVs
-through explicit local paths:
+explicitly opened providers. The four assets are bound by one canonical
+path-free compatibility profile. The offline Linux installer copies the model,
+compiled reference, and mask into private immutable XDG storage, reuses the
+certified active SNV object, and atomically selects one coherent profile. The
+CLI does not yet discover that profile; it routes caller-enabled lookup misses
+and supported non-SNVs through explicit local paths:
 
 Running Pangolin for a lookup miss or non-SNV genuinely needs:
 
@@ -99,8 +101,13 @@ over exact RFC 8785/JCS bytes. The document contains no paths or URLs.
 The maintainer prepare command authenticates the three model-side members
 through held descriptors. It reads only bounded SNV manifest/notice metadata
 and the held score file's size; it does not scan or hash `scores.pgi`.
-Installation/certification remains the full SNV payload authority. The command
-does not install, activate, download, publish, initialize ONNX, or infer.
+Installation/certification remains the full SNV payload authority. The
+maintainer command does not install, activate, download, publish, initialize
+ONNX, or infer. `pangopup assets runtime install` consumes its exact output plus
+three trusted local derived assets. It streams each fallback source once into
+staging while hashing, validates the staged structures, publishes immutable
+objects, and then replaces `runtime/active.json`. Runtime status performs
+bounded metadata and size checks.
 
 The runtime representation was selected by measurement rather than assumption.
 The closed comparison used uppercase ASCII, exact four-bit IUPAC, and two-bit

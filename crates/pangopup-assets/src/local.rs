@@ -163,14 +163,14 @@ struct StageMarker {
     transport_id: String,
 }
 
-struct Root {
+pub(crate) struct Root {
     path: PathBuf,
-    dir: Dir,
+    pub(crate) dir: Dir,
     euid: u32,
 }
 
-struct Dir {
-    file: File,
+pub(crate) struct Dir {
+    pub(crate) file: File,
     dev: u64,
 }
 
@@ -1147,7 +1147,7 @@ fn canonical<T: Serialize>(
     serde_jcs::to_vec(value).map_err(|_| AssetError::new(kind, label))
 }
 
-fn open_root(path: &Path, create: bool) -> Result<Option<Root>, AssetError> {
+pub(crate) fn open_root(path: &Path, create: bool) -> Result<Option<Root>, AssetError> {
     let existed = match fs::symlink_metadata(path) {
         Ok(_) => true,
         Err(error) if error.kind() == ErrorKind::NotFound => false,
@@ -1221,7 +1221,23 @@ fn acquire_install_lock(root: &Root) -> Result<InstallLock, AssetError> {
     }
 }
 
-fn probe_install_lock(root: &Root) -> Result<bool, AssetError> {
+/// Hold the shared asset-installation lock for a runtime-profile operation.
+///
+/// Runtime installation deliberately uses the same root lock as SNV
+/// installation so the selected SNV cannot change during profile activation.
+pub(crate) struct LockedRoot {
+    pub(crate) root: Root,
+    _lock: InstallLock,
+}
+
+pub(crate) fn acquire_shared_install_lock(data_root: &Path) -> Result<LockedRoot, AssetError> {
+    require_linux()?;
+    let root = open_root(data_root, true)?.ok_or_else(|| asset_io("create data root"))?;
+    let lock = acquire_install_lock(&root)?;
+    Ok(LockedRoot { root, _lock: lock })
+}
+
+pub(crate) fn probe_install_lock(root: &Root) -> Result<bool, AssetError> {
     let Some(file) = open_optional_file(
         &root.dir,
         ".install.lock",
@@ -1245,13 +1261,157 @@ fn probe_install_lock(root: &Root) -> Result<bool, AssetError> {
     }
 }
 
-fn ensure_private_dir(parent: &Dir, name: &str, root: &Root) -> Result<Dir, AssetError> {
+pub(crate) fn ensure_private_dir(parent: &Dir, name: &str, root: &Root) -> Result<Dir, AssetError> {
     match mkdir_at(parent, name, PRIVATE_DIR_MODE) {
         Ok(()) => {}
         Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
         Err(_) => return Err(asset_io("create asset-store directory")),
     }
     open_required_dir(parent, name, root, Some(PRIVATE_DIR_MODE))
+}
+
+pub(crate) fn open_owned_dir(
+    parent: &Dir,
+    name: &str,
+    root: &Root,
+    mode: u32,
+) -> Result<Dir, AssetError> {
+    open_required_dir(parent, name, root, Some(mode))
+}
+
+pub(crate) fn open_owned_dir_optional(
+    parent: &Dir,
+    name: &str,
+    root: &Root,
+) -> Result<Option<Dir>, AssetError> {
+    open_dir_optional(parent, name, root)
+}
+
+pub(crate) fn open_owned_file(
+    parent: &Dir,
+    name: &str,
+    mode: u32,
+    root: &Root,
+    kind: AssetErrorKind,
+) -> Result<File, AssetError> {
+    open_optional_file(parent, name, mode, root, kind)?
+        .ok_or_else(|| AssetError::new(kind, "required runtime member is missing"))
+}
+
+pub(crate) fn named_identity_matches(
+    parent: &Dir,
+    name: &str,
+    expected: &File,
+) -> Result<(), AssetError> {
+    let observed = open_any_nofollow(parent, name).map_err(|_| {
+        AssetError::new(
+            AssetErrorKind::BundleInvalid,
+            "runtime destination identity changed",
+        )
+    })?;
+    let observed_metadata = observed
+        .metadata()
+        .map_err(|_| asset_io("inspect runtime entry"))?;
+    let expected_metadata = expected
+        .metadata()
+        .map_err(|_| asset_io("inspect held runtime entry"))?;
+    if observed_metadata.dev() != expected_metadata.dev()
+        || observed_metadata.ino() != expected_metadata.ino()
+        || observed_metadata.file_type() != expected_metadata.file_type()
+    {
+        return Err(AssetError::new(
+            AssetErrorKind::BundleInvalid,
+            "runtime destination identity changed",
+        ));
+    }
+    Ok(())
+}
+
+/// Remove one bounded, owner-controlled staging tree relative to an already
+/// opened parent directory. Runtime installation uses this instead of walking
+/// a pathname that could be redirected after the data root was admitted.
+pub(crate) fn remove_owned_tree_bounded(
+    parent_file: File,
+    name: &str,
+    maximum_depth: usize,
+    maximum_entries: usize,
+) -> Result<(), AssetError> {
+    let parent = dir_from_file(parent_file)?;
+    let parent_metadata = parent
+        .file
+        .metadata()
+        .map_err(|_| asset_io("inspect staging parent"))?;
+    let mut count = 0;
+    remove_owned_tree_entry(
+        &parent,
+        name,
+        parent_metadata.dev(),
+        effective_uid(),
+        0,
+        maximum_depth,
+        maximum_entries,
+        &mut count,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn remove_owned_tree_entry(
+    parent: &Dir,
+    name: &str,
+    device: u64,
+    euid: u32,
+    depth: usize,
+    maximum_depth: usize,
+    maximum_entries: usize,
+    count: &mut usize,
+) -> Result<(), AssetError> {
+    if depth > maximum_depth || *count >= maximum_entries {
+        return Err(AssetError::new(
+            AssetErrorKind::BundleInvalid,
+            "runtime staging tree exceeds its bound",
+        ));
+    }
+    *count += 1;
+    let file = open_any_nofollow(parent, name).map_err(|_| {
+        AssetError::new(
+            AssetErrorKind::BundleInvalid,
+            "runtime staging contains an unsafe entry",
+        )
+    })?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| asset_io("inspect runtime staging"))?;
+    if metadata.dev() != device || metadata.uid() != euid {
+        return Err(AssetError::new(
+            AssetErrorKind::BundleInvalid,
+            "runtime staging contains an unsafe entry",
+        ));
+    }
+    if metadata.file_type().is_dir() {
+        set_mode(&file, PRIVATE_DIR_MODE)?;
+        let dir = dir_from_file(file)?;
+        for child in read_names_bounded(&dir, maximum_entries.saturating_sub(*count))? {
+            remove_owned_tree_entry(
+                &dir,
+                &child,
+                device,
+                euid,
+                depth + 1,
+                maximum_depth,
+                maximum_entries,
+                count,
+            )?;
+        }
+        remove_dir_at(parent, name).map_err(|_| asset_io("remove runtime staging directory"))
+    } else if metadata.file_type().is_file() {
+        set_mode(&file, METADATA_MODE)?;
+        unlink_file(parent, name)
+    } else {
+        Err(AssetError::new(
+            AssetErrorKind::BundleInvalid,
+            "runtime staging contains an unsafe entry",
+        ))
+    }
 }
 
 fn create_dir(parent: &Dir, name: &str, mode: u32, root: &Root) -> Result<Dir, AssetError> {
@@ -1485,7 +1645,7 @@ fn write_new_file(
     Ok(file)
 }
 
-fn set_mode(file: &File, mode: u32) -> Result<(), AssetError> {
+pub(crate) fn set_mode(file: &File, mode: u32) -> Result<(), AssetError> {
     // SAFETY: fchmod acts on this live file descriptor.
     if unsafe { libc::fchmod(file.as_raw_fd(), mode as libc::mode_t) } == 0 {
         Ok(())
@@ -1645,6 +1805,10 @@ fn rename_replace(from: &Dir, old: &str, to: &Dir, new: &str) -> Result<(), Asse
 }
 
 fn read_names(dir: &Dir) -> Result<Vec<String>, AssetError> {
+    read_names_bounded(dir, usize::MAX)
+}
+
+fn read_names_bounded(dir: &Dir, maximum: usize) -> Result<Vec<String>, AssetError> {
     let dot = CString::new(".").expect("static component");
     let cursor = openat2_beneath(
         dir.file.as_raw_fd(),
@@ -1664,6 +1828,12 @@ fn read_names(dir: &Dir) -> Result<Vec<String>, AssetError> {
         }
         let name = String::from_utf8(bytes.to_vec())
             .map_err(|_| staging_invalid("asset-store child name is not UTF-8"))?;
+        if names.len() >= maximum {
+            return Err(AssetError::new(
+                AssetErrorKind::BundleInvalid,
+                "runtime staging tree exceeds its bound",
+            ));
+        }
         names.push(name);
     }
     Ok(names)

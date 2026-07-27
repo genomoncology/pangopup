@@ -14,7 +14,10 @@ explicit local reference/mask/model set for fallback and receive exact modeled
 JSONL or table output. Successful complete model results persist in a bounded
 SQLite cache and are reused across process restarts. One canonical, path-free
 runtime profile now binds the exact qualified SNV, model, reference, mask, and
-scoring-policy tuple. An HTTP service is planned
+scoring-policy tuple. Linux can now install the three fallback assets beside
+an existing certified SNV object and atomically select that coherent profile.
+Lookup still uses explicit fallback paths; managed-profile discovery,
+network delivery, and an HTTP service are planned
 but not implemented. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
@@ -129,8 +132,12 @@ pangopup-build runtime-profile prepare \
 ```
 
 This command reads no SNV score payload, initializes no model session, and
-performs no download, installation, activation, or publication. Automatic
-four-asset delivery and activation remain future work.
+performs no download, installation, activation, or publication. Its output can
+be installed offline with `pangopup assets runtime install`; bounded
+inspection uses `pangopup assets runtime status`. Installation streams the
+model, compact reference, and mask once into private immutable XDG data and
+reuses the installed SNV bundle without reading its 15 GB score member.
+Network delivery and automatic lookup discovery remain future work.
 
 Pangopup deliberately does not implement HGVS, transcript/protein projection,
 clinical interpretation, or general gene annotation. Callers must identify one
@@ -168,8 +175,9 @@ record pages needed by a query rather than copying the file into heap.
 ## Runtime assets
 
 A lookup-only installation today can use an explicitly supplied certified SNV
-bundle or the active SNV bundle installed in Linux user data. The target full
-service will use four versioned assets:
+bundle or the active SNV bundle installed in Linux user data. A complete
+four-asset tuple can also be installed and inspected locally, although lookup
+does not discover it yet. The target full service uses four versioned assets:
 
 | Asset | Used for | Original source | Installed form |
 |---|---|---|---|
@@ -581,9 +589,10 @@ Implemented today:
   transactional JSONL/table batches.
 
 Not implemented yet: HTTP service, container, persistent download
-progress/status, repair/GC/rollback, or result cache. Delivery, installation, and
-compatible-profile activation for the
-compiled GRCh38 sequence index, mask, and model are also not implemented.
+progress/status, repair/GC/rollback, or managed runtime-profile discovery.
+Public delivery of the compiled GRCh38 sequence index, mask, and model is also
+not implemented. Local offline installation and coherent activation are
+implemented.
 Without fallback flags, SNV lookup retains its prior `not_found` behavior; a
 non-SNV requires the explicit fallback set. With all fallback flags present, a
 pure SNV miss and every supported non-SNV route to the model.
@@ -627,16 +636,18 @@ The rolling outcome order is:
     policy (complete);
 22. measure reference/alternate graph batching against that policy
     (complete: corrected experiment retained singleton);
-23. measure repeated complete requests and add a bounded result cache only if
-    the evidence justifies one;
-24. create one coherent SNV, model, GRCh38 sequence index, and mask delivery
-    profile, with local clean-machine and offline-restart proof;
-25. close publication prerequisites, publish only the derived model,
+23. measure repeated complete requests and add a bounded result cache
+    (complete: persistent SQLite selected);
+24. create one coherent SNV, model, GRCh38 sequence index, and mask profile
+    (complete);
+25. install and atomically select that profile from trusted local inputs
+    (complete; runtime consumption remains next);
+26. close publication prerequisites, publish only the derived model,
     GRCh38 sequence index, and mask runtime assets, and prove pinned
     fresh-machine sync plus CLI inference;
-26. a foreground HTTP/status service with CLI and HTTP acceptance tests;
-27. non-root Docker and documented systemd lifecycle integration;
-28. observability, security, performance, and executable/container release
+27. a foreground HTTP/status service with CLI and HTTP acceptance tests;
+28. non-root Docker and documented systemd lifecycle integration;
+29. observability, security, performance, and executable/container release
     hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the

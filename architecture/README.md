@@ -17,8 +17,8 @@ frontier result. The first zero-padded and paired-strand batching run is
 ineligible because the v2 exporter omitted its declared dynamic axes. The
 corrected full experiment retained singleton through both the drift and
 replacement gates. Persistent SQLite model-result reuse and the canonical
-four-asset compatibility profile are established. Coherent installation,
-activation, delivery, and HTTP remain future work.
+four-asset compatibility profile and offline Linux/XDG installer are
+established. Runtime consumption, delivery, and HTTP remain future work.
 
 The closed three-codec reference comparison selected `acgt2-rle-v1`; its
 candidate modules, miniature, benchmark executable, and CLI have been removed

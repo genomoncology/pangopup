@@ -21,6 +21,7 @@ mod input_audit;
 mod local;
 mod release;
 mod release_upload_linux;
+mod runtime_install;
 mod runtime_profile;
 mod snv;
 mod sync;
@@ -46,9 +47,12 @@ pub use release::{
 };
 #[cfg(any(test, feature = "test-read-audit"))]
 pub use release_upload_linux::{LeaseBreakTimeTest, PayloadOperation, PayloadTestFaults};
+pub use runtime_install::{
+    RuntimeInstallOutcome, RuntimeLocalStatus, install_runtime_profile, runtime_local_status,
+};
 pub use runtime_profile::{
-    MaskProfile, ModelProfile, ReferenceProfile, RuntimeProfile, RuntimeProfileError,
-    RuntimeProfileId, ScoringProfile, SnvBundleInspection, SnvProfile,
+    MaskProfile, ModelProfile, RUNTIME_PROFILE_SCHEMA, ReferenceProfile, RuntimeProfile,
+    RuntimeProfileError, RuntimeProfileId, ScoringProfile, SnvBundleInspection, SnvProfile,
     canonical_runtime_profile_bytes, inspect_snv_bundle, parse_runtime_profile,
     production_runtime_profile, runtime_profile_id,
 };

@@ -28,9 +28,9 @@ sequential `1/1` as the portable ordinary default and records fixed `8/1` as
 this host's frontier result. The corrected reference/alternate batching
 comparison retained singleton after both policies exceeded the drift limit and
 neither candidate met the independent replacement gates. Persistent exact
-SQLite result reuse and one canonical four-asset production compatibility
-profile are established. Coherent installation, activation, delivery, and
-HTTP remain future.
+SQLite result reuse, one canonical four-asset production compatibility
+profile, and offline coherent XDG installation/activation are established.
+Runtime consumption, delivery, and HTTP remain future.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
 and typed mmap provider are established; its transport, installation, and
 release remain future delivery work. Future SNV and sequence-index builds use
@@ -62,10 +62,11 @@ The large source work is not a rebuild queue:
   is the selected graph after the corrected batching comparison retained it.
 
 The GRCh38 sequence index, mask, and model therefore have local qualified
-content and one exact compatible four-asset profile, but no common transport,
-XDG installation/activation, or GitHub release. The next delivery work must
-reuse the accepted compiled GRCh38 sequence index, mask, and model bytes,
-install the profile coherently, and pass clean-machine CLI inference.
+content and one exact compatible four-asset profile, but no common transport
+or GitHub release. The local installer can copy and atomically select the exact
+tuple from retained inputs without touching the 15 GB SNV payload. The next
+delivery work must make lookup consume that profile, package the accepted
+derived bytes, and pass clean-machine CLI inference.
 Compatible-profile activation must first close the recorded runtime asset
 trust/durability blocker; publication must also close the release-process and
 repository-security blockers. No raw Zenodo, NCBI, or GENCODE source input is a
@@ -408,18 +409,15 @@ Bounded manifest/mask admission lets a reopened hit bypass dense-reference
 authentication and all ONNX initialization/inference. Coordinator production
 measurements remain the final host-specific acceptance evidence.
 
-## Later outcome — one compatible installed runtime profile
+## Established — one compatible installed runtime profile
 
-Define one immutable compatibility profile that binds the independently
-versioned SNV, model, compiled GRCh38 sequence index, and mask identities.
-Install each asset into a private immutable store, then atomically select the
-coherent tuple rather than four unrelated active pointers. Prove offline
-restart, rollback, partial-upgrade failure, bounded provisioning/cancellation,
-durable non-secret progress, and descriptor-held read-only opens. This outcome
-transports the already qualified compiled GRCh38 sequence index without
-rebuilding it or including the raw FASTA. It must precede production HTTP
-readiness and close the recorded runtime asset trust/durability issue before
-activation.
+The path-free authority binds the independently versioned SNV, model, compiled
+GRCh38 sequence index, mask, and scoring policy. The Linux installer reuses the
+active certified SNV object, streams the three fallback assets once into a
+private immutable store, and atomically selects one profile. Bounded status,
+idempotent reuse, shared-lock behavior, and transition failure/retry are
+covered by miniature tests. Lookup/runtime discovery, remote provisioning,
+rollback/GC, and publication are deliberately separate later outcomes.
 
 ## Later outcome — release-ready asset publication
 

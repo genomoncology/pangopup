@@ -91,14 +91,15 @@ additionally needs the authenticated converted model bundle, local GRCh38 DNA
 bases, and a map of gene strand plus exon boundaries. Lookup-first routing is
 shipped through three explicit local CLI flags. One canonical runtime profile
 now proves which exact SNV, model, reference, mask, and scoring-policy tuple is
-compatible; coherent installation and automatic activation remain future. The original checkpoint
+compatible. Offline coherent installation and activation are shipped; lookup
+discovery and remote delivery remain future. The original checkpoint
 containers are maintainer conversion inputs, not runtime inputs. The DNA is
 pinned NCBI RefSeq GRCh38.p14
 `GCF_000001405.40`. The boundary map is compiled from the GENCODE annotation
 used by Pangolin's masking behavior. A retained comparison selected the
 constant-membership domain representation from three private mmap candidates.
 The exact selected bytes now have a production domains-only mmap provider;
-asset delivery and installation remain future work. SQLite, gffutils, and raw
+asset delivery remains future work. SQLite, gffutils, and raw
 GTF were one-time qualification inputs and are neither runtime nor current
 build-crate dependencies.
 
@@ -106,10 +107,10 @@ build-crate dependencies.
 
 It is a small compatibility receipt, not another database. It names the exact
 compiled SNV index, ONNX model, compact RefSeq sequence bundle, GENCODE mask,
-and scoring rules that were qualified together. Later installers and services
-can reject a mixed set before serving scores. The receipt contains no local
-paths or download URLs and does not itself install, download, activate, or
-publish anything.
+and scoring rules that were qualified together. The local runtime installer
+uses it to reject a mixed set before changing one coherent active pointer. The
+profile contains no local paths or download URLs and does not itself download
+or publish anything.
 
 ### Why is any gene information needed at all?
 
@@ -157,7 +158,9 @@ XDG cache, and passes only a complete five-file transport to the same installer.
 `--offline` forbids network access and can install a completed cached transport.
 Later `pangopup lookup` discovers and cheaply reuses the active immutable bundle
 without `--bundle` or network access. Lookup does not download implicitly.
-Persistent progress/status and container prefetch remain future.
+The three model-side assets can separately be installed from trusted local
+inputs with `assets runtime install`; their remote sync, persistent download
+progress, and container prefetch remain future.
 
 ### Will asset sync download whatever release is latest?
 
@@ -184,8 +187,9 @@ sequences into the production `PGRREF01` mmap bundle, and its provider copies a
 bounded sequence window without parsing FASTA or loading the whole reference
 into heap memory. The variant scorer consumes that provider when opened
 explicitly and composes it with the mask and raw CPU kernel. The CLI can open
-all three local assets for fallback today; their installation and coherent
-four-asset activation remain unimplemented.
+all three local assets for fallback today. Their offline installation and
+coherent four-asset activation are implemented, but lookup does not yet
+discover the selected runtime profile automatically.
 
 For these caller-supplied paths, Pangopup hashes the complete bounded compiled
 reference member and verifies its manifest digest before scoring through an

@@ -21,7 +21,8 @@ candidate met the independent replacement gates, so ordinary dispatch remains
 singleton. Ticket 023 adds persistent exact SQLite reuse for successful
 complete model results while preserving lookup-first laziness. One canonical
 four-asset runtime profile now binds the exact compatible production tuple;
-installation, activation, delivery, and the HTTP service remain target work. A
+offline Linux/XDG installation and atomic activation are shipped. Lookup
+discovery, delivery, and the HTTP service remain target work. A
 reviewed retained benchmark selected the
 two-bit/ambiguity-run GRCh38 payload by speed; Ticket 011 hardened it as the
 production `PGRREF01` reader and qualified the complete 25-contig bundle. Read

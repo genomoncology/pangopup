@@ -1,6 +1,6 @@
 # 025 — Install and atomically select one local runtime profile
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -245,11 +245,58 @@ bounded, compatible with existing contracts, and implementation-ready.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex sub-agent `/root/ticket025_implementation`
+
+- Added the offline Linux runtime-profile installer and bounded status reader
+  to `pangopup-assets`, sharing the existing root `.install.lock` through two
+  narrow crate-private helpers.
+- Added the nested CLI grammar and exact compact install/missing/installing/
+  ready JSON adapters without changing the existing SNV command grammar or
+  lookup output path.
+- The checked miniature contract proves first install, immutable layout,
+  canonical path-free receipt/active state, idempotent zero-copy reuse,
+  shared-lock status, prior-profile preservation, bounded descriptor-relative
+  orphan cleanup, source replacement/truncation rejection, all three component
+  collision classes, intermediate destination replacement rejection, malformed
+  metadata rejection, and five lifecycle transition failure/retry classes. It
+  uses only repository fixtures; no production asset was installed or invoked.
+- Kept runtime-only error classification outside the fingerprinted shared
+  asset error vocabulary. The hard SNV and reference builder source identities
+  remain unchanged.
+- Added executable CLI specs, ADR 0021, retained miniature evidence, and
+  updated user/architecture/frontier documentation. Lookup does not yet consume
+  the installed runtime profile, and networking/publication remain excluded.
+- Focused tests passed: 15 runtime-installer tests and the CLI runtime grammar
+  test.
+- Full gates passed on 2026-07-27:
+  `make lint`; `make test` (all workspace tests passed, maintainer-only
+  production measurements remained ignored); `make spec` (`194 passed, 3
+  skipped`); and `git diff --check`.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex sub-agent `/root/ticket025_code_review`
+
+Initial verdict: **REJECT**. The reviewer found that the first implementation
+held the shared lock but reopened the destination by pathname, accepted
+same-size component collisions without authenticating their bytes, incompletely
+admitted installed receipts, used unbounded enumeration/cleanup, ordered final
+mode durability incorrectly, and lacked important negative coverage.
+
+The developer retained the opened root, bounded cleanup, authenticated all
+three collision classes, enforced receipt ownership/mode/link count, corrected
+mode/fsync ordering, and expanded the focused suite. Re-review found one
+remaining high-severity race: mutable intermediate component, profile, and
+staging directories were still reopened through multi-component paths.
+
+The developer then retained every runtime, component-kind, staging, profile,
+identity, bundle, and payload descriptor through activation; published through
+held parents; rechecked the named inode chain immediately before commit; and
+added a deterministic intermediate-directory replacement regression.
+
+Final verdict: **ACCEPT**. The reviewer confirmed that all six original
+findings were resolved, the 15 focused tests passed, and no material
+correctness, security, scope, coupling, or acceptance-test issue remained.
 
 ## External Effect Evidence
 
@@ -257,4 +304,10 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex `/root`
+
+Reviewed the final diff and documentation, confirmed no dependency/lockfile or
+shared asset-error vocabulary drift, and reran the repository gate on
+2026-07-27: `make lint`, `make test`, `make spec` (`194 passed, 3 skipped`),
+and `git diff --check` all passed. No production install, network call,
+publication, or other external effect occurred.
