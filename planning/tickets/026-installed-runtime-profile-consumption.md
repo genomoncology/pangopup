@@ -1,6 +1,6 @@
 # 026 — Use the installed runtime profile for model fallback
 
-Status: ready
+Status: deferred — reference reader/provenance prerequisite required
 
 ## Why
 
@@ -210,11 +210,37 @@ as a spawned production binary.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex sub-agent `/root/ticket026_implementation`
+
+The attempted implementation proved the routing, error, parity, and persistent
+cache behavior, but exposed an unreviewed reference boundary. The installed
+runtime must mmap the exact descriptor admitted by Ticket 025. The existing
+held-descriptor reader lives in the same 1,829-line module as the
+byte-producing writer, and the v1 builder fingerprint hashes that entire
+module.
+
+The first workaround reopened the member by pathname and retained a race. The
+second copied roughly 500 lines of PGRREF01 parsing/decoding into runtime
+admission. Independent code review rejected both. The rejected working diff is
+preserved locally as stash `ticket-026-rejected-runtime-consumption`; none of
+it was committed, pushed, published, or used to rebuild a production asset.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex sub-agent `/root/ticket026_code_review`
+
+Verdict: **REJECT**. The final attempted diff removed the pathname race but
+introduced a second reference parser/decoder with narrow coverage and a public
+unsafe synthetic-provenance seam. That violated the single-reader and opaque
+admission requirements.
+
+The ticket returned to the original design reviewer. Revised design verdict:
+do not expand Ticket 026. First deliver a separate prerequisite that separates
+builder-causal reference code from runtime reader code, defines a precise v2
+builder fingerprint, and adds one shared held-descriptor reader constructor.
+The prerequisite must preserve the existing production reference bundle and
+profile without reading, copying, repacking, or rebuilding them. Installed
+runtime consumption resumes afterward as a new reviewed ticket.
 
 ## External Effect Evidence
 

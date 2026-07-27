@@ -419,6 +419,26 @@ idempotent reuse, shared-lock behavior, and transition failure/retry are
 covered by miniature tests. Lookup/runtime discovery, remote provisioning,
 rollback/GC, and publication are deliberately separate later outcomes.
 
+## Next outcome — reference reader/provenance prerequisite
+
+Installed-profile consumption exposed an existing coupling:
+`pangopup-index::reference` mixes the runtime mmap reader with the
+byte-producing writer, while `pangopup.reference-builder-source.v1` hashes the
+whole module. Do not work around that coupling with a second PGRREF01 decoder
+or a public raw-file trust bypass.
+
+The next bounded outcome mechanically separates builder-causal wire/writer
+inputs from reader-only code, defines
+`pangopup.reference-builder-source.v2` over only byte-producing inputs, and
+adds one shared crate-private held-descriptor reader entry point behind opaque
+installed admission. It must prove that existing v1/production artifacts and
+the canonical four-asset profile remain valid. It must not read, copy, repack,
+or rebuild the retained 772 MB production member.
+
+After that prerequisite, redraft installed-profile consumption from the
+reviewed Ticket 026 behavior and reapply only the useful routing/test work from
+the preserved rejected stash.
+
 ## Later outcome — release-ready asset publication
 
 Freeze exact model, GRCh38 sequence index, and mask release identities only
