@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-07-26
+Updated: 2026-07-27
 
 ## Current boundary
 
@@ -27,8 +27,10 @@ CLI model output are established. A complete-request CPU comparison retains
 sequential `1/1` as the portable ordinary default and records fixed `8/1` as
 this host's frontier result. The corrected reference/alternate batching
 comparison retained singleton after both policies exceeded the drift limit and
-neither candidate met the independent replacement gates. Coherent model
-delivery, caching, and HTTP remain future.
+neither candidate met the independent replacement gates. Persistent exact
+SQLite result reuse and one canonical four-asset production compatibility
+profile are established. Coherent installation, activation, delivery, and
+HTTP remain future.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
 and typed mmap provider are established; its transport, installation, and
 release remain future delivery work. Future SNV and sequence-index builds use
@@ -60,11 +62,10 @@ The large source work is not a rebuild queue:
   is the selected graph after the corrected batching comparison retained it.
 
 The GRCh38 sequence index, mask, and model therefore have local qualified
-content but no transport, XDG installation, compatible four-asset profile, or
-GitHub release. The next publication must reuse the accepted compiled GRCh38
-sequence index and mask bytes, freeze the final model identity, bind all four
-derived runtime assets into one compatible profile, and pass clean-machine CLI
-inference.
+content and one exact compatible four-asset profile, but no common transport,
+XDG installation/activation, or GitHub release. The next delivery work must
+reuse the accepted compiled GRCh38 sequence index, mask, and model bytes,
+install the profile coherently, and pass clean-machine CLI inference.
 Compatible-profile activation must first close the recorded runtime asset
 trust/durability blocker; publication must also close the release-process and
 repository-security blockers. No raw Zenodo, NCBI, or GENCODE source input is a

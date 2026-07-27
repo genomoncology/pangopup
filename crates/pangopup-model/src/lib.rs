@@ -416,6 +416,20 @@ pub struct BundleInspection {
     pub representation: ModelRepresentation,
 }
 
+/// Fully authenticated model facts used by the runtime-profile maintainer.
+///
+/// Constructing this value authenticates bounded metadata plus the complete
+/// model member through held descriptors. It does not initialize ONNX Runtime
+/// or execute inference.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeModelInspection {
+    pub bundle_id: BundleIdentity,
+    pub profile: String,
+    pub representation: ModelRepresentation,
+    pub member_bytes: u64,
+    pub member_sha256: String,
+}
+
 /// Bounded manifest identity used to ask a disposable result cache before
 /// loading or initializing the ONNX graph.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1220,6 +1234,18 @@ pub fn inspect_bundle(bundle: &Path) -> Result<BundleInspection, ModelError> {
     })
 }
 
+pub fn inspect_runtime_profile_bundle(bundle: &Path) -> Result<RuntimeModelInspection, ModelError> {
+    let authenticated = authenticate_bundle(bundle)?;
+    let model = member(authenticated.manifest.members(), "model.onnx")?;
+    Ok(RuntimeModelInspection {
+        bundle_id: authenticated.identity,
+        profile: authenticated.manifest.profile().to_owned(),
+        representation: authenticated.manifest.representation(),
+        member_bytes: model.bytes,
+        member_sha256: model.sha256.clone(),
+    })
+}
+
 /// Read and validate only the bounded canonical manifest.
 ///
 /// This deliberately does not open, hash, parse, or initialize `model.onnx`.
@@ -1318,6 +1344,13 @@ fn parse_any_manifest(bytes: &[u8]) -> Result<ParsedManifest, ModelError> {
 }
 
 fn authenticate_bundle(bundle: &Path) -> Result<AuthenticatedBundle, ModelError> {
+    authenticate_bundle_with(bundle, || {})
+}
+
+fn authenticate_bundle_with(
+    bundle: &Path,
+    after_members_open: impl FnOnce(),
+) -> Result<AuthenticatedBundle, ModelError> {
     let root_metadata = fs::symlink_metadata(bundle)
         .map_err(|error| io_error("inspect bundle directory", error))?;
     if !root_metadata.file_type().is_dir() || root_metadata.file_type().is_symlink() {
@@ -1330,6 +1363,9 @@ fn authenticate_bundle(bundle: &Path) -> Result<AuthenticatedBundle, ModelError>
 
     let (mut manifest_file, manifest_size) =
         open_bounded_member(bundle, "manifest.json", MAX_MANIFEST_BYTES)?;
+    let manifest_metadata = manifest_file
+        .metadata()
+        .map_err(|error| io_error("inspect manifest", error))?;
     let manifest_bytes = read_exact_member(
         &mut manifest_file,
         manifest_size,
@@ -1340,6 +1376,9 @@ fn authenticate_bundle(bundle: &Path) -> Result<AuthenticatedBundle, ModelError>
     let identity = bundle_identity(&manifest_bytes);
 
     let (mut notice_file, notice_size) = open_bounded_member(bundle, "NOTICE", MAX_NOTICE_BYTES)?;
+    let notice_metadata = notice_file
+        .metadata()
+        .map_err(|error| io_error("inspect notice", error))?;
     let notice_bytes = read_exact_member(
         &mut notice_file,
         notice_size,
@@ -1347,6 +1386,10 @@ fn authenticate_bundle(bundle: &Path) -> Result<AuthenticatedBundle, ModelError>
         "read notice",
     )?;
     let (mut model_file, model_size) = open_bounded_member(bundle, "model.onnx", MAX_MODEL_BYTES)?;
+    let model_metadata = model_file
+        .metadata()
+        .map_err(|error| io_error("inspect model", error))?;
+    after_members_open();
     let model_bytes =
         read_exact_member(&mut model_file, model_size, MAX_MODEL_BYTES, "read model")?;
 
@@ -1362,6 +1405,16 @@ fn authenticate_bundle(bundle: &Path) -> Result<AuthenticatedBundle, ModelError>
     if exact_member_set(bundle)? != observed {
         return Err(ModelError::InvalidBundle("member set changed during open"));
     }
+    validate_held_path(bundle, "manifest.json", &manifest_file, &manifest_metadata)?;
+    validate_held_path(bundle, "NOTICE", &notice_file, &notice_metadata)?;
+    validate_held_path(bundle, "model.onnx", &model_file, &model_metadata)?;
+    let root_after = fs::symlink_metadata(bundle)
+        .map_err(|error| io_error("inspect bundle directory", error))?;
+    if !same_file_identity(&root_metadata, &root_after) {
+        return Err(ModelError::InvalidBundle(
+            "bundle directory changed during open",
+        ));
+    }
     model_file
         .seek(SeekFrom::Start(0))
         .map_err(|error| io_error("rewind model", error))?;
@@ -1374,9 +1427,46 @@ fn authenticate_bundle(bundle: &Path) -> Result<AuthenticatedBundle, ModelError>
     })
 }
 
+#[cfg(unix)]
+fn validate_held_path(
+    bundle: &Path,
+    name: &str,
+    held: &File,
+    before: &fs::Metadata,
+) -> Result<(), ModelError> {
+    let held_after = held
+        .metadata()
+        .map_err(|error| io_error("inspect held bundle member", error))?;
+    let path_after = fs::symlink_metadata(bundle.join(name))
+        .map_err(|error| io_error("inspect bundle member path", error))?;
+    if path_after.file_type().is_symlink()
+        || !same_file_identity(before, &held_after)
+        || !same_file_identity(before, &path_after)
+    {
+        return Err(ModelError::InvalidBundle(
+            "bundle member changed during open",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn same_file_identity(left: &fs::Metadata, right: &fs::Metadata) -> bool {
+    left.dev() == right.dev()
+        && left.ino() == right.ino()
+        && left.len() == right.len()
+        && left.nlink() == right.nlink()
+}
+
 fn exact_member_set(bundle: &Path) -> Result<BTreeSet<String>, ModelError> {
     let mut names = BTreeSet::new();
-    for entry in fs::read_dir(bundle).map_err(|error| io_error("read bundle directory", error))? {
+    for (index, entry) in fs::read_dir(bundle)
+        .map_err(|error| io_error("read bundle directory", error))?
+        .enumerate()
+    {
+        if index >= EXACT_MEMBERS.len() {
+            return Err(ModelError::InvalidBundle("member set"));
+        }
         let entry = entry.map_err(|error| io_error("read bundle member", error))?;
         let name = entry
             .file_name()
@@ -2051,6 +2141,50 @@ pub fn production_checkpoints() -> Vec<CheckpointIdentity> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
+
+    fn miniature_bundle() -> &'static Path {
+        Path::new("../../tests/fixtures/pangolin-model-kernel-mini/bundle")
+    }
+
+    #[test]
+    fn runtime_profile_inspection_authenticates_without_constructing_a_session() {
+        let inspected =
+            inspect_runtime_profile_bundle(miniature_bundle()).expect("inspect miniature");
+        assert_eq!(inspected.profile, MINI_PROFILE);
+        assert_eq!(inspected.representation, ModelRepresentation::Singleton);
+        assert_eq!(inspected.member_bytes, 281);
+        assert!(inspected.member_sha256.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn authenticated_inspection_rejects_path_replacement_after_open() {
+        let temp = tempdir().expect("temp");
+        let bundle = temp.path().join("bundle");
+        fs::create_dir(&bundle).expect("bundle");
+        for name in EXACT_MEMBERS {
+            fs::copy(miniature_bundle().join(name), bundle.join(name)).expect("copy member");
+        }
+        let result = authenticate_bundle_with(&bundle, || {
+            let model = bundle.join("model.onnx");
+            let held = bundle.join("held.onnx");
+            fs::rename(&model, held).expect("hold model");
+            fs::copy(miniature_bundle().join("model.onnx"), model).expect("replace model");
+        });
+        assert!(matches!(result, Err(ModelError::InvalidBundle(_))));
+    }
+
+    #[test]
+    fn exact_model_member_enumeration_stops_at_the_fourth_entry() {
+        let temp = tempdir().expect("temp");
+        for ordinal in 0..64 {
+            fs::write(temp.path().join(format!("member-{ordinal:02}")), b"x").expect("member");
+        }
+        assert!(matches!(
+            inspect_runtime_profile_bundle(temp.path()),
+            Err(ModelError::InvalidBundle("member set"))
+        ));
+    }
 
     #[test]
     fn context_normalizes_case_and_rejects_positioned_non_acgtn() {

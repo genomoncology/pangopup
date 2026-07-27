@@ -12,7 +12,9 @@ variant-level Rust scorer and lookup-first CLI routing for the supported
 literal GRCh38 SNV, MNV, insertion, and deletion subset. Callers may supply one
 explicit local reference/mask/model set for fallback and receive exact modeled
 JSONL or table output. Successful complete model results persist in a bounded
-SQLite cache and are reused across process restarts. An HTTP service is planned
+SQLite cache and are reused across process restarts. One canonical, path-free
+runtime profile now binds the exact qualified SNV, model, reference, mask, and
+scoring-policy tuple. An HTTP service is planned
 but not implemented. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
@@ -114,8 +116,21 @@ are read-only and do not refresh that write order. Override it with
 variables are available; explicit flags win. Cache options require the complete
 fallback tuple. Authoritative SNV hits open neither SQLite nor model assets.
 
-These flags identify already-built local assets; automatic delivery and
-coherent four-asset activation remain future work.
+These flags identify already-built local assets. Maintainers can authenticate
+the exact jointly qualified tuple and create its small compatibility authority:
+
+```text
+pangopup-build runtime-profile prepare \
+  --snv-bundle <SNV_BUNDLE> \
+  --model-bundle <MODEL_BUNDLE> \
+  --reference-bundle <REFERENCE_BUNDLE> \
+  --mask <DOMAINS_PGM> \
+  --output <NEW_PROFILE_JSON>
+```
+
+This command reads no SNV score payload, initializes no model session, and
+performs no download, installation, activation, or publication. Automatic
+four-asset delivery and activation remain future work.
 
 Pangopup deliberately does not implement HGVS, transcript/protein projection,
 clinical interpretation, or general gene annotation. Callers must identify one

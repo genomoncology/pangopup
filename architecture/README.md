@@ -16,8 +16,9 @@ session at sequential `1/1` while retaining fixed `8/1` as this host's measured
 frontier result. The first zero-padded and paired-strand batching run is
 ineligible because the v2 exporter omitted its declared dynamic axes. The
 corrected full experiment retained singleton through both the drift and
-replacement gates. Coherent asset delivery, caching, and HTTP remain future
-work.
+replacement gates. Persistent SQLite model-result reuse and the canonical
+four-asset compatibility profile are established. Coherent installation,
+activation, delivery, and HTTP remain future work.
 
 The closed three-codec reference comparison selected `acgt2-rle-v1`; its
 candidate modules, miniature, benchmark executable, and CLI have been removed
@@ -81,6 +82,8 @@ ADR 0012 defines that descriptive provenance boundary.
   — the corrected exactness/performance experiment that retained singleton.
 - [`decisions/0019-persistent-model-result-cache.md`](decisions/0019-persistent-model-result-cache.md)
   — persistent exact model results in bounded disposable SQLite.
+- [`decisions/0020-four-asset-runtime-profile.md`](decisions/0020-four-asset-runtime-profile.md)
+  — canonical path-free binding of the exact compatible runtime tuple.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)

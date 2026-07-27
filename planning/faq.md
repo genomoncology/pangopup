@@ -89,8 +89,9 @@ general transcript/protein reference system and is not splice scoring.
 The lookup path needs only the fixed-v1 score bundle. The shipped model scorer
 additionally needs the authenticated converted model bundle, local GRCh38 DNA
 bases, and a map of gene strand plus exon boundaries. Lookup-first routing is
-shipped through three explicit local CLI flags; coherent installation and
-automatic activation remain future. The original checkpoint
+shipped through three explicit local CLI flags. One canonical runtime profile
+now proves which exact SNV, model, reference, mask, and scoring-policy tuple is
+compatible; coherent installation and automatic activation remain future. The original checkpoint
 containers are maintainer conversion inputs, not runtime inputs. The DNA is
 pinned NCBI RefSeq GRCh38.p14
 `GCF_000001405.40`. The boundary map is compiled from the GENCODE annotation
@@ -100,6 +101,15 @@ The exact selected bytes now have a production domains-only mmap provider;
 asset delivery and installation remain future work. SQLite, gffutils, and raw
 GTF were one-time qualification inputs and are neither runtime nor current
 build-crate dependencies.
+
+### What does the four-asset runtime profile do?
+
+It is a small compatibility receipt, not another database. It names the exact
+compiled SNV index, ONNX model, compact RefSeq sequence bundle, GENCODE mask,
+and scoring rules that were qualified together. Later installers and services
+can reject a mixed set before serving scores. The receipt contains no local
+paths or download URLs and does not itself install, download, activate, or
+publish anything.
 
 ### Why is any gene information needed at all?
 

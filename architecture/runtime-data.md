@@ -42,9 +42,10 @@ schema, format identity, manifest claims, and member-integrity checks.
 ## Model-scoring assets
 
 Variant-level model scoring is implemented as a library composition over
-explicitly opened providers. The three model-side runtime assets are not yet
-installed as one profile, but the CLI routes caller-enabled lookup misses and
-supported non-SNVs through explicit local paths:
+explicitly opened providers. The four assets are now bound by one canonical
+path-free compatibility profile, but are not yet installed or activated as one
+profile. The CLI routes caller-enabled lookup misses and supported non-SNVs
+through explicit local paths:
 
 Running Pangolin for a lookup miss or non-SNV genuinely needs:
 
@@ -87,6 +88,19 @@ visits genes.
 The pinned sequence source is the [NCBI RefSeq GRCh38.p14 assembly](https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405/).
 The masking source is the archived [GENCODE release 38](https://www.gencodegenes.org/human/release_38.html)
 annotation used by the upstream instructions, not a moving "latest" release.
+
+## Coherent compatibility authority
+
+`pangopup.runtime-profile.v1` binds exact bundle/member identities for the SNV
+index, singleton model, compiled RefSeq reference, selected GENCODE mask, and
+the closed distance-50 sequential `1/1` scoring policy. Its SHA-256 is computed
+over exact RFC 8785/JCS bytes. The document contains no paths or URLs.
+
+The maintainer prepare command authenticates the three model-side members
+through held descriptors. It reads only bounded SNV manifest/notice metadata
+and the held score file's size; it does not scan or hash `scores.pgi`.
+Installation/certification remains the full SNV payload authority. The command
+does not install, activate, download, publish, initialize ONNX, or infer.
 
 The runtime representation was selected by measurement rather than assumption.
 The closed comparison used uppercase ASCII, exact four-bit IUPAC, and two-bit

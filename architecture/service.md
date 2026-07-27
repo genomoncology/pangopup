@@ -41,6 +41,8 @@ The service exposes:
   configuration; and
 - graceful shutdown on ordinary process-manager signals.
 
+Readiness will consume the established canonical four-asset runtime profile
+and reject a mixed tuple; profile discovery and activation are still future.
 Service startup may invoke the same future pinned asset-sync operation exposed
 explicitly as `pangopup assets sync`. Offline mode forbids networking and names
 missing or incompatible assets. A running process holds one immutable opened

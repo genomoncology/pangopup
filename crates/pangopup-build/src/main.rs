@@ -11,6 +11,7 @@ use pangopup_build::{
     },
     prepare_benchmark_corpus, prototype_open, prototype_roundtrip,
     reference::{build_reference_bundle, inspect_reference_bundle, reference_window},
+    runtime_profile::prepare_runtime_profile,
     verify_bundle,
 };
 use pangopup_model::ModelRepresentation;
@@ -52,6 +53,12 @@ fn main() -> ExitCode {
     }
     if arguments.first().is_some_and(|command| command == "model") {
         return model_command(&arguments[1..]);
+    }
+    if arguments
+        .first()
+        .is_some_and(|command| command == "runtime-profile")
+    {
+        return runtime_profile_command(&arguments[1..]);
     }
     match arguments.as_slice() {
         [command, source] if command == "inspect" => {
@@ -108,6 +115,39 @@ fn main() -> ExitCode {
             }
         }
         _ => json_failure(&CommandError::new("CLI_USAGE", USAGE)),
+    }
+}
+
+fn runtime_profile_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let Some(action) = arguments.first().and_then(|value| value.to_str()) else {
+        return json_usage("runtime-profile requires prepare");
+    };
+    if action != "prepare" {
+        return json_usage("runtime-profile requires prepare");
+    }
+    let Ok(values) = parse_exact_flags(
+        &arguments[1..],
+        &[
+            "--snv-bundle",
+            "--model-bundle",
+            "--reference-bundle",
+            "--mask",
+            "--output",
+        ],
+    ) else {
+        return json_usage(
+            "runtime-profile prepare requires --snv-bundle, --model-bundle, --reference-bundle, --mask, and --output exactly once",
+        );
+    };
+    match prepare_runtime_profile(
+        Path::new(values[0]),
+        Path::new(values[1]),
+        Path::new(values[2]),
+        Path::new(values[3]),
+        Path::new(values[4]),
+    ) {
+        Ok(outcome) => json_success(&outcome),
+        Err(error) => json_failure(&error),
     }
 }
 

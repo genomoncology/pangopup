@@ -1,6 +1,6 @@
 # 024 — Freeze one coherent four-asset runtime profile
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -286,11 +286,91 @@ scoped admission additions, and implementation-ready.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex sub-agent `/root/ticket024_implementation`
+
+Implemented the strict `pangopup.runtime-profile.v1` typed/JCS contract,
+external content identity, exact pinned production trust check, and bounded
+held-descriptor SNV metadata admission in `pangopup-assets`. Added
+model-bundle inspection that authenticates every bounded member without
+constructing an ONNX session, reusing the existing identified reference and
+mask opens for their exact retained descriptors.
+
+Added the production-only `pangopup-build runtime-profile prepare` command. It
+composes the four authenticated inputs, rejects every mixed tuple, and
+publishes canonical bytes through descriptor-relative private staging,
+`renameat2(RENAME_NOREPLACE)`, file sync, and held-parent-directory sync. It
+does not read the SNV score payload, initialize ONNX, infer, install, download,
+activate, or publish assets.
+
+Inside-out coverage proves deterministic canonical round trips, duplicate and
+extension rejection, JSON-safe bounds, external identity sensitivity for
+every compatibility leaf, synthetic trust rejection, bounded SNV metadata
+inspection, held-path replacement detection, model inspection without a
+session, private no-replace output, and no partial final output. Existing
+identified reference/mask tests continue to cover full authentication,
+same-size corruption, and pathname replacement. The executable spec covers
+the closed production-only CLI grammar, stable bounded errors, and absence of
+partial output.
+
+Documentation now includes ADR 0020 and updates the README, architecture,
+service boundary, FAQ, frontier, and repository contract. It explicitly keeps
+installation/activation, network sync, publication, runtime discovery, HTTP,
+Docker, and systemd as future work.
+
+Evidence:
+
+- focused runtime-profile, publisher, and model replacement tests: green;
+- `make lint`: green;
+- `make test`: green across the workspace; six pre-existing
+  coordinator/maintainer production tests were ignored as intended;
+- `make spec`: 178 passed, 3 skipped;
+- `git diff --check`: green.
+
+The coordinator then ran the production-only command once against the retained
+qualified assets. It produced the exact 1,366-byte mode-`0600` canonical file
+`planning/artifacts/024-four-asset-runtime-profile.json`; its profile ID and
+file SHA-256 are both
+`0efc5b7d9e966935775f9b19ef33eae75cb304cc5d5ba3f1d700ccddc6ddbd8c`.
+The final byte is `}` with no trailing newline. The exact command, input paths,
+component identities, output receipt, and scope boundaries are retained in
+`planning/artifacts/024-four-asset-runtime-profile.md`. No runtime asset was
+copied, rebuilt, installed, activated, downloaded, or published.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex sub-agent `/root/ticket024_code_review`
+
+Initial verdict: **REJECT**. The reviewer found two blockers:
+
+1. SNV runtime-profile admission and the model's full authenticated inspection
+   enumerated an untrusted directory into a collection without stopping at the
+   fixed three-member contract.
+2. Model, reference, and mask inspection failures were all collapsed into
+   `PROFILE_INCOMPATIBLE`, hiding missing/I/O, unsafe path/member shape, and
+   malformed/hash/structural corruption.
+
+The developer remediated only those findings. Both enumerators now reject on
+the fourth observed entry before inserting it, retain the exact three-member
+set check, and have fast 64-entry regression tests. Preparation now validates
+each authenticated component against the pinned tuple before opening the next
+and maps missing/I/O to `INPUT_IO`, true tuple/version/profile differences to
+`PROFILE_INCOMPATIBLE`, symlink/path/member-shape failures to `PROFILE_UNSAFE`,
+and malformed/hash/structural failures to `PROFILE_CORRUPT`. Fixed redacted
+messages never include untrusted paths, reasons, or contents.
+
+Focused library tests cover all four categories for model, reference, and mask.
+Executable CLI cases cover representative missing, incompatible, unsafe, and
+corrupt SNV inputs and prove later paths remain unopened. Post-remediation
+gates are green: `make lint`, complete `make test`, `make spec` with 184
+passed/3 skipped, and `git diff --check`.
+
+The retained production JSON and Markdown were not regenerated or edited
+during remediation. The JSON remains 1,366 bytes with SHA-256/profile ID
+`0efc5b7d9e966935775f9b19ef33eae75cb304cc5d5ba3f1d700ccddc6ddbd8c`.
+Re-review verdict: **ACCEPT**. The same reviewer confirmed both blockers are
+resolved, the fourth-entry bounds and distinct redacted error categories have
+focused and CLI coverage, no material findings remain, and the production
+artifact hash/size/mode are unchanged.
 
 ## External Effect Evidence
 
@@ -298,4 +378,11 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex `/root`
+
+Final coordinator gate after accepted code review: `make lint`, complete
+`make test`, `make spec` (184 passed, 3 skipped), and `git diff --check` all
+pass. The retained JSON remains 1,366 bytes with profile ID/file SHA-256
+`0efc5b7d9e966935775f9b19ef33eae75cb304cc5d5ba3f1d700ccddc6ddbd8c`.
+Documentation consistently leaves installation, activation, sync,
+publication, runtime discovery, HTTP, Docker, and systemd as future work.

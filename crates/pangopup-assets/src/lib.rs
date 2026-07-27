@@ -21,6 +21,7 @@ mod input_audit;
 mod local;
 mod release;
 mod release_upload_linux;
+mod runtime_profile;
 mod snv;
 mod sync;
 
@@ -45,6 +46,12 @@ pub use release::{
 };
 #[cfg(any(test, feature = "test-read-audit"))]
 pub use release_upload_linux::{LeaseBreakTimeTest, PayloadOperation, PayloadTestFaults};
+pub use runtime_profile::{
+    MaskProfile, ModelProfile, ReferenceProfile, RuntimeProfile, RuntimeProfileError,
+    RuntimeProfileId, ScoringProfile, SnvBundleInspection, SnvProfile,
+    canonical_runtime_profile_bytes, inspect_snv_bundle, parse_runtime_profile,
+    production_runtime_profile, runtime_profile_id,
+};
 pub use snv::{BundleCertification, MAX_FIXED11_BYTES, NOTICE, NOTICE_SHA256, certify_bundle};
 pub use sync::{CachePathInputs, SyncOutcome, resolve_cache_root, sync_assets};
 

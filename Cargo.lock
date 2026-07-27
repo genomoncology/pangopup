@@ -411,6 +411,7 @@ dependencies = [
  "serde_jcs",
  "serde_json",
  "sha2",
+ "tempfile",
  "ureq",
  "zstd",
  "zstd-safe",

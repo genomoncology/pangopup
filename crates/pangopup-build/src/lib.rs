@@ -5,6 +5,7 @@ pub mod compatibility;
 pub mod model;
 mod production;
 pub mod reference;
+pub mod runtime_profile;
 mod snv;
 mod source_fingerprint;
 

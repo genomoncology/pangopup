@@ -19,8 +19,9 @@ singleton/zero-padded/paired comparison after code review caught missing v2
 export axes. Both policies were inconclusive from singleton drift and neither
 candidate met the independent replacement gates, so ordinary dispatch remains
 singleton. Ticket 023 adds persistent exact SQLite reuse for successful
-complete model results while preserving lookup-first laziness. Coherent asset
-delivery and the HTTP service remain target work. A
+complete model results while preserving lookup-first laziness. One canonical
+four-asset runtime profile now binds the exact compatible production tuple;
+installation, activation, delivery, and the HTTP service remain target work. A
 reviewed retained benchmark selected the
 two-bit/ambiguity-run GRCh38 payload by speed; Ticket 011 hardened it as the
 production `PGRREF01` reader and qualified the complete 25-contig bundle. Read
@@ -61,7 +62,12 @@ There is no `make check`. Run all three gates before committing.
   capture/inspection. It also owns the authenticated maintainer-only model
   evidence/conversion adapters. The checked corpus and miniature model are
   replayed offline; normal gates must never invoke expensive Python capture or
-  conversion paths. Builder-only dependencies must not enter runtime consumers.
+  conversion paths. It also composes the production-only four-asset profile
+  without initializing ONNX. Builder-only dependencies must not enter runtime
+  consumers.
+- `crates/pangopup-assets` owns the strict path-free runtime-profile grammar,
+  production tuple trust check, and bounded SNV metadata admission in addition
+  to SNV delivery.
 - `crates/pangopup-model` owns the exact selected v1 singleton contract,
   context/strand encoding, and one mutable CPU ONNX Runtime session returning
   twelve raw channels. Closed v2 contracts and bounded candidate execution are
