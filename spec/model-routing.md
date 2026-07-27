@@ -49,6 +49,43 @@ pangopup lookup \
   | mustmatch like '"status":"found","records":[{"gene":"ENSG00000000001.1","gain_score":"0.33","gain_position":-50,"loss_score":"0.00","loss_position":-50,"warnings":["no_annotated_sites"]}],"source_reference_ambiguities":[],"provenance":{"kind":"model","scoring_semantics":"pangopup-variant-score-v1","model_bundle_id":"sha256:aba3f0a07075f24cc5c3c59eb4312176bae4f2886db8946500280b19e686edca","model_profile":"pangopup-model-kernel-mini-v1","reference_bundle_id":"sha256:6773713ad79462b8bfb2bce7f194041e85a0804b38f68282c965adc5f43f9493","reference_profile":"pangopup-reference-route-test-v1","reference_sequence_set_sha256":"sha256:afb720dad5979f65694dab6ae80a497ef56db434d7d346e79cdcb0e7da97e0b3","mask_bytes":260,"mask_sha256":"sha256:004f9f95be50b92fd5c67ca44a785e950c20e5455a903ad9350b68c91566f827","masked":true,"window":50'
 ```
 
+Successful model results persist across CLI processes and retain byte-identical
+public output.
+
+```bash
+cache="$XDG_CACHE_HOME/pangopup/model-results.sqlite3"
+rm -f "$cache" "$cache-wal" "$cache-shm"
+first=../target/spec/model-cache-first.jsonl
+second=../target/spec/model-cache-second.jsonl
+pangopup lookup \
+  --bundle ../tests/fixtures/snv-regression/bundle \
+  --variant GRCh38:chr1:5051:A:AC \
+  --reference-bundle ../tests/fixtures/reference-route-test/bundle \
+  --mask ../tests/fixtures/route-mask/domains.pgm \
+  --model-bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle \
+  >"$first"
+pangopup lookup \
+  --bundle ../tests/fixtures/snv-regression/bundle \
+  --variant GRCh38:chr1:5051:A:AC \
+  --reference-bundle ../tests/fixtures/reference-route-test/bundle \
+  --mask ../tests/fixtures/route-mask/domains.pgm \
+  --model-bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle \
+  >"$second"
+cmp "$first" "$second"
+test -s "$cache"
+printf 'persistent exact model cache\n' | mustmatch like 'persistent exact model cache'
+```
+
+Cache configuration without the complete fallback tuple is a usage error.
+
+```bash run id=cache-needs-fallback exit=2 stream=stderr
+pangopup lookup --bundle ../tests/fixtures/snv-regression/bundle --variant GRCh38:chr12:6801301:G:A --model-cache /tmp/pangopup.sqlite3
+```
+
+```text expect=cache-needs-fallback contains
+{"status":"error","code":"CLI_USAGE"
+```
+
 Supplying the complete fallback tuple also routes a pure SNV lookup miss
 through the model.
 

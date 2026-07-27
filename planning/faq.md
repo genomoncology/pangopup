@@ -185,6 +185,20 @@ when a request actually needs explicit fallback; authoritative SNV hits skip
 all three fallback paths. A future managed installation will authenticate the
 immutable reference during install and retain cheap structural startup.
 
+### Does Pangopup repeat model inference for the same variant?
+
+Not after the first successful model result. Pangopup stores the complete
+unfiltered typed result in a disposable SQLite cache and applies any requested
+gene filter afterward. The key includes the variant and every model, reference,
+mask, window, masking, and CPU-policy identity, so a changed scoring input is a
+miss instead of a stale hit.
+
+The default keeps the 10,000 most recently inserted or explicitly updated
+results under XDG cache and survives process restarts. Ordinary valid hits are
+read-only and do not refresh that order. Precomputed SNV hits do not use
+SQLite. Deleting the database is always safe; Pangopup recomputes model results
+as needed.
+
 ### Which compact reference encoding will Pangopup use?
 
 `acgt2-rle-v1`: two-bit ACGT with exact ambiguity runs. In the one retained

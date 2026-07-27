@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 pangopup-assets = { path = "../pangopup-assets" }
+pangopup-cache = { path = "../pangopup-cache" }
 pangopup-core = { path = "../pangopup-core" }
 pangopup-engine = { path = "../pangopup-engine" }
 pangopup-index = { path = "../pangopup-index" }
@@ -21,6 +22,8 @@ serde_json = "1.0.149"
 
 [dev-dependencies]
 libc = "0.2.188"
+rusqlite = { version = "0.38.0", features = ["bundled"] }
+tempfile = "3.27.0"
 
 [[bench]]
 name = "snv_lookup"

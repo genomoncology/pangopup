@@ -1,10 +1,11 @@
 # Service Boundary
 
 This document records target service design. Pangopup does not yet ship an HTTP
-server, service lifecycle integration, container, metrics, or model-result
-cache. The shipped runtime interface is `pangopup lookup`; its typed
+server, service lifecycle integration, container, or metrics. The shipped
+runtime interface is `pangopup lookup`; its typed
 lookup-first/model route already returns stable JSON Lines or exact
-tab-separated output from explicit local assets.
+tab-separated output from explicit local assets and persists successful model
+results in a bounded SQLite cache.
 
 ## One lookup-first core
 
@@ -73,19 +74,18 @@ A native systemd example may invoke the same foreground command and point at
 the same installed profile. Pangopup-specific `start`, `stop`, and `restart`
 commands are deliberately unnecessary.
 
-## Cache decision gate
+## Persistent model-result cache
 
-The mmap lookup path relies on the operating-system page cache. A persistent
-application cache is considered only for model inference after representative
-end-to-end measurements show meaningful repeated work. If adopted, its key
-must include the literal variant and every scoring identity: gene/masking
-context, checkpoint, compiled GRCh38 sequence index, mask, window, and
-inference parameters.
+The mmap SNV path continues to rely only on the operating-system page cache.
+Successful complete model results use the persistent SQLite cache selected in
+ADR 0019. Stable-gene filtering happens after cache retrieval, maximizing reuse
+without changing masking. The default is 10,000 entries with deterministic
+insertion/update-order eviction; valid hits are read-only and `unlimited` is
+explicit.
 
-Any cache slice must bound size, define eviction, serialize concurrent fills,
-recover from corruption, prove identity-based invalidation, and show latency or
-compute benefit net of lookup and serialization overhead. SQLite or another
-store is an implementation candidate, not an architectural requirement.
+The future HTTP adapter reuses this database and key/value contract. Concurrent
+fill coalescing belongs to that service's bounded worker/queue design and is
+not hidden in the sequential CLI or scoring engine.
 
 ## Operational proof
 

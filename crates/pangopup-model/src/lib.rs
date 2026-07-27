@@ -416,6 +416,29 @@ pub struct BundleInspection {
     pub representation: ModelRepresentation,
 }
 
+/// Bounded manifest identity used to ask a disposable result cache before
+/// loading or initializing the ONNX graph.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelAdmission {
+    bundle_id: BundleIdentity,
+    profile: String,
+    representation: ModelRepresentation,
+}
+
+impl ModelAdmission {
+    pub fn bundle_id(&self) -> &BundleIdentity {
+        &self.bundle_id
+    }
+
+    pub fn profile(&self) -> &str {
+        &self.profile
+    }
+
+    pub const fn representation(&self) -> ModelRepresentation {
+        self.representation
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Strand {
@@ -1195,6 +1218,67 @@ pub fn inspect_bundle(bundle: &Path) -> Result<BundleInspection, ModelError> {
         channels: authenticated.manifest.channels(),
         representation: authenticated.manifest.representation(),
     })
+}
+
+/// Read and validate only the bounded canonical manifest.
+///
+/// This deliberately does not open, hash, parse, or initialize `model.onnx`.
+/// A cache miss must still use [`ModelKernel::open`] to authenticate the whole
+/// bundle before scoring.
+pub fn inspect_model_admission(bundle: &Path) -> Result<ModelAdmission, ModelError> {
+    let root_metadata = fs::symlink_metadata(bundle)
+        .map_err(|error| io_error("inspect bundle directory", error))?;
+    if !root_metadata.file_type().is_dir() || root_metadata.file_type().is_symlink() {
+        return Err(ModelError::InvalidBundle("bundle directory type"));
+    }
+    if bounded_admission_member_set(bundle)?
+        != EXACT_MEMBERS.into_iter().map(str::to_owned).collect()
+    {
+        return Err(ModelError::InvalidBundle("member set"));
+    }
+    let (mut manifest_file, manifest_size) =
+        open_bounded_member(bundle, "manifest.json", MAX_MANIFEST_BYTES)?;
+    let bytes = read_exact_member(
+        &mut manifest_file,
+        manifest_size,
+        MAX_MANIFEST_BYTES,
+        "read manifest",
+    )?;
+    let manifest = parse_any_manifest(&bytes)?;
+    let declared_model = member(manifest.members(), "model.onnx")?;
+    let model_metadata = fs::symlink_metadata(bundle.join("model.onnx"))
+        .map_err(|error| io_error("inspect model member", error))?;
+    if !model_metadata.file_type().is_file()
+        || model_metadata.file_type().is_symlink()
+        || model_metadata.nlink() != 1
+        || model_metadata.len() != declared_model.bytes
+    {
+        return Err(ModelError::InvalidBundle("model admission member"));
+    }
+    Ok(ModelAdmission {
+        bundle_id: bundle_identity(&bytes),
+        profile: manifest.profile().to_owned(),
+        representation: manifest.representation(),
+    })
+}
+
+fn bounded_admission_member_set(bundle: &Path) -> Result<BTreeSet<String>, ModelError> {
+    let mut names = BTreeSet::new();
+    for (index, entry) in fs::read_dir(bundle)
+        .map_err(|error| io_error("read bundle directory", error))?
+        .enumerate()
+    {
+        if index >= EXACT_MEMBERS.len() {
+            return Err(ModelError::InvalidBundle("member set"));
+        }
+        let name = entry
+            .map_err(|error| io_error("read bundle member", error))?
+            .file_name()
+            .into_string()
+            .map_err(|_| ModelError::InvalidBundle("non-UTF-8 member name"))?;
+        names.insert(name);
+    }
+    Ok(names)
 }
 
 pub fn parse_manifest_bytes(bytes: &[u8]) -> Result<ModelManifest, ModelError> {

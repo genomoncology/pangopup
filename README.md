@@ -11,7 +11,9 @@ that returns the twelve raw Pangolin channels. It now also ships a
 variant-level Rust scorer and lookup-first CLI routing for the supported
 literal GRCh38 SNV, MNV, insertion, and deletion subset. Callers may supply one
 explicit local reference/mask/model set for fallback and receive exact modeled
-JSONL or table output. An HTTP service is planned but not implemented. Ticket 012 has now
+JSONL or table output. Successful complete model results persist in a bounded
+SQLite cache and are reused across process restarts. An HTTP service is planned
+but not implemented. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
 Ticket 014 promotes the exact selected bytes behind a domains-only production
@@ -101,6 +103,16 @@ pangopup lookup --bundle <SNV_BUNDLE> \
   --mask <DOMAINS_PGM> \
   --model-bundle <MODEL_BUNDLE>
 ```
+
+The default cache is
+`${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/model-results.sqlite3` and retains the
+10,000 most recently inserted or explicitly updated model results. Valid hits
+are read-only and do not refresh that write order. Override it with
+`--model-cache <ABSOLUTE_PATH>` and change the bound with
+`--model-cache-max-entries <POSITIVE_INTEGER|unlimited>`. Matching
+`PANGOPUP_MODEL_CACHE` and `PANGOPUP_MODEL_CACHE_MAX_ENTRIES` environment
+variables are available; explicit flags win. Cache options require the complete
+fallback tuple. Authoritative SNV hits open neither SQLite nor model assets.
 
 These flags identify already-built local assets; automatic delivery and
 coherent four-asset activation remain future work.
@@ -475,7 +487,7 @@ the query path.
 
 Implemented today:
 
-- the six-crate Rust workspace and strict lint/test/spec gates;
+- the eight-crate Rust workspace and strict lint/test/spec gates;
 - runtime `pangopup` CLI help/version behavior with two executable smoke specs;
 - GPL-3.0 source licensing, upstream Pangolin attribution, and CC BY 4.0
   dataset attribution;
@@ -637,6 +649,8 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
   ONNX Runtime CPU kernel;
 - `pangopup-engine` — fixed GRCh38 variant construction, compatible
   post-processing/masking, and ordered modeled results;
+- `pangopup-cache` — persistent exact model-result keys and values, bounded
+  insertion/update-order eviction, and disposable SQLite recovery;
 - future `pangopup-http` — long-lived HTTP adapter over the same core.
 
 ## Development

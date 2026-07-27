@@ -79,6 +79,8 @@ ADR 0012 defines that descriptive provenance boundary.
   — complete-request CPU measurement, host frontier, and portable ordinary default.
 - [`decisions/0018-reference-alternate-batching.md`](decisions/0018-reference-alternate-batching.md)
   — the corrected exactness/performance experiment that retained singleton.
+- [`decisions/0019-persistent-model-result-cache.md`](decisions/0019-persistent-model-result-cache.md)
+  — persistent exact model results in bounded disposable SQLite.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)

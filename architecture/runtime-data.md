@@ -159,6 +159,15 @@ explicit fallback. Ordinary installed-reference open remains structural and
 cheap; future coherent installation authenticates the member once before
 activation instead of rehashing it on every process open.
 
+Successful model fallback now stores complete unfiltered typed records in a
+disposable SQLite cache. Its full key binds the literal variant to every model,
+reference, mask, scoring, window, and CPU-policy identity. A reopened hit still
+validates bounded identity inputs but does not open the dense reference or
+ONNX model, initialize ONNX Runtime, infer, or write SQLite. Inserts and
+explicit updates define deterministic eviction order; ordinary valid hits do
+not refresh it. Precomputed SNV hits never open this cache. The default lives
+under XDG cache, not XDG data, because it can always be deleted and recomputed.
+
 That compatibility corpus proves its selected overlap and masking cases; it is
 not a complete all-gene order inventory. Ticket 012's retained authenticated
 canonical-export report and complete-domain comparison are the authority for
@@ -210,7 +219,8 @@ independent-per-gene policy requires a separately named profile.
 - an HGVS parsing or coordinate-projection engine;
 - transcript and protein sequences;
 - gene descriptions, aliases, disease knowledge, or consequences;
-- PostgreSQL, SQLite, or gffutils as a runtime dependency.
+- PostgreSQL or gffutils as a runtime dependency. SQLite is used only for the
+  disposable model-result cache, never for reference, mask, or SNV lookup.
 
 The shipped standalone lookup deployment is the executable plus the fixed-v1
 score bundle. Explicit-path fallback additionally needs the converted model

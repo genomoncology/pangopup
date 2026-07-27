@@ -396,13 +396,16 @@ M09/M10 improvement and no-regression gates. Ordinary dispatch and the accepted
 model identity remain singleton. Both tiny checked candidates remain because
 retained experimental execution requires normal real-ORT coverage.
 
-## Next outcome — evidence-gated model-result caching
+## Established — persistent exact model-result caching
 
-Measure repeated complete model requests before adding a cache. If justified,
-cache only complete model results under a key that includes the literal variant,
-gene/masking context, model checkpoint, GRCh38 sequence-index and mask
-identities, window, and inference parameters; prove bounds, concurrency,
-corruption handling, and invalidation.
+Successful complete unfiltered model results now persist in bundled SQLite
+under a full scoring-identity key. The default 10,000-entry database survives
+restarts, uses deterministic insertion/update-order eviction, keeps valid hits
+read-only, safely discards malformed rows, and never caches precomputed hits,
+rejections, failures, or rendered bytes.
+Bounded manifest/mask admission lets a reopened hit bypass dense-reference
+authentication and all ONNX initialization/inference. Coordinator production
+measurements remain the final host-specific acceptance evidence.
 
 ## Later outcome — one compatible installed runtime profile
 

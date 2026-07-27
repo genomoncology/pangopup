@@ -9,4 +9,6 @@ test:          ## inside-out unit and integration tests
 
 spec:          ## outside-in CLI contracts
 	cargo build --locked --quiet --package pangopup-cli --package pangopup-build
-	PATH="$(CURDIR)/target/debug:$$PATH" mustmatch test spec/
+	rm -rf target/spec-cache
+	install -d -m 700 target/spec-cache
+	XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/debug:$$PATH" mustmatch test spec/

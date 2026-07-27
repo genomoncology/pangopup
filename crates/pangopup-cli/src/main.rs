@@ -3,19 +3,23 @@ use pangopup_assets::{
     install_transport, local_status, open_active_bundle, resolve_cache_root, resolve_data_root,
     sync_assets,
 };
+use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
 use pangopup_cli::{OutputFormat, RenderRequest, render_requests};
 use pangopup_core::{
-    DnaBase, EnsemblGeneId, GenomicPosition, Grch38Contig, Grch38Snv, Grch38Variant, ScoreProvider,
+    DnaBase, EnsemblGeneId, GenomicPosition, Grch38Contig, Grch38Snv, Grch38Variant,
+    ReferenceProvenance, ScoreProvider,
 };
 use pangopup_engine::{
-    LookupFirstRouter, ModelFallback, ModelFallbackError, RouteDecision, RouteRequest,
+    LookupFirstRouter, ModelFallback, ModelFallbackError, ModelProvenance, RouteDecision,
+    RouteRequest, RoutedResult,
 };
 use pangopup_index::{
     BundleOpen, IndexError,
-    mask::MaskDomainsOpen,
+    mask::{AdmittedMaskDomains, MaskDomainsOpen},
     reference::{ReferenceBundleOpen, required_accession},
+    reference_admission::{ReferenceAdmission, inspect_reference_admission},
 };
-use pangopup_model::ModelKernel;
+use pangopup_model::{CpuPolicy, ModelAdmission, ModelKernel, inspect_model_admission};
 use serde::Serialize;
 use std::{
     ffi::OsString,
@@ -25,7 +29,7 @@ use std::{
     str::FromStr,
 };
 
-const HELP: &str = "Pangopup: exact Pangolin score lookup\n\nUsage:\n  pangopup assets sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets status [--data-dir <ABSOLUTE_PATH>]\n  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>]\n  pangopup --help\n  pangopup --version";
+const HELP: &str = "Pangopup: exact Pangolin score lookup\n\nUsage:\n  pangopup assets sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets status [--data-dir <ABSOLUTE_PATH>]\n  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]\n  pangopup --help\n  pangopup --version";
 
 struct Arguments {
     bundle: Option<PathBuf>,
@@ -34,12 +38,26 @@ struct Arguments {
     gene: Option<EnsemblGeneId>,
     format: OutputFormat,
     fallback: Option<FallbackPaths>,
+    cache: Option<CacheOptions>,
 }
 
 struct FallbackPaths {
     model: PathBuf,
     reference: PathBuf,
     mask: PathBuf,
+}
+
+struct CacheOptions {
+    path: PathBuf,
+    limit: EntryLimit,
+    disposable_default: bool,
+}
+
+struct FallbackAdmission {
+    model: ModelAdmission,
+    reference: ReferenceAdmission,
+    mask: Option<AdmittedMaskDomains>,
+    provenance: ModelProvenance,
 }
 
 enum Command {
@@ -257,6 +275,7 @@ fn run_lookup_with_observer(
         gene,
         format,
         fallback: fallback_paths,
+        cache: cache_options,
     } = arguments;
     let bundle = match bundle_path {
         Some(path) => BundleOpen::open(&path).map_err(map_open_error)?,
@@ -302,29 +321,135 @@ fn run_lookup_with_observer(
         decisions.push(decision);
     }
 
-    let mut fallback = if needs_model {
-        Some(open_model_fallback(
+    let mut admission = if needs_model {
+        Some(admit_model_fallback(
             fallback_paths
                 .as_ref()
                 .expect("complete fallback set was parsed"),
-            observer,
         )?)
     } else {
         None
     };
+    let mut cache = if needs_model {
+        let options = cache_options
+            .as_ref()
+            .expect("fallback parsing always resolves cache options");
+        let result = if options.disposable_default {
+            ModelResultCache::open_default(&options.path, options.limit)
+        } else {
+            ModelResultCache::open_explicit(&options.path, options.limit)
+        };
+        match result {
+            Ok(cache) => Some(cache),
+            Err(pangopup_cache::CacheError::Busy) => None,
+            Err(error) => return Err(map_cache_error(error)),
+        }
+    } else {
+        None
+    };
+    let mut fallback = None;
     let mut requests = Vec::with_capacity(decisions.len());
     for decision in decisions {
         let routed = match decision {
             RouteDecision::Authoritative(result) => result,
-            RouteDecision::ModelRequired(required) => fallback
-                .as_mut()
-                .expect("model-required batch opened one fallback")
-                .complete(required)
-                .map_err(map_model_fallback_error)?,
+            RouteDecision::ModelRequired(required) => {
+                let (key, cached_provenance) = {
+                    let admitted = admission
+                        .as_ref()
+                        .expect("model-required batch has one admission");
+                    (
+                        cache_key(required.variant(), admitted).map_err(map_cache_error)?,
+                        admitted.provenance.clone(),
+                    )
+                };
+                let cached = match cache.as_mut() {
+                    Some(cache) => match cache.get(&key) {
+                        Ok(value) => value,
+                        Err(pangopup_cache::CacheError::Busy) => None,
+                        Err(error) => return Err(map_cache_error(error)),
+                    },
+                    None => None,
+                };
+                if let Some(records) = cached {
+                    routed_from_cached(required, records, cached_provenance)
+                } else {
+                    if fallback.is_none() {
+                        fallback = Some(open_admitted_model_fallback(
+                            fallback_paths
+                                .as_ref()
+                                .expect("complete fallback set was parsed"),
+                            admission
+                                .as_mut()
+                                .expect("model-required batch has one admission"),
+                            observer,
+                        )?);
+                    }
+                    let filter = required.gene();
+                    let modeled = fallback
+                        .as_mut()
+                        .expect("model miss opened one fallback")
+                        .complete_unfiltered(required)
+                        .map_err(map_model_fallback_error)?;
+                    if let RoutedResult::Modeled {
+                        variant,
+                        mut records,
+                        provenance,
+                    } = modeled
+                    {
+                        // Cache failure cannot invalidate a successful model answer.
+                        if let Some(cache) = cache.as_mut() {
+                            let _cache_write = cache.put(&key, &records);
+                        }
+                        if let Some(filter) = filter {
+                            records.retain(|record| record.gene().stable() == filter);
+                        }
+                        RoutedResult::Modeled {
+                            variant,
+                            records,
+                            provenance,
+                        }
+                    } else {
+                        unreachable!("model fallback always returns modeled output")
+                    }
+                }
+            }
         };
         requests.push(RenderRequest::from_routed(routed));
     }
     render_lookup_requests(format, &requests)
+}
+
+fn routed_from_cached(
+    required: pangopup_engine::ModelRequired,
+    mut records: Vec<pangopup_core::ModelGeneScoreRecord>,
+    provenance: ModelProvenance,
+) -> RoutedResult {
+    if let Some(filter) = required.gene() {
+        records.retain(|record| record.gene().stable() == filter);
+    }
+    RoutedResult::Modeled {
+        variant: required.variant().clone(),
+        records,
+        provenance,
+    }
+}
+
+fn cache_key(
+    variant: &Grch38Variant,
+    admission: &FallbackAdmission,
+) -> Result<CacheKey, pangopup_cache::CacheError> {
+    let identity = CacheIdentity::new(
+        &admission.model.bundle_id().to_string(),
+        admission.model.profile(),
+        &admission.model.representation().to_string(),
+        &CpuPolicy::production_default().to_string(),
+        admission.reference.bundle_id(),
+        admission.reference.profile(),
+        admission.reference.sequence_set_sha256(),
+        admission.provenance.mask_bytes(),
+        admission.provenance.mask_sha256(),
+    )?;
+    Ok(CacheKey::new(variant, identity))
 }
 
 fn snv_from_variant(variant: &Grch38Variant) -> Option<Grch38Snv> {
@@ -360,6 +485,7 @@ fn render_lookup_requests(
     })
 }
 
+#[cfg(test)]
 fn open_model_fallback(
     paths: &FallbackPaths,
     observer: &mut dyn FnMut(FallbackComponent),
@@ -384,6 +510,92 @@ fn open_model_fallback(
         exit: 1,
     })?;
     Ok(ModelFallback::new(reference, mask, model))
+}
+
+fn admit_model_fallback(paths: &FallbackPaths) -> Result<FallbackAdmission, Failure> {
+    let reference = inspect_reference_admission(&paths.reference).map_err(|_| Failure {
+        code: "REFERENCE_BUNDLE_INVALID",
+        message: "reference bundle is invalid".to_owned(),
+        exit: 1,
+    })?;
+    let mask = MaskDomainsOpen::admit(&paths.mask).map_err(|_| Failure {
+        code: "MASK_INVALID",
+        message: "mask member is invalid".to_owned(),
+        exit: 1,
+    })?;
+    let model = inspect_model_admission(&paths.model).map_err(|_| Failure {
+        code: "MODEL_BUNDLE_INVALID",
+        message: "model bundle is invalid".to_owned(),
+        exit: 1,
+    })?;
+    let provenance = ModelProvenance::new(
+        model.bundle_id().to_string(),
+        model.profile().to_owned(),
+        ReferenceProvenance::new(
+            reference.bundle_id().to_owned(),
+            reference.profile().to_owned(),
+            reference.format().to_owned(),
+            reference.assembly().to_owned(),
+            reference.assembly_accession().to_owned(),
+            reference.sequence_set_sha256().to_owned(),
+        ),
+        mask.identity().bytes(),
+        format!("sha256:{}", mask.identity().sha256()),
+    );
+    Ok(FallbackAdmission {
+        model,
+        reference,
+        mask: Some(mask),
+        provenance,
+    })
+}
+
+fn open_admitted_model_fallback(
+    paths: &FallbackPaths,
+    admission: &mut FallbackAdmission,
+    observer: &mut dyn FnMut(FallbackComponent),
+) -> Result<ModelFallback, Failure> {
+    observer(FallbackComponent::Reference);
+    let reference =
+        ReferenceBundleOpen::open_identified(&paths.reference).map_err(|_| Failure {
+            code: "REFERENCE_BUNDLE_INVALID",
+            message: "reference bundle is invalid".to_owned(),
+            exit: 1,
+        })?;
+    observer(FallbackComponent::Mask);
+    let mask = admission
+        .mask
+        .take()
+        .expect("admitted mask is consumed only for first model miss")
+        .open()
+        .map_err(|_| Failure {
+            code: "MASK_INVALID",
+            message: "mask member is invalid".to_owned(),
+            exit: 1,
+        })?;
+    observer(FallbackComponent::Model);
+    let model = ModelKernel::open(&paths.model).map_err(|_| Failure {
+        code: "MODEL_BUNDLE_INVALID",
+        message: "model bundle is invalid".to_owned(),
+        exit: 1,
+    })?;
+    let fallback = ModelFallback::new(reference, mask, model);
+    if fallback.provenance() != &admission.provenance {
+        return Err(Failure {
+            code: "MODEL_ASSET_IDENTITY_CHANGED",
+            message: "model assets changed after cache admission".to_owned(),
+            exit: 1,
+        });
+    }
+    Ok(fallback)
+}
+
+fn map_cache_error(error: pangopup_cache::CacheError) -> Failure {
+    Failure {
+        code: "MODEL_CACHE_INVALID",
+        message: error.to_string(),
+        exit: 1,
+    }
 }
 
 fn map_model_fallback_error(error: ModelFallbackError) -> Failure {
@@ -479,6 +691,8 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
     let mut model_bundle = None;
     let mut reference_bundle = None;
     let mut mask = None;
+    let mut model_cache = None;
+    let mut model_cache_max_entries = None;
     let mut seen_format = false;
     let mut index = 1;
     while index < raw.len() {
@@ -534,6 +748,22 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
                     return Err(Failure::usage("--mask may be supplied once"));
                 }
             }
+            "--model-cache" => {
+                let path = PathBuf::from(value);
+                validate_model_cache_path(&path)?;
+                if model_cache.replace(path).is_some() {
+                    return Err(Failure::usage("--model-cache may be supplied once"));
+                }
+            }
+            "--model-cache-max-entries" => {
+                let parsed = EntryLimit::from_str(utf8_argument(value)?)
+                    .map_err(|error| Failure::usage(error.to_string()))?;
+                if model_cache_max_entries.replace(parsed).is_some() {
+                    return Err(Failure::usage(
+                        "--model-cache-max-entries may be supplied once",
+                    ));
+                }
+            }
             _ => return Err(Failure::usage(format!("unknown lookup option {option}"))),
         }
         index += 1;
@@ -559,6 +789,15 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
             ));
         }
     };
+    if fallback.is_none() && (model_cache.is_some() || model_cache_max_entries.is_some()) {
+        return Err(Failure::usage(
+            "model cache options require --model-bundle, --reference-bundle, and --mask",
+        ));
+    }
+    let cache = fallback
+        .as_ref()
+        .map(|_| resolve_model_cache_options(model_cache, model_cache_max_entries))
+        .transpose()?;
     Ok(Arguments {
         bundle,
         data_dir,
@@ -566,6 +805,65 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
         gene,
         format,
         fallback,
+        cache,
+    })
+}
+
+fn validate_model_cache_path(path: &Path) -> Result<(), Failure> {
+    if !path.is_absolute() || path.file_name().is_none() {
+        return Err(Failure::usage(
+            "model cache path must be an absolute file path",
+        ));
+    }
+    Ok(())
+}
+
+fn resolve_model_cache_options(
+    cli_path: Option<PathBuf>,
+    cli_limit: Option<EntryLimit>,
+) -> Result<CacheOptions, Failure> {
+    let environment_path = std::env::var_os("PANGOPUP_MODEL_CACHE").map(PathBuf::from);
+    if let Some(path) = environment_path.as_deref() {
+        validate_model_cache_path(path)?;
+    }
+    let environment_limit = std::env::var_os("PANGOPUP_MODEL_CACHE_MAX_ENTRIES")
+        .map(|value| {
+            value
+                .to_str()
+                .ok_or_else(|| {
+                    Failure::usage("PANGOPUP_MODEL_CACHE_MAX_ENTRIES must be valid UTF-8")
+                })
+                .and_then(|value| {
+                    EntryLimit::from_str(value).map_err(|error| Failure::usage(error.to_string()))
+                })
+        })
+        .transpose()?;
+    let explicit = cli_path.is_some() || environment_path.is_some();
+    let path = if let Some(path) = cli_path.or(environment_path) {
+        path
+    } else {
+        let root = if let Some(root) = std::env::var_os("XDG_CACHE_HOME") {
+            let root = PathBuf::from(root);
+            if !root.is_absolute() {
+                return Err(Failure::usage("XDG_CACHE_HOME must be absolute"));
+            }
+            root
+        } else {
+            let home = std::env::var_os("HOME")
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| Failure::usage("HOME is required for the default model cache"))?;
+            let home = PathBuf::from(home);
+            if !home.is_absolute() {
+                return Err(Failure::usage("HOME must be absolute"));
+            }
+            home.join(".cache")
+        };
+        root.join("pangopup/model-results.sqlite3")
+    };
+    Ok(CacheOptions {
+        path,
+        limit: cli_limit.or(environment_limit).unwrap_or_default(),
+        disposable_default: !explicit,
     })
 }
 
@@ -725,7 +1023,7 @@ mod tests {
         arguments
     }
 
-    fn fallback_values() -> Vec<String> {
+    fn fallback_values(cache: &Path) -> Vec<String> {
         vec![
             "--reference-bundle".to_owned(),
             repository_path("tests/fixtures/reference-route-test/bundle")
@@ -739,6 +1037,8 @@ mod tests {
             repository_path("tests/fixtures/pangolin-model-kernel-mini/bundle")
                 .display()
                 .to_string(),
+            "--model-cache".to_owned(),
+            cache.display().to_string(),
         ]
     }
 
@@ -826,6 +1126,8 @@ mod tests {
         for tail in [
             vec!["--model-bundle", "/m"],
             vec!["--model-bundle", "/m", "--reference-bundle", "/r"],
+            vec!["--model-cache", "/tmp/cache.sqlite3"],
+            vec!["--model-cache-max-entries", "0"],
             vec![
                 "--model-bundle",
                 "/m",
@@ -886,6 +1188,12 @@ mod tests {
 
     #[test]
     fn mixed_batch_opens_each_fallback_component_once_and_preserves_order() {
+        let temp = tempfile::tempdir().expect("temp");
+        fs::set_permissions(
+            temp.path(),
+            <fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o700),
+        )
+        .expect("private temp");
         let mut values = vec![
             "lookup".to_owned(),
             "--bundle".to_owned(),
@@ -897,7 +1205,7 @@ mod tests {
             "--variant".to_owned(),
             "GRCh38:chr1:5051:A:AC".to_owned(),
         ];
-        values.extend(fallback_values());
+        values.extend(fallback_values(&temp.path().join("cache.sqlite3")));
         let arguments = lookup_arguments(&values);
         let mut opens = Vec::new();
         let output = run_lookup_with_observer(arguments, &mut |component| opens.push(component))
@@ -910,11 +1218,48 @@ mod tests {
                 FallbackComponent::Model
             ]
         );
-        let text = String::from_utf8(output).expect("UTF-8");
+        let text = std::str::from_utf8(&output).expect("UTF-8");
         let lines: Vec<_> = text.lines().collect();
         assert_eq!(lines.len(), 2);
         assert!(lines[0].contains("\"kind\":\"precomputed\""));
         assert!(lines[1].contains("\"kind\":\"model\""));
+
+        let mut reopened = Vec::new();
+        let reopened_output =
+            run_lookup_with_observer(lookup_arguments(&values), &mut |component| {
+                reopened.push(component)
+            })
+            .expect("reopened cache hit");
+        assert_eq!(reopened_output, output);
+        assert!(
+            reopened.is_empty(),
+            "a reopened cache hit must not construct fallback components"
+        );
+
+        let mut filtered_values = vec![
+            "lookup".to_owned(),
+            "--bundle".to_owned(),
+            repository_path("tests/fixtures/snv-regression/bundle")
+                .display()
+                .to_string(),
+            "--variant".to_owned(),
+            "GRCh38:chr1:5051:A:AC".to_owned(),
+            "--gene".to_owned(),
+            "ENSG00000000001".to_owned(),
+        ];
+        filtered_values.extend(fallback_values(&temp.path().join("cache.sqlite3")));
+        let mut filtered_opens = Vec::new();
+        let filtered =
+            run_lookup_with_observer(lookup_arguments(&filtered_values), &mut |component| {
+                filtered_opens.push(component)
+            })
+            .expect("filtered cache hit");
+        assert!(filtered_opens.is_empty());
+        assert!(
+            String::from_utf8(filtered)
+                .expect("UTF-8")
+                .contains("ENSG00000000001.1")
+        );
     }
 
     #[test]
@@ -990,6 +1335,12 @@ mod tests {
 
     #[test]
     fn model_required_missing_assets_and_rejection_have_stable_classes() {
+        let temp = tempfile::tempdir().expect("temp");
+        fs::set_permissions(
+            temp.path(),
+            <fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o700),
+        )
+        .expect("private temp");
         let base = vec![
             "lookup".to_owned(),
             "--bundle".to_owned(),
@@ -1005,7 +1356,7 @@ mod tests {
 
         let mut rejected = base;
         rejected[4] = "GRCh38:chr1:5051:A:TC".to_owned();
-        rejected.extend(fallback_values());
+        rejected.extend(fallback_values(&temp.path().join("cache.sqlite3")));
         let failure = run_lookup(lookup_arguments(&rejected)).expect_err("model rejection");
         assert_eq!(failure.code, "MODEL_REJECTED");
         assert_eq!(failure.exit, 2);

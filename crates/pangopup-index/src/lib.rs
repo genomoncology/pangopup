@@ -5,6 +5,7 @@ pub mod mask;
 
 /// Production GRCh38 reference bundle and mmap provider.
 pub mod reference;
+pub mod reference_admission;
 
 mod snv;
 

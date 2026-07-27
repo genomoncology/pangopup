@@ -155,6 +155,22 @@ pub struct ModelProvenance {
 }
 
 impl ModelProvenance {
+    pub fn new(
+        model_bundle_id: String,
+        model_profile: String,
+        reference: ReferenceProvenance,
+        mask_bytes: u64,
+        mask_sha256: String,
+    ) -> Self {
+        Self {
+            model_bundle_id,
+            model_profile,
+            reference,
+            mask_bytes,
+            mask_sha256,
+        }
+    }
+
     pub const fn scoring_semantics(&self) -> &'static str {
         "pangopup-variant-score-v1"
     }
@@ -317,8 +333,30 @@ impl ModelFallback {
         }
     }
 
+    pub const fn provenance(&self) -> &ModelProvenance {
+        &self.provenance
+    }
+
     /// Complete exactly one token emitted by the lookup-first router.
     pub fn complete(
+        &mut self,
+        required: ModelRequired,
+    ) -> Result<RoutedResult, ModelFallbackError> {
+        let filter = required.gene();
+        let mut routed = self.complete_unfiltered(required)?;
+        if let RoutedResult::Modeled { records, .. } = &mut routed
+            && let Some(filter) = filter
+        {
+            records.retain(|record| record.gene().stable() == filter);
+        }
+        Ok(routed)
+    }
+
+    /// Complete one route without applying its optional stable-gene filter.
+    ///
+    /// Runtime composition uses this narrow seam to persist one reusable,
+    /// complete modeled value and applies the request filter after retrieval.
+    pub fn complete_unfiltered(
         &mut self,
         required: ModelRequired,
     ) -> Result<RoutedResult, ModelFallbackError> {
@@ -326,15 +364,12 @@ impl ModelFallback {
             .scorer
             .score(required.variant())
             .map_err(ModelFallbackError::Scoring)?;
-        let mut records = match result {
+        let records = match result {
             ModelScoreResult::Scored(records) => records,
             ModelScoreResult::Rejected(rejection) => {
                 return Err(ModelFallbackError::Rejected(rejection));
             }
         };
-        if let Some(filter) = required.gene() {
-            records.retain(|record| record.gene().stable() == filter);
-        }
         Ok(RoutedResult::Modeled {
             variant: required.request.variant,
             records,

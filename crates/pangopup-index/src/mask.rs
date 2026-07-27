@@ -154,6 +154,28 @@ pub struct IdentifiedMaskDomains {
     identity: MaskMemberIdentity,
 }
 
+/// A fully hashed mask descriptor held across cache admission.
+pub struct AdmittedMaskDomains {
+    file: File,
+    identity: MaskMemberIdentity,
+}
+
+impl AdmittedMaskDomains {
+    pub const fn identity(&self) -> &MaskMemberIdentity {
+        &self.identity
+    }
+
+    /// Structurally validate and mmap the exact descriptor already hashed for
+    /// cache admission. The member is not reopened or rehashed.
+    pub fn open(self) -> Result<IdentifiedMaskDomains, MaskError> {
+        let provider = MaskDomainsOpen::open_file(self.file)?;
+        Ok(IdentifiedMaskDomains {
+            provider,
+            identity: self.identity,
+        })
+    }
+}
+
 impl IdentifiedMaskDomains {
     pub const fn identity(&self) -> &MaskMemberIdentity {
         &self.identity
@@ -291,6 +313,43 @@ pub struct MaskDomainsOpen {
 }
 
 impl MaskDomainsOpen {
+    /// Hash and retain the exact mask descriptor needed by a cache key without
+    /// yet constructing the mmap provider.
+    pub fn admit(path: &Path) -> Result<AdmittedMaskDomains, MaskError> {
+        let mut file = open_descriptor(path)?;
+        let before = checked_metadata(&file)?;
+        file.seek(SeekFrom::Start(0))?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0_u8; 64 * 1024];
+        let mut observed = 0_u64;
+        loop {
+            let count = file.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            observed = observed
+                .checked_add(count as u64)
+                .ok_or(MaskError::Authentication("member length"))?;
+            if observed > before.len() {
+                return Err(MaskError::Authentication("member length"));
+            }
+            hasher.update(&buffer[..count]);
+        }
+        if observed != before.len() {
+            return Err(MaskError::Authentication("member length"));
+        }
+        let after = checked_metadata(&file)?;
+        validate_retained_path(path, &before, &after)?;
+        file.seek(SeekFrom::Start(0))?;
+        Ok(AdmittedMaskDomains {
+            file,
+            identity: MaskMemberIdentity {
+                bytes: observed,
+                sha256: format!("{:x}", hasher.finalize()),
+            },
+        })
+    }
+
     /// Open one regular, no-follow mask member with bounded structural checks.
     ///
     /// Exact whole-file identity belongs to asset installation and is not
@@ -304,9 +363,10 @@ impl MaskDomainsOpen {
     /// Hashing, pathname checks, mmap construction, and all later queries use
     /// the same held regular, single-link descriptor.
     pub fn open_identified(path: &Path) -> Result<IdentifiedMaskDomains, MaskError> {
-        Self::open_identified_with(path, || {}, |_| {})
+        Self::admit(path)?.open()
     }
 
+    #[cfg(test)]
     fn open_identified_with(
         path: &Path,
         after_open: impl FnOnce(),

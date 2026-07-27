@@ -1,6 +1,7 @@
 use serde_json::Value;
 use std::{
     fs,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Command, Output},
     sync::atomic::{AtomicU64, Ordering},
@@ -276,4 +277,70 @@ fn component_and_scoring_failures_are_redacted_and_transactional() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(error(&output)["code"], "MODEL_REJECTED");
     fs::remove_dir_all(&scratch).expect("remove scratch");
+}
+
+#[test]
+fn busy_cache_open_falls_back_to_model_and_skips_fill() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o700)).expect("private tempdir");
+    let cache = temp.path().join("cache.sqlite3");
+
+    let mut seed = modeled_args("GRCh38:chr1:5051:A:AC");
+    seed.extend([
+        "--variant".to_owned(),
+        "GRCh38:chr1:5051:A:ACC".to_owned(),
+        "--model-cache".to_owned(),
+        cache.display().to_string(),
+        "--model-cache-max-entries".to_owned(),
+        "unlimited".to_owned(),
+    ]);
+    let seeded = run(&seed);
+    assert!(
+        seeded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&seeded.stderr)
+    );
+
+    let baseline_cache = temp.path().join("baseline.sqlite3");
+    let mut baseline_args = modeled_args("GRCh38:chr1:5051:A:AG");
+    baseline_args.extend([
+        "--model-cache".to_owned(),
+        baseline_cache.display().to_string(),
+    ]);
+    let baseline = run(&baseline_args);
+    assert!(
+        baseline.status.success(),
+        "{}",
+        String::from_utf8_lossy(&baseline.stderr)
+    );
+
+    let blocker = rusqlite::Connection::open(&cache).expect("open cache blocker");
+    let rows: i64 = blocker
+        .query_row("SELECT count(*) FROM entries", [], |row| row.get(0))
+        .expect("seeded rows");
+    assert_eq!(rows, 2);
+    blocker
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("hold cache write lock");
+
+    let mut busy_args = modeled_args("GRCh38:chr1:5051:A:AG");
+    busy_args.extend([
+        "--model-cache".to_owned(),
+        cache.display().to_string(),
+        "--model-cache-max-entries".to_owned(),
+        "1".to_owned(),
+    ]);
+    let busy = run(&busy_args);
+    blocker.execute_batch("ROLLBACK").expect("release lock");
+
+    assert!(
+        busy.status.success(),
+        "{}",
+        String::from_utf8_lossy(&busy.stderr)
+    );
+    assert_eq!(busy.stdout, baseline.stdout);
+    let rows_after: i64 = blocker
+        .query_row("SELECT count(*) FROM entries", [], |row| row.get(0))
+        .expect("rows after fallback");
+    assert_eq!(rows_after, 2, "busy-open fallback must skip cache fill");
 }

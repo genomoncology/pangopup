@@ -157,6 +157,17 @@ applies a stable-gene filter only after complete model scoring. Its kernel test
 seam is private. It owns no asset path discovery, delivery, cache, pool, CLI,
 HTTP, or concurrency policy.
 
+### `pangopup-cache`
+
+Owns one disposable bundled-SQLite database for successful complete unfiltered
+model results. It binds canonical typed values to the literal variant and full
+scoring identity, then supplies deterministic insertion/update-order bounds
+and corruption recovery. Runtime composition performs bounded identity
+admission before a lookup and applies stable-gene filtering after a hit or
+fill. Valid hits are read-only. The cache does
+not own inference, masking, routing, assets, rendering, or concurrent service
+admission.
+
 A future `pangopup-http` crate must consume the same routed result boundary
 rather than leak model runtime, HTTP, or cache types into the scoring API. The
 shipped assets crate owns explicit pinned remote sync plus its Linux

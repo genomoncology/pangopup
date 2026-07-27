@@ -18,8 +18,9 @@ selection is established. Ticket 022 corrected and repeated the
 singleton/zero-padded/paired comparison after code review caught missing v2
 export axes. Both policies were inconclusive from singleton drift and neither
 candidate met the independent replacement gates, so ordinary dispatch remains
-singleton. Coherent asset delivery, caching, and the HTTP service remain target
-work. A
+singleton. Ticket 023 adds persistent exact SQLite reuse for successful
+complete model results while preserving lookup-first laziness. Coherent asset
+delivery and the HTTP service remain target work. A
 reviewed retained benchmark selected the
 two-bit/ambiguity-run GRCh38 payload by speed; Ticket 011 hardened it as the
 production `PGRREF01` reader and qualified the complete 25-contig bundle. Read
@@ -70,8 +71,13 @@ There is no `make check`. Run all three gates before committing.
   ensemble/indel arithmetic, order-sensitive masking, extrema, exact public
   modeled results, and the small lookup-first router/filter boundary. It does
   not own transport, caching, CLI, asset-opening policy, or concurrency policy.
+- `crates/pangopup-cache` owns the disposable versioned SQLite schema, complete
+  scoring-identity keys, canonical typed values, insertion/update-order bounds,
+  and safe recovery. It owns no scoring, filtering, asset delivery, or service
+  policy.
 - `crates/pangopup-cli` adapts command-line strings and output to the typed API;
-  it contains no scoring or index logic.
+  it composes cache admission with fallback but contains no scoring or index
+  logic.
 - `architecture/` records durable boundaries and accepted decisions.
 - `planning/` is the single source of truth for unfinished work.
 - Unsafe mmap setup must remain confined to `pangopup-index`; mapped bytes are
