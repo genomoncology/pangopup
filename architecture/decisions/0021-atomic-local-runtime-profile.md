@@ -25,6 +25,8 @@ pointer gives a small crash boundary without adding a database.
 - Source paths are never retained in receipts or status.
 - Status reads bounded metadata and member sizes, not payload hashes or model
   sessions.
-- Lookup does not yet discover or consume `runtime/active.json`.
+- Ticket 025 deliberately stopped before lookup consumption. Ticket 028 now
+  discovers `runtime/active.json` only after inference is required and admits
+  the selected model-side tuple through held descriptors.
 - Network delivery, publication, rollback/GC, HTTP, Docker, and service
   lifecycle remain separate work.

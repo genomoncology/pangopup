@@ -405,7 +405,9 @@ version = "0.1.0"
 dependencies = [
  "flate2",
  "libc",
+ "pangopup-core",
  "pangopup-index",
+ "pangopup-model",
  "rustix",
  "serde",
  "serde_jcs",

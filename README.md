@@ -16,9 +16,10 @@ SQLite cache and are reused across process restarts. One canonical, path-free
 runtime profile now binds the exact qualified SNV, model, reference, mask, and
 scoring-policy tuple. Linux can now install the three fallback assets beside
 an existing certified SNV object and atomically select that coherent profile.
-Lookup still uses explicit fallback paths; managed-profile discovery,
-network delivery, and an HTTP service are planned
-but not implemented. Ticket 012 has now
+Lookup now consumes the activated installed profile lazily when an SNV miss or
+supported non-SNV needs inference; explicit fallback paths remain an override.
+Network delivery of the three derived model-side assets and an HTTP service
+are planned but not implemented. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
 Ticket 014 promotes the exact selected bytes behind a domains-only production
@@ -40,8 +41,9 @@ The target service will answer each request through one of two paths:
 
 1. **SNV lookup:** return an exact precomputed Pangolin result from a compact,
    memory-mapped index.
-2. **Model scoring:** score a supported literal variant against explicitly
-   opened local GRCh38 sequence, splice-mask, and model providers.
+2. **Model scoring:** score a supported literal variant against the activated
+   installed GRCh38 sequence, splice-mask, and model providers, or one complete
+   explicit override tuple.
 
 An SNV is a single-nucleotide variant: one reference base replaced by one
 alternate base. The published Zenodo dataset already contains masked Pangolin
@@ -62,8 +64,8 @@ Pangopup accepts an explicit GRCh38 genomic variant:
 }
 ```
 
-The shipped CLI performs both paths below when a complete fallback set is
-supplied:
+The shipped CLI performs both paths below from an activated installation, or
+when a complete explicit fallback set is supplied:
 
 ```text
 GRCh38 chromosome + position + REF + ALT
@@ -98,8 +100,14 @@ pangopup lookup --bundle <SNV_BUNDLE> \
   --variant GRCh38:17:43106534:C:A
 ```
 
-To enable model fallback for an SNV miss or score a supported non-SNV, supply
-all three local model inputs together:
+With the coherent runtime profile installed, no model-side paths are needed:
+
+```text
+pangopup lookup --variant GRCh38:17:43106534:C:CA
+```
+
+To override the installed runtime, supply all three local model inputs
+together:
 
 ```text
 pangopup lookup --bundle <SNV_BUNDLE> \
@@ -116,8 +124,9 @@ are read-only and do not refresh that write order. Override it with
 `--model-cache <ABSOLUTE_PATH>` and change the bound with
 `--model-cache-max-entries <POSITIVE_INTEGER|unlimited>`. Matching
 `PANGOPUP_MODEL_CACHE` and `PANGOPUP_MODEL_CACHE_MAX_ENTRIES` environment
-variables are available; explicit flags win. Cache options require the complete
-fallback tuple. Authoritative SNV hits open neither SQLite nor model assets.
+variables are available; explicit flags win. Cache options are valid on the
+installed route, but an explicit `--bundle` requires the complete explicit
+fallback tuple. Authoritative SNV hits inspect neither SQLite nor model assets.
 
 These flags identify already-built local assets. Maintainers can authenticate
 the exact jointly qualified tuple and create its small compatibility authority:
@@ -137,7 +146,7 @@ be installed offline with `pangopup assets runtime install`; bounded
 inspection uses `pangopup assets runtime status`. Installation streams the
 model, compact reference, and mask once into private immutable XDG data and
 reuses the installed SNV bundle without reading its 15 GB score member.
-Network delivery and automatic lookup discovery remain future work.
+Network delivery of these three derived assets remains future work.
 
 Pangopup deliberately does not implement HGVS, transcript/protein projection,
 clinical interpretation, or general gene annotation. Callers must identify one
@@ -174,15 +183,15 @@ record pages needed by a query rather than copying the file into heap.
 
 ## Runtime assets
 
-A lookup-only installation today can use an explicitly supplied certified SNV
-bundle or the active SNV bundle installed in Linux user data. A complete
-four-asset tuple can also be installed and inspected locally, although lookup
-does not discover it yet. The target full service uses four versioned assets:
+A lookup-only installation can use an explicitly supplied certified SNV bundle
+or the active SNV bundle installed in Linux user data. A complete four-asset
+tuple can be installed, inspected, and consumed automatically for fallback.
+The target full service uses four versioned assets:
 
 | Asset | Used for | Original source | Installed form |
 |---|---|---|---|
 | SNV score index | Shipped fast path | Zenodo precomputed scores | Certified three-file bundle with a fixed 11-byte mmap member |
-| Model weights | Shipped raw CPU kernel, variant scorer, and explicit-path CLI fallback | Upstream Pangolin checkpoints | Authenticated three-file ONNX bundle, not yet published or installed |
+| Model weights | Shipped raw CPU kernel, variant scorer, and installed/explicit CLI fallback | Upstream Pangolin checkpoints | Authenticated three-file ONNX bundle, locally installable but not yet published |
 | GRCh38 sequence index | Shipped provider for fallback sequence windows and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Certified `PGRREF01` two-bit/ambiguity-run mmap bundle |
 | Splice mask | Shipped provider for fallback masking; delivery still planned | GENCODE release 38 annotation | Exact selected 6,703,320-byte `domains.pgm` mmap member |
 
@@ -582,20 +591,21 @@ Implemented today:
 - a single-owner variant scorer that composes the reference, mask, and raw
   model providers for masked distance-50 results over the supported literal
   GRCh38 subset;
-- a typed lookup-first router and explicit-path CLI model fallback with lazy
+- a typed lookup-first router with installed-profile and explicit-path CLI
+  model fallback, lazy
   exactly-once component opens, a manifest-authenticated same-descriptor
   reference mmap, an identified same-descriptor mask mmap, complete provenance,
   stable warnings/errors, gene filtering after all-gene masking, and
   transactional JSONL/table batches.
 
 Not implemented yet: HTTP service, container, persistent download
-progress/status, repair/GC/rollback, or managed runtime-profile discovery.
+progress/status, repair/GC/rollback, or remote model-side asset delivery.
 Public delivery of the compiled GRCh38 sequence index, mask, and model is also
 not implemented. Local offline installation and coherent activation are
 implemented.
-Without fallback flags, SNV lookup retains its prior `not_found` behavior; a
-non-SNV requires the explicit fallback set. With all fallback flags present, a
-pure SNV miss and every supported non-SNV route to the model.
+Without fallback flags, an activated installation sends a pure SNV miss or
+supported non-SNV to its compatible model tuple. A complete explicit tuple
+wins. An explicit `--bundle` never borrows installed model-side assets.
 
 The rolling outcome order is:
 
@@ -641,10 +651,11 @@ The rolling outcome order is:
 24. create one coherent SNV, model, GRCh38 sequence index, and mask profile
     (complete);
 25. install and atomically select that profile from trusted local inputs
-    (complete; runtime consumption remains next);
+    (complete);
 26. separate the sole reference reader from byte-producing provenance and add
     held-descriptor installed admission (complete);
-27. consume the activated installed profile for lookup-first model fallback;
+27. consume the activated installed profile for lookup-first model fallback
+    (complete);
 28. close publication prerequisites, publish only the derived model,
     GRCh38 sequence index, and mask runtime assets, and prove pinned
     fresh-machine sync plus CLI inference;

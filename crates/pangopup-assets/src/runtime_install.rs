@@ -4,7 +4,13 @@ use crate::{
     AssetError, AssetErrorKind, RuntimeProfile, SnvBundleInspection,
     canonical_runtime_profile_bytes, inspect_snv_bundle, parse_runtime_profile, runtime_profile_id,
 };
-use pangopup_index::{mask::MaskDomainsOpen, reference_admission::inspect_reference_admission};
+use pangopup_index::{
+    mask::{AdmittedMaskDomains, MaskDomainsOpen},
+    reference_admission::{
+        InstalledReference, admit_installed_reference, inspect_reference_admission,
+    },
+};
+use pangopup_model::{ModelAdmission, ModelKernel, inspect_held_model_admission};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::{
@@ -57,6 +63,8 @@ thread_local! {
         const { std::cell::Cell::new(None) };
     static REPLACE_DESTINATION: std::cell::Cell<bool> =
         const { std::cell::Cell::new(false) };
+    static REPLACE_RUNTIME_BEFORE_RETURN: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
 }
 
 #[cfg(test)]
@@ -96,11 +104,32 @@ fn mutate_destination_for_test(components: &super::local::Dir) {
     .expect("replacement destination mode");
 }
 
+#[cfg(test)]
+fn mutate_runtime_before_return_for_test(bundle: &super::local::Dir) {
+    if !REPLACE_RUNTIME_BEFORE_RETURN.replace(false) {
+        return;
+    }
+    let bundle_path = descriptor_path(bundle);
+    fs::set_permissions(&bundle_path, fs::Permissions::from_mode(DIR_PRIVATE))
+        .expect("make test bundle writable");
+    let member = bundle_path.join("model.onnx");
+    let held = bundle_path.join("model.held");
+    fs::rename(&member, &held).expect("move admitted model");
+    fs::copy(&held, &member).expect("replace admitted model");
+    fs::set_permissions(&member, fs::Permissions::from_mode(FILE_IMMUTABLE))
+        .expect("replacement mode");
+    fs::set_permissions(&bundle_path, fs::Permissions::from_mode(DIR_IMMUTABLE))
+        .expect("restore bundle mode");
+}
+
 #[cfg(not(test))]
 fn mutate_source_for_test(_path: &Path) {}
 
 #[cfg(not(test))]
 fn mutate_destination_for_test(_components: &super::local::Dir) {}
+
+#[cfg(not(test))]
+fn mutate_runtime_before_return_for_test(_bundle: &super::local::Dir) {}
 
 #[cfg(test)]
 fn transition(point: TransitionFault) -> Result<(), AssetError> {
@@ -153,6 +182,61 @@ pub enum RuntimeLocalStatus {
         mask_path: PathBuf,
         installing: bool,
     },
+}
+
+/// One immutable installed model bundle represented only by authenticated,
+/// held inputs.
+pub struct InstalledModelInput {
+    manifest_bytes: Vec<u8>,
+    notice_bytes: Vec<u8>,
+    member: File,
+    admission: ModelAdmission,
+}
+
+impl InstalledModelInput {
+    pub const fn admission(&self) -> &ModelAdmission {
+        &self.admission
+    }
+
+    /// Initialize the production kernel through the admitted descriptor.
+    pub fn open(self) -> Result<ModelKernel, AssetError> {
+        ModelKernel::open_held_authenticated(&self.manifest_bytes, &self.notice_bytes, self.member)
+            .map_err(|_| profile_corrupt_runtime())
+    }
+}
+
+/// The exact installed model-side tuple bound to an already-open SNV identity.
+pub struct InstalledRuntimeProfile {
+    profile: RuntimeProfile,
+    model: InstalledModelInput,
+    reference: InstalledReference,
+    mask: AdmittedMaskDomains,
+}
+
+impl std::fmt::Debug for InstalledRuntimeProfile {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("InstalledRuntimeProfile")
+            .field("profile", &self.profile)
+            .finish_non_exhaustive()
+    }
+}
+
+impl InstalledRuntimeProfile {
+    pub const fn profile(&self) -> &RuntimeProfile {
+        &self.profile
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        RuntimeProfile,
+        InstalledModelInput,
+        InstalledReference,
+        AdmittedMaskDomains,
+    ) {
+        (self.profile, self.model, self.reference, self.mask)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -454,6 +538,376 @@ pub fn runtime_local_status(data_root: &Path) -> Result<RuntimeLocalStatus, Asse
         &crate::production_runtime_profile(),
         installing,
     )
+}
+
+/// Admit the active installed runtime tuple for the exact already-open SNV
+/// identity. Neither the SNV payload nor the dense reference payload is
+/// scanned.
+pub fn open_installed_runtime_profile(
+    data_root: &Path,
+    expected_snv_bundle_id: &str,
+) -> Result<InstalledRuntimeProfile, AssetError> {
+    open_installed_runtime_profile_with(
+        data_root,
+        expected_snv_bundle_id,
+        &crate::production_runtime_profile(),
+    )
+}
+
+fn open_installed_runtime_profile_with(
+    data_root: &Path,
+    expected_snv_bundle_id: &str,
+    trusted: &RuntimeProfile,
+) -> Result<InstalledRuntimeProfile, AssetError> {
+    let root = super::local::open_root(data_root, false)
+        .map_err(|_| profile_unsafe_runtime())?
+        .ok_or_else(runtime_missing)?;
+    let runtime = open_runtime_dir_optional(&root.dir, "runtime", &root, DIR_PRIVATE)?
+        .ok_or_else(runtime_missing)?;
+    let active_file = super::local::open_owned_file_optional(
+        &runtime,
+        "active.json",
+        FILE_PRIVATE,
+        &root,
+        AssetErrorKind::StagingInvalid,
+    )
+    .map_err(|_| profile_unsafe_runtime())?
+    .ok_or_else(runtime_missing)?;
+    require_held_file(&active_file, FILE_PRIVATE, MAX_JSON, None)?;
+    let active_bytes = super::local::read_bounded_handle_ref(
+        &active_file,
+        MAX_JSON,
+        AssetErrorKind::BundleInvalid,
+    )
+    .map_err(|_| profile_corrupt_runtime())?;
+    let active: RuntimeActive = parse_canonical_runtime_bytes(&active_bytes)?;
+    if active.schema != ACTIVE_SCHEMA || !valid_identity(&active.profile_id) {
+        return Err(profile_corrupt_runtime());
+    }
+
+    let components = open_runtime_dir(&runtime, "components", &root, DIR_PRIVATE)?;
+    let model_parent = open_runtime_dir(&components, "model", &root, DIR_PRIVATE)?;
+    let reference_parent = open_runtime_dir(&components, "reference", &root, DIR_PRIVATE)?;
+    let mask_parent = open_runtime_dir(&components, "mask", &root, DIR_PRIVATE)?;
+    let profiles = open_runtime_dir(&runtime, "profiles", &root, DIR_PRIVATE)?;
+    let profile_dir =
+        open_runtime_dir(&profiles, suffix(&active.profile_id)?, &root, DIR_IMMUTABLE)?;
+    require_runtime_names(&profile_dir, &["profile.json", "receipt.json"])?;
+    let profile_file = open_runtime_file(&profile_dir, "profile.json", &root, FILE_IMMUTABLE)?;
+    let receipt_file = open_runtime_file(&profile_dir, "receipt.json", &root, FILE_IMMUTABLE)?;
+    require_held_file(&profile_file, FILE_IMMUTABLE, MAX_JSON, None)?;
+    require_held_file(&receipt_file, FILE_IMMUTABLE, MAX_JSON, None)?;
+    let profile_bytes = super::local::read_bounded_handle_ref(
+        &profile_file,
+        MAX_JSON,
+        AssetErrorKind::BundleInvalid,
+    )
+    .map_err(|_| profile_corrupt_runtime())?;
+    let profile = parse_runtime_profile(&profile_bytes).map_err(|_| profile_corrupt_runtime())?;
+    let observed_id = runtime_profile_id(&profile_bytes)
+        .map_err(|_| profile_corrupt_runtime())?
+        .to_string();
+    if observed_id != active.profile_id {
+        return Err(profile_corrupt_runtime());
+    }
+    if &profile != trusted
+        || profile.snv.bundle_id != expected_snv_bundle_id
+        || trusted.snv.bundle_id != expected_snv_bundle_id
+    {
+        return Err(profile_incompatible_runtime());
+    }
+    let receipt_bytes = super::local::read_bounded_handle_ref(
+        &receipt_file,
+        MAX_JSON,
+        AssetErrorKind::BundleInvalid,
+    )
+    .map_err(|_| profile_corrupt_runtime())?;
+    let installed_receipt: RuntimeReceipt = parse_canonical_runtime_bytes(&receipt_bytes)?;
+    if installed_receipt != receipt(&profile, &observed_id) {
+        return Err(profile_corrupt_runtime());
+    }
+
+    let model_identity = open_runtime_dir(
+        &model_parent,
+        suffix(&profile.model.bundle_id)?,
+        &root,
+        DIR_IMMUTABLE,
+    )?;
+    require_runtime_names(&model_identity, &["bundle"])?;
+    let model_bundle = open_runtime_dir(&model_identity, "bundle", &root, DIR_IMMUTABLE)?;
+    let model_files = open_installed_bundle(
+        &model_bundle,
+        "model.onnx",
+        profile.model.member_bytes,
+        &root,
+    )?;
+    let model_admission = inspect_held_model_admission(
+        &model_files.manifest_bytes,
+        &model_files.notice_bytes,
+        &model_files.member,
+    )
+    .map_err(|_| profile_corrupt_runtime())?;
+    if model_admission.bundle_id().as_str() != profile.model.bundle_id
+        || model_admission.profile() != profile.model.profile
+        || model_admission.representation().to_string() != profile.model.representation
+    {
+        return Err(profile_incompatible_runtime());
+    }
+
+    let reference_identity = open_runtime_dir(
+        &reference_parent,
+        suffix(&profile.reference.bundle_id)?,
+        &root,
+        DIR_IMMUTABLE,
+    )?;
+    require_runtime_names(&reference_identity, &["bundle"])?;
+    let reference_bundle = open_runtime_dir(&reference_identity, "bundle", &root, DIR_IMMUTABLE)?;
+    let reference_files = open_installed_bundle(
+        &reference_bundle,
+        "reference.pgr",
+        profile.reference.member_bytes,
+        &root,
+    )?;
+    if format!(
+        "sha256:{:x}",
+        Sha256::digest(&reference_files.manifest_bytes)
+    ) != profile.reference.bundle_id
+    {
+        return Err(profile_incompatible_runtime());
+    }
+    // SAFETY: the installer authenticated this descriptor before immutable
+    // publication. This admission rechecks the held topology, metadata, exact
+    // size, canonical metadata and trusted profile before construction.
+    let reference = unsafe {
+        admit_installed_reference(
+            &reference_files.manifest_bytes,
+            &reference_files.notice_bytes,
+            reference_files
+                .member
+                .try_clone()
+                .map_err(|_| profile_corrupt_runtime())?,
+        )
+    }
+    .map_err(|_| profile_corrupt_runtime())?;
+    if reference.manifest().profile != profile.reference.profile
+        || reference.manifest().reference_format != profile.reference.format
+        || reference.manifest().source.assembly != profile.reference.assembly
+        || reference.manifest().source.assembly_accession != profile.reference.assembly_accession
+        || reference.manifest().sequences.sequence_set_sha256
+            != profile.reference.sequence_set_sha256
+    {
+        return Err(profile_incompatible_runtime());
+    }
+
+    let mask_identity = open_runtime_dir(
+        &mask_parent,
+        suffix(&profile.mask.member_sha256)?,
+        &root,
+        DIR_IMMUTABLE,
+    )?;
+    require_runtime_names(&mask_identity, &["domains.pgm"])?;
+    let mask_file = open_runtime_file(&mask_identity, "domains.pgm", &root, FILE_IMMUTABLE)?;
+    require_held_file(
+        &mask_file,
+        FILE_IMMUTABLE,
+        profile.mask.member_bytes,
+        Some(profile.mask.member_bytes),
+    )?;
+    let mask = MaskDomainsOpen::admit_held(
+        mask_file
+            .try_clone()
+            .map_err(|_| profile_corrupt_runtime())?,
+    )
+    .map_err(|_| profile_corrupt_runtime())?;
+    if mask.identity().bytes() != profile.mask.member_bytes
+        || format!("sha256:{}", mask.identity().sha256()) != profile.mask.member_sha256
+    {
+        return Err(profile_incompatible_runtime());
+    }
+
+    mutate_runtime_before_return_for_test(&model_bundle);
+    for (parent, name, held) in [
+        (&root.dir, "runtime", &runtime.file),
+        (&runtime, "active.json", &active_file),
+        (&runtime, "components", &components.file),
+        (&components, "model", &model_parent.file),
+        (&components, "reference", &reference_parent.file),
+        (&components, "mask", &mask_parent.file),
+        (&runtime, "profiles", &profiles.file),
+        (&profiles, suffix(&active.profile_id)?, &profile_dir.file),
+        (&profile_dir, "profile.json", &profile_file),
+        (&profile_dir, "receipt.json", &receipt_file),
+        (
+            &model_parent,
+            suffix(&profile.model.bundle_id)?,
+            &model_identity.file,
+        ),
+        (&model_identity, "bundle", &model_bundle.file),
+        (&model_bundle, "manifest.json", &model_files.manifest_file),
+        (&model_bundle, "NOTICE", &model_files.notice_file),
+        (&model_bundle, "model.onnx", &model_files.member),
+        (
+            &reference_parent,
+            suffix(&profile.reference.bundle_id)?,
+            &reference_identity.file,
+        ),
+        (&reference_identity, "bundle", &reference_bundle.file),
+        (
+            &reference_bundle,
+            "manifest.json",
+            &reference_files.manifest_file,
+        ),
+        (&reference_bundle, "NOTICE", &reference_files.notice_file),
+        (&reference_bundle, "reference.pgr", &reference_files.member),
+        (
+            &mask_parent,
+            suffix(&profile.mask.member_sha256)?,
+            &mask_identity.file,
+        ),
+        (&mask_identity, "domains.pgm", &mask_file),
+    ] {
+        super::local::named_identity_matches(parent, name, held)
+            .map_err(|_| profile_corrupt_runtime())?;
+    }
+
+    Ok(InstalledRuntimeProfile {
+        profile,
+        model: InstalledModelInput {
+            manifest_bytes: model_files.manifest_bytes,
+            notice_bytes: model_files.notice_bytes,
+            member: model_files.member,
+            admission: model_admission,
+        },
+        reference,
+        mask,
+    })
+}
+
+struct InstalledBundleFiles {
+    manifest_bytes: Vec<u8>,
+    notice_bytes: Vec<u8>,
+    manifest_file: File,
+    notice_file: File,
+    member: File,
+}
+
+fn open_runtime_dir_optional(
+    parent: &super::local::Dir,
+    name: &str,
+    root: &super::local::Root,
+    mode: u32,
+) -> Result<Option<super::local::Dir>, AssetError> {
+    let Some(dir) = super::local::open_owned_dir_optional(parent, name, root)
+        .map_err(|_| profile_unsafe_runtime())?
+    else {
+        return Ok(None);
+    };
+    let metadata = dir.file.metadata().map_err(|_| profile_corrupt_runtime())?;
+    if metadata.mode() & 0o777 != mode {
+        return Err(profile_unsafe_runtime());
+    }
+    Ok(Some(dir))
+}
+
+fn open_runtime_dir(
+    parent: &super::local::Dir,
+    name: &str,
+    root: &super::local::Root,
+    mode: u32,
+) -> Result<super::local::Dir, AssetError> {
+    open_runtime_dir_optional(parent, name, root, mode)?.ok_or_else(profile_corrupt_runtime)
+}
+
+fn open_runtime_file(
+    parent: &super::local::Dir,
+    name: &str,
+    root: &super::local::Root,
+    mode: u32,
+) -> Result<File, AssetError> {
+    super::local::open_owned_file_optional(parent, name, mode, root, AssetErrorKind::StagingInvalid)
+        .map_err(|_| profile_unsafe_runtime())?
+        .ok_or_else(profile_corrupt_runtime)
+}
+
+fn require_held_file(
+    file: &File,
+    mode: u32,
+    maximum: u64,
+    exact: Option<u64>,
+) -> Result<(), AssetError> {
+    let metadata = file.metadata().map_err(|_| profile_corrupt_runtime())?;
+    if !metadata.file_type().is_file()
+        || metadata.uid() != effective_uid()
+        || metadata.nlink() != 1
+        || metadata.mode() & 0o777 != mode
+    {
+        return Err(profile_unsafe_runtime());
+    }
+    if metadata.len() > maximum || exact.is_some_and(|value| metadata.len() != value) {
+        return Err(profile_corrupt_runtime());
+    }
+    Ok(())
+}
+
+fn require_runtime_names(dir: &super::local::Dir, expected: &[&str]) -> Result<(), AssetError> {
+    let names = super::local::read_names_bounded(dir, expected.len().saturating_add(1))
+        .map_err(|_| profile_unsafe_runtime())?
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let expected = expected
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect::<BTreeSet<_>>();
+    if names.iter().any(|name| !expected.contains(name)) {
+        return Err(profile_unsafe_runtime());
+    }
+    if names != expected {
+        return Err(profile_corrupt_runtime());
+    }
+    Ok(())
+}
+
+fn open_installed_bundle(
+    bundle: &super::local::Dir,
+    payload_name: &str,
+    payload_bytes: u64,
+    root: &super::local::Root,
+) -> Result<InstalledBundleFiles, AssetError> {
+    require_runtime_names(bundle, &["NOTICE", "manifest.json", payload_name])?;
+    let manifest = open_runtime_file(bundle, "manifest.json", root, FILE_IMMUTABLE)?;
+    let notice = open_runtime_file(bundle, "NOTICE", root, FILE_IMMUTABLE)?;
+    let member = open_runtime_file(bundle, payload_name, root, FILE_IMMUTABLE)?;
+    require_held_file(&manifest, FILE_IMMUTABLE, MAX_JSON, None)?;
+    require_held_file(&notice, FILE_IMMUTABLE, MAX_NOTICE, None)?;
+    require_held_file(&member, FILE_IMMUTABLE, payload_bytes, Some(payload_bytes))?;
+    Ok(InstalledBundleFiles {
+        manifest_bytes: super::local::read_bounded_handle_ref(
+            &manifest,
+            MAX_JSON,
+            AssetErrorKind::BundleInvalid,
+        )
+        .map_err(|_| profile_corrupt_runtime())?,
+        notice_bytes: super::local::read_bounded_handle_ref(
+            &notice,
+            MAX_NOTICE,
+            AssetErrorKind::BundleInvalid,
+        )
+        .map_err(|_| profile_corrupt_runtime())?,
+        manifest_file: manifest,
+        notice_file: notice,
+        member,
+    })
+}
+
+fn parse_canonical_runtime_bytes<T>(bytes: &[u8]) -> Result<T, AssetError>
+where
+    T: DeserializeOwned + Serialize,
+{
+    let value: T = serde_json::from_slice(bytes).map_err(|_| profile_corrupt_runtime())?;
+    if serde_jcs::to_vec(&value).map_err(|_| profile_corrupt_runtime())? != bytes {
+        return Err(profile_corrupt_runtime());
+    }
+    Ok(value)
 }
 
 fn runtime_local_status_with(
@@ -1593,6 +2047,34 @@ fn profile_corrupt(message: &'static str) -> AssetError {
     AssetError::new(AssetErrorKind::BundleInvalid, message)
 }
 
+fn runtime_missing() -> AssetError {
+    AssetError::new(
+        AssetErrorKind::AssetsMissing,
+        "installed runtime profile is missing",
+    )
+}
+
+fn profile_unsafe_runtime() -> AssetError {
+    AssetError::new(
+        AssetErrorKind::StagingInvalid,
+        "installed runtime state is unsafe",
+    )
+}
+
+fn profile_corrupt_runtime() -> AssetError {
+    AssetError::new(
+        AssetErrorKind::BundleInvalid,
+        "installed runtime profile is invalid",
+    )
+}
+
+fn profile_incompatible_runtime() -> AssetError {
+    AssetError::new(
+        AssetErrorKind::TransportIncompatible,
+        "installed runtime profile is incompatible",
+    )
+}
+
 fn conflict(message: &'static str) -> AssetError {
     AssetError::new(AssetErrorKind::InstallConflict, message)
 }
@@ -1608,6 +2090,9 @@ fn output(message: &'static str) -> AssetError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pangopup_core::{GenomicPosition, Grch38Contig, ReferenceProvider};
+    use pangopup_index::mask::{MaskProvider, MaskQueryBuffer};
+    use pangopup_model::{MIN_CONTEXT_LENGTH, ModelContext, Strand, StrandPair};
     use std::os::unix::fs::MetadataExt;
     use tempfile::TempDir;
 
@@ -1753,6 +2238,27 @@ mod tests {
         runtime_local_status_with(&descriptor_path(&opened.dir), root, profile, false)
     }
 
+    fn install_mini_runtime(root: &Path) -> (SnvBundleInspection, RuntimeProfile) {
+        let snv = install_mini_snv(root);
+        let profile = miniature_profile(&snv);
+        let bytes = canonical_runtime_profile_bytes(&profile).expect("profile");
+        let model = fixture("pangolin-model-kernel-mini/bundle");
+        let reference = fixture("reference-route-test/bundle");
+        let mask = fixture("route-mask/domains.pgm");
+        install_with_profile(
+            &bytes,
+            &profile,
+            InstallSources {
+                model: &model,
+                reference: &reference,
+                mask: &mask,
+            },
+            root,
+        )
+        .expect("install miniature runtime");
+        (snv, profile)
+    }
+
     #[test]
     fn receipt_is_path_free_and_deterministic() {
         let profile = crate::production_runtime_profile();
@@ -1839,6 +2345,192 @@ mod tests {
         assert_eq!(reused.status, "reused");
         assert_eq!(before.ino(), after.ino());
         assert_eq!(before.mtime(), after.mtime());
+    }
+
+    #[test]
+    fn installed_runtime_admits_real_held_miniature_capabilities() {
+        let temp = TempDir::new().expect("temp");
+        let root = temp.path().join("data");
+        let (snv, profile) = install_mini_runtime(&root);
+        let installed = open_installed_runtime_profile_with(&root, &snv.bundle_id, &profile)
+            .expect("installed admission");
+        let (_, model, reference, mask) = installed.into_parts();
+        assert_eq!(
+            model.admission().bundle_id().as_str(),
+            profile.model.bundle_id
+        );
+        assert_eq!(reference.manifest().profile, profile.reference.profile);
+        assert_eq!(mask.identity().bytes(), profile.mask.member_bytes);
+        mask.open().expect("open held mask");
+        model.open().expect("open held model");
+    }
+
+    #[test]
+    fn installed_runtime_is_bound_to_snv_identity_and_detects_pre_return_replacement() {
+        let temp = TempDir::new().expect("temp");
+        let root = temp.path().join("data");
+        let (snv, profile) = install_mini_runtime(&root);
+        let incompatible = open_installed_runtime_profile_with(
+            &root,
+            &format!("sha256:{}", "f".repeat(64)),
+            &profile,
+        )
+        .expect_err("SNV identity mismatch");
+        assert_eq!(incompatible.kind(), AssetErrorKind::TransportIncompatible);
+        assert_eq!(
+            incompatible.to_string(),
+            "installed runtime profile is incompatible"
+        );
+
+        REPLACE_RUNTIME_BEFORE_RETURN.set(true);
+        let replaced = open_installed_runtime_profile_with(&root, &snv.bundle_id, &profile)
+            .expect_err("pre-return pathname replacement");
+        assert_eq!(replaced.kind(), AssetErrorKind::BundleInvalid);
+        assert_eq!(replaced.to_string(), "installed runtime profile is invalid");
+    }
+
+    #[test]
+    fn installed_runtime_missing_error_is_compact_and_exact() {
+        let temp = TempDir::new().expect("temp");
+        let error = open_installed_runtime_profile(
+            &temp.path().join("missing"),
+            &crate::production_runtime_profile().snv.bundle_id,
+        )
+        .expect_err("missing profile");
+        assert_eq!(error.kind(), AssetErrorKind::AssetsMissing);
+        assert_eq!(error.to_string(), "installed runtime profile is missing");
+    }
+
+    #[test]
+    fn installed_runtime_malformed_and_unsafe_states_have_exact_classes() {
+        let malformed = TempDir::new().expect("temp");
+        let malformed_root = malformed.path().join("data");
+        let (snv, profile) = install_mini_runtime(&malformed_root);
+        fs::write(
+            malformed_root.join("runtime/active.json"),
+            b"{\"schema\":\"wrong\"}",
+        )
+        .expect("malformed active");
+        let error = open_installed_runtime_profile_with(&malformed_root, &snv.bundle_id, &profile)
+            .expect_err("malformed profile");
+        assert_eq!(error.kind(), AssetErrorKind::BundleInvalid);
+        assert_eq!(error.to_string(), "installed runtime profile is invalid");
+
+        let bad_mode = TempDir::new().expect("temp");
+        let bad_mode_root = bad_mode.path().join("data");
+        let (snv, profile) = install_mini_runtime(&bad_mode_root);
+        fs::set_permissions(
+            bad_mode_root.join("runtime/active.json"),
+            fs::Permissions::from_mode(0o644),
+        )
+        .expect("unsafe mode");
+        let error = open_installed_runtime_profile_with(&bad_mode_root, &snv.bundle_id, &profile)
+            .expect_err("unsafe mode");
+        assert_eq!(error.kind(), AssetErrorKind::StagingInvalid);
+        assert_eq!(error.to_string(), "installed runtime state is unsafe");
+
+        let bad_link = TempDir::new().expect("temp");
+        let bad_link_root = bad_link.path().join("data");
+        let (snv, profile) = install_mini_runtime(&bad_link_root);
+        fs::hard_link(
+            bad_link_root.join("runtime/active.json"),
+            bad_link.path().join("active-link.json"),
+        )
+        .expect("unsafe link");
+        let error = open_installed_runtime_profile_with(&bad_link_root, &snv.bundle_id, &profile)
+            .expect_err("unsafe link");
+        assert_eq!(error.kind(), AssetErrorKind::StagingInvalid);
+        assert_eq!(error.to_string(), "installed runtime state is unsafe");
+
+        let bad_entry = TempDir::new().expect("temp");
+        let bad_entry_root = bad_entry.path().join("data");
+        let (snv, profile) = install_mini_runtime(&bad_entry_root);
+        let profile_id =
+            runtime_profile_id(&canonical_runtime_profile_bytes(&profile).expect("profile bytes"))
+                .expect("profile id")
+                .to_string();
+        let profile_dir = bad_entry_root
+            .join("runtime/profiles")
+            .join(suffix(&profile_id).expect("suffix"));
+        fs::set_permissions(&profile_dir, fs::Permissions::from_mode(DIR_PRIVATE))
+            .expect("writable profile dir");
+        fs::write(profile_dir.join("unexpected"), b"x").expect("unsafe entry");
+        fs::set_permissions(&profile_dir, fs::Permissions::from_mode(DIR_IMMUTABLE))
+            .expect("restore profile dir");
+        let error = open_installed_runtime_profile_with(&bad_entry_root, &snv.bundle_id, &profile)
+            .expect_err("unsafe entry");
+        assert_eq!(error.kind(), AssetErrorKind::StagingInvalid);
+        assert_eq!(error.to_string(), "installed runtime state is unsafe");
+    }
+
+    #[test]
+    fn admitted_runtime_capabilities_survive_all_pathname_replacements() {
+        let temp = TempDir::new().expect("temp");
+        let root = temp.path().join("data");
+        let (snv, profile) = install_mini_runtime(&root);
+        let installed = open_installed_runtime_profile_with(&root, &snv.bundle_id, &profile)
+            .expect("installed admission");
+        let (_, model, reference, mask) = installed.into_parts();
+
+        let model_path = root
+            .join("runtime/components/model")
+            .join(suffix(&profile.model.bundle_id).expect("model suffix"))
+            .join("bundle/model.onnx");
+        let reference_path = root
+            .join("runtime/components/reference")
+            .join(suffix(&profile.reference.bundle_id).expect("reference suffix"))
+            .join("bundle/reference.pgr");
+        let mask_path = root
+            .join("runtime/components/mask")
+            .join(suffix(&profile.mask.member_sha256).expect("mask suffix"))
+            .join("domains.pgm");
+        for (ordinal, path) in [model_path, reference_path, mask_path]
+            .into_iter()
+            .enumerate()
+        {
+            let metadata = fs::metadata(&path).expect("member metadata");
+            let parent = path.parent().expect("member parent");
+            fs::set_permissions(parent, fs::Permissions::from_mode(DIR_PRIVATE))
+                .expect("writable member parent");
+            let held = temp.path().join(format!("held-{ordinal}"));
+            fs::rename(&path, &held).expect("retain original inode");
+            fs::write(&path, vec![0_u8; metadata.len() as usize]).expect("replace pathname");
+            fs::set_permissions(&path, fs::Permissions::from_mode(FILE_IMMUTABLE))
+                .expect("replacement mode");
+            fs::set_permissions(parent, fs::Permissions::from_mode(DIR_IMMUTABLE))
+                .expect("restore member parent");
+        }
+
+        let mut base = [0_u8; 1];
+        reference
+            .copy_window(
+                Grch38Contig::autosome(1).expect("chr1"),
+                GenomicPosition::new(5_051).expect("position"),
+                &mut base,
+            )
+            .expect("query held reference");
+        assert_eq!(base, [b'A']);
+
+        let mask = mask.open().expect("open held mask");
+        let mut genes = MaskQueryBuffer::default();
+        mask.query(
+            Grch38Contig::autosome(1).expect("chr1"),
+            GenomicPosition::new(5_051).expect("position"),
+            None,
+            &mut genes,
+        )
+        .expect("query held mask");
+        assert!(!genes.plus().is_empty());
+
+        let mut model = model.open().expect("open held model");
+        let context = ModelContext::new(vec![b'N'; MIN_CONTEXT_LENGTH]).expect("context");
+        model
+            .infer_variant(&[StrandPair {
+                reference: &context,
+                alternate: &context,
+                strand: Strand::Plus,
+            }])
+            .expect("score held model");
     }
 
     #[test]

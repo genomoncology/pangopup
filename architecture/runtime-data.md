@@ -41,13 +41,13 @@ schema, format identity, manifest claims, and member-integrity checks.
 
 ## Model-scoring assets
 
-Variant-level model scoring is implemented as a library composition over
-explicitly opened providers. The four assets are bound by one canonical
+Variant-level model scoring is implemented as a library composition over held
+installed providers or one complete explicit override. The four assets are bound by one canonical
 path-free compatibility profile. The offline Linux installer copies the model,
 compiled reference, and mask into private immutable XDG storage, reuses the
 certified active SNV object, and atomically selects one coherent profile. The
-CLI does not yet discover that profile; it routes caller-enabled lookup misses
-and supported non-SNVs through explicit local paths:
+CLI admits that profile only after lookup requires inference. Explicit paths
+remain an all-or-nothing override:
 
 Running Pangolin for a lookup miss or non-SNV genuinely needs:
 
@@ -177,8 +177,8 @@ hashes the complete bounded `reference.pgr`, verifies the manifest-declared
 member digest, and scores through an mmap created from that same retained
 descriptor. This full reference read happens only when a batch actually needs
 explicit fallback. Ordinary installed-reference open remains structural and
-cheap; future coherent installation authenticates the member once before
-activation instead of rehashing it on every process open.
+cheap: installation authenticated the member once before activation, and
+runtime maps the held installed descriptor without rehashing the dense payload.
 
 Successful model fallback now stores complete unfiltered typed records in a
 disposable SQLite cache. Its full key binds the literal variant to every model,

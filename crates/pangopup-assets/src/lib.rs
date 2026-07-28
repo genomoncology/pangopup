@@ -48,7 +48,8 @@ pub use release::{
 #[cfg(any(test, feature = "test-read-audit"))]
 pub use release_upload_linux::{LeaseBreakTimeTest, PayloadOperation, PayloadTestFaults};
 pub use runtime_install::{
-    RuntimeInstallOutcome, RuntimeLocalStatus, install_runtime_profile, runtime_local_status,
+    InstalledModelInput, InstalledRuntimeProfile, RuntimeInstallOutcome, RuntimeLocalStatus,
+    install_runtime_profile, open_installed_runtime_profile, runtime_local_status,
 };
 pub use runtime_profile::{
     MaskProfile, ModelProfile, RUNTIME_PROFILE_SCHEMA, ReferenceProfile, RuntimeProfile,

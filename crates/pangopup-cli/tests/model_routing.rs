@@ -66,6 +66,36 @@ fn error(output: &Output) -> Value {
 }
 
 #[test]
+fn authoritative_installed_hit_ignores_malformed_cache_environment_and_missing_runtime() {
+    let temp = tempfile::tempdir().expect("temp");
+    fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o700)).expect("private temp");
+    let transport = temp.path().join("transport");
+    pangopup_assets::pack_bundle(&lookup_bundle(), &transport).expect("pack miniature SNV");
+    let data = temp.path().join("data");
+    pangopup_assets::install_transport(&transport, &data).expect("install miniature SNV");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        .args([
+            "lookup",
+            "--data-dir",
+            data.to_str().expect("UTF-8 data path"),
+            "--variant",
+            "GRCh38:chr12:6801301:G:A",
+        ])
+        .env("PANGOPUP_MODEL_CACHE", "relative/is/invalid")
+        .env("PANGOPUP_MODEL_CACHE_MAX_ENTRIES", "not-a-limit")
+        .output()
+        .expect("run isolated Pangopup");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("\"kind\":\"precomputed\""));
+}
+
+#[test]
 fn real_file_backed_model_route_json_table_and_filter_are_exact() {
     let output = run(&modeled_args("GRCh38:chr1:5051:A:AC"));
     assert!(

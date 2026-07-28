@@ -4,8 +4,8 @@ This document records target service design. Pangopup does not yet ship an HTTP
 server, service lifecycle integration, container, or metrics. The shipped
 runtime interface is `pangopup lookup`; its typed
 lookup-first/model route already returns stable JSON Lines or exact
-tab-separated output from explicit local assets and persists successful model
-results in a bounded SQLite cache.
+tab-separated output from an activated installed profile or complete explicit
+override and persists successful model results in a bounded SQLite cache.
 
 ## One lookup-first core
 
@@ -42,8 +42,8 @@ The service exposes:
 - graceful shutdown on ordinary process-manager signals.
 
 Readiness will consume the established canonical four-asset runtime profile
-and reject a mixed tuple. Offline installation and activation exist;
-service/lookup discovery and provider opening from that profile remain future.
+and reject a mixed tuple. Offline installation, activation, CLI discovery, and
+held provider opening exist; service lifecycle composition remains future.
 Service startup may invoke the same future pinned asset-sync operation exposed
 explicitly as `pangopup assets sync`. Offline mode forbids networking and names
 missing or incompatible assets. A running process holds one immutable opened

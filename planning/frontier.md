@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-07-27
+Updated: 2026-07-28
 
 ## Current boundary
 
@@ -22,15 +22,15 @@ its delivery remains future. An authenticated combined
 ONNX representation and qualified single-owner CPU kernel now return the
 twelve raw Pangolin channels. `pangopup-engine` now composes the sequence,
 mask, and kernel providers into compatible masked distance-50 scores for the
-supported literal GRCh38 subset. Typed lookup-first routing and explicit-path
-CLI model output are established. A complete-request CPU comparison retains
+supported literal GRCh38 subset. Typed lookup-first routing and installed or
+explicit-path CLI model output are established. A complete-request CPU comparison retains
 sequential `1/1` as the portable ordinary default and records fixed `8/1` as
 this host's frontier result. The corrected reference/alternate batching
 comparison retained singleton after both policies exceeded the drift limit and
 neither candidate met the independent replacement gates. Persistent exact
 SQLite result reuse, one canonical four-asset production compatibility
-profile, and offline coherent XDG installation/activation are established.
-Runtime consumption, delivery, and HTTP remain future.
+profile, offline coherent XDG installation/activation, and lazy held-descriptor
+runtime consumption are established. Model-side delivery and HTTP remain future.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
 and typed mmap provider are established; its transport, installation, and
 release remain future delivery work. Future SNV and sequence-index builds use
@@ -352,13 +352,13 @@ bound to the exact reference, identified mask, and model identities. Model
 masking still sees all containing GENCODE genes before an optional stable-gene
 filter is applied.
 
-The CLI enables fallback only through the complete explicit
-`--reference-bundle`/`--mask`/`--model-bundle` tuple. Without that tuple, all
-SNVs retain the byte-identical legacy lookup contract, including six honest
-`not_found` rows in the frozen 1,000-request corpus; a non-SNV reports
-`MODEL_ASSETS_REQUIRED`. Hit-only batches do not inspect supplied fallback
-paths. Mixed/model batches lazily open reference, mask, and model once, buffer
-the complete batch, and emit stable modeled JSONL or the existing table shape.
+The CLI enables fallback through the activated installed profile or the
+complete explicit `--reference-bundle`/`--mask`/`--model-bundle` tuple.
+Authoritative hits inspect neither runtime profile, cache, nor model-side
+assets. An explicit tuple wins, and an explicit SNV `--bundle` never borrows
+installed model-side assets. Mixed/model batches lazily open reference, mask,
+and model once, buffer the complete batch, and emit stable modeled JSONL or the
+existing table shape.
 
 Normal tests use one checked synthetic 25-contig route reference, a 260-byte
 domains member, the miniature authenticated ONNX bundle, and the established
@@ -415,8 +415,9 @@ GRCh38 sequence index, mask, and scoring policy. The Linux installer reuses the
 active certified SNV object, streams the three fallback assets once into a
 private immutable store, and atomically selects one profile. Bounded status,
 idempotent reuse, shared-lock behavior, and transition failure/retry are
-covered by miniature tests. Lookup/runtime discovery, remote provisioning,
-rollback/GC, and publication are deliberately separate later outcomes.
+covered by miniature tests. Lookup/runtime discovery and held provider
+consumption are also shipped. Remote provisioning, rollback/GC, and
+publication are deliberately separate later outcomes.
 
 ## Established — reference reader/provenance boundary
 
@@ -435,13 +436,14 @@ admission. Miniature v1/v2 payload and notice bytes are identical, the compiled
 production/profile identities remain statically pinned. The retained 772 MB
 production member was not opened, copied, repacked, or rebuilt.
 
-## Next outcome — installed-profile consumption
+## Established — installed-profile consumption
 
-Redraft installed-profile consumption from the
-reviewed Ticket 026 behavior and reapply only the useful routing/test work from
-the preserved rejected stash. Runtime discovery must use the activated
-four-asset profile, pass the installer's exact held reference descriptor
-through the new opaque capability, and preserve lookup-first laziness.
+Ordinary lookup binds fallback admission to the exact already-open active SNV
+identity. A model-required request admits the compatible activated model,
+reference, and mask through held descriptors; an authoritative hit never
+inspects that state. Explicit fallback remains all-or-nothing and takes
+precedence. Reopened SQLite hits repeat bounded identity admission but avoid
+dense reference/model reads and ONNX initialization.
 
 ## Later outcome — release-ready asset publication
 

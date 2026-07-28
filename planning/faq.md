@@ -88,11 +88,11 @@ general transcript/protein reference system and is not splice scoring.
 
 The lookup path needs only the fixed-v1 score bundle. The shipped model scorer
 additionally needs the authenticated converted model bundle, local GRCh38 DNA
-bases, and a map of gene strand plus exon boundaries. Lookup-first routing is
-shipped through three explicit local CLI flags. One canonical runtime profile
+bases, and a map of gene strand plus exon boundaries. Lookup-first routing uses
+the activated installed profile or three explicit override flags. One canonical runtime profile
 now proves which exact SNV, model, reference, mask, and scoring-policy tuple is
-compatible. Offline coherent installation and activation are shipped; lookup
-discovery and remote delivery remain future. The original checkpoint
+compatible. Offline coherent installation, activation, and lazy lookup
+consumption are shipped; remote delivery remains future. The original checkpoint
 containers are maintainer conversion inputs, not runtime inputs. The DNA is
 pinned NCBI RefSeq GRCh38.p14
 `GCF_000001405.40`. The boundary map is compiled from the GENCODE annotation
@@ -185,19 +185,18 @@ The GRCh38 reference source is distributed by NCBI as FASTA, but raw FASTA is
 build input. The shipped reference builder compiles all 25 required primary
 sequences into the production `PGRREF01` mmap bundle, and its provider copies a
 bounded sequence window without parsing FASTA or loading the whole reference
-into heap memory. The variant scorer consumes that provider when opened
-explicitly and composes it with the mask and raw CPU kernel. The CLI can open
-all three local assets for fallback today. Their offline installation and
-coherent four-asset activation are implemented, but lookup does not yet
-discover the selected runtime profile automatically.
+into heap memory. The variant scorer consumes that provider and composes it
+with the mask and raw CPU kernel. The CLI can use the activated installed tuple
+or one complete explicit override. Offline installation, coherent activation,
+and automatic lookup discovery are implemented.
 
 For these caller-supplied paths, Pangopup hashes the complete bounded compiled
 reference member and verifies its manifest digest before scoring through an
 mmap of that same retained descriptor. That extra full-file read prevents
 provenance from describing different same-size sequence bytes. It occurs only
 when a request actually needs explicit fallback; authoritative SNV hits skip
-all three fallback paths. A future managed installation will authenticate the
-immutable reference during install and retain cheap structural startup.
+all three fallback paths. Managed installation authenticates the immutable
+reference once and retains cheap structural startup.
 
 ### Does Pangopup repeat model inference for the same variant?
 

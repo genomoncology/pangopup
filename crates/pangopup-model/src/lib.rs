@@ -439,6 +439,31 @@ pub struct ModelAdmission {
     representation: ModelRepresentation,
 }
 
+/// Inspect bounded canonical metadata for an already-held installed model.
+///
+/// This does not read or initialize the ONNX graph.
+pub fn inspect_held_model_admission(
+    manifest_bytes: &[u8],
+    notice_bytes: &[u8],
+    model_file: &File,
+) -> Result<ModelAdmission, ModelError> {
+    let manifest = parse_any_manifest(manifest_bytes)?;
+    validate_member_bytes(manifest.members(), "NOTICE", notice_bytes)?;
+    let declared = member(manifest.members(), "model.onnx")?;
+    let metadata = model_file
+        .metadata()
+        .map_err(|error| io_error("inspect held model", error))?;
+    if !metadata.file_type().is_file() || metadata.nlink() != 1 || metadata.len() != declared.bytes
+    {
+        return Err(ModelError::InvalidBundle("model admission member"));
+    }
+    Ok(ModelAdmission {
+        bundle_id: bundle_identity(manifest_bytes),
+        profile: manifest.profile().to_owned(),
+        representation: manifest.representation(),
+    })
+}
+
 impl ModelAdmission {
     pub fn bundle_id(&self) -> &BundleIdentity {
         &self.bundle_id
@@ -809,6 +834,57 @@ impl ModelKernel {
         Ok(kernel)
     }
 
+    /// Authenticate a complete held model bundle and initialize its production
+    /// kernel without reopening a pathname.
+    pub fn open_held_authenticated(
+        manifest_bytes: &[u8],
+        notice_bytes: &[u8],
+        mut model_file: File,
+    ) -> Result<Self, ModelError> {
+        let manifest = parse_any_manifest(manifest_bytes)?;
+        let identity = bundle_identity(manifest_bytes);
+        validate_member_bytes(manifest.members(), "NOTICE", notice_bytes)?;
+        let declared = member(manifest.members(), "model.onnx")?;
+        if model_file
+            .metadata()
+            .map_err(|error| io_error("inspect held model", error))?
+            .len()
+            != declared.bytes
+        {
+            return Err(ModelError::InvalidBundle("held model identity"));
+        }
+        model_file
+            .seek(SeekFrom::Start(0))
+            .map_err(|error| io_error("rewind held model", error))?;
+        let model_bytes = read_exact_member(
+            &mut model_file,
+            declared.bytes,
+            MAX_MODEL_BYTES,
+            "read held model",
+        )?;
+        if format!("sha256:{:x}", Sha256::digest(&model_bytes)) != declared.sha256 {
+            return Err(ModelError::InvalidBundle("held model authentication"));
+        }
+        model_file
+            .seek(SeekFrom::Start(0))
+            .map_err(|error| io_error("rewind held model", error))?;
+        let kernel = Self::initialize(
+            AuthenticatedBundle {
+                manifest,
+                identity,
+                model_file,
+                model_bytes,
+            },
+            CpuPolicy::production_default(),
+        )?;
+        if kernel.representation != ModelRepresentation::Singleton {
+            return Err(ModelError::IncompatibleBundle(
+                "ordinary runtime requires singleton representation",
+            ));
+        }
+        Ok(kernel)
+    }
+
     /// Open any authenticated Ticket 022 representation for retained
     /// maintainer qualification and comparison.
     ///
@@ -824,6 +900,13 @@ impl ModelKernel {
 
     fn open_authenticated(bundle: &Path, policy: CpuPolicy) -> Result<Self, ModelError> {
         let authenticated = authenticate_bundle(bundle)?;
+        Self::initialize(authenticated, policy)
+    }
+
+    fn initialize(
+        authenticated: AuthenticatedBundle,
+        policy: CpuPolicy,
+    ) -> Result<Self, ModelError> {
         let mut builder = Session::builder()
             .map_err(runtime_error)?
             .with_optimization_level(GraphOptimizationLevel::All)
@@ -2155,6 +2238,28 @@ mod tests {
         assert_eq!(inspected.representation, ModelRepresentation::Singleton);
         assert_eq!(inspected.member_bytes, 281);
         assert!(inspected.member_sha256.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn held_kernel_authenticates_the_exact_supplied_model() {
+        let bundle = miniature_bundle();
+        let manifest = fs::read(bundle.join("manifest.json")).expect("manifest");
+        let notice = fs::read(bundle.join("NOTICE")).expect("notice");
+        let expected = bundle_identity(&manifest).to_string();
+        let admission = inspect_held_model_admission(
+            &manifest,
+            &notice,
+            &File::open(bundle.join("model.onnx")).expect("model"),
+        )
+        .expect("held admission");
+        assert_eq!(admission.bundle_id().to_string(), expected);
+        let kernel = ModelKernel::open_held_authenticated(
+            &manifest,
+            &notice,
+            File::open(bundle.join("model.onnx")).expect("model"),
+        )
+        .expect("held kernel");
+        assert_eq!(kernel.bundle_identity().to_string(), expected);
     }
 
     #[test]

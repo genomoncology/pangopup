@@ -358,6 +358,41 @@ impl MaskDomainsOpen {
         Self::open_file(open_descriptor(path)?)
     }
 
+    /// Authenticate one already-held regular descriptor for later structural
+    /// open. Identity is derived from the bytes; callers cannot assert it.
+    pub fn admit_held(mut file: File) -> Result<AdmittedMaskDomains, MaskError> {
+        let before = checked_metadata(&file)?;
+        file.seek(SeekFrom::Start(0))?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0_u8; 64 * 1024];
+        let mut observed = 0_u64;
+        loop {
+            let count = file.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            observed = observed
+                .checked_add(count as u64)
+                .ok_or(MaskError::Authentication("member length"))?;
+            if observed > before.len() {
+                return Err(MaskError::Authentication("member length"));
+            }
+            hasher.update(&buffer[..count]);
+        }
+        let after = checked_metadata(&file)?;
+        if observed != before.len() || !same_file_state(&before, &after) {
+            return Err(MaskError::Authentication("member identity"));
+        }
+        file.seek(SeekFrom::Start(0))?;
+        Ok(AdmittedMaskDomains {
+            file,
+            identity: MaskMemberIdentity {
+                bytes: observed,
+                sha256: format!("{:x}", hasher.finalize()),
+            },
+        })
+    }
+
     /// Identify and structurally open one explicit caller-supplied member.
     ///
     /// Hashing, pathname checks, mmap construction, and all later queries use
@@ -1084,5 +1119,17 @@ mod qualification_tests {
             .expect("query retained mmap");
         assert_eq!(output.plus()[0].identity().to_string(), "ENSG00000000001.1");
         fs::remove_dir_all(&scratch).expect("remove scratch");
+    }
+
+    #[test]
+    fn held_admission_derives_identity_and_opens_the_same_member() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/gencode-mask-mini/domains.pgm");
+        let installed = MaskDomainsOpen::admit_held(File::open(&fixture).expect("held mask"))
+            .expect("held admission")
+            .open()
+            .expect("structural open");
+        assert_eq!(installed.identity().sha256(), FIXTURE_SHA256);
+        assert_eq!(installed.identity().bytes(), FIXTURE_BYTES);
     }
 }

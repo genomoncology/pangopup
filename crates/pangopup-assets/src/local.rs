@@ -1298,6 +1298,16 @@ pub(crate) fn open_owned_file(
         .ok_or_else(|| AssetError::new(kind, "required runtime member is missing"))
 }
 
+pub(crate) fn open_owned_file_optional(
+    parent: &Dir,
+    name: &str,
+    mode: u32,
+    root: &Root,
+    kind: AssetErrorKind,
+) -> Result<Option<File>, AssetError> {
+    open_optional_file(parent, name, mode, root, kind)
+}
+
 pub(crate) fn named_identity_matches(
     parent: &Dir,
     name: &str,
@@ -1534,7 +1544,7 @@ fn read_bounded_handle(file: File, cap: u64, kind: AssetErrorKind) -> Result<Vec
     Ok(bytes)
 }
 
-fn read_bounded_handle_ref(
+pub(crate) fn read_bounded_handle_ref(
     file: &File,
     cap: u64,
     kind: AssetErrorKind,
@@ -1808,7 +1818,7 @@ fn read_names(dir: &Dir) -> Result<Vec<String>, AssetError> {
     read_names_bounded(dir, usize::MAX)
 }
 
-fn read_names_bounded(dir: &Dir, maximum: usize) -> Result<Vec<String>, AssetError> {
+pub(crate) fn read_names_bounded(dir: &Dir, maximum: usize) -> Result<Vec<String>, AssetError> {
     let dot = CString::new(".").expect("static component");
     let cursor = openat2_beneath(
         dir.file.as_raw_fd(),

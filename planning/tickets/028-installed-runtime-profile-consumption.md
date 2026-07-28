@@ -1,6 +1,6 @@
 # 028 — Use the installed runtime profile for model fallback
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -140,7 +140,7 @@ implementation is evidence, not a patch set.
 
 ## Independent Ticket Review
 
-Reviewer: pending
+Reviewer: Codex `/root/ticket028_design_review`
 
 Initial verdict: **REJECT**. The reviewer found that the ticket did not
 authorize the model kernel's required held-descriptor open, left two explicit
@@ -160,11 +160,41 @@ bounded outcome.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex `/root/ticket028_implementation`
+
+Implemented one held-descriptor installed-runtime admission boundary bound to
+the already-open SNV bundle identity, a held model-kernel opener, and lazy CLI
+composition with explicit precedence and no source mixing. Miniature tests
+cover real installed capabilities, pre- and post-admission pathname
+substitution, malformed and unsafe installed state, all four exact redacted
+CLI error classes, hit-path laziness under malformed cache environment,
+JSONL/table and SNV-index-miss parity, and restart-equivalent SQLite reuse
+without dense-provider initialization.
+
+Focused tests passed. The complete local gate also passed:
+
+- `make lint`
+- `make test`
+- `make spec` — 194 passed, 3 skipped
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex `/root/ticket028_code_review`
+
+Initial verdict: **REJECT**. The reviewer found that the implementation did
+not directly prove the complete installed error matrix, post-admission
+held-inode behavior, installed SNV-miss parity, or malformed-cache-environment
+hit laziness.
+
+Remediation added those miniature tests and exposed one small contract defect:
+an unexpected installed entry was classified corrupt rather than unsafe. The
+developer corrected that distinction while preserving missing-member
+classification.
+
+Revised verdict: **ACCEPT**. The reviewer confirmed every prior finding is
+resolved and found no unsafe reopening, duplicate decoder, source mixing,
+eager hit-path work, cache regression, fixture-only product path, unrelated
+change, or stale claim.
 
 ## External Effect Evidence
 
@@ -172,4 +202,9 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex `/root`
+
+The coordinator inspected the final diff and current/future documentation,
+then reran `make lint`, `make test`, `make spec` (`194 passed, 3 skipped`), and
+`git diff --check`; all passed. No production asset was opened, copied,
+rebuilt, hashed, installed, or published.

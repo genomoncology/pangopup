@@ -1,7 +1,8 @@
 use pangopup_assets::{
-    AssetError, AssetErrorKind, CachePathInputs, DataPathInputs, LocalStatus, RuntimeLocalStatus,
-    SyncOutcome, install_runtime_profile, install_transport, local_status, open_active_bundle,
-    resolve_cache_root, resolve_data_root, runtime_local_status, sync_assets,
+    AssetError, AssetErrorKind, CachePathInputs, DataPathInputs, InstalledModelInput, LocalStatus,
+    RuntimeLocalStatus, SyncOutcome, install_runtime_profile, install_transport, local_status,
+    open_active_bundle, open_installed_runtime_profile, resolve_cache_root, resolve_data_root,
+    runtime_local_status, sync_assets,
 };
 use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
 use pangopup_cli::{OutputFormat, RenderRequest, render_requests};
@@ -17,7 +18,7 @@ use pangopup_index::{
     BundleOpen, IndexError,
     mask::{AdmittedMaskDomains, MaskDomainsOpen},
     reference::{ReferenceBundleOpen, required_accession},
-    reference_admission::{ReferenceAdmission, inspect_reference_admission},
+    reference_admission::inspect_reference_admission,
 };
 use pangopup_model::{CpuPolicy, ModelAdmission, ModelKernel, inspect_model_admission};
 use serde::Serialize;
@@ -39,8 +40,11 @@ struct Arguments {
     format: OutputFormat,
     fallback: Option<FallbackPaths>,
     cache: Option<CacheOptions>,
+    implicit_cache_path: Option<PathBuf>,
+    implicit_cache_limit: Option<EntryLimit>,
 }
 
+#[derive(Clone)]
 struct FallbackPaths {
     model: PathBuf,
     reference: PathBuf,
@@ -55,9 +59,24 @@ struct CacheOptions {
 
 struct FallbackAdmission {
     model: ModelAdmission,
-    reference: ReferenceAdmission,
-    mask: Option<AdmittedMaskDomains>,
     provenance: ModelProvenance,
+    source: Option<AdmittedFallbackSource>,
+}
+
+enum AdmittedFallbackSource {
+    Explicit {
+        paths: FallbackPaths,
+        mask: AdmittedMaskDomains,
+    },
+    Installed(Box<InstalledFallbackInput>),
+    #[cfg(test)]
+    Test(Box<dyn FnOnce() -> Result<ModelFallback, Failure>>),
+}
+
+struct InstalledFallbackInput {
+    reference: pangopup_index::reference_admission::InstalledReference,
+    mask: AdmittedMaskDomains,
+    model: InstalledModelInput,
 }
 
 enum Command {
@@ -139,6 +158,14 @@ impl Failure {
             message: "model scoring requires --model-bundle, --reference-bundle, and --mask"
                 .to_owned(),
             exit: 2,
+        }
+    }
+
+    fn profile_corrupt() -> Self {
+        Self {
+            code: "PROFILE_CORRUPT",
+            message: "installed runtime profile is invalid".to_owned(),
+            exit: 1,
         }
     }
 }
@@ -332,7 +359,19 @@ fn run_lookup_with_observer(
     arguments: Arguments,
     observer: &mut dyn FnMut(FallbackComponent),
 ) -> Result<Vec<u8>, Failure> {
-    if arguments.fallback.is_none()
+    run_lookup_with_runtime_opener(arguments, observer, &|root, bundle_id| {
+        admit_installed_model_fallback(root, bundle_id)
+    })
+}
+
+fn run_lookup_with_runtime_opener(
+    arguments: Arguments,
+    observer: &mut dyn FnMut(FallbackComponent),
+    runtime_opener: &dyn Fn(&Path, &str) -> Result<FallbackAdmission, Failure>,
+) -> Result<Vec<u8>, Failure> {
+    let explicit_bundle = arguments.bundle.is_some();
+    if explicit_bundle
+        && arguments.fallback.is_none()
         && arguments
             .variants
             .iter()
@@ -348,18 +387,21 @@ fn run_lookup_with_observer(
         format,
         fallback: fallback_paths,
         cache: cache_options,
+        implicit_cache_path,
+        implicit_cache_limit,
     } = arguments;
-    let bundle = match bundle_path {
-        Some(path) => BundleOpen::open(&path).map_err(map_open_error)?,
+    let (bundle, installed_binding) = match bundle_path {
+        Some(path) => (BundleOpen::open(&path).map_err(map_open_error)?, None),
         None => {
             let root = data_root(data_dir)?;
-            open_active_bundle(&root).map_err(map_lookup_asset_error)?.1
+            let (active, bundle) = open_active_bundle(&root).map_err(map_lookup_asset_error)?;
+            (bundle, Some((root, active.bundle_id)))
         }
     };
     // Preserve the original lookup-only contract when model fallback was not
     // explicitly enabled. In particular, a pure SNV miss remains a rendered
     // precomputed `not_found`; only a non-SNV requires model assets.
-    if fallback_paths.is_none() {
+    if fallback_paths.is_none() && explicit_bundle {
         let mut requests = Vec::with_capacity(variants.len());
         for variant in variants {
             let snv = snv_from_variant(&variant).ok_or_else(Failure::model_assets_required)?;
@@ -394,18 +436,27 @@ fn run_lookup_with_observer(
     }
 
     let mut admission = if needs_model {
-        Some(admit_model_fallback(
-            fallback_paths
-                .as_ref()
-                .expect("complete fallback set was parsed"),
-        )?)
+        Some(match fallback_paths.as_ref() {
+            Some(paths) => admit_model_fallback(paths)?,
+            None => {
+                let (root, snv_bundle_id) = installed_binding
+                    .as_ref()
+                    .expect("implicit route opened an installed SNV bundle");
+                runtime_opener(root, snv_bundle_id)?
+            }
+        })
     } else {
         None
     };
     let mut cache = if needs_model {
-        let options = cache_options
-            .as_ref()
-            .expect("fallback parsing always resolves cache options");
+        let implicit_options;
+        let options = if let Some(options) = cache_options.as_ref() {
+            options
+        } else {
+            implicit_options =
+                resolve_model_cache_options(implicit_cache_path, implicit_cache_limit)?;
+            &implicit_options
+        };
         let result = if options.disposable_default {
             ModelResultCache::open_default(&options.path, options.limit)
         } else {
@@ -447,9 +498,6 @@ fn run_lookup_with_observer(
                 } else {
                     if fallback.is_none() {
                         fallback = Some(open_admitted_model_fallback(
-                            fallback_paths
-                                .as_ref()
-                                .expect("complete fallback set was parsed"),
                             admission
                                 .as_mut()
                                 .expect("model-required batch has one admission"),
@@ -515,9 +563,9 @@ fn cache_key(
         admission.model.profile(),
         &admission.model.representation().to_string(),
         &CpuPolicy::production_default().to_string(),
-        admission.reference.bundle_id(),
-        admission.reference.profile(),
-        admission.reference.sequence_set_sha256(),
+        admission.provenance.reference().bundle_id(),
+        admission.provenance.reference().profile(),
+        admission.provenance.reference().sequence_set_sha256(),
         admission.provenance.mask_bytes(),
         admission.provenance.mask_sha256(),
     )?;
@@ -616,42 +664,96 @@ fn admit_model_fallback(paths: &FallbackPaths) -> Result<FallbackAdmission, Fail
     );
     Ok(FallbackAdmission {
         model,
-        reference,
-        mask: Some(mask),
         provenance,
+        source: Some(AdmittedFallbackSource::Explicit {
+            paths: paths.clone(),
+            mask,
+        }),
+    })
+}
+
+fn admit_installed_model_fallback(
+    data_root: &Path,
+    snv_bundle_id: &str,
+) -> Result<FallbackAdmission, Failure> {
+    let installed =
+        open_installed_runtime_profile(data_root, snv_bundle_id).map_err(map_runtime_error)?;
+    let (profile, model, reference, mask) = installed.into_parts();
+    let model_admission = model.admission().clone();
+    let provenance = ModelProvenance::new(
+        profile.model.bundle_id,
+        profile.model.profile,
+        ReferenceProvenance::new(
+            profile.reference.bundle_id,
+            profile.reference.profile,
+            profile.reference.format,
+            profile.reference.assembly,
+            profile.reference.assembly_accession,
+            profile.reference.sequence_set_sha256,
+        ),
+        profile.mask.member_bytes,
+        profile.mask.member_sha256,
+    );
+    Ok(FallbackAdmission {
+        model: model_admission,
+        provenance,
+        source: Some(AdmittedFallbackSource::Installed(Box::new(
+            InstalledFallbackInput {
+                reference,
+                mask,
+                model,
+            },
+        ))),
     })
 }
 
 fn open_admitted_model_fallback(
-    paths: &FallbackPaths,
     admission: &mut FallbackAdmission,
     observer: &mut dyn FnMut(FallbackComponent),
 ) -> Result<ModelFallback, Failure> {
-    observer(FallbackComponent::Reference);
-    let reference =
-        ReferenceBundleOpen::open_identified(&paths.reference).map_err(|_| Failure {
-            code: "REFERENCE_BUNDLE_INVALID",
-            message: "reference bundle is invalid".to_owned(),
-            exit: 1,
-        })?;
-    observer(FallbackComponent::Mask);
-    let mask = admission
-        .mask
+    let source = admission
+        .source
         .take()
-        .expect("admitted mask is consumed only for first model miss")
-        .open()
-        .map_err(|_| Failure {
-            code: "MASK_INVALID",
-            message: "mask member is invalid".to_owned(),
-            exit: 1,
-        })?;
-    observer(FallbackComponent::Model);
-    let model = ModelKernel::open(&paths.model).map_err(|_| Failure {
-        code: "MODEL_BUNDLE_INVALID",
-        message: "model bundle is invalid".to_owned(),
-        exit: 1,
-    })?;
-    let fallback = ModelFallback::new(reference, mask, model);
+        .expect("admitted fallback is consumed only for first model miss");
+    let fallback = match source {
+        AdmittedFallbackSource::Explicit { paths, mask } => {
+            observer(FallbackComponent::Reference);
+            let reference =
+                ReferenceBundleOpen::open_identified(&paths.reference).map_err(|_| Failure {
+                    code: "REFERENCE_BUNDLE_INVALID",
+                    message: "reference bundle is invalid".to_owned(),
+                    exit: 1,
+                })?;
+            observer(FallbackComponent::Mask);
+            let mask = mask.open().map_err(|_| Failure {
+                code: "MASK_INVALID",
+                message: "mask member is invalid".to_owned(),
+                exit: 1,
+            })?;
+            observer(FallbackComponent::Model);
+            let model = ModelKernel::open(&paths.model).map_err(|_| Failure {
+                code: "MODEL_BUNDLE_INVALID",
+                message: "model bundle is invalid".to_owned(),
+                exit: 1,
+            })?;
+            ModelFallback::new(reference, mask, model)
+        }
+        AdmittedFallbackSource::Installed(input) => {
+            let InstalledFallbackInput {
+                reference,
+                mask,
+                model,
+            } = *input;
+            observer(FallbackComponent::Reference);
+            observer(FallbackComponent::Mask);
+            let mask = mask.open().map_err(|_| Failure::profile_corrupt())?;
+            observer(FallbackComponent::Model);
+            let model = model.open().map_err(|_| Failure::profile_corrupt())?;
+            ModelFallback::new(reference, mask, model)
+        }
+        #[cfg(test)]
+        AdmittedFallbackSource::Test(open) => open()?,
+    };
     if fallback.provenance() != &admission.provenance {
         return Err(Failure {
             code: "MODEL_ASSET_IDENTITY_CHANGED",
@@ -931,14 +1033,17 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
             ));
         }
     };
-    if fallback.is_none() && (model_cache.is_some() || model_cache_max_entries.is_some()) {
+    if bundle.is_some()
+        && fallback.is_none()
+        && (model_cache.is_some() || model_cache_max_entries.is_some())
+    {
         return Err(Failure::usage(
             "model cache options require --model-bundle, --reference-bundle, and --mask",
         ));
     }
     let cache = fallback
         .as_ref()
-        .map(|_| resolve_model_cache_options(model_cache, model_cache_max_entries))
+        .map(|_| resolve_model_cache_options(model_cache.clone(), model_cache_max_entries))
         .transpose()?;
     Ok(Arguments {
         bundle,
@@ -948,6 +1053,8 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
         format,
         fallback,
         cache,
+        implicit_cache_path: model_cache,
+        implicit_cache_limit: model_cache_max_entries,
     })
 }
 
@@ -1155,22 +1262,30 @@ fn map_open_error(error: IndexError) -> Failure {
 }
 
 fn fail(error: &Failure) -> ExitCode {
+    let bytes = failure_json(error);
+    let mut stderr = std::io::stderr().lock();
+    let _ = stderr.write_all(&bytes);
+    ExitCode::from(error.exit)
+}
+
+fn failure_json(error: &Failure) -> Vec<u8> {
     let line = ErrorLine {
         status: "error",
         code: error.code,
         message: &error.message,
         details: None,
     };
-    let mut stderr = std::io::stderr().lock();
-    let _ = serde_json::to_writer(&mut stderr, &line);
-    let _ = stderr.write_all(b"\n");
-    ExitCode::from(error.exit)
+    let mut bytes = serde_json::to_vec(&line).expect("fixed error line is serializable");
+    bytes.push(b'\n');
+    bytes
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::fs;
+    use std::rc::Rc;
 
     fn repository_path(relative: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1205,6 +1320,40 @@ mod tests {
         ]
     }
 
+    fn install_mini_snv(root: &Path, scratch: &Path) {
+        fs::set_permissions(
+            scratch,
+            <fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o700),
+        )
+        .expect("private scratch");
+        let transport = scratch.join("transport");
+        pangopup_assets::pack_bundle(
+            &repository_path("tests/fixtures/snv-regression/bundle"),
+            &transport,
+        )
+        .expect("pack miniature transport");
+        install_transport(&transport, root).expect("install miniature SNV");
+    }
+
+    fn fixture_runtime_admission(
+        bounded: &Rc<Cell<usize>>,
+        initialized: &Rc<Cell<usize>>,
+    ) -> Result<FallbackAdmission, Failure> {
+        bounded.set(bounded.get() + 1);
+        let paths = FallbackPaths {
+            reference: repository_path("tests/fixtures/reference-route-test/bundle"),
+            mask: repository_path("tests/fixtures/route-mask/domains.pgm"),
+            model: repository_path("tests/fixtures/pangolin-model-kernel-mini/bundle"),
+        };
+        let mut admission = admit_model_fallback(&paths)?;
+        let initialized = Rc::clone(initialized);
+        admission.source = Some(AdmittedFallbackSource::Test(Box::new(move || {
+            initialized.set(initialized.get() + 1);
+            open_model_fallback(&paths, &mut |_| {})
+        })));
+        Ok(admission)
+    }
+
     #[test]
     fn injected_sync_adapter_renders_exact_compact_json() {
         let args = [
@@ -1235,6 +1384,166 @@ mod tests {
             bytes,
             b"{\"status\":\"installed\",\"profile\":\"snv-grch38-v1\",\"bundle_id\":\"sha256:bundle\",\"transport_id\":\"sha256:transport\",\"path\":\"/tmp/pangopup-sync-data/bundles/bundle/bundle\",\"downloaded_bytes\":123,\"resumed_bytes\":45}\n"
         );
+    }
+
+    #[test]
+    fn implicit_installed_route_matches_explicit_and_reuses_cache_after_recomposition() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let data = temp.path().join("data");
+        install_mini_snv(&data, temp.path());
+        let bounded = Rc::new(Cell::new(0));
+        let initialized = Rc::new(Cell::new(0));
+        for (name, variant, format) in [
+            ("non-snv-json", "GRCh38:chr1:5051:A:AC", None),
+            ("non-snv-table", "GRCh38:chr1:5051:A:AC", Some("table")),
+            ("snv-index-miss", "GRCh38:chr1:5051:A:C", None),
+        ] {
+            let cache = temp.path().join(format!("{name}.sqlite3"));
+            let mut installed = vec![
+                "lookup".to_owned(),
+                "--data-dir".to_owned(),
+                data.display().to_string(),
+                "--variant".to_owned(),
+                variant.to_owned(),
+                "--model-cache".to_owned(),
+                cache.display().to_string(),
+            ];
+            let mut explicit = vec![
+                "lookup".to_owned(),
+                "--bundle".to_owned(),
+                repository_path("tests/fixtures/snv-regression/bundle")
+                    .display()
+                    .to_string(),
+                "--variant".to_owned(),
+                variant.to_owned(),
+            ];
+            if let Some(format) = format {
+                installed.extend(["--format".to_owned(), format.to_owned()]);
+                explicit.extend(["--format".to_owned(), format.to_owned()]);
+            }
+            explicit.extend(fallback_values(
+                &temp.path().join(format!("explicit-{name}.sqlite3")),
+            ));
+            let expected = run_lookup_with_observer(lookup_arguments(&explicit), &mut |_| {})
+                .expect("explicit output");
+            let first = run_lookup_with_runtime_opener(
+                lookup_arguments(&installed),
+                &mut |_| {},
+                &|_, _| fixture_runtime_admission(&bounded, &initialized),
+            )
+            .expect("installed output");
+            assert_eq!(first, expected);
+            let second = run_lookup_with_runtime_opener(
+                lookup_arguments(&installed),
+                &mut |_| {},
+                &|_, _| fixture_runtime_admission(&bounded, &initialized),
+            )
+            .expect("recomposed cache hit");
+            assert_eq!(second, expected);
+        }
+        assert_eq!(bounded.get(), 6, "each process performs bounded admission");
+        assert_eq!(
+            initialized.get(),
+            3,
+            "recomposed cache hits do not initialize dense providers"
+        );
+    }
+
+    #[test]
+    fn installed_runtime_failures_are_exact_redacted_cli_json() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let data = temp.path().join("data");
+        install_mini_snv(&data, temp.path());
+        let command = vec![
+            "lookup".to_owned(),
+            "--data-dir".to_owned(),
+            data.display().to_string(),
+            "--variant".to_owned(),
+            "GRCh38:chr1:5051:A:AC".to_owned(),
+        ];
+        for (kind, message, code) in [
+            (
+                AssetErrorKind::AssetsMissing,
+                "installed runtime profile is missing",
+                "ASSETS_MISSING",
+            ),
+            (
+                AssetErrorKind::StagingInvalid,
+                "installed runtime state is unsafe",
+                "PROFILE_UNSAFE",
+            ),
+            (
+                AssetErrorKind::BundleInvalid,
+                "installed runtime profile is invalid",
+                "PROFILE_CORRUPT",
+            ),
+            (
+                AssetErrorKind::TransportIncompatible,
+                "installed runtime profile is incompatible",
+                "PROFILE_INCOMPATIBLE",
+            ),
+        ] {
+            let failure =
+                run_lookup_with_runtime_opener(lookup_arguments(&command), &mut |_| {}, &|_, _| {
+                    Err(map_runtime_error(AssetError::new(kind, message)))
+                })
+                .expect_err("installed admission failure");
+            assert_eq!(failure.exit, 1);
+            assert_eq!(
+                failure_json(&failure),
+                format!(
+                    "{{\"status\":\"error\",\"code\":\"{code}\",\"message\":\"{message}\",\"details\":null}}\n"
+                )
+                .as_bytes()
+            );
+        }
+    }
+
+    #[test]
+    fn implicit_runtime_is_lazy_explicit_wins_and_bundle_never_mixes() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let data = temp.path().join("data");
+        install_mini_snv(&data, temp.path());
+        let hit = vec![
+            "lookup".to_owned(),
+            "--data-dir".to_owned(),
+            data.display().to_string(),
+            "--variant".to_owned(),
+            "GRCh38:chr12:6801301:G:A".to_owned(),
+        ];
+        run_lookup_with_runtime_opener(lookup_arguments(&hit), &mut |_| {}, &|_, _| {
+            panic!("authoritative hit inspected runtime")
+        })
+        .expect("authoritative hit");
+
+        let mut explicit = vec![
+            "lookup".to_owned(),
+            "--data-dir".to_owned(),
+            data.display().to_string(),
+            "--variant".to_owned(),
+            "GRCh38:chr1:5051:A:AC".to_owned(),
+        ];
+        explicit.extend(fallback_values(&temp.path().join("explicit.sqlite3")));
+        run_lookup_with_runtime_opener(lookup_arguments(&explicit), &mut |_| {}, &|_, _| {
+            panic!("explicit fallback inspected installed runtime")
+        })
+        .expect("explicit precedence");
+
+        let mixed = vec![
+            "lookup".to_owned(),
+            "--bundle".to_owned(),
+            repository_path("tests/fixtures/snv-regression/bundle")
+                .display()
+                .to_string(),
+            "--variant".to_owned(),
+            "GRCh38:chr1:5051:A:AC".to_owned(),
+        ];
+        let failure =
+            run_lookup_with_runtime_opener(lookup_arguments(&mixed), &mut |_| {}, &|_, _| {
+                panic!("explicit bundle inspected installed runtime")
+            })
+            .expect_err("explicit bundle requires explicit model tuple");
+        assert_eq!(failure.code, "MODEL_ASSETS_REQUIRED");
     }
 
     #[test]

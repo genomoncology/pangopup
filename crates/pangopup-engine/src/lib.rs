@@ -12,10 +12,7 @@ use pangopup_core::{
     ModelScoringError, ModelWarning, PangolinScore, ReferenceError, ReferenceProvenance,
     ReferenceProvider, RelativePosition, ScoreMagnitude, ScoreProvider,
 };
-use pangopup_index::{
-    mask::{IdentifiedMaskDomains, MaskProvider, MaskQueryBuffer, MaskQueryGene},
-    reference::IdentifiedReferenceBundle,
-};
+use pangopup_index::mask::{IdentifiedMaskDomains, MaskProvider, MaskQueryBuffer, MaskQueryGene};
 use pangopup_model::{
     CHANNELS, CONTEXT_FLANKS, InferenceAccounting, ModelContext, ModelKernel, ModelRepresentation,
     ReplicateScores, Strand, StrandPair,
@@ -312,7 +309,7 @@ pub struct ModelFallback {
 
 impl ModelFallback {
     pub fn new(
-        reference: IdentifiedReferenceBundle,
+        reference: impl ReferenceProvider + 'static,
         mask: IdentifiedMaskDomains,
         model: ModelKernel,
     ) -> Self {

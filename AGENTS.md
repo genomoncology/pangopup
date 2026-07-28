@@ -12,8 +12,9 @@ the qualified compiled RefSeq GRCh38.p14 sequence-index bundle/provider, and an
 authenticated ONNX Runtime CPU kernel returning twelve raw Pangolin channels.
 The `pangopup-engine` crate now composes those providers into compatible
 variant-level scoring and lookup-first routing for the supported literal
-allele subset. The CLI accepts an explicit local reference/mask/model fallback
-set and emits exact modeled JSONL/table results. Complete-request CPU policy
+allele subset. The CLI consumes the activated installed runtime profile lazily
+for fallback, while retaining a complete explicit reference/mask/model
+override, and emits exact modeled JSONL/table results. Complete-request CPU policy
 selection is established. Ticket 022 corrected and repeated the
 singleton/zero-padded/paired comparison after code review caught missing v2
 export axes. Both policies were inconclusive from singleton drift and neither
@@ -21,8 +22,8 @@ candidate met the independent replacement gates, so ordinary dispatch remains
 singleton. Ticket 023 adds persistent exact SQLite reuse for successful
 complete model results while preserving lookup-first laziness. One canonical
 four-asset runtime profile now binds the exact compatible production tuple;
-offline Linux/XDG installation and atomic activation are shipped. Lookup
-discovery, delivery, and the HTTP service remain target work. The reference
+offline Linux/XDG installation, atomic activation, and lookup consumption are
+shipped. Model-side delivery and the HTTP service remain target work. The reference
 wire/writer and sole mmap reader are now separate; future reference builds use
 v2 byte-producing provenance and installed admission has one held-descriptor
 reader boundary. A
