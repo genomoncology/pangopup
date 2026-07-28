@@ -1,5 +1,5 @@
 ---
-status: Open
+status: Closed
 date: 2026-07-27
 team: pangopup
 title: Clean stop after reference provenance boundary
