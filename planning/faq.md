@@ -146,15 +146,13 @@ an explicit transport into Linux XDG data, and `pangopup assets status` reports
 the active state. `pangopup-build release prepare` deterministically generates
 the pinned `snv-grch38-v1` profile, proof copy, checksums, and notes from bounded
 metadata without opening payload parts. None fetches or publishes remote files;
-the immutable `snv-grch38-v1` release is published separately. The
-coordinator-only
-`pangopup-build release upload-asset` command can stream one exact reviewed
-asset during publication. It executes a sealed GitHub CLI snapshot, seals small
-assets, protects a large payload with a monitored Linux read lease, and bounds
-the child request to 21,600 seconds with process-group cleanup. Catchable
-interrupts use that same cleanup path, while child-side parent-death protection
-covers abrupt coordinator loss for the direct upload process. It is not a
-runtime command and never downloads.
+the immutable `snv-grch38-v1` release is published separately. Pangopup ships
+no release uploader. A later reviewed publication lifecycle will have the
+coordinator use an authenticated official `gh` executable directly after local
+preparation and verification. Prepared pathnames are not immutable; the later
+work must establish a controlled stable source, a draft-first upload, remote
+inventory and digest comparison, and immutable finalization. This remains
+outside runtime download and lookup.
 
 ### Does Pangopup install missing assets automatically?
 

@@ -22,7 +22,6 @@ transport pack --bundle <BUNDLE> --output <ABSENT_DIR>
 transport verify --transport <TRANSPORT_DIR>
 transport unpack --transport <TRANSPORT_DIR> --output <ABSENT_DIR>
 release prepare --transport <TRANSPORT_DIR> --receipt <PROOF_RECEIPT_JSON> --output <ABSENT_DIR>
-release upload-asset --transport <TRANSPORT_DIR> --prepared <PREPARED_DIR> --gh <ABSOLUTE_PINNED_GH_BINARY> --release-id <POSITIVE_GITHUB_ID> --asset <EXACT_ASSET_NAME>
 compatibility inspect --corpus <CORPUS_DIR>
 compatibility capture --upstream <PANGOLIN_DIR> --python <PYTHON> --reference-source <REFSEQ_FASTA_GZIP> --assembly-report <ASSEMBLY_REPORT> --reference <DERIVED_FASTA> --annotation-db <GENCODE_DB> --annotation-gtf <GENCODE_GTF_GZIP> --output <ABSENT_DIR>
 model evidence --upstream <PANGOLIN_DIR> --python <PYTHON> --corpus <CORPUS_DIR> --output <ABSENT_DIR>
@@ -80,7 +79,6 @@ transport pack
 transport verify
 transport unpack
 release prepare
-release upload-asset
 compatibility inspect
 compatibility capture
 model evidence

@@ -68,10 +68,11 @@ content, one exact compatible four-asset profile, and one deterministic common
 local transport. The transport uses three independent frames, reconstructs
 accepted bytes exactly, and never touches the 15 GB SNV payload. It is not a
 GitHub release and it has no remote-sync policy. Publication must first close
-the release-process and repository-security blockers, then prove clean-machine
-CLI inference. No raw Zenodo, NCBI, or GENCODE source input is a Pangopup
-release asset. Original checkpoints are not installed runtime members; their
-separate source-availability policy is a model-publication prerequisite.
+the separate repository-security blocker and complete the later reviewed safe
+publication lifecycle, then prove clean-machine CLI inference. No raw Zenodo,
+NCBI, or GENCODE source input is a Pangopup release asset. Original checkpoints
+are not installed runtime members; their separate source-availability policy
+is a model-publication prerequisite.
 
 ## Established — pinned source ingestion contract
 
@@ -159,6 +160,10 @@ spec, and the exact publication-ready commit passed the closed public-hygiene
 audit. The public `snv-grch38-v1` release contains the exact eight reviewed
 assets, GitHub reports every size/digest and `immutable=true`, and bounded
 unauthenticated reads plus the documented five-file manual path are proved.
+The custom coordinator upload wrapper and its process/lease/signal supervisor
+have been deleted. Pangopup retains deterministic local preparation but ships
+no release uploader; future public effects use a separately reviewed
+draft-first lifecycle around the authenticated official `gh` executable.
 
 ## Established — pinned remote sync
 
@@ -463,13 +468,17 @@ dense reference/model reads and ONNX initialization.
 ## Later outcome — release-ready asset publication
 
 Freeze exact model, GRCh38 sequence index, and mask release identities only
-after the complete variant scorer and CPU policy are selected. Close the
-release-upload lifecycle and repository-security blockers; complete the
+after the complete variant scorer and CPU policy are selected. The defective
+custom upload lifecycle is removed; close the separate repository-security
+blocker and complete the
 applicable advisory/license policy, dependency inventory, SBOM, provenance,
 attribution, and immutable release review before public distribution. Publish
-only the reviewed derived runtime assets—never their raw upstream inputs—then
-prove pinned sync, clean-machine CLI inference, and offline restart from that
-exact release. This outcome precedes HTTP and container publication.
+only the reviewed derived runtime assets—never their raw upstream inputs—using
+a later reviewed controlled stable source, authenticated official `gh`,
+non-public draft, remote inventory/digest comparison, and immutable
+finalization lifecycle. Then prove pinned sync, clean-machine CLI inference,
+and offline restart from that exact release. This outcome precedes HTTP and
+container publication.
 
 ## Later outcome — foreground HTTP service
 
@@ -493,9 +502,10 @@ upgrade/rollback rules, and cleanup of superseded immutable assets. Re-run the
 complete clean-machine acceptance proof for releases.
 
 Before the next public model, compiled GRCh38 sequence index, mask, executable,
-or container publication, close the recorded release-process and
-repository-security issues. Those issues do not block local scoring or
-packaging work.
+or container publication, close the recorded repository-security issue and
+complete the later reviewed publication lifecycle. The deleted uploader's
+release-process issue is closed; public publication itself is not. These
+requirements do not block local scoring or packaging work.
 The maintainer-interface/documentation drift is closed: `pangopup-build`
 dispatch and successful root, namespace, and leaf help share one checked
 catalog, version reporting is conventional, and executable acceptance preserves

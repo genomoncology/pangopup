@@ -1,6 +1,6 @@
 # 031 — Remove the custom release uploader
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -22,6 +22,10 @@ local preparation and verification have succeeded.
 
 - Remove the `release upload-asset` command, its public/test API, Linux
   process/lease/signal supervision, fake-`gh` fixtures, and uploader-only tests.
+- Preserve only the inert legacy `AssetErrorKind::ReleaseUpload` enum/code
+  spelling because the established SNV builder v1 fingerprint hashes the shared
+  error vocabulary wholesale. Nothing may construct it from an upload path.
+  Do not redesign builder provenance or churn its identity in this deletion.
 - Keep `pangopup-build release prepare`, the checked SNV release profiles, and
   all deterministic local transport verification unchanged.
 - Make root, namespace, and leaf help describe only the remaining supported
@@ -72,6 +76,7 @@ local preparation and verification have succeeded.
   transport bytes, model/reference/mask identities, CLI scoring output, or
   dependency lockfile except where removing now-unused uploader-only
   dependencies makes a lockfile change mechanically necessary.
+- The established hard SNV and reference builder fingerprints remain unchanged.
 - `make lint`, `make test`, and `make spec` pass.
 
 ## Decisions
@@ -144,6 +149,22 @@ local preparation and verification have succeeded.
   `release prepare` remains supported, and publication moves to official
   `gh`.
 
+### Retain the two-line error-vocabulary tombstone
+
+- **Consideration:** The v1 SNV builder fingerprint intentionally remains
+  immutable, but its established causal inventory hashes the complete shared
+  `error.rs` vocabulary. Removing the unused `ReleaseUpload` enum/code spelling
+  changes that fingerprint even though no SNV construction behavior changed.
+- **Options:** Bless a false new SNV builder identity; redesign provenance in
+  this ticket; or retain the inert spelling while deleting every command,
+  constructor, supervisor, and upload behavior.
+- **Trade-offs:** The inert spelling is small legacy vocabulary. A provenance
+  redesign is materially broader; changing the hard identity falsely reports a
+  data-builder change.
+- **Decision:** Retain the unreachable enum/code spelling as a provenance and
+  public-vocabulary tombstone. It does not preserve the removed command or any
+  upload capability. A future provenance version may remove it deliberately.
+
 ## Dependencies
 
 - Ticket 030 is complete: the exact derived runtime transport exists locally
@@ -195,13 +216,78 @@ ticket keeps deletion bounded, preserves release preparation, states the
 removed stability guarantee honestly, and leaves the safe draft-first public
 effect to a later independently reviewed ticket.
 
+Coordinator final-gate scope revision: the broad test proved that deleting the
+shared `ReleaseUpload` error spelling changed the hard SNV v1 builder
+fingerprint even though release code is otherwise excluded. The ticket now
+explicitly retains only that inert two-line vocabulary tombstone instead of
+blessing a false builder change or expanding into a provenance redesign.
+Ticket re-review: ACCEPT. The same reviewer accepted the narrow revision. The
+legacy enum spelling and code arm preserve the established SNV v1 provenance
+preimage but restore no upload constructor, command, process path, or supported
+maintenance behavior.
+
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex `/root/ticket031_implementation`, 2026-07-30
+
+- Removed the `release upload-asset` catalog/dispatch path, public and injected
+  upload APIs, Linux upload supervisor module, and uploader-only fake-process
+  helpers and tests. Retained only the inert legacy `ReleaseUpload` enum/code
+  vocabulary required by the established SNV v1 fingerprint; no constructor or
+  upload behavior remains. Release preparation types, parsing, checked
+  production contract, and miniature preparation tests remain.
+- Updated every named current-behavior document and executable spec. The
+  lifecycle issue is closed by deletion while later direct official-`gh`
+  publication and the separate repository-security baseline remain unfinished.
+- Focused checks passed: three `pangopup-assets` release contract unit tests,
+  two retained `pangopup-build` release preparation integration tests, six
+  command-catalog unit tests, focused Clippy for both owning packages with
+  warnings denied, and 27 changed-spec blocks (`build-cli.md` plus
+  `snv-release.md`; the final release-spec rerun passed 12/12).
+- After the final-gate scope revision, all 17 source-fingerprint unit controls,
+  all four builder-provenance integration controls, the exact SNV transport
+  builder-identity regression, and all 27 changed executable spec blocks
+  passed. The hard SNV v1 identity is again the established
+  `b3bdc4d9d8e710fb554fd47f0cfc6f6a7bb764451069e6ae4a98534d8c5dc6a2`;
+  no expected digest or fixture was changed.
+- The checked release profile remains
+  `sha256:63f3842ea6cb40ebc0a2b6ca23fba4f35d53f829d96c33f597a2c5bcac238ca6`;
+  its proof remains
+  `sha256:9ddae771d200fe73bda5f31f5a04a52227b77c5d3f225dc7ee52294cd9aea475`.
+  `Cargo.lock` is unchanged. No production asset was opened and no network,
+  GitHub, release, or upload operation was performed.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex `/root/ticket031_code_review`
+
+First review: REJECT. One medium documentation finding remained:
+`planning/frontier.md` still said release-ready asset publication must close
+the release-process blocker even though this ticket closes that issue by
+deleting the mechanism.
+
+Developer remediation: the asset-readiness boundary now consistently requires
+the separate repository-security blocker and the later reviewed safe
+publication lifecycle. It no longer describes the deleted uploader issue as
+open. `git diff --check`, the focused current-document catalog unit test, and
+all 27 `build-cli.md`/`snv-release.md` executable spec blocks passed after the
+change.
+
+Coordinator final-gate finding: the first full `make test` observed SNV builder
+fingerprint `69c1…` instead of hard identity `b3bd…` because deletion of the
+legacy `ReleaseUpload` error spelling changed the wholesale shared-error
+preimage. The coordinator returned the material scope conflict to the same
+ticket reviewer rather than blessing a false builder change.
+
+Developer remediation: after the revised ticket was accepted, restored only
+the inert enum spelling and `RELEASE_UPLOAD` code arm. The executable absence
+spec permits exactly those two tokens while still rejecting every uploader
+module, function, outcome type, and constructor use. Focused fingerprint and
+changed-spec evidence is recorded in the implementation evidence above.
+Re-review: ACCEPT. The same reviewer confirmed that no uploader constructor,
+module, API, command, supervisor, or behavior remains; the absence spec permits
+exactly the inert vocabulary tombstone; and all hard identities remain
+unchanged. No material finding remains.
 
 ## External Effect Evidence
 
@@ -210,4 +296,15 @@ mutation or asset upload.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex `/root`, 2026-07-30
+
+- `make lint`: passed.
+- `make test`: passed across the workspace; four production/measurement tests
+  remained intentionally ignored.
+- `make spec`: 218 passed, 4 skipped.
+- `git diff --check`: passed.
+- Current-state documentation was scanned for stale uploader and blocker
+  claims. Only the intentional removed-command executable check and exact
+  absence/tombstone check remain.
+- No network, GitHub setting, release, upload, or production-asset operation
+  occurred.

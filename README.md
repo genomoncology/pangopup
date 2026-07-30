@@ -387,18 +387,15 @@ proof receipt, release profile, and `SHA256SUMS`. GitHub reports
 The release notes provide the exact five-download manual installation path;
 the three publication-metadata assets stay outside the transport directory.
 
-Publication maintainers have a separate coordinator-only
-`pangopup-build release upload-asset` command. It accepts exactly one reviewed
-asset, the prepared and transport directories, a positive release ID, and an
-absolute official GitHub CLI 2.45.0 path. It validates the reviewed CLI bytes
-and executes them from a sealed in-memory snapshot. Small selected assets are likewise
-sealed before validation; a large payload remains content-blind behind a
-monitored Linux read lease until the upload child exits. The one request has a
-21,600-second deadline. `SIGINT`, `SIGTERM`, lease breaks, and deadline failure
-all use process-group kill and direct-child reap cleanup; child-side
-parent-death protection prevents the direct request from surviving abrupt
-coordinator death.
-This is not a runtime downloader and is never used by lookup or installation.
+Pangopup does not ship a release uploader. A later independently reviewed
+publication lifecycle will have the coordinator invoke an authenticated
+official `gh` executable directly after deterministic local preparation and
+verification succeed. Preparation proves the bytes produced at that point; it
+does not make a local pathname immutable against later mutation. That later
+publication work must define the controlled stable source, draft-first upload,
+remote inventory and digest comparison, and immutable finalization before any
+new public effect. Release publication remains outside lookup, installation,
+and every credential-free runtime path.
 
 The runtime can sync the exact binary-pinned public transport or install an
 already available transport without networking:
@@ -762,7 +759,6 @@ pangopup-build transport pack --bundle <BUNDLE> --output <ABSENT_DIR>
 pangopup-build transport verify --transport <TRANSPORT_DIR>
 pangopup-build transport unpack --transport <TRANSPORT_DIR> --output <ABSENT_DIR>
 pangopup-build release prepare --transport <TRANSPORT_DIR> --receipt <PROOF_RECEIPT_JSON> --output <ABSENT_DIR>
-pangopup-build release upload-asset --transport <TRANSPORT_DIR> --prepared <PREPARED_DIR> --gh <ABSOLUTE_PINNED_GH_BINARY> --release-id <POSITIVE_GITHUB_ID> --asset <EXACT_ASSET_NAME>
 ```
 
 The successful help paths above are generated from the same checked command

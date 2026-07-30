@@ -20,7 +20,6 @@ mod error;
 mod input_audit;
 mod local;
 mod release;
-mod release_upload_linux;
 mod runtime_install;
 mod runtime_profile;
 mod runtime_transport;
@@ -36,18 +35,12 @@ pub use local::{
     ActiveBundle, DataPathInputs, InstallOutcome, LocalStatus, active_bundle, install_transport,
     local_status, open_active_bundle, resolve_data_root,
 };
-#[cfg(any(test, feature = "test-read-audit"))]
 pub use release::{
-    BeforeChildSpawnHook, ChildPreExecBarrierPhase, ReleasePreparationContract,
-    ReleaseUploadChildBarrier, ReleaseUploadTestBarrier, ReleaseUploadTestContract,
-    ReleaseUploadTestHooks, prepare_release_with_contract, upload_release_asset_with_contract,
-};
-pub use release::{
-    PrepareReleaseOutcome, ProofReceipt, ReleaseProfile, UploadAssetOutcome, parse_proof_receipt,
-    parse_release_profile, prepare_release, upload_release_asset,
+    PrepareReleaseOutcome, ProofReceipt, ReleaseProfile, parse_proof_receipt,
+    parse_release_profile, prepare_release,
 };
 #[cfg(any(test, feature = "test-read-audit"))]
-pub use release_upload_linux::{LeaseBreakTimeTest, PayloadOperation, PayloadTestFaults};
+pub use release::{ReleasePreparationContract, prepare_release_with_contract};
 pub use runtime_install::{
     InstalledModelInput, InstalledRuntimeProfile, RuntimeInstallOutcome, RuntimeLocalStatus,
     install_runtime_profile, open_installed_runtime_profile, runtime_local_status,

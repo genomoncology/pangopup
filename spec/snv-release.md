@@ -19,7 +19,7 @@ pangopup-build release publish
 ```
 
 ```text expect=release-action-usage like
-{"status":"error","code":"CLI_USAGE","message":"release requires prepare or upload-asset","details":null}
+{"status":"error","code":"CLI_USAGE","message":"release requires prepare","details":null}
 ```
 
 ```bash run id=release-flags-usage exit=2 stream=stderr
@@ -30,34 +30,36 @@ pangopup-build release prepare --transport /tmp/unused --receipt /tmp/unused --u
 {"status":"error","code":"CLI_USAGE","message":"release prepare requires --transport, --receipt, and --output exactly once","details":null}
 ```
 
-The coordinator-only uploader also has closed grammar and rejects an invalid
-release ID or a non-absolute executable path before touching either asset
-root.
+The removed uploader is outside the closed command grammar. Its former flags
+are rejected before any referenced path is touched or any process can start.
 
-```bash run id=release-upload-id-usage exit=2 stream=stderr
+```bash run id=release-upload-removed exit=2 stream=stderr
+test ! -e ../target/spec/snv-release/removed-uploader
 pangopup-build release upload-asset \
-  --transport /tmp/unused \
-  --prepared /tmp/unused \
-  --gh /tmp/unused-gh \
-  --release-id 0 \
-  --asset transport.json
-```
-
-```text expect=release-upload-id-usage like
-{"status":"error","code":"CLI_USAGE","message":"release upload-asset requires a positive decimal --release-id","details":null}
-```
-
-```bash run id=release-upload-gh-usage exit=1 stream=stderr
-pangopup-build release upload-asset \
-  --transport /tmp/unused \
-  --prepared /tmp/unused \
-  --gh relative-gh \
+  --transport ../target/spec/snv-release/removed-uploader/transport \
+  --prepared ../target/spec/snv-release/removed-uploader/prepared \
+  --gh ../target/spec/snv-release/removed-uploader/gh \
   --release-id 1 \
   --asset transport.json
 ```
 
-```text expect=release-upload-gh-usage like
-{"status":"error","code":"RELEASE_UPLOAD","message":"GitHub CLI path must be absolute","details":null}
+```text expect=release-upload-removed like
+{"status":"error","code":"CLI_USAGE","message":"release requires prepare","details":null}
+```
+
+```bash
+test ! -e ../target/spec/snv-release/removed-uploader
+test ! -e ../crates/pangopup-assets/src/release_upload_linux.rs
+! rg -n 'release_upload_linux|upload_release_asset|UploadAssetOutcome' \
+  ../crates/pangopup-assets/src ../crates/pangopup-build/src ../crates/pangopup-build/tests
+test "$(rg -l 'ReleaseUpload|RELEASE_UPLOAD' \
+  ../crates/pangopup-assets/src ../crates/pangopup-build/src ../crates/pangopup-build/tests)" = \
+  ../crates/pangopup-assets/src/error.rs
+test "$(rg -o 'ReleaseUpload' ../crates/pangopup-assets/src/error.rs | wc -l)" = 2
+test "$(rg -o 'RELEASE_UPLOAD' ../crates/pangopup-assets/src/error.rs | wc -l)" = 1
+! rg -n 'AssetErrorKind::ReleaseUpload' \
+  ../crates/pangopup-assets/src ../crates/pangopup-build/src ../crates/pangopup-build/tests
+printf 'removed uploader has no side effects\n' | mustmatch like 'removed uploader has no side effects'
 ```
 
 The public CLI rejects any other receipt contract before inspecting a

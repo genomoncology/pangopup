@@ -73,7 +73,6 @@ pangopup-build transport pack --bundle <BUNDLE> --output <ABSENT_DIR>
 pangopup-build transport verify --transport <TRANSPORT_DIR>
 pangopup-build transport unpack --transport <TRANSPORT_DIR> --output <ABSENT_DIR>
 pangopup-build release prepare --transport <TRANSPORT_DIR> --receipt <PROOF_RECEIPT_JSON> --output <ABSENT_DIR>
-pangopup-build release upload-asset --transport <TRANSPORT_DIR> --prepared <PREPARED_DIR> --gh <ABSOLUTE_PINNED_GH_BINARY> --release-id <POSITIVE_GITHUB_ID> --asset <EXACT_ASSET_NAME>
 ```
 
 Pack first exhaustively certifies the installed bundle. Integrity-only verify
@@ -85,28 +84,15 @@ Release preparation inspects only the three bounded metadata files and
 no-follow name/type/size metadata for payload parts. It emits the reviewed
 profile, receipt copy, digest list, and release notes atomically; it performs no
 network or publication action and never opens a part.
-The upload command is a coordinator-only publication tool, not runtime remote
-sync. It accepts one of the eight reviewed asset names, validates and executes
-an immutable sealed snapshot of the official GitHub CLI 2.45.0, and streams one
-stable selected source after revalidating both closed local directories. Small
-assets are copied into sealed memfds. Large payloads remain unread by the
-parent and are protected by a monitored Linux read lease, explicit SIGIO
-routing, a final lease check, and zero-offset/content-blind syscall boundary.
-The 21,600-second request deadline kills the child's process group and reaps
-the direct child; lease-break cleanup has a separate five-second ceiling.
-One close-on-exec signal descriptor supervises blocked `SIGINT`, `SIGTERM`, and
-`SIGIO`; pending signals are drained before spawn, and orderly interruption
-uses the same group-kill, direct-reap, and lease-release path. The direct child
-sets a parent-death `SIGKILL`, verifies the parent PID captured before spawn,
-restores the original signal mask, and only then executes the sealed CLI. The
-command never resolves the selected pathname again, invokes a shell, retries,
-or reads credentials itself. The reviewed executable comes from source commit
-`3ca179bcdeb46b5e54ddc6cad8feb6addf487d7c` and the 10,716,793-byte
-`gh_2.45.0_linux_amd64.tar.gz` archive with
-`sha256:79e89a14af6fc69163aee00e764e86d5809d0c6c77e6f229aebe7a4ed115ee67`.
-The command itself requires the extracted executable to be exactly 43,495,424
-bytes with
-`sha256:d4a46368912cfc7b9f0a897a613910e34562ef033fc6029e0bea52c43b440fa4`.
+No Pangopup crate or binary uploads release assets. A later independently
+reviewed publication lifecycle will have the coordinator invoke an
+authenticated official `gh` executable directly. Deterministic preparation
+does not freeze a local pathname: that lifecycle must define a controlled
+stable source, upload the exact closed inventory to a non-public mutable draft,
+compare GitHub's names, sizes, digests, and target commit while correction is
+still possible, and only then publish/finalize and verify immutability (or
+prove an equivalently safe order supported by GitHub). Publication credentials
+and public mutation stay outside the runtime architecture.
 
 The shipped local model-side transport carries the authenticated model bundle,
 compact-reference bundle, selected mask member and checked GENCODE notice, and

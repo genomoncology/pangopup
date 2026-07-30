@@ -15,7 +15,6 @@ pub(crate) enum Leaf {
     TransportVerify,
     TransportUnpack,
     ReleasePrepare,
-    ReleaseUploadAsset,
     CompatibilityInspect,
     CompatibilityCapture,
     ModelEvidence,
@@ -30,7 +29,7 @@ pub(crate) enum Leaf {
 
 impl Leaf {
     #[cfg(test)]
-    const ALL: [Self; 24] = [
+    const ALL: [Self; 23] = [
         Self::Inspect,
         Self::PrototypeRoundtrip,
         Self::PrototypeOpen,
@@ -44,7 +43,6 @@ impl Leaf {
         Self::TransportVerify,
         Self::TransportUnpack,
         Self::ReleasePrepare,
-        Self::ReleaseUploadAsset,
         Self::CompatibilityInspect,
         Self::CompatibilityCapture,
         Self::ModelEvidence,
@@ -158,13 +156,6 @@ const ENTRIES: &[Entry] = &[
         action: "prepare",
         synopsis: "release prepare --transport <TRANSPORT_DIR> --receipt <PROOF_RECEIPT_JSON> --output <ABSENT_DIR>",
         summary: "Prepare bounded, pinned SNV release metadata.",
-    },
-    Entry {
-        leaf: Leaf::ReleaseUploadAsset,
-        namespace: Some("release"),
-        action: "upload-asset",
-        synopsis: "release upload-asset --transport <TRANSPORT_DIR> --prepared <PREPARED_DIR> --gh <ABSOLUTE_PINNED_GH_BINARY> --release-id <POSITIVE_GITHUB_ID> --asset <EXACT_ASSET_NAME>",
-        summary: "Upload one exact reviewed SNV release asset.",
     },
     Entry {
         leaf: Leaf::CompatibilityInspect,

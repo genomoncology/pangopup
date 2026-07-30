@@ -1,6 +1,6 @@
 # Release upload process lifecycle
 
-Status: open
+Status: closed
 Found by: 2026-07-24 adversarial project review
 Priority: block the next public asset upload
 
@@ -21,18 +21,18 @@ only if the authenticated GitHub CLI creates descendants, but the existing
 abrupt-death proof covers only the direct child and is not sufficient to rule
 that out.
 
-## Required resolution
+## Resolution
 
-- Set and prove correct close-on-exec ownership for every test barrier endpoint,
-  close unused ends explicitly, and use RAII cleanup for panic/interruption.
-- Add an outer-grandparent regression that terminates the test runner and proves
-  no helper remains.
-- Extend abrupt coordinator-death coverage to a descriptor-holding descendant.
-- Either supervise the entire upload process group from a watchdog that survives
-  the coordinator or prove and enforce that the pinned executable cannot create
-  descendants.
-- Confirm a cancelled `make test` does not retain executables, payload
-  descriptors, leases, locks, or child processes.
+Ticket 031 deleted the custom release uploader instead of repairing its second
+process supervisor. Pangopup no longer contains the upload command, public or
+test upload API, fake-`gh` helper, process-group/parent-death supervision,
+signal handling, payload leases, or uploader subprocess tests. Therefore the
+observed helper leak and the unbounded descendant risk have no remaining code
+path in the repository.
 
-Do not rerun public upload machinery merely to close this issue. Use controlled
-fake subprocesses; no GitHub mutation belongs in the remediation ticket.
+Deterministic `release prepare` remains unchanged, but it does not make a local
+pathname immutable. A later independently reviewed publication ticket must
+define a controlled stable-source and draft-first lifecycle around direct
+coordinator use of the authenticated official `gh` executable before any new
+public effect. This closure does not claim that runtime-asset publication or
+the separate repository-security baseline is complete.

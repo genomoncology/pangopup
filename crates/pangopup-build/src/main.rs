@@ -1,6 +1,6 @@
 use pangopup_assets::{
     pack_bundle, pack_runtime_transport, prepare_release, unpack_runtime_transport,
-    unpack_transport, upload_release_asset, verify_runtime_transport, verify_transport,
+    unpack_transport, verify_runtime_transport, verify_transport,
 };
 use pangopup_build::{
     CommandError, build_bundle,
@@ -36,7 +36,7 @@ fn main() -> ExitCode {
     match cli::namespace(&arguments) {
         Some("reference") => reference_invalid(&arguments[1..]),
         Some("transport") => json_usage("transport requires pack, verify, or unpack"),
-        Some("release") => json_usage("release requires prepare or upload-asset"),
+        Some("release") => json_usage("release requires prepare"),
         Some("compatibility") => json_usage("compatibility requires inspect or capture"),
         Some("model") => json_usage("model requires evidence, convert, inspect, or qualify"),
         Some("runtime-profile") => json_usage("runtime-profile requires prepare"),
@@ -119,7 +119,7 @@ fn dispatch(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
         Leaf::TransportPack | Leaf::TransportVerify | Leaf::TransportUnpack => {
             transport_command(leaf, arguments)
         }
-        Leaf::ReleasePrepare | Leaf::ReleaseUploadAsset => release_command(leaf, arguments),
+        Leaf::ReleasePrepare => release_command(leaf, arguments),
         Leaf::CompatibilityInspect | Leaf::CompatibilityCapture => {
             compatibility_command(leaf, arguments)
         }
@@ -572,44 +572,6 @@ fn release_command(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
                 Path::new(values[0]),
                 Path::new(values[1]),
                 Path::new(values[2]),
-            ) {
-                Ok(outcome) => json_success(&outcome),
-                Err(error) => {
-                    json_failure(&CommandError::new(error.kind().code(), error.to_string()))
-                }
-            }
-        }
-        Leaf::ReleaseUploadAsset => {
-            let Ok(values) = parse_exact_flags(
-                arguments,
-                &[
-                    "--transport",
-                    "--prepared",
-                    "--gh",
-                    "--release-id",
-                    "--asset",
-                ],
-            ) else {
-                return json_usage(
-                    "release upload-asset requires --transport, --prepared, --gh, --release-id, and --asset exactly once",
-                );
-            };
-            let Some(release_id) = values[3]
-                .to_str()
-                .and_then(|value| value.parse::<u64>().ok())
-                .filter(|value| *value > 0)
-            else {
-                return json_usage("release upload-asset requires a positive decimal --release-id");
-            };
-            let Some(asset) = values[4].to_str() else {
-                return json_usage("release upload-asset requires a UTF-8 --asset name");
-            };
-            match upload_release_asset(
-                Path::new(values[0]),
-                Path::new(values[1]),
-                Path::new(values[2]),
-                release_id,
-                asset,
             ) {
                 Ok(outcome) => json_success(&outcome),
                 Err(error) => {
