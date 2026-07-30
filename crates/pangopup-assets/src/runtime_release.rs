@@ -68,6 +68,12 @@ const TITLE: &str = "Pangopup GRCh38 Pangolin runtime v1";
 const TRANSPORT_ID: &str =
     "sha256:415860610ccc060ff3ed5678b450650265330d43f7e73bc533c4ff0125e300a3";
 const PROFILE_ID: &str = "sha256:0efc5b7d9e966935775f9b19ef33eae75cb304cc5d5ba3f1d700ccddc6ddbd8c";
+const PRODUCTION_RELEASE_PROFILE: &[u8] =
+    include_bytes!("../../../release-profiles/runtime-release-profile.json");
+const PRODUCTION_TRANSPORT_MANIFEST: &[u8] =
+    include_bytes!("../../../release-profiles/runtime-transport.json");
+const PRODUCTION_RELEASE_PROFILE_SHA256: &str =
+    "sha256:d1caf6346bb24378f720056416fa6286f1153ccaf0c6a0778494f557035ef59e";
 const SNV_ID: &str = "sha256:c4c4162b34a73ecd8c44d379f9e4fbc4e5e07869af1967a6695b8d439d2819b3";
 const MODEL_ID: &str = "sha256:4d8f2b8e7ee2dbf5d555c56693280d78d04ee2d0cf3346dfc35066e2a90aae43";
 const REFERENCE_ID: &str =
@@ -275,6 +281,54 @@ pub fn parse_runtime_release_profile(bytes: &[u8]) -> Result<RuntimeReleaseProfi
             members: &PRODUCTION_MEMBERS,
         },
     )
+}
+
+pub(crate) fn production_runtime_release_profile()
+-> Result<(&'static str, RuntimeReleaseProfile), AssetError> {
+    if super::sha256(PRODUCTION_RELEASE_PROFILE) != PRODUCTION_RELEASE_PROFILE_SHA256
+        || super::sha256(PRODUCTION_TRANSPORT_MANIFEST) != TRANSPORT_ID
+    {
+        return Err(release_invalid(
+            "compiled runtime release authority identity mismatch",
+        ));
+    }
+    let profile = parse_runtime_release_profile(PRODUCTION_RELEASE_PROFILE)?;
+    let transport = parse_runtime_transport_manifest_for_release(PRODUCTION_TRANSPORT_MANIFEST)?;
+    let manifest_member = profile
+        .transport
+        .members
+        .first()
+        .ok_or_else(|| release_invalid("runtime transport manifest member is missing"))?;
+    if manifest_member.asset_name != "runtime-transport.json"
+        || manifest_member.size != PRODUCTION_TRANSPORT_MANIFEST.len() as u64
+        || manifest_member.sha256 != TRANSPORT_ID
+        || transport.runtime_profile_id != profile.runtime.profile_id
+        || transport.members.len() + 1 != profile.transport.members.len()
+    {
+        return Err(release_invalid("compiled runtime authorities disagree"));
+    }
+    for (outer, inner) in profile
+        .transport
+        .members
+        .iter()
+        .skip(1)
+        .zip(&transport.members)
+    {
+        if outer.asset_name != inner.name
+            || outer.logical_path != inner.name
+            || outer.role != inner.role
+            || outer.size != inner.stored_bytes
+            || outer.sha256 != inner.stored_sha256
+        {
+            return Err(release_invalid("compiled runtime authorities disagree"));
+        }
+    }
+    Ok((PRODUCTION_RELEASE_PROFILE_SHA256, profile))
+}
+
+pub(crate) fn production_runtime_transport_manifest() -> Result<&'static [u8], AssetError> {
+    production_runtime_release_profile()?;
+    Ok(PRODUCTION_TRANSPORT_MANIFEST)
 }
 
 #[doc(hidden)]
@@ -1235,4 +1289,44 @@ fn input_io(operation: &str, error: io::Error) -> AssetError {
 
 fn output_io(operation: &str, error: io::Error) -> AssetError {
     AssetError::new(AssetErrorKind::OutputIo, format!("{operation}: {error}"))
+}
+
+#[cfg(test)]
+mod production_contract_tests {
+    use super::*;
+
+    #[test]
+    fn checked_release_and_transport_authorities_are_exact_and_closed() {
+        let (digest, profile) = production_runtime_release_profile().expect("production contract");
+        assert_eq!(digest, PRODUCTION_RELEASE_PROFILE_SHA256);
+        assert_eq!(profile.profile, TAG);
+        assert_eq!(profile.repository, REPOSITORY);
+        assert_eq!(
+            profile.release.target_commit,
+            "e6d8497aaf1e3db521360ad969252a2ec6fd14e4"
+        );
+        assert_eq!(profile.transport.transport_id, TRANSPORT_ID);
+        assert_eq!(profile.runtime.profile_id, PROFILE_ID);
+        assert_eq!(profile.transport.members.len(), 10);
+        assert_eq!(
+            profile
+                .transport
+                .members
+                .iter()
+                .map(|member| member.asset_name.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "runtime-transport.json",
+                "runtime-profile.json",
+                "model-manifest.json",
+                "model-NOTICE",
+                "model.onnx.zst",
+                "reference-manifest.json",
+                "reference-NOTICE",
+                "reference.pgr.zst",
+                "mask-NOTICE",
+                "domains.pgm.zst",
+            ]
+        );
+    }
 }

@@ -67,7 +67,10 @@ pub use runtime_transport::{
     pack_runtime_transport, unpack_runtime_transport, verify_runtime_transport,
 };
 pub use snv::{BundleCertification, MAX_FIXED11_BYTES, NOTICE, NOTICE_SHA256, certify_bundle};
-pub use sync::{CachePathInputs, SyncOutcome, resolve_cache_root, sync_assets};
+pub use sync::{
+    CachePathInputs, RuntimeSyncOutcome, SyncOutcome, resolve_cache_root, sync_assets,
+    sync_runtime_assets,
+};
 
 #[cfg(test)]
 mod install_audit {

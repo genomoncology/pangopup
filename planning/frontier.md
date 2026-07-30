@@ -18,8 +18,8 @@ semantics and records the selection of constant-membership domains from three
 mmap candidates in one full-source comparison. The one-time candidate and
 qualification source has been removed. The exact retained domains
 member is now available through a production, domains-only typed mmap provider
-and local transport and is public in `runtime-grch38-v1`; automatic sync
-remains future. An authenticated combined
+and local transport and is public in `runtime-grch38-v1`; typed pinned sync is
+shipped, while combined CLI provisioning remains future. An authenticated combined
 ONNX representation and qualified single-owner CPU kernel now return the
 twelve raw Pangolin channels. `pangopup-engine` now composes the sequence,
 mask, and kernel providers into compatible masked distance-50 scores for the
@@ -36,8 +36,8 @@ three model-side assets is established. The exact 691,884,908-byte read-only
 `runtime-grch38-v1` release stage has been prepared from reviewed, remotely
 green code, with byte equality and all declared checksums qualified. Its
 complete exact GPL preferred-source supplement is also retained and qualified;
-the exact 15-asset set is now public and immutable. Automatic model-side sync
-and HTTP remain future.
+the exact 15-asset set is now public and immutable. Pinned typed model-side
+sync is shipped; combined CLI provisioning and HTTP remain future.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
 and typed mmap provider are established; its local transport, installation,
 and immutable public release are shipped. Future SNV and sequence-index builds use
@@ -89,8 +89,9 @@ local transport, and one qualified 15-asset publication set. The transport
 uses three independent frames, reconstructs accepted bytes exactly, and never
 touches the 15 GB SNV payload. The publication set adds complete exact
 Pangolin/Pangopup preferred-source archives and the standalone GPL license. It
-is now the immutable public `runtime-grch38-v1` GitHub release but has no
-remote-sync policy. Pinned sync and clean-machine CLI inference remain. No raw
+is now the immutable public `runtime-grch38-v1` GitHub release with a pinned
+typed remote-sync policy. Combined CLI provisioning and clean-machine CLI
+inference remain. No raw
 Zenodo, NCBI, or GENCODE source input is a Pangopup release asset. Original
 checkpoints are preserved as preferred source, not installed runtime members.
 
@@ -511,8 +512,10 @@ never raw NCBI, GENCODE, or Zenodo inputs—using authenticated official `gh`, a
 non-public draft, remote inventory/digest comparison after every upload, and
 one-way immutable finalization. Release `runtime-grch38-v1` now contains the
 exact reviewed 15 assets and reports `immutable=true`; its tag points to the
-pinned target. Pinned sync, clean-machine CLI inference, and offline restart
-remain next. This outcome precedes HTTP and container publication.
+pinned target. Pinned typed runtime sync and direct one-pass installation are
+now established. Combined SNV/runtime CLI provisioning, clean-machine CLI
+inference, and offline restart remain next. This outcome precedes HTTP and
+container publication.
 
 Repository and dependency controls do not replace release evidence. Remote
 inventory/digest comparison, immutable finalization, model-side runtime sync,

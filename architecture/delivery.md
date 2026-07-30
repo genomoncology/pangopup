@@ -211,8 +211,8 @@ format or installer:
 
 All four SNV delivery stages are shipped. Deterministic local packaging and
 publication of the converted model, GRCh38 sequence index, and mask are also
-shipped. Pinned download and install-from-transport integration remain
-separate reviewed outcomes.
+shipped. Pinned typed download and direct cached-transport installation are
+also shipped; combined CLI provisioning remains a separate reviewed outcome.
 
 Retained evidence selected the `acgt2-rle-v1` reference payload by speed from
 three exact mmap candidates on the pinned six-contig RefSeq input. It now feeds
@@ -220,7 +220,8 @@ a separate production `PGRREF01` bundle and provider. The discarded candidate
 files, miniature, benchmark executable, and CLI have been removed; their
 reports and decisions remain historical evidence rather than runtime assets.
 Compiled GRCh38 sequence index XDG installation, local transport, and
-publication are shipped. Automatic remote provisioning remains future work.
+publication and pinned typed remote provisioning are shipped. Combined CLI
+provisioning remains future work.
 The raw FASTA and assembly report are never packaged.
 
 Ticket 012's canonical export, unselected candidates, phase receipts, and
@@ -228,9 +229,10 @@ benchmark report are retained private historical evidence and must not be
 uploaded as runtime assets. Their one-time writer, qualification binary, and
 source interfaces are no longer present at HEAD. ADR 0013 permits only the
 exact selected `domains.pgm` member to become the runtime asset. Its
-manifest-bound local transport verification, XDG installation, and publication
-are shipped; automatic remote provisioning remains separate work. The production
-reader performs none of those delivery operations.
+manifest-bound local transport verification, XDG installation, publication,
+and pinned typed remote provisioning are shipped. Combined CLI provisioning
+remains separate work. The production reader performs none of those delivery
+operations.
 
 ## Shipped Linux installation and pinned remote sync
 
@@ -238,8 +240,9 @@ The binary embeds the canonical `snv-grch38-v1` release profile for one
 compatible lookup asset set. The shipped full runtime profile separately
 identifies the converted model, compiled GRCh38 sequence index, and mask
 assets; its offline XDG installation and activation path is established.
-The exact public payload is immutable and public. Automatic remote
-provisioning and direct install-from-runtime-transport remain future work.
+The exact public payload is immutable and public. The library now provides
+pinned runtime remote provisioning and direct cached-transport installation;
+one combined public CLI provisioning/status contract remains future work.
 
 The shipped local command accepts an already available transport:
 
@@ -305,6 +308,19 @@ The explicit local installer does not require a network and is the primitive.
 Remote sync only obtains the exact bytes named by a pinned manifest and then
 calls that installer. A complete installed profile remains usable offline even
 if the remote release is unavailable.
+
+Runtime sync embeds two exact canonical authorities:
+`runtime-release-profile.json` names the ten downloadable files and
+`runtime-transport.json` binds the nine installed members, their
+stored and reconstructed identities, and encoder contract. The outer profile
+pins the inner manifest's exact byte hash. Runtime sync holds its cache lock
+while downloading, releases all network response bodies before installation,
+then takes the established data-root install lock. On a successful install
+path, each compressed cached member is read once and decoded directly to its
+final staging destination; there is no decoded intermediate transport
+directory. Content-failure recovery rereads completed members once through
+held descriptors so authenticated good files remain reusable while corrupt
+files are discarded.
 
 Transport and reconstructed hashes are mandatory in the single install stream.
 Ordinary startup validates receipt/manifest identity, sizes, format versions,

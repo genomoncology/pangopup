@@ -21,8 +21,8 @@ supported non-SNV needs inference; explicit fallback paths remain an override.
 The exact derived model-side release and its GPL preferred source are public
 as the immutable
 [`runtime-grch38-v1` release](https://github.com/genomoncology/pangopup/releases/tag/runtime-grch38-v1).
-Automatic model-side sync and the HTTP service remain unimplemented. Ticket
-012 has now
+Pinned model-side library sync is shipped; combined CLI provisioning and the
+HTTP service remain unimplemented. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
 Ticket 014 promotes the exact selected bytes behind a domains-only production
@@ -30,7 +30,7 @@ mmap provider without rebuilding or renaming the format. The one-time
 candidate writer and qualification program have since been removed; their
 retained reports and exactness corpus remain as historical evidence. Compiled
 GRCh38 sequence-index, mask, and model bytes are frozen in the public
-`runtime-grch38-v1` publication set; automatic download remains pending. The
+`runtime-grch38-v1` publication set; pinned typed download is shipped. The
 completed three-format reference experiment
 has likewise been removed from the compiled workspace;
 its retained selection evidence led to the independent production `PGRREF01`
@@ -429,11 +429,12 @@ files, complete exact Pangolin and Pangopup source archives, and a standalone
 upstream GPLv3 license. Its release body is a separate retained file and is not
 uploaded as an asset. Every remote name, size, and GitHub SHA-256 matched after
 one upload, and the completed release reports `immutable=true`. No raw Zenodo,
-NCBI, or GENCODE source input is included. Automatic model-side sync remains a
-later CLI outcome.
+NCBI, or GENCODE source input is included. The library now has pinned
+model-side sync; composing it with SNV sync in one public CLI command remains
+the next CLI outcome.
 
-The runtime can sync the exact binary-pinned public transport or install an
-already available transport without networking:
+The current CLI can sync the SNV transport or install an already available SNV
+transport without networking:
 
 ```text
 pangopup assets sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
@@ -447,6 +448,18 @@ It downloads sequentially through a bounded buffer, follows only a short
 allowlisted HTTPS redirect chain, and resumes an interrupted member only when
 a strong ETag and exact byte range agree. `--offline` forbids network access
 and can install a previously completed cached transport.
+
+The `pangopup-assets` library separately pins the exact ten-file
+`runtime-grch38-v1` download set. `sync_runtime_assets` uses the same bounded
+HTTPS, redirect, resume, private-cache, and nonblocking-lock implementation.
+On the successful install path it reads each completed cached member once per
+attempt, decodes each
+compressed model/reference/mask frame directly into the existing atomic
+installation stage, and never creates a second decoded transport tree.
+After a content failure, recovery deliberately rereads completed members once
+to retain authenticated good files and discard only corrupt files.
+Combining these two typed operations under top-level CLI `sync` and `status`
+belongs to the next ticket; lookup still never downloads implicitly.
 
 It resolves an explicit data directory, `PANGOPUP_DATA_DIR`, `XDG_DATA_HOME`,
 or `HOME` in that order. Installation holds one nonblocking lock, validates and
@@ -646,8 +659,9 @@ Implemented today:
   stable warnings/errors, gene filtering after all-gene masking, and
   transactional JSONL/table batches.
 
-Not implemented yet: HTTP service, container, persistent model-side download
-progress/status, repair/GC/rollback, or automatic model-side asset sync.
+Not implemented yet: combined top-level CLI provisioning/status, HTTP service,
+container, persistent model-side download progress/status, or
+repair/GC/rollback.
 Public delivery of the compiled GRCh38 sequence index, mask, and model is
 complete. Deterministic local model-side packaging, offline installation, and
 coherent activation are implemented.

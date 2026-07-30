@@ -19,3 +19,11 @@ reproduces the small publication outputs from bounded local metadata without
 opening payload parts or contacting GitHub. A mutable release is not a
 fallback. This observed immutable contract is the source of truth consumed by
 the shipped pinned remote-sync implementation.
+
+`runtime-release-profile.json` is the checked outer authority for the public
+`runtime-grch38-v1` release and its exact ten-file download set.
+`runtime-transport.json` is the checked inner authority for the nine installed
+members, including stored and reconstructed identities. The outer authority
+pins the inner file's exact byte hash. The shipped runtime-sync library reads
+these compiled bytes; it never discovers a latest release or downloads either
+authority from an untrusted location.

@@ -165,8 +165,9 @@ Later `pangopup lookup` discovers and cheaply reuses the active immutable bundle
 without `--bundle` or network access. Lookup does not download implicitly.
 The three model-side assets can separately be installed from trusted local
 inputs with `assets runtime install`. Their exact immutable public release is
-available; automatic sync, persistent download progress, and container
-prefetch remain future.
+available, and the library has a pinned resumable runtime-sync operation that
+installs its cached transport directly. A combined top-level CLI command,
+persistent download progress, and container prefetch remain future.
 
 ### Will asset sync download whatever release is latest?
 
@@ -230,8 +231,9 @@ although IUPAC4 touched two fewer logical pages. Normal tests use the small
 complete production `PGRREF01` bundle/provider. The discarded candidate codecs,
 miniature, benchmark executable, and CLI have been removed; retained reports
 and decisions preserve the selection evidence. Local packaging and immutable
-publication are shipped; automatic remote delivery remains future work. Model
-integration is shipped through `pangopup-engine`.
+publication and pinned typed remote delivery are shipped. Combined CLI
+provisioning remains future work. Model integration is shipped through
+`pangopup-engine`.
 
 ### Which compact GENCODE mask encoding will Pangopup use?
 

@@ -293,24 +293,66 @@ pub fn install_runtime_profile(
     profile
         .require_trusted_production()
         .map_err(profile_parse_error)?;
-    install_with_profile(
+    install_with_stager(
         &bytes,
         &profile,
-        InstallSources {
-            model: model_bundle,
-            reference: reference_bundle,
-            mask,
-        },
         data_root,
+        |staged_model, staged_reference, staged_mask| {
+            stage_local_sources(
+                InstallSources {
+                    model: model_bundle,
+                    reference: reference_bundle,
+                    mask,
+                },
+                staged_model,
+                staged_reference,
+                staged_mask,
+                &profile,
+            )
+        },
     )
 }
 
-fn install_with_profile(
+fn stage_local_sources(
+    sources: InstallSources<'_>,
+    staged_model: &Path,
+    staged_reference: &Path,
+    staged_mask: &Path,
+    profile: &RuntimeProfile,
+) -> Result<(), AssetError> {
+    copy_bundle(
+        sources.model,
+        staged_model,
+        "model.onnx",
+        profile.model.member_bytes,
+        &profile.model.member_sha256,
+    )?;
+    copy_bundle(
+        sources.reference,
+        staged_reference,
+        "reference.pgr",
+        profile.reference.member_bytes,
+        &profile.reference.member_sha256,
+    )?;
+    create_private(staged_mask)?;
+    copy_member(
+        sources.mask,
+        &staged_mask.join("domains.pgm"),
+        profile.mask.member_bytes,
+        &profile.mask.member_sha256,
+    )?;
+    Ok(())
+}
+
+pub(crate) fn install_with_stager<F>(
     profile_bytes: &[u8],
     profile: &RuntimeProfile,
-    sources: InstallSources<'_>,
     data_root: &Path,
-) -> Result<RuntimeInstallOutcome, AssetError> {
+    stage_sources: F,
+) -> Result<RuntimeInstallOutcome, AssetError>
+where
+    F: FnOnce(&Path, &Path, &Path) -> Result<(), AssetError>,
+{
     let canonical = canonical_runtime_profile_bytes(profile).map_err(profile_parse_error)?;
     if canonical != profile_bytes {
         return Err(profile_corrupt("runtime profile is not canonical"));
@@ -370,27 +412,7 @@ fn install_with_profile(
         let staged_model = stage.join("model");
         let staged_reference = stage.join("reference");
         let staged_mask = stage.join("mask");
-        copy_bundle(
-            sources.model,
-            &staged_model,
-            "model.onnx",
-            profile.model.member_bytes,
-            &profile.model.member_sha256,
-        )?;
-        copy_bundle(
-            sources.reference,
-            &staged_reference,
-            "reference.pgr",
-            profile.reference.member_bytes,
-            &profile.reference.member_sha256,
-        )?;
-        create_private(&staged_mask)?;
-        copy_member(
-            sources.mask,
-            &staged_mask.join("domains.pgm"),
-            profile.mask.member_bytes,
-            &profile.mask.member_sha256,
-        )?;
+        stage_sources(&staged_model, &staged_reference, &staged_mask)?;
         transition!(StagedObjectsDurable);
 
         validate_staged(profile, &staged_model, &staged_reference, &staged_mask)?;
@@ -522,6 +544,29 @@ fn install_with_profile(
     })();
     let _ = remove_stage(&stage);
     result
+}
+
+#[cfg(test)]
+fn install_with_profile(
+    profile_bytes: &[u8],
+    profile: &RuntimeProfile,
+    sources: InstallSources<'_>,
+    data_root: &Path,
+) -> Result<RuntimeInstallOutcome, AssetError> {
+    install_with_stager(
+        profile_bytes,
+        profile,
+        data_root,
+        |staged_model, staged_reference, staged_mask| {
+            stage_local_sources(
+                sources,
+                staged_model,
+                staged_reference,
+                staged_mask,
+                profile,
+            )
+        },
+    )
 }
 
 pub fn runtime_local_status(data_root: &Path) -> Result<RuntimeLocalStatus, AssetError> {

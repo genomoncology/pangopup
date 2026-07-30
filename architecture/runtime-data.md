@@ -121,8 +121,9 @@ and the runtime-profile identity. The SNV facts remain profile metadata; the
 uses the same one-pass authentication while writing private staged outputs,
 then publishes the complete reconstructed layout by atomic no-replace rename.
 This proves transport integrity, not publisher identity or trusted-production
-admission. Public URLs, remote sync, and install-from-transport remain later
-delivery policy.
+admission. The delivery layer now supplies that policy through two compiled
+canonical public manifests, pinned HTTPS download, and one-pass install from
+the authenticated cache into the atomic runtime staging boundary.
 
 `pangopup-build runtime-release prepare` promotes only the exact production
 transport identity into a controlled publication source. It does not inspect
@@ -225,7 +226,10 @@ source tree. Their detailed receipts and reports remain historical evidence.
 Runtime consumers receive none of the GTF, SQLite, Python, promotion, or
 failure material. The shipped local transport contains only the exact selected
 domains member, its identity metadata, and attribution. Immutable publication
-uses those same derived bytes; automatic sync remains future.
+uses those same derived bytes; pinned typed sync is shipped. The exact
+`mask-NOTICE` remains authenticated and reusable in the transport cache and in
+explicit unpack output. The frozen installed mask-component topology remains
+`domains.pgm`-only, matching the explicit local installer and receipt contract.
 
 ## Reproduction boundary
 
@@ -273,6 +277,7 @@ score bundle. Explicit-path or activated-profile fallback additionally needs
 the converted model bundle, compact GRCh38 sequence bundle, and compiled
 Pangolin mask member. The shipped coherent profile and offline XDG installer
 install and activate those four identities together; its local transport is
-also shipped, and its exact public assets are immutable. Automatic provisioning
-and direct install-from-transport integration remain future work. Lookup-only
-use continues to omit the latter three assets.
+also shipped, and its exact public assets are immutable. The typed library
+provisioning operation and direct cached-transport installation are shipped;
+one combined SNV/runtime CLI command and status surface remain future work.
+Lookup-only use continues to omit the latter three assets.

@@ -1,7 +1,10 @@
 //! Pinned, resumable download of the immutable production SNV transport.
 
 use super::release::ProfileMember;
-use super::{AssetError, AssetErrorKind, ReleaseProfile, install_transport, open_active_bundle};
+use super::{
+    AssetError, AssetErrorKind, ReleaseProfile, RuntimeReleaseProfile, install_transport,
+    open_active_bundle,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -195,6 +198,20 @@ pub struct SyncOutcome {
     pub resumed_bytes: u64,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct RuntimeSyncOutcome {
+    pub status: &'static str,
+    pub transport_id: String,
+    pub profile_id: String,
+    pub snv_bundle_id: String,
+    pub model_bundle_id: String,
+    pub reference_bundle_id: String,
+    pub mask_sha256: String,
+    pub path: PathBuf,
+    pub downloaded_bytes: u64,
+    pub resumed_bytes: u64,
+}
+
 #[derive(Clone, Debug)]
 struct Request {
     url: String,
@@ -329,6 +346,64 @@ pub fn sync_assets(
     )
 }
 
+/// Download and install the exact binary-pinned production runtime transport.
+pub fn sync_runtime_assets(
+    data_root: &Path,
+    cache_root: Option<&Path>,
+    offline: bool,
+) -> Result<RuntimeSyncOutcome, AssetError> {
+    let (digest, release) = super::runtime_release::production_runtime_release_profile()?;
+    let members = release
+        .transport
+        .members
+        .iter()
+        .map(|member| ProfileMember {
+            logical_path: member.logical_path.clone(),
+            asset_name: member.asset_name.clone(),
+            size: member.size,
+            sha256: member.sha256.clone(),
+            url: member.url.clone(),
+        })
+        .collect::<Vec<_>>();
+    if let Some(outcome) = runtime_active_fast_path(data_root, &release)? {
+        return Ok(outcome);
+    }
+    let cache_root = cache_root.ok_or_else(|| {
+        AssetError::new(
+            AssetErrorKind::PathUnavailable,
+            "no Linux cache directory is available",
+        )
+    })?;
+    let cache = Cache::open(cache_root, digest)?;
+    let (_, _, snv_profile) = super::release::production_profile()?;
+    let contract = SyncContract {
+        profile: &snv_profile,
+        profile_digest: digest,
+        allowed_hosts: &["github.com", "release-assets.githubusercontent.com"],
+        require_https: true,
+    };
+    with_runtime_cache_lock(&cache, |cache| {
+        sync_runtime_cached(
+            data_root,
+            offline,
+            cache,
+            &release,
+            &members,
+            contract,
+            &UreqClient::production(),
+        )
+    })
+}
+
+fn with_runtime_cache_lock<T>(
+    cache: &Cache,
+    operation: impl FnOnce(&Cache) -> Result<T, AssetError>,
+) -> Result<T, AssetError> {
+    let _lock = cache.lock()?;
+    cache.initialize_working_directories()?;
+    operation(cache)
+}
+
 fn sync_with(
     data_root: &Path,
     cache_root: Option<&Path>,
@@ -382,6 +457,187 @@ fn sync_with(
     )
 }
 
+fn sync_runtime_cached(
+    data_root: &Path,
+    offline: bool,
+    cache: &Cache,
+    release: &RuntimeReleaseProfile,
+    members: &[ProfileMember],
+    contract: SyncContract<'_>,
+    client: &dyn TransportClient,
+) -> Result<RuntimeSyncOutcome, AssetError> {
+    sync_runtime_cached_with_installer(
+        offline,
+        RuntimeSyncContext {
+            data_root,
+            cache,
+            release,
+            members,
+            contract,
+            client,
+            installer: &super::runtime_transport::install_cached_runtime_transport,
+        },
+    )
+}
+
+struct RuntimeSyncContext<'a> {
+    data_root: &'a Path,
+    cache: &'a Cache,
+    release: &'a RuntimeReleaseProfile,
+    members: &'a [ProfileMember],
+    contract: SyncContract<'a>,
+    client: &'a dyn TransportClient,
+    installer: &'a dyn Fn(&Path, &Path) -> Result<super::RuntimeInstallOutcome, AssetError>,
+}
+
+fn sync_runtime_cached_with_installer(
+    offline: bool,
+    context: RuntimeSyncContext<'_>,
+) -> Result<RuntimeSyncOutcome, AssetError> {
+    let RuntimeSyncContext {
+        data_root,
+        cache,
+        release,
+        members,
+        contract,
+        client,
+        installer,
+    } = context;
+    if let Some(transport) = cache.published_transport_members(members)? {
+        return install_cached_runtime(cache, &transport, data_root, release, 0, 0, installer);
+    }
+    if closed_members(cache.members_dir()?, members)? {
+        let transport = cache.publish_transport_members(members, &release.profile)?;
+        return install_cached_runtime(cache, &transport, data_root, release, 0, 0, installer);
+    }
+    if offline {
+        return Err(missing_members_error(cache, &release.profile, members));
+    }
+    let mut downloaded = 0_u64;
+    let mut resumed = 0_u64;
+    for member in members {
+        let result = cache.obtain_member(member, contract, client)?;
+        downloaded = downloaded
+            .checked_add(result.downloaded)
+            .ok_or_else(|| download_error("download byte counter overflow"))?;
+        resumed = resumed
+            .checked_add(result.resumed)
+            .ok_or_else(|| download_error("resume byte counter overflow"))?;
+    }
+    let transport = cache.publish_transport_members(members, &release.profile)?;
+    install_cached_runtime(
+        cache, &transport, data_root, release, downloaded, resumed, installer,
+    )
+}
+
+fn runtime_active_fast_path(
+    data_root: &Path,
+    release: &RuntimeReleaseProfile,
+) -> Result<Option<RuntimeSyncOutcome>, AssetError> {
+    require_linux()?;
+    if !active_snv_matches(data_root, &release.runtime.snv_bundle_id)? {
+        return Ok(None);
+    }
+    match super::runtime_local_status(data_root) {
+        Ok(super::RuntimeLocalStatus::Ready {
+            profile_id,
+            snv_bundle_id,
+            model_bundle_id,
+            reference_bundle_id,
+            mask_sha256,
+            ..
+        }) if profile_id == release.runtime.profile_id
+            && snv_bundle_id == release.runtime.snv_bundle_id
+            && model_bundle_id == release.runtime.model_bundle_id
+            && reference_bundle_id == release.runtime.reference_bundle_id
+            && mask_sha256 == release.runtime.mask_sha256 =>
+        {
+            let suffix = profile_id
+                .strip_prefix("sha256:")
+                .ok_or_else(|| asset_state("installed runtime identity is invalid"))?
+                .to_owned();
+            Ok(Some(RuntimeSyncOutcome {
+                status: "reused",
+                transport_id: release.transport.transport_id.clone(),
+                profile_id,
+                snv_bundle_id,
+                model_bundle_id,
+                reference_bundle_id,
+                mask_sha256,
+                path: data_root.join("runtime").join("profiles").join(suffix),
+                downloaded_bytes: 0,
+                resumed_bytes: 0,
+            }))
+        }
+        Ok(_) => Ok(None),
+        Err(error) if error.kind() == AssetErrorKind::AssetsMissing => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn active_snv_matches(data_root: &Path, expected_bundle_id: &str) -> Result<bool, AssetError> {
+    match open_active_bundle(data_root) {
+        Ok((active, _provider)) => Ok(active.bundle_id == expected_bundle_id),
+        Err(error) if error.kind() == AssetErrorKind::AssetsMissing => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+fn install_cached_runtime(
+    cache: &Cache,
+    transport: &PublishedTransport,
+    data_root: &Path,
+    release: &RuntimeReleaseProfile,
+    downloaded: u64,
+    resumed: u64,
+    installer: &dyn Fn(&Path, &Path) -> Result<super::RuntimeInstallOutcome, AssetError>,
+) -> Result<RuntimeSyncOutcome, AssetError> {
+    match installer(&transport.install_path(), data_root) {
+        Ok(installed) => {
+            let suffix = installed
+                .profile_id
+                .strip_prefix("sha256:")
+                .ok_or_else(|| asset_state("installed runtime identity is invalid"))?;
+            Ok(RuntimeSyncOutcome {
+                status: installed.status,
+                transport_id: release.transport.transport_id.clone(),
+                profile_id: installed.profile_id.clone(),
+                snv_bundle_id: installed.snv_bundle_id,
+                model_bundle_id: installed.model_bundle_id,
+                reference_bundle_id: installed.reference_bundle_id,
+                mask_sha256: installed.mask_sha256,
+                path: data_root.join("runtime").join("profiles").join(suffix),
+                downloaded_bytes: downloaded,
+                resumed_bytes: resumed,
+            })
+        }
+        Err(error) => {
+            if runtime_cache_content_error(error.kind())
+                && let Err(cleanup) = cache.recover_published_members(
+                    &release
+                        .transport
+                        .members
+                        .iter()
+                        .map(|member| ProfileMember {
+                            logical_path: member.logical_path.clone(),
+                            asset_name: member.asset_name.clone(),
+                            size: member.size,
+                            sha256: member.sha256.clone(),
+                            url: member.url.clone(),
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            {
+                return Err(AssetError::new(
+                    error.kind(),
+                    format!("{error}; cached member recovery also failed: {cleanup}"),
+                ));
+            }
+            Err(error)
+        }
+    }
+}
+
 fn active_fast_path(
     data_root: &Path,
     profile: &ReleaseProfile,
@@ -428,6 +684,17 @@ fn install_cached(
             Err(error)
         }
     }
+}
+
+fn runtime_cache_content_error(kind: AssetErrorKind) -> bool {
+    matches!(
+        kind,
+        AssetErrorKind::ManifestInvalid
+            | AssetErrorKind::PartSetInvalid
+            | AssetErrorKind::TransportHashMismatch
+            | AssetErrorKind::CompressionInvalid
+            | AssetErrorKind::BundleInvalid
+    )
 }
 
 fn cache_content_error(kind: AssetErrorKind) -> bool {
@@ -592,10 +859,17 @@ impl Cache {
         &self,
         profile: &ReleaseProfile,
     ) -> Result<Option<PublishedTransport>, AssetError> {
+        self.published_transport_members(&profile.transport.members)
+    }
+
+    fn published_transport_members(
+        &self,
+        members: &[ProfileMember],
+    ) -> Result<Option<PublishedTransport>, AssetError> {
         let Some(dir) = open_private_child_optional(&self.profile_dir, "transport")? else {
             return Ok(None);
         };
-        if closed_transport(&dir, profile)? {
+        if closed_members(&dir, members)? {
             Ok(Some(PublishedTransport {
                 dir,
                 #[cfg(test)]
@@ -790,8 +1064,16 @@ impl Cache {
         &self,
         profile: &ReleaseProfile,
     ) -> Result<PublishedTransport, AssetError> {
-        if !closed_transport(self.members_dir()?, profile)? {
-            return Err(missing_error(self, profile));
+        self.publish_transport_members(&profile.transport.members, &profile.profile)
+    }
+
+    fn publish_transport_members(
+        &self,
+        members: &[ProfileMember],
+        profile_name: &str,
+    ) -> Result<PublishedTransport, AssetError> {
+        if !closed_members(self.members_dir()?, members)? {
+            return Err(missing_members_error(self, profile_name, members));
         }
         crash_at!(TransportRename);
         rename_noreplace(&self.profile_dir, "members", &self.profile_dir, "transport")?;
@@ -817,6 +1099,44 @@ impl Cache {
             sync_dir(&self.profile_dir)?;
         }
         Ok(())
+    }
+
+    fn recover_published_members(&self, members: &[ProfileMember]) -> Result<(), AssetError> {
+        self.recover_published_members_with(members, |_, _, _| Ok(()))
+    }
+
+    fn recover_published_members_with(
+        &self,
+        members: &[ProfileMember],
+        mut before_rename: impl FnMut(&SafeDir, &str, u64) -> Result<(), AssetError>,
+    ) -> Result<(), AssetError> {
+        let Some(transport) = open_private_child_optional(&self.profile_dir, "transport")? else {
+            return Ok(());
+        };
+        let destination = open_private_child(&self.profile_dir, "members")?;
+        for member in members {
+            remove_regular_if_present(&destination, &member.asset_name)?;
+            if let Some(authenticated) = authenticate_completed_member(&transport, member)? {
+                before_rename(&transport, &member.asset_name, authenticated.metadata.len())?;
+                rename_noreplace(
+                    &transport,
+                    &member.asset_name,
+                    &destination,
+                    &member.asset_name,
+                )?;
+                require_renamed_authenticated_member(
+                    &destination,
+                    &member.asset_name,
+                    &authenticated,
+                )?;
+            } else {
+                remove_regular_if_present(&transport, &member.asset_name)?;
+            }
+        }
+        sync_dir(&destination)?;
+        remove_directory_contents(&transport)?;
+        remove_dir(&self.profile_dir, "transport")?;
+        sync_dir(&self.profile_dir)
     }
 }
 
@@ -1116,10 +1436,12 @@ fn finish_member(
 }
 
 fn closed_transport(dir: &SafeDir, profile: &ReleaseProfile) -> Result<bool, AssetError> {
+    closed_members(dir, &profile.transport.members)
+}
+
+fn closed_members(dir: &SafeDir, members: &[ProfileMember]) -> Result<bool, AssetError> {
     validate_private_dir(dir)?;
-    let expected: BTreeSet<_> = profile
-        .transport
-        .members
+    let expected: BTreeSet<_> = members
         .iter()
         .map(|member| member.asset_name.as_str())
         .collect();
@@ -1130,9 +1452,7 @@ fn closed_transport(dir: &SafeDir, profile: &ReleaseProfile) -> Result<bool, Ass
             closed = false;
             return Err(DirectoryVisit::ClosedMismatch);
         }
-        let member = profile
-            .transport
-            .members
+        let member = members
             .iter()
             .find(|member| member.asset_name == name)
             .ok_or(DirectoryVisit::ClosedMismatch)?;
@@ -1157,9 +1477,15 @@ fn closed_transport(dir: &SafeDir, profile: &ReleaseProfile) -> Result<bool, Ass
 }
 
 fn missing_error(cache: &Cache, profile: &ReleaseProfile) -> AssetError {
-    let details = profile
-        .transport
-        .members
+    missing_members_error(cache, &profile.profile, &profile.transport.members)
+}
+
+fn missing_members_error(
+    cache: &Cache,
+    profile_name: &str,
+    members: &[ProfileMember],
+) -> AssetError {
+    let details = members
         .iter()
         .map(|member| {
             let complete = cache
@@ -1181,7 +1507,7 @@ fn missing_error(cache: &Cache, profile: &ReleaseProfile) -> AssetError {
         .join(",");
     AssetError::new(
         AssetErrorKind::AssetsMissing,
-        format!("profile {} is incomplete: {details}", profile.profile),
+        format!("profile {profile_name} is incomplete: {details}"),
     )
 }
 
@@ -1385,6 +1711,82 @@ fn complete_member_size(dir: &SafeDir, name: &str) -> Result<Option<u64>, AssetE
         Err(error) if error.kind() == AssetErrorKind::AssetsMissing => Ok(None),
         Err(error) => Err(error),
     }
+}
+
+struct AuthenticatedCacheMember {
+    file: File,
+    metadata: std::fs::Metadata,
+}
+
+fn authenticate_completed_member(
+    dir: &SafeDir,
+    member: &ProfileMember,
+) -> Result<Option<AuthenticatedCacheMember>, AssetError> {
+    let mut file = match open_regular(dir, &member.asset_name, libc::O_RDONLY) {
+        Ok(file) => file,
+        Err(error) if error.kind() == AssetErrorKind::AssetsMissing => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if validate_private_file(&file, dir, COMPLETE_FILE_MODE).is_err() {
+        return Ok(None);
+    }
+    let metadata = file
+        .metadata()
+        .map_err(|_| asset_io("inspect completed cache member"))?;
+    if metadata.len() != member.size {
+        return Ok(None);
+    }
+    let mut hash = Sha256::new();
+    let mut observed = 0_u64;
+    let mut buffer = [0_u8; BUFFER_SIZE];
+    loop {
+        let count = file
+            .read(&mut buffer)
+            .map_err(|_| asset_io("read completed cache member"))?;
+        if count == 0 {
+            break;
+        }
+        observed = observed
+            .checked_add(count as u64)
+            .ok_or_else(|| asset_state("completed cache member size overflow"))?;
+        if observed > member.size {
+            return Ok(None);
+        }
+        hash.update(&buffer[..count]);
+    }
+    if observed != member.size || format!("sha256:{:x}", hash.finalize()) != member.sha256 {
+        return Ok(None);
+    }
+    Ok(Some(AuthenticatedCacheMember { file, metadata }))
+}
+
+fn require_renamed_authenticated_member(
+    destination: &SafeDir,
+    name: &str,
+    authenticated: &AuthenticatedCacheMember,
+) -> Result<(), AssetError> {
+    let current = open_regular(destination, name, libc::O_RDONLY)?;
+    validate_private_file(&current, destination, COMPLETE_FILE_MODE)?;
+    let held = authenticated
+        .file
+        .metadata()
+        .map_err(|_| asset_io("reinspect authenticated cache member"))?;
+    let renamed = current
+        .metadata()
+        .map_err(|_| asset_io("inspect recovered cache member"))?;
+    if held.dev() != authenticated.metadata.dev()
+        || held.ino() != authenticated.metadata.ino()
+        || held.len() != authenticated.metadata.len()
+        || renamed.dev() != held.dev()
+        || renamed.ino() != held.ino()
+        || renamed.len() != held.len()
+        || renamed.nlink() != held.nlink()
+    {
+        return Err(asset_state(
+            "cache member changed between authentication and recovery",
+        ));
+    }
+    Ok(())
 }
 
 fn read_bounded(dir: &SafeDir, name: &str, limit: u64) -> Result<Vec<u8>, AssetError> {
@@ -1977,6 +2379,38 @@ mod tests {
         transport
     }
 
+    fn runtime_fixture(
+        root: &Path,
+        snv: &crate::SnvBundleInspection,
+    ) -> (PathBuf, crate::RuntimeProfile) {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+        let mut profile = crate::parse_runtime_profile(
+            &fs::read(fixtures.join("runtime-transport-mini/runtime-profile.json"))
+                .expect("runtime profile fixture"),
+        )
+        .expect("parse runtime profile");
+        profile.snv.bundle_id = snv.bundle_id.clone();
+        profile.snv.format = snv.format.clone();
+        profile.snv.member_bytes = snv.member_bytes;
+        profile.snv.member_sha256 = snv.member_sha256.clone();
+        let profile_path = root.join("runtime-profile.json");
+        fs::write(
+            &profile_path,
+            crate::canonical_runtime_profile_bytes(&profile).expect("canonical profile"),
+        )
+        .expect("write runtime profile");
+        let transport = root.join("runtime-transport");
+        crate::pack_runtime_transport(
+            &profile_path,
+            &fixtures.join("pangolin-model-kernel-mini/bundle"),
+            &fixtures.join("reference-route-test/bundle"),
+            &fixtures.join("gencode-mask-mini/domains.pgm"),
+            &transport,
+        )
+        .expect("pack runtime transport");
+        (transport, profile)
+    }
+
     fn alternate_fixture(root: &Path) -> PathBuf {
         let source = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../tests/fixtures/snv-regression/bundle");
@@ -2080,6 +2514,293 @@ mod tests {
         assert!(no_network.requests.borrow().is_empty());
         let (active, _) = open_active_bundle(&data).expect("active");
         assert_eq!(active.path, installed.path);
+    }
+
+    #[test]
+    fn runtime_sync_downloads_ten_members_installs_and_reuses_cache_offline() {
+        let temp = Temp::new();
+        let snv_transport = fixture(&temp.0);
+        let data = temp.0.join("runtime-data");
+        crate::install_transport(&snv_transport, &data).expect("install SNV");
+        let snv = crate::inspect_snv_bundle(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/snv-regression/bundle"),
+        )
+        .expect("inspect SNV");
+        let (transport, runtime_profile) = runtime_fixture(&temp.0, &snv);
+        let (_, mut release) =
+            crate::runtime_release::production_runtime_release_profile().expect("authority");
+        release.profile = "runtime-mini-v1".to_owned();
+        release.runtime.profile_id = crate::runtime_profile_id(
+            &crate::canonical_runtime_profile_bytes(&runtime_profile).expect("profile"),
+        )
+        .expect("profile identity")
+        .to_string();
+        release.runtime.snv_bundle_id = runtime_profile.snv.bundle_id.clone();
+        release.runtime.model_bundle_id = runtime_profile.model.bundle_id.clone();
+        release.runtime.reference_bundle_id = runtime_profile.reference.bundle_id.clone();
+        release.runtime.mask_sha256 = runtime_profile.mask.member_sha256.clone();
+        for member in &mut release.transport.members {
+            let bytes = fs::read(transport.join(&member.asset_name)).expect("member");
+            member.size = bytes.len() as u64;
+            member.sha256 = format!("sha256:{:x}", Sha256::digest(&bytes));
+            member.url = format!("http://runtime.test/{}", member.asset_name);
+        }
+        let members = release
+            .transport
+            .members
+            .iter()
+            .map(|member| ProfileMember {
+                logical_path: member.logical_path.clone(),
+                asset_name: member.asset_name.clone(),
+                size: member.size,
+                sha256: member.sha256.clone(),
+                url: member.url.clone(),
+            })
+            .collect::<Vec<_>>();
+        let responses = release
+            .transport
+            .members
+            .iter()
+            .map(|member| {
+                response(
+                    200,
+                    fs::read(transport.join(&member.asset_name)).expect("member"),
+                    Some("\"runtime-mini\""),
+                )
+            })
+            .collect();
+        let client = ScriptClient::new(responses);
+        let cache_root = temp.0.join("runtime-cache");
+        let cache = Cache::open(
+            &cache_root,
+            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        )
+        .expect("cache");
+        let _lock = lock_and_initialize(&cache);
+        let (_, _, snv_profile) = crate::release::production_profile().expect("SNV authority");
+        let contract = SyncContract {
+            profile: &snv_profile,
+            profile_digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            allowed_hosts: &["runtime.test"],
+            require_https: false,
+        };
+        let installed = sync_runtime_cached_with_installer(
+            false,
+            RuntimeSyncContext {
+                data_root: &data,
+                cache: &cache,
+                release: &release,
+                members: &members,
+                contract,
+                client: &client,
+                installer: &crate::runtime_transport::install_cached_runtime_transport_for_test,
+            },
+        )
+        .expect("runtime sync");
+        assert_eq!(installed.status, "installed");
+        assert_eq!(client.requests.borrow().len(), 10);
+        assert_eq!(
+            installed.downloaded_bytes,
+            members.iter().map(|member| member.size).sum::<u64>()
+        );
+        drop(_lock);
+
+        let cache = Cache::open(
+            &cache_root,
+            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        )
+        .expect("cache");
+        let _lock = lock_and_initialize(&cache);
+        let offline_client = ScriptClient::new(vec![]);
+        let reused = sync_runtime_cached_with_installer(
+            true,
+            RuntimeSyncContext {
+                data_root: &data,
+                cache: &cache,
+                release: &release,
+                members: &members,
+                contract,
+                client: &offline_client,
+                installer: &crate::runtime_transport::install_cached_runtime_transport_for_test,
+            },
+        )
+        .expect("offline reuse");
+        assert_eq!(reused.status, "reused");
+        assert_eq!((reused.downloaded_bytes, reused.resumed_bytes), (0, 0));
+        assert!(offline_client.requests.borrow().is_empty());
+
+        let second_data = temp.0.join("runtime-data-retry");
+        crate::install_transport(&snv_transport, &second_data).expect("install second SNV");
+        let corrupt_name = "mask-NOTICE";
+        let corrupt_path = cache.transport.join(corrupt_name);
+        let mut corrupt = fs::read(&corrupt_path).expect("cached notice");
+        corrupt[0] ^= 1;
+        fs::set_permissions(&corrupt_path, fs::Permissions::from_mode(CACHE_FILE_MODE))
+            .expect("make corruptible");
+        fs::write(&corrupt_path, &corrupt).expect("corrupt notice");
+        fs::set_permissions(
+            &corrupt_path,
+            fs::Permissions::from_mode(COMPLETE_FILE_MODE),
+        )
+        .expect("restore complete mode");
+        let error = sync_runtime_cached_with_installer(
+            true,
+            RuntimeSyncContext {
+                data_root: &second_data,
+                cache: &cache,
+                release: &release,
+                members: &members,
+                contract,
+                client: &offline_client,
+                installer: &crate::runtime_transport::install_cached_runtime_transport_for_test,
+            },
+        )
+        .expect_err("corrupt cached member");
+        assert_eq!(error.kind(), AssetErrorKind::TransportHashMismatch);
+        assert!(!cache.transport.exists());
+        assert_eq!(
+            fs::read_dir(&cache.members)
+                .expect("recovered members")
+                .count(),
+            9
+        );
+        assert!(cache.members.join("reference.pgr.zst").is_file());
+
+        let correct = fs::read(transport.join(corrupt_name)).expect("correct notice");
+        let retry_client =
+            ScriptClient::new(vec![response(200, correct, Some("\"runtime-mini-retry\""))]);
+        let retry = sync_runtime_cached_with_installer(
+            false,
+            RuntimeSyncContext {
+                data_root: &second_data,
+                cache: &cache,
+                release: &release,
+                members: &members,
+                contract,
+                client: &retry_client,
+                installer: &crate::runtime_transport::install_cached_runtime_transport_for_test,
+            },
+        )
+        .expect("single-member retry");
+        assert_eq!(retry.status, "installed");
+        assert_eq!(retry_client.requests.borrow().len(), 1);
+    }
+
+    #[test]
+    fn incomplete_offline_runtime_cache_names_all_ten_release_files() {
+        let temp = Temp::new();
+        let (_, release) =
+            crate::runtime_release::production_runtime_release_profile().expect("authority");
+        let members = release
+            .transport
+            .members
+            .iter()
+            .map(|member| ProfileMember {
+                logical_path: member.logical_path.clone(),
+                asset_name: member.asset_name.clone(),
+                size: member.size,
+                sha256: member.sha256.clone(),
+                url: member.url.clone(),
+            })
+            .collect::<Vec<_>>();
+        let cache = Cache::open(
+            &temp.0.join("cache"),
+            "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        )
+        .expect("cache");
+        let _lock = lock_and_initialize(&cache);
+        let error = missing_members_error(&cache, &release.profile, &members);
+        assert_eq!(error.kind(), AssetErrorKind::AssetsMissing);
+        let message = error.to_string();
+        for member in &members {
+            assert!(message.contains(&format!("{}:0/{}", member.asset_name, member.size)));
+        }
+        assert!(message.len() < 1_024);
+    }
+
+    #[test]
+    fn runtime_reuse_requires_the_current_active_snv_identity() {
+        let temp = Temp::new();
+        let data = temp.0.join("data");
+        let first_transport = fixture(&temp.0);
+        let first = crate::install_transport(&first_transport, &data).expect("first SNV");
+        assert!(active_snv_matches(&data, &first.bundle_id).expect("matching active SNV"));
+
+        let replacement_transport = alternate_fixture(&temp.0);
+        let replacement =
+            crate::install_transport(&replacement_transport, &data).expect("replacement SNV");
+        assert_ne!(first.bundle_id, replacement.bundle_id);
+        assert!(!active_snv_matches(&data, &first.bundle_id).expect("stale runtime SNV"));
+        assert!(active_snv_matches(&data, &replacement.bundle_id).expect("replacement active SNV"));
+    }
+
+    #[test]
+    fn runtime_cache_lock_loser_never_reaches_installation() {
+        let temp = Temp::new();
+        let digest = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+        let owner = Cache::open(&temp.0.join("cache"), digest).expect("owner cache");
+        let _owner_lock = owner.lock().expect("owner lock");
+        let loser = Cache::open(&temp.0.join("cache"), digest).expect("loser cache");
+        let installer_calls = std::cell::Cell::new(0_u8);
+        let error = with_runtime_cache_lock(&loser, |_| {
+            installer_calls.set(installer_calls.get() + 1);
+            Ok(())
+        })
+        .expect_err("locked loser");
+        assert_eq!(error.kind(), AssetErrorKind::AssetLocked);
+        assert_eq!(installer_calls.get(), 0);
+    }
+
+    #[test]
+    fn recovery_rejects_path_substitution_after_authentication_before_rename() {
+        let temp = Temp::new();
+        let transport = fixture(&temp.0);
+        let profile = miniature_profile(&transport, "http://fixture.test");
+        let digest = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+        let cache = Cache::open(&temp.0.join("cache"), digest).expect("cache");
+        let _lock = lock_and_initialize(&cache);
+        for member in &profile.transport.members {
+            fs::copy(
+                transport.join(&member.asset_name),
+                cache.members.join(&member.asset_name),
+            )
+            .expect("seed completed member");
+            fs::set_permissions(
+                cache.members.join(&member.asset_name),
+                fs::Permissions::from_mode(COMPLETE_FILE_MODE),
+            )
+            .expect("completed mode");
+        }
+        cache.publish_transport(&profile).expect("publish cache");
+        let substitutions = std::cell::Cell::new(0_u8);
+        let error = cache
+            .recover_published_members_with(&profile.transport.members, |_, name, size| {
+                if substitutions.get() != 0 {
+                    return Ok(());
+                }
+                substitutions.set(1);
+                let replacement = cache.transport.join(format!(".{name}.replacement"));
+                fs::write(&replacement, vec![0_u8; size as usize])
+                    .map_err(|_| asset_io("write recovery replacement"))?;
+                fs::set_permissions(&replacement, fs::Permissions::from_mode(COMPLETE_FILE_MODE))
+                    .map_err(|_| asset_io("protect recovery replacement"))?;
+                fs::remove_file(cache.transport.join(name))
+                    .map_err(|_| asset_io("unlink recovery source"))?;
+                fs::rename(&replacement, cache.transport.join(name))
+                    .map_err(|_| asset_io("replace recovery source"))
+            })
+            .expect_err("substitution");
+        assert_eq!(substitutions.get(), 1);
+        assert_eq!(error.kind(), AssetErrorKind::AssetStateInvalid);
+        assert!(
+            error
+                .to_string()
+                .contains("changed between authentication and recovery")
+        );
+        let first = &profile.transport.members[0];
+        let moved = fs::read(cache.members.join(&first.asset_name)).expect("moved replacement");
+        assert_ne!(format!("sha256:{:x}", Sha256::digest(&moved)), first.sha256);
     }
 
     #[test]

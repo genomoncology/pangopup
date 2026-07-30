@@ -14,10 +14,10 @@ use pangopup_model::{ModelError, ModelRepresentation, inspect_runtime_profile_bu
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs::{self, File},
     io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write},
-    os::unix::fs::MetadataExt,
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
 };
 
@@ -28,6 +28,50 @@ const MAX_NOTICE: u64 = 64 * 1024;
 const MAX_WINDOW_LOG: u32 = 22;
 const MASK_NOTICE: &[u8] = include_bytes!("../../../assets/notices/GENCODE-v38-NOTICE");
 const TRANSPORT_MANIFEST: &str = "runtime-transport.json";
+
+#[cfg(test)]
+mod direct_install_audit {
+    use std::cell::RefCell;
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct Event {
+        pub name: String,
+        pub cached_read_bytes: u64,
+        pub decoded_bytes: u64,
+        pub final_write_bytes: u64,
+    }
+
+    thread_local! {
+        static EVENTS: RefCell<Vec<Event>> = const { RefCell::new(Vec::new()) };
+    }
+
+    pub fn reset() {
+        EVENTS.take();
+    }
+
+    pub fn record(name: &str, stored: u64, decoded: u64, written: u64) {
+        EVENTS.with_borrow_mut(|events| {
+            events.push(Event {
+                name: name.to_owned(),
+                cached_read_bytes: stored,
+                decoded_bytes: decoded,
+                final_write_bytes: written,
+            });
+        });
+    }
+
+    pub fn take() -> Vec<Event> {
+        EVENTS.take()
+    }
+}
+
+#[cfg(test)]
+fn record_direct_install(name: &str, stored: u64, decoded: u64, written: u64) {
+    direct_install_audit::record(name, stored, decoded, written);
+}
+
+#[cfg(not(test))]
+fn record_direct_install(_name: &str, _stored: u64, _decoded: u64, _written: u64) {}
 
 const EXPECTED: [(&str, &str, Encoding); 9] = [
     ("runtime-profile.json", "runtime-profile", Encoding::Raw),
@@ -350,6 +394,7 @@ pub fn unpack_runtime_transport(
 struct OpenedTransport {
     bytes: Vec<u8>,
     manifest: Manifest,
+    raw_members: BTreeMap<String, Vec<u8>>,
 }
 
 pub(crate) fn parse_runtime_transport_manifest_for_release(
@@ -414,23 +459,40 @@ pub(crate) fn verify_runtime_transport_held_frame(
     input
         .seek(SeekFrom::Start(0))
         .map_err(|error| input_io("rewind held runtime member", error))?;
-    verify_frame_open(input, before, member, None, None)
+    verify_frame_open(input, before, member, None, None).map(|_| ())
 }
 
 fn open_transport(path: &Path) -> Result<OpenedTransport, AssetError> {
-    let root = fs::symlink_metadata(path).map_err(|error| input_io("inspect transport", error))?;
-    if root.file_type().is_symlink() || !root.file_type().is_dir() {
+    let descriptor_path = path.parent() == Some(Path::new("/proc/self/fd"))
+        && path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| !name.is_empty() && name.bytes().all(|byte| byte.is_ascii_digit()));
+    let root = if descriptor_path {
+        fs::metadata(path)
+    } else {
+        fs::symlink_metadata(path)
+    }
+    .map_err(|error| input_io("inspect transport", error))?;
+    if (!descriptor_path && root.file_type().is_symlink()) || !root.file_type().is_dir() {
         return Err(part_set("transport is not a regular directory"));
     }
     let bytes = read_checked(&path.join(TRANSPORT_MANIFEST), MAX_JSON)?;
     let manifest = parse_runtime_transport_manifest_for_release(&bytes)?;
     require_transport_inventory(path, &manifest)?;
-    let profile_member = manifest
-        .members
-        .first()
+    let mut raw_members = BTreeMap::new();
+    for member in &manifest.members {
+        if member.encoding == Encoding::Raw {
+            raw_members.insert(
+                member.name.clone(),
+                read_and_verify_raw(&path.join(&member.name), member)?,
+            );
+        }
+    }
+    let profile_bytes = raw_members
+        .get("runtime-profile.json")
         .ok_or_else(|| invalid_manifest("runtime profile member is missing"))?;
-    let profile_bytes = read_and_verify_raw(&path.join("runtime-profile.json"), profile_member)?;
-    let observed_profile_id = super::runtime_profile_id(&profile_bytes)
+    let observed_profile_id = super::runtime_profile_id(profile_bytes)
         .map_err(profile_error)?
         .to_string();
     if observed_profile_id != manifest.runtime_profile_id {
@@ -438,7 +500,158 @@ fn open_transport(path: &Path) -> Result<OpenedTransport, AssetError> {
             "runtime profile identity does not match transport manifest",
         ));
     }
-    Ok(OpenedTransport { bytes, manifest })
+    Ok(OpenedTransport {
+        bytes,
+        manifest,
+        raw_members,
+    })
+}
+
+/// Install an authenticated cached runtime transport without materializing a
+/// second decoded transport tree.
+pub(crate) fn install_cached_runtime_transport(
+    transport: &Path,
+    data_root: &Path,
+) -> Result<super::RuntimeInstallOutcome, AssetError> {
+    install_cached_runtime_transport_with_policy(transport, data_root, true)
+}
+
+fn install_cached_runtime_transport_with_policy(
+    transport: &Path,
+    data_root: &Path,
+    require_production: bool,
+) -> Result<super::RuntimeInstallOutcome, AssetError> {
+    super::require_linux()?;
+    let opened = open_transport(transport)?;
+    if require_production {
+        require_production_manifest(&opened.bytes)?;
+    }
+    let profile_bytes = opened
+        .raw_members
+        .get("runtime-profile.json")
+        .ok_or_else(|| invalid_manifest("runtime profile member is missing"))?;
+    let profile = super::parse_runtime_profile(profile_bytes).map_err(profile_error)?;
+    if require_production {
+        profile
+            .require_trusted_production()
+            .map_err(profile_error)?;
+    }
+    let manifest = &opened.manifest;
+    super::runtime_install::install_with_stager(
+        profile_bytes,
+        &profile,
+        data_root,
+        |model, reference, mask| {
+            stage_cached_transport(
+                transport,
+                manifest,
+                &opened.raw_members,
+                model,
+                reference,
+                mask,
+            )
+        },
+    )
+}
+
+fn require_production_manifest(bytes: &[u8]) -> Result<(), AssetError> {
+    if bytes != super::runtime_release::production_runtime_transport_manifest()? {
+        Err(invalid_manifest(
+            "cached runtime transport does not match compiled production authority",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn install_cached_runtime_transport_for_test(
+    transport: &Path,
+    data_root: &Path,
+) -> Result<super::RuntimeInstallOutcome, AssetError> {
+    install_cached_runtime_transport_with_policy(transport, data_root, false)
+}
+
+fn stage_cached_transport(
+    transport: &Path,
+    manifest: &Manifest,
+    raw: &BTreeMap<String, Vec<u8>>,
+    model: &Path,
+    reference: &Path,
+    mask: &Path,
+) -> Result<(), AssetError> {
+    for directory in [model, reference, mask] {
+        fs::create_dir(directory)
+            .map_err(|error| output_io("create runtime installation staging directory", error))?;
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
+            .map_err(|error| output_io("protect runtime installation staging directory", error))?;
+    }
+    for member in &manifest.members {
+        let destination = match member.name.as_str() {
+            "runtime-profile.json" => continue,
+            "model-manifest.json" => model.join("manifest.json"),
+            "model-NOTICE" => model.join("NOTICE"),
+            "model.onnx.zst" => model.join("model.onnx"),
+            "reference-manifest.json" => reference.join("manifest.json"),
+            "reference-NOTICE" => reference.join("NOTICE"),
+            "reference.pgr.zst" => reference.join("reference.pgr"),
+            "mask-NOTICE" => continue,
+            "domains.pgm.zst" => mask.join("domains.pgm"),
+            _ => return Err(invalid_manifest("unexpected runtime transport member")),
+        };
+        match member.encoding {
+            Encoding::Raw => {
+                let bytes = raw
+                    .get(&member.name)
+                    .ok_or_else(|| part_set("raw runtime transport member is missing"))?;
+                write_install_member(&destination, bytes)?;
+            }
+            Encoding::Zstd => {
+                let mut output = fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&destination)
+                    .map_err(|error| output_io("create decoded runtime member", error))?;
+                let (metrics, final_write_bytes) = {
+                    let mut counted = CountingWriter::new(&mut output);
+                    let metrics =
+                        verify_frame(&transport.join(&member.name), member, Some(&mut counted))?;
+                    (metrics, counted.bytes)
+                };
+                record_direct_install(
+                    &member.name,
+                    metrics.cached_read_bytes,
+                    metrics.decoded_bytes,
+                    final_write_bytes,
+                );
+                output
+                    .set_permissions(fs::Permissions::from_mode(0o444))
+                    .map_err(|error| output_io("protect decoded runtime member", error))?;
+                output
+                    .sync_all()
+                    .map_err(|error| output_io("sync decoded runtime member", error))?;
+            }
+        }
+    }
+    for directory in [model, reference, mask] {
+        sync_directory(directory)?;
+    }
+    Ok(())
+}
+
+fn write_install_member(path: &Path, bytes: &[u8]) -> Result<(), AssetError> {
+    let mut output = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|error| output_io("create staged runtime member", error))?;
+    output
+        .write_all(bytes)
+        .and_then(|_| output.set_permissions(fs::Permissions::from_mode(0o444)))
+        .and_then(|_| output.sync_all())
+        .map_err(|error| output_io("write staged runtime member", error))
 }
 
 fn authenticate_components(
@@ -542,7 +755,42 @@ fn pack_payload(stage: &Path, source: Source<'_>) -> Result<Member, AssetError> 
     })
 }
 
-fn verify_frame(path: &Path, member: &Member, output: Option<&mut File>) -> Result<(), AssetError> {
+struct FrameMetrics {
+    cached_read_bytes: u64,
+    decoded_bytes: u64,
+}
+
+struct CountingWriter<'a> {
+    inner: &'a mut File,
+    bytes: u64,
+}
+
+impl<'a> CountingWriter<'a> {
+    fn new(inner: &'a mut File) -> Self {
+        Self { inner, bytes: 0 }
+    }
+}
+
+impl Write for CountingWriter<'_> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let count = self.inner.write(buffer)?;
+        self.bytes = self
+            .bytes
+            .checked_add(count as u64)
+            .ok_or_else(|| io::Error::other("runtime destination byte count overflow"))?;
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+fn verify_frame(
+    path: &Path,
+    member: &Member,
+    output: Option<&mut dyn Write>,
+) -> Result<FrameMetrics, AssetError> {
     let (input, before) = open_regular(
         path,
         AssetErrorKind::InputIo,
@@ -556,9 +804,9 @@ fn verify_frame_open(
     input: File,
     before: &fs::Metadata,
     member: &Member,
-    output: Option<&mut File>,
+    output: Option<&mut dyn Write>,
     path: Option<&Path>,
-) -> Result<(), AssetError> {
+) -> Result<FrameMetrics, AssetError> {
     if before.len() != member.stored_bytes {
         return Err(part_set("compressed member size does not match manifest"));
     }
@@ -619,7 +867,8 @@ fn verify_frame_open(
             "compressed member has a second frame or trailing bytes",
         ));
     }
-    if hashing.bytes != member.stored_bytes
+    let cached_read_bytes = hashing.bytes;
+    if cached_read_bytes != member.stored_bytes
         || format!("sha256:{:x}", hashing.hash.finalize()) != member.stored_sha256
     {
         return Err(AssetError::new(
@@ -635,7 +884,10 @@ fn verify_frame_open(
             "decompressed runtime member identity mismatch",
         ));
     }
-    Ok(())
+    Ok(FrameMetrics {
+        cached_read_bytes,
+        decoded_bytes: decoded,
+    })
 }
 
 fn validate_held_metadata(file: &File, before: &fs::Metadata) -> Result<(), AssetError> {
@@ -1056,6 +1308,7 @@ fn output_io(operation: &str, error: io::Error) -> AssetError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     fn test_member((name, role, encoding): (&str, &str, Encoding)) -> Member {
         Member {
@@ -1102,5 +1355,94 @@ mod tests {
         let mut manifest = test_manifest();
         manifest.members[0].stored_bytes = 2;
         assert!(validate_manifest(&manifest).is_err());
+    }
+
+    #[test]
+    fn cached_transport_decodes_directly_into_atomic_runtime_installation() {
+        let temp = TempDir::new().expect("temp");
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+        let snv_source = fixtures.join("snv-regression/bundle");
+        let snv_transport = temp.path().join("snv-transport");
+        crate::pack_bundle(&snv_source, &snv_transport).expect("pack SNV");
+        let data = temp.path().join("data");
+        crate::install_transport(&snv_transport, &data).expect("install SNV");
+        let snv = crate::inspect_snv_bundle(&snv_source).expect("inspect SNV");
+
+        let mut profile = crate::parse_runtime_profile(
+            &fs::read(fixtures.join("runtime-transport-mini/runtime-profile.json"))
+                .expect("profile fixture"),
+        )
+        .expect("parse profile fixture");
+        profile.snv.bundle_id = snv.bundle_id;
+        profile.snv.format = snv.format;
+        profile.snv.member_bytes = snv.member_bytes;
+        profile.snv.member_sha256 = snv.member_sha256;
+        let profile_path = temp.path().join("runtime-profile.json");
+        fs::write(
+            &profile_path,
+            crate::canonical_runtime_profile_bytes(&profile).expect("canonical profile"),
+        )
+        .expect("write profile");
+        let transport = temp.path().join("runtime-transport");
+        pack_runtime_transport(
+            &profile_path,
+            &fixtures.join("pangolin-model-kernel-mini/bundle"),
+            &fixtures.join("reference-route-test/bundle"),
+            &fixtures.join("gencode-mask-mini/domains.pgm"),
+            &transport,
+        )
+        .expect("pack runtime");
+
+        direct_install_audit::reset();
+        let installed = install_cached_runtime_transport_for_test(&transport, &data)
+            .expect("direct cached install");
+        assert_eq!(installed.status, "installed");
+        assert!(data.join("runtime/active.json").is_file());
+        assert!(!transport.join("model").exists());
+        assert!(!transport.join("reference").exists());
+        assert!(!transport.join("mask").exists());
+        assert_eq!(
+            fs::read_dir(&transport)
+                .expect("transport inventory")
+                .count(),
+            10
+        );
+        let events = direct_install_audit::take();
+        assert_eq!(events.len(), 3);
+        for event in events {
+            let member = parse_runtime_transport_manifest_for_release(
+                &fs::read(transport.join(TRANSPORT_MANIFEST)).expect("manifest"),
+            )
+            .expect("manifest")
+            .members
+            .into_iter()
+            .find(|member| member.name == event.name)
+            .expect("audited member");
+            assert_eq!(event.cached_read_bytes, member.stored_bytes);
+            assert_eq!(event.decoded_bytes, member.uncompressed_bytes);
+            assert_eq!(event.final_write_bytes, member.uncompressed_bytes);
+        }
+    }
+
+    #[test]
+    fn production_manifest_substitution_fails_before_notice_can_be_ignored() {
+        let authority =
+            crate::runtime_release::production_runtime_transport_manifest().expect("authority");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(authority).expect("transport manifest");
+        let notice = value["members"]
+            .as_array_mut()
+            .expect("members")
+            .iter_mut()
+            .find(|member| member["name"] == "mask-NOTICE")
+            .expect("mask notice");
+        notice["stored_sha256"] = serde_json::Value::String(format!("sha256:{}", "a".repeat(64)));
+        notice["uncompressed_sha256"] =
+            serde_json::Value::String(format!("sha256:{}", "a".repeat(64)));
+        let substituted = serde_jcs::to_vec(&value).expect("canonical substitution");
+        assert_ne!(substituted, authority);
+        let error = require_production_manifest(&substituted).expect_err("substituted authority");
+        assert_eq!(error.kind(), AssetErrorKind::ManifestInvalid);
+        require_production_manifest(authority).expect("exact authority");
     }
 }

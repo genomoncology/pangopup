@@ -1,6 +1,6 @@
 # 035 — Sync the pinned runtime transport directly into installation
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -122,10 +122,12 @@ contract over established SNV and runtime operations.
   its exact checked transport manifest, and ten public members without network
   or production-payload reads.
 - Resource tests bound read buffers and heap independently of the 692 MB
-  production transport. Each HTTP response byte is consumed once, each
-  completed cached member is read once per install attempt through its held
-  descriptor, and each reconstructed byte is written once to its final staging
-  destination while hashing the same streaming bytes as they pass.
+  production transport. Each HTTP response byte is consumed once. On a
+  successful install path, each completed cached member is read once per
+  attempt through its held descriptor and each reconstructed byte is written
+  once to its final staging destination while hashing the same streaming bytes
+  as they pass. After a content failure, recovery may reread completed members
+  once to retain authenticated good files and discard only corrupt files.
 - `make lint`, `make test`, and `make spec` pass.
 
 ## Decisions
@@ -239,11 +241,141 @@ the following ticket.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: `/root/ticket035_implementation`
+
+- Checked in the exact 8,043-byte public
+  `release-profiles/runtime-release-profile.json`
+  (`sha256:d1caf6346bb24378f720056416fa6286f1153ccaf0c6a0778494f557035ef59e`)
+  and exact 3,179-byte public `release-profiles/runtime-transport.json`
+  (`sha256:415860610ccc060ff3ed5678b450650265330d43f7e73bc533c4ff0125e300a3`).
+  A static closed-contract test binds the release identity, pinned target,
+  ten outer download entries, exact inner-manifest byte identity, nine inner
+  members, stored/reconstructed identities, and canonical ordering without
+  network or production-payload reads.
+- Added typed `sync_runtime_assets` and `RuntimeSyncOutcome`. It reuses the
+  existing bounded rustls client, allowlisted redirects, strong-ETag resume,
+  private descriptor-relative cache, exact size/SHA-256 checks, nonblocking
+  cache lock, offline missing aggregation, and cache publication. It never
+  queries release discovery metadata or accepts a URL.
+- Refactored the established runtime installer at its staging-source seam.
+  Local explicit inputs retain their prior behavior; authenticated cached
+  transport members now stream directly into the same model/reference/mask
+  staging directories. Raw bounded members are retained from their single
+  authenticated read, and each Zstandard frame is read/decompressed once to
+  its final staging destination while stored and reconstructed identities are
+  checked. No decoded intermediate transport tree or second decoded-member
+  copy exists.
+- The runtime cache lock is held before the existing data-root install lock,
+  but no network response remains open and the data-root lock is never held
+  during download. Active runtime reuse performs zero network work. Runtime
+  compatibility errors preserve a complete cache; proven cached-content
+  corruption is evicted.
+- Added miniature/offline coverage for all ten release downloads, direct
+  atomic installation beside an active SNV bundle, online and offline reuse,
+  zero offline requests, exact byte counters, absence of a decoded cache tree,
+  and a bounded error naming every missing release member. Existing generic
+  sync tests continue to cover real loopback HTTP, redirect/status/length
+  matrices, exact resume validators/ranges, timeouts, hostile entries,
+  symlink/hardlink/path replacement, nonblocking concurrency, failure
+  injection, atomic publication, and constant buffers; existing runtime
+  transport/installer tests cover truncation, trailing/second frames,
+  reconstructed hash/size failures, transition failures, prior-active
+  preservation, and retry convergence.
+- Updated `AGENTS.md`, `README.md`, `release-profiles/README.md`,
+  `architecture/README.md`, `architecture/delivery.md`,
+  `architecture/runtime-data.md`, `planning/frontier.md`, and
+  `planning/faq.md` to distinguish the shipped typed runtime primitive from
+  the still-future combined CLI.
+- Focused `cargo test -p pangopup-assets`: 82 passed.
+- `make lint`: passed (the existing dependency-duplicate reports remain
+  configured warnings).
+- `make test`: passed across the workspace.
+- `make spec`: 227 passed, 6 skipped.
+
+First code-review remediation:
+
+- Production cached installation now requires the cached inner manifest bytes
+  to equal the exact compiled inner authority. The compiled-authority loader
+  also proves the exact outer profile and its ten facts agree with that inner
+  manifest. A same-size canonical substitution that rebinds
+  `mask-NOTICE` is rejected before staging.
+- A content failure no longer deletes the whole published runtime transport.
+  Recovery reauthenticates each completed member through held descriptors,
+  moves every good member back into resumable complete cache state, and drops
+  only bad content. A miniature corruption test preserves nine good members
+  including `reference.pgr.zst`, downloads one bad notice on retry, and
+  installs successfully.
+- Runtime fast reuse now cheaply opens the currently active SNV bundle and
+  compares its actual bundle identity with the runtime release before trusting
+  the runtime receipt. A replacement-active-SNV regression proves stale reuse
+  is rejected without a score scan.
+- Direct-install instrumentation records the actual compressed bytes consumed
+  and reconstructed bytes produced by each successful frame; the test proves
+  exactly one direct seam event with full stored/decode/final-write byte
+  counts for model, reference, and mask. A separate runtime-lock test proves a
+  nonblocking cache-lock loser invokes no installer operation.
+- Stale current-state claims identified by review were corrected.
+  `mask-NOTICE` remains one exact authenticated cached member and explicit
+  unpack output. The pre-existing frozen installed mask component remains
+  `domains.pgm`-only, matching explicit local installation and its receipt;
+  this ticket does not expand that topology.
+- Post-remediation `make lint`, `make test`, and `make spec` all pass;
+  `make spec` remains 227 passed and 6 skipped.
+
+Second code-review remediation:
+
+- Direct installation now wraps the actual final destination file in an
+  independent counting `Write` implementation. The seam evidence compares
+  actual successful destination writes with independently observed decoded
+  bytes and stored cached reads; an omitted or duplicate write path changes
+  that counter and fails the three-member assertion.
+- Documentation and the resource checklist now limit the one-cache-read claim
+  to a successful install path. Content-failure recovery honestly performs one
+  additional authenticated read of each completed member so it can preserve
+  good content.
+- Recovery retains each authenticated cache descriptor and its metadata across
+  the pathname rename, reopens the destination entry, and requires matching
+  device, inode, length, and link state before keeping it. A deterministic
+  regression replaces the source pathname after hash authentication and
+  before rename; recovery rejects the substituted inode with
+  `ASSET_STATE_INVALID`.
+- The seam regression exposed that post-publication recovery must open the new
+  pathname-visible `members` directory rather than reuse the held descriptor
+  that was renamed to `transport`; that directory selection is corrected.
+- Post-remediation `make lint` and `make test` pass; the full workspace test
+  gate reports 337 passing tests. `make spec` remains 227 passed and 6
+  skipped.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `/root/ticket035_code_review`
+
+First review: REJECT.
+
+- Production install trusted a canonical cached inner manifest without binding
+  it to the exact compiled outer/inner authorities.
+- One corrupt member deleted the whole cached transport instead of preserving
+  the other completed downloads.
+- Fast reuse trusted a stored SNV identity without checking the currently
+  active SNV bundle.
+- The new seam lacked independent read/decode/write and cache-lock-loss
+  instrumentation, and current docs retained contradictory future claims.
+
+Second review: REJECT.
+
+- The final-write counter copied the decoded count instead of measuring actual
+  destination writes, and the one-read claim omitted recovery rereads.
+- Recovery dropped its authenticated descriptor before renaming by pathname,
+  leaving a replacement race.
+
+Final re-review: ACCEPT. The reviewer verified exact compiled outer/inner
+authority binding, notice-rebinding rejection, nine-member salvage and
+one-member retry, live active-SNV validation, zero installer calls for a
+cache-lock loser, independent stored/decode/actual-write counters, honest
+failure reread documentation, descriptor-held rename identity checks, and the
+fail-closed substitution regression. Focused `pangopup-assets` tests passed
+all 82 cases; `git diff --check` passed. No review-time edit or external
+mutation occurred.
 
 ## External Effect Evidence
 
@@ -251,4 +383,12 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: `/root`
+
+The final independently accepted diff passes `git diff --check`, `make lint`,
+`make test` (337 tests), and `make spec` (227 passed, 6 skipped). The
+coordinator confirmed that only the accepted asset-layer primitive, exact two
+small release authorities, tests, and named current-state documentation
+changed; the CLI grammar and external state remain untouched. Current docs
+consistently distinguish shipped typed runtime sync from the following
+combined CLI/status outcome.
