@@ -23,11 +23,14 @@ pub(crate) enum Leaf {
     ModelInspect,
     ModelQualify,
     RuntimeProfilePrepare,
+    RuntimeTransportPack,
+    RuntimeTransportVerify,
+    RuntimeTransportUnpack,
 }
 
 impl Leaf {
     #[cfg(test)]
-    const ALL: [Self; 21] = [
+    const ALL: [Self; 24] = [
         Self::Inspect,
         Self::PrototypeRoundtrip,
         Self::PrototypeOpen,
@@ -49,6 +52,9 @@ impl Leaf {
         Self::ModelInspect,
         Self::ModelQualify,
         Self::RuntimeProfilePrepare,
+        Self::RuntimeTransportPack,
+        Self::RuntimeTransportVerify,
+        Self::RuntimeTransportUnpack,
     ];
 }
 
@@ -209,6 +215,27 @@ const ENTRIES: &[Entry] = &[
         synopsis: "runtime-profile prepare --snv-bundle <SNV_BUNDLE> --model-bundle <MODEL_BUNDLE> --reference-bundle <REFERENCE_BUNDLE> --mask <MASK_FILE> --output <PROFILE_JSON>",
         summary: "Bind the exact qualified four-asset runtime tuple.",
     },
+    Entry {
+        leaf: Leaf::RuntimeTransportPack,
+        namespace: Some("runtime-transport"),
+        action: "pack",
+        synopsis: "runtime-transport pack --profile <FILE> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> --output <ABSENT_DIR>",
+        summary: "Package model-side runtime assets into a deterministic local transport.",
+    },
+    Entry {
+        leaf: Leaf::RuntimeTransportVerify,
+        namespace: Some("runtime-transport"),
+        action: "verify",
+        synopsis: "runtime-transport verify --transport <DIR>",
+        summary: "Stream and authenticate a complete model-side runtime transport.",
+    },
+    Entry {
+        leaf: Leaf::RuntimeTransportUnpack,
+        namespace: Some("runtime-transport"),
+        action: "unpack",
+        synopsis: "runtime-transport unpack --transport <DIR> --output <ABSENT_DIR>",
+        summary: "Reconstruct model-side runtime assets with atomic publication.",
+    },
 ];
 
 pub(crate) fn resolve(arguments: &[OsString]) -> Option<(Leaf, &[OsString])> {
@@ -354,7 +381,8 @@ mod tests {
                 "release",
                 "compatibility",
                 "model",
-                "runtime-profile"
+                "runtime-profile",
+                "runtime-transport"
             ]
         );
         assert!(

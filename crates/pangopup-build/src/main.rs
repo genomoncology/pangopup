@@ -1,5 +1,6 @@
 use pangopup_assets::{
-    pack_bundle, prepare_release, unpack_transport, upload_release_asset, verify_transport,
+    pack_bundle, pack_runtime_transport, prepare_release, unpack_runtime_transport,
+    unpack_transport, upload_release_asset, verify_runtime_transport, verify_transport,
 };
 use pangopup_build::{
     CommandError, build_bundle,
@@ -39,6 +40,9 @@ fn main() -> ExitCode {
         Some("compatibility") => json_usage("compatibility requires inspect or capture"),
         Some("model") => json_usage("model requires evidence, convert, inspect, or qualify"),
         Some("runtime-profile") => json_usage("runtime-profile requires prepare"),
+        Some("runtime-transport") => {
+            json_usage("runtime-transport requires pack, verify, or unpack")
+        }
         Some(_) => unreachable!("closed namespace catalog"),
         None => json_failure(&CommandError::new("CLI_USAGE", LEGACY_USAGE)),
     }
@@ -123,6 +127,59 @@ fn dispatch(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
             model_command(leaf, arguments)
         }
         Leaf::RuntimeProfilePrepare => runtime_profile_command(arguments),
+        Leaf::RuntimeTransportPack
+        | Leaf::RuntimeTransportVerify
+        | Leaf::RuntimeTransportUnpack => runtime_transport_command(leaf, arguments),
+    }
+}
+
+fn runtime_transport_command(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
+    let result = match leaf {
+        Leaf::RuntimeTransportPack => {
+            let Ok(values) = parse_exact_flags(
+                arguments,
+                &[
+                    "--profile",
+                    "--model-bundle",
+                    "--reference-bundle",
+                    "--mask",
+                    "--output",
+                ],
+            ) else {
+                return json_usage(
+                    "runtime-transport pack requires --profile, --model-bundle, --reference-bundle, --mask, and --output exactly once",
+                );
+            };
+            pack_runtime_transport(
+                Path::new(values[0]),
+                Path::new(values[1]),
+                Path::new(values[2]),
+                Path::new(values[3]),
+                Path::new(values[4]),
+            )
+            .map(|outcome| serde_json::to_value(outcome).expect("serializable outcome"))
+        }
+        Leaf::RuntimeTransportVerify => {
+            let Ok(values) = parse_exact_flags(arguments, &["--transport"]) else {
+                return json_usage("runtime-transport verify requires --transport exactly once");
+            };
+            verify_runtime_transport(Path::new(values[0]))
+                .map(|outcome| serde_json::to_value(outcome).expect("serializable outcome"))
+        }
+        Leaf::RuntimeTransportUnpack => {
+            let Ok(values) = parse_exact_flags(arguments, &["--transport", "--output"]) else {
+                return json_usage(
+                    "runtime-transport unpack requires --transport and --output exactly once",
+                );
+            };
+            unpack_runtime_transport(Path::new(values[0]), Path::new(values[1]))
+                .map(|outcome| serde_json::to_value(outcome).expect("serializable outcome"))
+        }
+        _ => unreachable!("runtime transport dispatcher receives runtime transport leaves"),
+    };
+    match result {
+        Ok(outcome) => json_success(&outcome),
+        Err(error) => json_failure(&CommandError::new(error.kind().code(), error.to_string())),
     }
 }
 

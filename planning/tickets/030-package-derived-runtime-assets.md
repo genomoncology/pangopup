@@ -1,6 +1,6 @@
 # 030 — Package the qualified model-side runtime assets
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -255,11 +255,76 @@ material contradiction remains.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex `/root/ticket030_implementation`
+
+Implemented the reviewed local-only scope without opening production assets,
+using a network, or creating a public effect:
+
+- added the closed canonical ten-file model-side transport with deterministic
+  libzstd 1.5.7 frames, exact runtime-profile binding, component
+  authentication, streaming stored/reconstructed SHA-256 verification, and
+  single-decode private staged unpack with atomic no-replace publication;
+- added the checked GENCODE v38 transformed-mask notice, the miniature
+  canonical profile, inside-out/unit/integration corruption and filesystem
+  controls, and the executable CLI contract;
+- added the three cataloged `pangopup-build runtime-transport` leaves and
+  updated current-state documentation, ADR 0023, and the retained production
+  measurement procedure;
+- proved two miniature packs byte-identical at transport
+  `sha256:0e373cf2183312d8f6f28b286aa49ad2395ea5922bf650e0f15b536908d45f6c`;
+  verify wrote no payload, unpack reconstructed every input byte exactly, and
+  corruption, truncation, substitution, extra entries, symlink/non-regular
+  members, unsafe inputs, and output conflicts failed closed.
+
+Focused tests passed (`2` runtime-transport unit tests, `3` integration tests,
+and the executable runtime-transport spec). The repository gates passed:
+`make lint`, `make test`, and `make spec` (`219 passed, 4 skipped`). The final
+production pack/verify/unpack resource run and existing installer acceptance
+remained coordinator-owned as required by the ticket.
+
+The coordinator then packaged the exact production profile into transport
+`sha256:415860610ccc060ff3ed5678b450650265330d43f7e73bc533c4ff0125e300a3`.
+The three frames total `691,860,158` bytes. Pack/verify/unpack passed with
+maximum RSS of `41,288`/`14,060`/`13,752` KiB; byte comparisons matched all
+three qualified inputs; and the reconstructed files were accepted by the
+existing offline runtime installer, which reports the exact four-asset profile
+ready. No source input was rebuilt, no SNV score member was opened or copied,
+and no network or publication effect occurred. Exact inventory, hashes,
+compression ratios, timings, and outcomes are retained in
+`planning/artifacts/030-derived-runtime-transport.md`.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex `/root/ticket030_code_review`
+
+Initial verdict: **REJECT**. The reviewer found three material omissions:
+
+1. the Ticket 029 executable root catalog and every-leaf side-effect-free help
+   proof did not include the three new runtime-transport leaves;
+2. tests rejected simple corruption but did not rebind a canonical manifest so
+   trailing bytes and a concatenated second frame reached the intended
+   compression boundary, did not prove cleanup after a late staged-unpack
+   failure, and did not explicitly reject hardlinked inputs; and
+3. four current-state passages still described the already shipped coherent
+   profile/offline XDG installation/local transport as future work.
+
+The developer added the exact root, namespace, leaf, and every-leaf
+side-effect-free help coverage; added canonical manifest-consistent trailing
+and second-frame controls that fail as `COMPRESSION_INVALID`, a last-frame
+unpack failure proving both absent destination and hidden-stage cleanup, and
+hardlinked profile/payload input controls; and corrected the stale runtime,
+delivery, FAQ/frontier distinctions so only public/remote provisioning and
+direct install-from-transport remain future. Focused results are `6` passing
+runtime-transport integration tests and `25 passed, 1 skipped` across
+`spec/build-cli.md` plus `spec/runtime-transport.md`.
+
+Re-review verdict: **ACCEPT**. The same reviewer confirmed that the checked
+help catalog now covers all three leaves, the new controls reach the intended
+compression and cleanup boundaries, hardlinks fail closed, and the named
+current-state documents accurately separate shipped local behavior from
+future public/remote delivery. Read-only checks passed: `6` runtime-transport
+integration tests, `make spec` (`219 passed, 4 skipped`), diff hygiene, and the
+stale-claim scan. No material finding remains.
 
 ## External Effect Evidence
 
@@ -267,4 +332,21 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex `/root`
+
+The exact independently accepted diff passed:
+
+- `make lint`;
+- `make test`;
+- `make spec` (`219 passed, 4 skipped`);
+- `git diff --check`;
+- a current-state stale-claim scan across `AGENTS.md`, `README.md`,
+  `architecture/`, and `planning/`.
+
+No production payload is present in Git, every new checked file is small, and
+the working tree contains only Ticket 030 implementation/documentation. The
+retained local production transport is `660 MB`; the installed model-side
+runtime is `776 MB`. The redundant unpacked proof directory was removed after
+byte comparison and installer acceptance, and the same code reviewer confirmed
+that cleanup does not alter the accepted evidence. Ticket 030 is complete with
+no external publication effect.

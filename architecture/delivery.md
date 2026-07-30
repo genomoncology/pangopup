@@ -17,8 +17,8 @@ history or Git LFS.
 Release families keep independently versioned concerns separate. The SNV
 lookup uses one shipped eight-file release asset set whose installable transport
 is the closed five-file subset. The executable, converted model, compiled
-GRCh38 sequence index, and compiled mask names below are intended future
-families, not currently published assets:
+GRCh38 sequence index, and compiled mask remain future public families. Their
+model-side local transport is shipped:
 
 ```text
 pangopup-<version>-<target>.tar.zst
@@ -33,9 +33,17 @@ SNV release asset set:
     proof-receipt.json
     release-profile.json
     SHA256SUMS
-pangopup-models-<upstream-version>-<conversion>.tar.zst
-pangopup-sequence-grch38p14-<format>.tar.zst
-pangopup-mask-gencode38-<format>.tar.zst
+Model-side local transport (exactly ten files):
+  runtime-transport.json
+  runtime-profile.json
+  model-manifest.json
+  model-NOTICE
+  model.onnx.zst
+  reference-manifest.json
+  reference-NOTICE
+  reference.pgr.zst
+  mask-NOTICE
+  domains.pgm.zst
 ```
 
 These future archives contain only Pangopup's derived runtime members. The raw
@@ -100,14 +108,24 @@ The command itself requires the extracted executable to be exactly 43,495,424
 bytes with
 `sha256:d4a46368912cfc7b9f0a897a613910e34562ef033fc6029e0bea52c43b440fa4`.
 
-The future model archive will carry the authenticated three-file
-`pangopup-model-bundle-v1`: canonical manifest, converted combined ONNX graph,
-and Pangolin notice. Original checkpoint containers and qualification goldens
-are maintainer inputs/evidence, not installed runtime members. Keeping concerns
-separate lets lookup-only installations avoid model bytes and lets data, model,
-GRCh38 sequence index, mask, and executable releases evolve without pretending
-they share a version. The sequence index and mask assets are optional unless
-model fallback is enabled.
+The shipped local model-side transport carries the authenticated model bundle,
+compact-reference bundle, selected mask member and checked GENCODE notice, and
+a byte-exact runtime profile. Each large member has its own deterministic
+Zstandard frame; one canonical manifest prevents a mixed tuple. Original
+checkpoint containers and qualification goldens remain maintainer evidence.
+Lookup-only installations can continue to avoid all three model-side frames.
+
+```text
+pangopup-build runtime-transport pack --profile <PROFILE> --model-bundle <MODEL_BUNDLE> --reference-bundle <REFERENCE_BUNDLE> --mask <DOMAINS_PGM> --output <ABSENT_DIR>
+pangopup-build runtime-transport verify --transport <TRANSPORT_DIR>
+pangopup-build runtime-transport unpack --transport <TRANSPORT_DIR> --output <ABSENT_DIR>
+```
+
+Pack authenticates component/profile consistency but does not promote a
+profile to the trusted production tuple. Verify streams stored and
+reconstructed identities without writing payloads. Unpack performs each decode
+once into private same-filesystem staging and atomically publishes the
+reconstructed layout. None of these commands opens or packages the SNV member.
 
 Every published asset name is immutable and content-addressed by the release
 manifest. GitHub immutable releases are mandatory: publication is blocked
@@ -129,33 +147,37 @@ format or installer:
    a documented exact manual-install path; and
 4. pinned remote sync with resumable downloads into the same installer.
 
-All four SNV delivery stages are shipped. Later converted model, GRCh38
-sequence index, and mask delivery receives its own coordinator-authored and
-independently reviewed contract.
+All four SNV delivery stages are shipped. Deterministic local packaging of the
+converted model, GRCh38 sequence index, and mask is also shipped. Public
+publication, pinned download, and install-from-transport integration remain
+separate reviewed outcomes.
 
 Retained evidence selected the `acgt2-rle-v1` reference payload by speed from
 three exact mmap candidates on the pinned six-contig RefSeq input. It now feeds
 a separate production `PGRREF01` bundle and provider. The discarded candidate
 files, miniature, benchmark executable, and CLI have been removed; their
 reports and decisions remain historical evidence rather than runtime assets.
-Compiled GRCh38 sequence index XDG installation, transport, and release
-publication remain separately reviewed future work. The raw FASTA and assembly
-report do not.
+Compiled GRCh38 sequence index XDG installation and local transport are
+shipped. Public release and remote provisioning remain future work. The raw
+FASTA and assembly report are never packaged.
 
 Ticket 012's canonical export, unselected candidates, phase receipts, and
 benchmark report are retained private historical evidence and must not be
 uploaded as runtime assets. Their one-time writer, qualification binary, and
 source interfaces are no longer present at HEAD. ADR 0013 permits only the
-exact selected `domains.pgm` member to become the future runtime asset. Its
-transport, manifest-bound digest verification, XDG installation, and
-publication remain separate work; the production reader performs none of
-them.
+exact selected `domains.pgm` member to become the runtime asset. Its
+manifest-bound local transport verification and XDG installation are shipped;
+publication and remote provisioning remain separate work. The production
+reader performs none of those delivery operations.
 
 ## Shipped Linux installation and pinned remote sync
 
 The binary embeds the canonical `snv-grch38-v1` release profile for one
-compatible lookup asset set. A future full profile will separately identify
-the converted model, compiled GRCh38 sequence index, and mask assets.
+compatible lookup asset set. The shipped full runtime profile separately
+identifies the converted model, compiled GRCh38 sequence index, and mask
+assets; its offline XDG installation and activation path is established.
+Public/remote provisioning and direct install-from-runtime-transport remain
+future work.
 
 The shipped local command accepts an already available transport:
 

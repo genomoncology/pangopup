@@ -29,7 +29,10 @@ model evidence --upstream <PANGOLIN_DIR> --python <PYTHON> --corpus <CORPUS_DIR>
 model convert --upstream <PANGOLIN_DIR> --python <PYTHON> --evidence <EVIDENCE_DIR> --output <ABSENT_DIR> --representation <singleton|zero-padded-batch|paired-strand-batch>
 model inspect --bundle <MODEL_BUNDLE>
 model qualify --bundle <MODEL_BUNDLE> --evidence <EVIDENCE_DIR>
-runtime-profile prepare --snv-bundle <SNV_BUNDLE> --model-bundle <MODEL_BUNDLE> --reference-bundle <REFERENCE_BUNDLE> --mask <MASK_FILE> --output <PROFILE_JSON>"
+runtime-profile prepare --snv-bundle <SNV_BUNDLE> --model-bundle <MODEL_BUNDLE> --reference-bundle <REFERENCE_BUNDLE> --mask <MASK_FILE> --output <PROFILE_JSON>
+runtime-transport pack --profile <FILE> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> --output <ABSENT_DIR>
+runtime-transport verify --transport <DIR>
+runtime-transport unpack --transport <DIR> --output <ABSENT_DIR>"
 ```
 
 Short help, namespace help, and leaf help are successful stdout-only
@@ -44,6 +47,12 @@ reference window --bundle <BUNDLE> --contig <GRCH38_CONTIG_OR_REFSEQ_ACCESSION> 
 pangopup-build model convert -h | mustmatch like "Usage: pangopup-build model convert --upstream <PANGOLIN_DIR> --python <PYTHON> --evidence <EVIDENCE_DIR> --output <ABSENT_DIR> --representation <singleton|zero-padded-batch|paired-strand-batch>
 
 Convert authenticated Pangolin checkpoints into an ONNX bundle."
+pangopup-build runtime-transport --help | sed -n 's/^  pangopup-build //p' | mustmatch like "runtime-transport pack --profile <FILE> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> --output <ABSENT_DIR>
+runtime-transport verify --transport <DIR>
+runtime-transport unpack --transport <DIR> --output <ABSENT_DIR>"
+pangopup-build runtime-transport unpack -h | mustmatch like "Usage: pangopup-build runtime-transport unpack --transport <DIR> --output <ABSENT_DIR>
+
+Reconstruct model-side runtime assets with atomic publication."
 ```
 
 Every cataloged leaf has an informational path. Exercising all of them in an
@@ -79,6 +88,9 @@ model convert
 model inspect
 model qualify
 runtime-profile prepare
+runtime-transport pack
+runtime-transport verify
+runtime-transport unpack
 EOF
 rm help.stderr
 test -z "$(find . -mindepth 1 -print -quit)"

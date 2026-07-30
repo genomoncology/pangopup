@@ -18,8 +18,9 @@ ineligible because the v2 exporter omitted its declared dynamic axes. The
 corrected full experiment retained singleton through both the drift and
 replacement gates. Persistent SQLite model-result reuse and the canonical
 four-asset compatibility profile and offline Linux/XDG installer are
-established, and installed runtime consumption is shipped. Model-side delivery
-and HTTP remain future work.
+established, and installed runtime consumption is shipped. Deterministic local
+model-side packaging is shipped; public/remote delivery and HTTP remain future
+work.
 
 The closed three-codec reference comparison selected `acgt2-rle-v1`; its
 candidate modules, miniature, benchmark executable, and CLI have been removed
@@ -85,6 +86,9 @@ ADR 0012 defines that descriptive provenance boundary.
   — persistent exact model results in bounded disposable SQLite.
 - [`decisions/0020-four-asset-runtime-profile.md`](decisions/0020-four-asset-runtime-profile.md)
   — canonical path-free binding of the exact compatible runtime tuple.
+- [`decisions/0023-derived-runtime-transport.md`](decisions/0023-derived-runtime-transport.md)
+  — deterministic three-frame packaging, closed integrity verification, and
+  byte-exact atomic reconstruction of the model-side assets.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)

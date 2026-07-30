@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-07-28
+Updated: 2026-07-30
 
 ## Current boundary
 
@@ -17,8 +17,8 @@ Retained GENCODE-mask qualification evidence authenticates the exact upstream
 semantics and records the selection of constant-membership domains from three
 mmap candidates in one full-source comparison. The one-time candidate and
 qualification source has been removed. The exact retained domains
-member is now available through a production, domains-only typed mmap provider;
-its delivery remains future. An authenticated combined
+member is now available through a production, domains-only typed mmap provider
+and local transport; its public/remote delivery remains future. An authenticated combined
 ONNX representation and qualified single-owner CPU kernel now return the
 twelve raw Pangolin channels. `pangopup-engine` now composes the sequence,
 mask, and kernel providers into compatible masked distance-50 scores for the
@@ -30,10 +30,12 @@ comparison retained singleton after both policies exceeded the drift limit and
 neither candidate met the independent replacement gates. Persistent exact
 SQLite result reuse, one canonical four-asset production compatibility
 profile, offline coherent XDG installation/activation, and lazy held-descriptor
-runtime consumption are established. Model-side delivery and HTTP remain future.
+runtime consumption are established. Deterministic local packaging of the
+three model-side assets is established; public/remote delivery and HTTP remain
+future.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
-and typed mmap provider are established; its transport, installation, and
-release remain future delivery work. Future SNV and sequence-index builds use
+and typed mmap provider are established; its local transport and installation
+are shipped, while public release remains future work. Future SNV and sequence-index builds use
 separate causal source/dependency fingerprints; their existing production
 assets remain immutable and readable.
 
@@ -62,16 +64,14 @@ The large source work is not a rebuild queue:
   is the selected graph after the corrected batching comparison retained it.
 
 The GRCh38 sequence index, mask, and model therefore have local qualified
-content and one exact compatible four-asset profile, but no common transport
-or GitHub release. The local installer can copy and atomically select the exact
-tuple from retained inputs without touching the 15 GB SNV payload. The next
-delivery work must make lookup consume that profile, package the accepted
-derived bytes, and pass clean-machine CLI inference.
-Compatible-profile activation must first close the recorded runtime asset
-trust/durability blocker; publication must also close the release-process and
-repository-security blockers. No raw Zenodo, NCBI, or GENCODE source input is a
-Pangopup release asset. Original checkpoints are not installed runtime members;
-their separate source-availability policy is a model-publication prerequisite.
+content, one exact compatible four-asset profile, and one deterministic common
+local transport. The transport uses three independent frames, reconstructs
+accepted bytes exactly, and never touches the 15 GB SNV payload. It is not a
+GitHub release and it has no remote-sync policy. Publication must first close
+the release-process and repository-security blockers, then prove clean-machine
+CLI inference. No raw Zenodo, NCBI, or GENCODE source input is a Pangopup
+release asset. Original checkpoints are not installed runtime members; their
+separate source-availability policy is a model-publication prerequisite.
 
 ## Established — pinned source ingestion contract
 
@@ -243,8 +243,10 @@ the first p95 speed step. Headline p50/p95 were 171/331 ns, versus 241/401 and
 [`artifacts/012-gencode-mask-format-selection.md`](artifacts/012-gencode-mask-format-selection.md).
 The unselected formats and qualification lifecycle remain historical benchmark
 evidence only; their compiled implementations have been removed. ADR 0013
-promotes the exact selected domains member behind the production runtime API;
-it is not yet an installable or published asset.
+promotes the exact selected domains member behind the production runtime API.
+It is installable through the shipped coherent offline profile and packaged by
+the shipped local transport; it is not yet a published or remotely provisioned
+asset.
 
 ## Established — artifact-specific builder provenance
 
@@ -419,6 +421,19 @@ covered by miniature tests. Lookup/runtime discovery and held provider
 consumption are also shipped. Remote provisioning, rollback/GC, and
 publication are deliberately separate later outcomes.
 
+## Established — deterministic model-side local transport
+
+One canonical ten-file directory packages the exact runtime profile,
+byte-exact bounded model/reference metadata and notices, a checked GENCODE v38
+mask notice, and independent pinned-Zstandard frames for `model.onnx`,
+`reference.pgr`, and `domains.pgm`. The manifest declares the other nine
+members; its canonical-byte SHA-256 is the transport identity. Pack
+authenticates internal profile consistency without opening the SNV member.
+Verify streams stored and reconstructed identities without writing outputs.
+Unpack decodes each frame once into private staging and atomically publishes a
+byte-exact layout. Public upload, download, and install-from-transport policy
+remain later outcomes.
+
 ## Established — reference reader/provenance boundary
 
 Installed-profile consumption exposed an existing coupling:
@@ -492,8 +507,8 @@ must enter that catalog and its executable coverage.
 - whether repeated complete requests justify any result cache;
 - whether MPS, CUDA, quantization, or another runtime adds material value;
 - the service session-pool and backpressure shape;
-- the final release grouping and compression for the GRCh38 sequence index,
-  mask, and model;
+- the final public release grouping for the GRCh38 sequence index, mask, and
+  model;
 - production resource limits derived from complete-request measurements.
 
 These are intentional roadmap slots, not tickets. Do not select or implement

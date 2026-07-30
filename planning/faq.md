@@ -92,14 +92,16 @@ bases, and a map of gene strand plus exon boundaries. Lookup-first routing uses
 the activated installed profile or three explicit override flags. One canonical runtime profile
 now proves which exact SNV, model, reference, mask, and scoring-policy tuple is
 compatible. Offline coherent installation, activation, and lazy lookup
-consumption are shipped; remote delivery remains future. The original checkpoint
+consumption and deterministic local pack/verify/unpack are shipped; remote
+delivery remains future. The original checkpoint
 containers are maintainer conversion inputs, not runtime inputs. The DNA is
 pinned NCBI RefSeq GRCh38.p14
 `GCF_000001405.40`. The boundary map is compiled from the GENCODE annotation
 used by Pangolin's masking behavior. A retained comparison selected the
 constant-membership domain representation from three private mmap candidates.
-The exact selected bytes now have a production domains-only mmap provider;
-asset delivery remains future work. SQLite, gffutils, and raw
+The exact selected bytes now have a production domains-only mmap provider and a
+manifest-bound local transport; public/remote asset delivery remains future
+work. SQLite, gffutils, and raw
 GTF were one-time qualification inputs and are neither runtime nor current
 build-crate dependencies.
 
@@ -227,8 +229,9 @@ although IUPAC4 touched two fewer logical pages. Normal tests use the small
 25-contig synthetic production fixture. Ticket 011 hardened the winner as the
 complete production `PGRREF01` bundle/provider. The discarded candidate codecs,
 miniature, benchmark executable, and CLI have been removed; retained reports
-and decisions preserve the selection evidence. Delivery remains future work;
-model integration is shipped through `pangopup-engine`.
+and decisions preserve the selection evidence. Local packaging is shipped while
+public/remote delivery remains future work; model integration is shipped
+through `pangopup-engine`.
 
 ### Which compact GENCODE mask encoding will Pangopup use?
 
@@ -241,7 +244,8 @@ selected `PGMBEN01` v1 domains bytes behind the production
 `pangopup_index::mask` provider instead of rebuilding identical data under a
 second format identity. The other-codec results remain in retained historical
 evidence; their writer/readers and qualification machinery have been removed.
-Mask delivery and publication remain future work.
+Local mask packaging and byte-exact reconstruction are shipped. Publication and
+remote delivery remain future work.
 
 The mask retains exact versioned identifiers and `_PAR_Y`, and its effective
 gene membership is `(start,end]` because that is what the upstream point query

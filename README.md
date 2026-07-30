@@ -26,7 +26,8 @@ Ticket 014 promotes the exact selected bytes behind a domains-only production
 mmap provider without rebuilding or renaming the format. The one-time
 candidate writer and qualification program have since been removed; their
 retained reports and exactness corpus remain as historical evidence. Compiled
-GRCh38 sequence-index, mask, and model delivery remain future work. The
+Public/remote GRCh38 sequence-index, mask, and model delivery remain future
+work; deterministic local packaging is shipped. The
 completed three-format reference experiment
 has likewise been removed from the compiled workspace;
 its retained selection evidence led to the independent production `PGRREF01`
@@ -146,7 +147,19 @@ be installed offline with `pangopup assets runtime install`; bounded
 inspection uses `pangopup assets runtime status`. Installation streams the
 model, compact reference, and mask once into private immutable XDG data and
 reuses the installed SNV bundle without reading its 15 GB score member.
-Network delivery of these three derived assets remains future work.
+The same three local inputs can now be packaged, verified, and reconstructed
+without publishing them:
+
+```text
+pangopup-build runtime-transport pack --profile <PROFILE> --model-bundle <MODEL_BUNDLE> --reference-bundle <REFERENCE_BUNDLE> --mask <DOMAINS_PGM> --output <ABSENT_DIR>
+pangopup-build runtime-transport verify --transport <TRANSPORT_DIR>
+pangopup-build runtime-transport unpack --transport <TRANSPORT_DIR> --output <ABSENT_DIR>
+```
+
+The transport has three independent deterministic Zstandard frames and one
+canonical manifest binding the exact profile, metadata, notices, stored bytes,
+and reconstructed bytes. It never opens or packages the 15 GB SNV member.
+Network delivery of these derived assets remains future work.
 
 Pangopup deliberately does not implement HGVS, transcript/protein projection,
 clinical interpretation, or general gene annotation. Callers must identify one
@@ -598,11 +611,11 @@ Implemented today:
   stable warnings/errors, gene filtering after all-gene masking, and
   transactional JSONL/table batches.
 
-Not implemented yet: HTTP service, container, persistent download
+Not implemented yet: HTTP service, container, persistent model-side download
 progress/status, repair/GC/rollback, or remote model-side asset delivery.
 Public delivery of the compiled GRCh38 sequence index, mask, and model is also
-not implemented. Local offline installation and coherent activation are
-implemented.
+not implemented. Deterministic local model-side packaging, offline installation,
+and coherent activation are implemented.
 Without fallback flags, an activated installation sends a pure SNV miss or
 supported non-SNV to its compatible model tuple. A complete explicit tuple
 wins. An explicit `--bundle` never borrows installed model-side assets.
@@ -656,12 +669,14 @@ The rolling outcome order is:
     held-descriptor installed admission (complete);
 27. consume the activated installed profile for lookup-first model fallback
     (complete);
-28. close publication prerequisites, publish only the derived model,
+28. package and locally verify the exact derived model, GRCh38 sequence index,
+    and mask without touching the SNV member (complete);
+29. close publication prerequisites, publish only the derived model,
     GRCh38 sequence index, and mask runtime assets, and prove pinned
     fresh-machine sync plus CLI inference;
-29. a foreground HTTP/status service with CLI and HTTP acceptance tests;
-30. non-root Docker and documented systemd lifecycle integration;
-31. observability, security, performance, and executable/container release
+30. a foreground HTTP/status service with CLI and HTTP acceptance tests;
+31. non-root Docker and documented systemd lifecycle integration;
+32. observability, security, performance, and executable/container release
     hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the
@@ -676,8 +691,9 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
 
 - `pangopup-core` — public typed vocabulary and provider capabilities;
 - `pangopup-index` — private format codec and validated mmap reader;
-- `pangopup-assets` — installed-bundle certification, deterministic local
-  transport, pinned resumable TLS sync, and secure Linux local-store/activation
+- `pangopup-assets` — installed-bundle certification, deterministic SNV and
+  model-side local transports, pinned resumable TLS sync, and secure Linux
+  local-store/activation
   state;
 - `pangopup-build` — offline source validation, deterministic artifact
   builders, the bounded compatibility-corpus adapter, and authenticated

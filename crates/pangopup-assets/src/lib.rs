@@ -23,6 +23,7 @@ mod release;
 mod release_upload_linux;
 mod runtime_install;
 mod runtime_profile;
+mod runtime_transport;
 mod snv;
 mod sync;
 
@@ -56,6 +57,10 @@ pub use runtime_profile::{
     RuntimeProfileError, RuntimeProfileId, ScoringProfile, SnvBundleInspection, SnvProfile,
     canonical_runtime_profile_bytes, inspect_snv_bundle, parse_runtime_profile,
     production_runtime_profile, runtime_profile_id,
+};
+pub use runtime_transport::{
+    PackRuntimeTransportOutcome, UnpackRuntimeTransportOutcome, VerifyRuntimeTransportOutcome,
+    pack_runtime_transport, unpack_runtime_transport, verify_runtime_transport,
 };
 pub use snv::{BundleCertification, MAX_FIXED11_BYTES, NOTICE, NOTICE_SHA256, certify_bundle};
 pub use sync::{CachePathInputs, SyncOutcome, resolve_cache_root, sync_assets};

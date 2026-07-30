@@ -109,6 +109,21 @@ staging while hashing, validates the staged structures, publishes immutable
 objects, and then replaces `runtime/active.json`. Runtime status performs
 bounded metadata and size checks.
 
+`pangopup-build runtime-transport` is the local delivery boundary for those
+already accepted bytes. `pack` copies the profile and bounded component
+metadata exactly, carries the checked GENCODE attribution notice, and creates
+separate deterministic Zstandard frames for `model.onnx`, `reference.pgr`, and
+`domains.pgm`. The canonical manifest binds stored and reconstructed identities
+and the runtime-profile identity. The SNV facts remain profile metadata; the
+15 GB score member is never opened.
+
+`verify` streams all three frames without materializing runtime files. `unpack`
+uses the same one-pass authentication while writing private staged outputs,
+then publishes the complete reconstructed layout by atomic no-replace rename.
+This proves transport integrity, not publisher identity or trusted-production
+admission. Public URLs, remote sync, and install-from-transport remain later
+delivery policy.
+
 The runtime representation was selected by measurement rather than assumption.
 The closed comparison used uppercase ASCII, exact four-bit IUPAC, and two-bit
 ACGT plus exact ambiguity runs in one common mmap container. The retained
@@ -199,8 +214,9 @@ The one-time GTF/gffutils capture, candidate writer/readers, qualification
 lifecycle, and mask-builder fingerprint have been removed from the current
 source tree. Their detailed receipts and reports remain historical evidence.
 Runtime consumers receive none of the GTF, SQLite, Python, promotion, or
-failure material; future delivery contains only the exact selected domains
-member, its identity metadata, and attribution.
+failure material. The shipped local transport contains only the exact selected
+domains member, its identity metadata, and attribution; future public/remote
+delivery uses those same derived bytes.
 
 ## Reproduction boundary
 
@@ -244,7 +260,10 @@ independent-per-gene policy requires a separately named profile.
   disposable model-result cache, never for reference, mask, or SNV lookup.
 
 The shipped standalone lookup deployment is the executable plus the fixed-v1
-score bundle. Explicit-path fallback additionally needs the converted model
-bundle, compact GRCh38 sequence bundle, and compiled Pangolin mask member. A
-future coherent delivery profile will install and activate those four
-identities together; lookup-only use continues to omit the latter three.
+score bundle. Explicit-path or activated-profile fallback additionally needs
+the converted model bundle, compact GRCh38 sequence bundle, and compiled
+Pangolin mask member. The shipped coherent profile and offline XDG installer
+install and activate those four identities together; its local transport is
+also shipped. Only public/remote provisioning and direct
+install-from-transport integration remain future work. Lookup-only use
+continues to omit the latter three assets.

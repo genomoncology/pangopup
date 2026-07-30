@@ -1,0 +1,18 @@
+Pangopup GENCODE v38 splice-mask attribution
+
+domains.pgm is Pangopup's transformed, compact runtime representation of
+splice-domain facts derived from the archived GENCODE release 38 comprehensive
+gene annotation for GRCh38:
+
+https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_38/gencode.v38.annotation.gtf.gz
+SHA-256: 22020df0d3356e965868f4b193e89fa13e838b950a574349f7fcd461ac01c050
+GENCODE release page: https://www.gencodegenes.org/human/release_38.html
+Data access: https://www.gencodegenes.org/pages/data_access.html
+Citation guidance: https://www.gencodegenes.org/pages/citing_gencode.html
+
+The transformation retains the ordered Ensembl-canonical gene and exon
+boundaries needed by Pangolin-compatible masking. Pangopup does not redistribute
+the source GTF or the intermediate gffutils SQLite database in this transport.
+
+GENCODE data are provided by the GENCODE project. See the release page for the
+upstream project's terms and attribution information.

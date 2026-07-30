@@ -23,7 +23,8 @@ singleton. Ticket 023 adds persistent exact SQLite reuse for successful
 complete model results while preserving lookup-first laziness. One canonical
 four-asset runtime profile now binds the exact compatible production tuple;
 offline Linux/XDG installation, atomic activation, and lookup consumption are
-shipped. Model-side delivery and the HTTP service remain target work. The reference
+shipped. Deterministic local model-side packaging is shipped; public/remote
+delivery and the HTTP service remain target work. The reference
 wire/writer and sole mmap reader are now separate; future reference builds use
 v2 byte-producing provenance and installed admission has one held-descriptor
 reader boundary. A
@@ -34,8 +35,8 @@ production `PGRREF01` reader and qualified the complete 25-contig bundle. Read
 Ticket 014 now exposes Ticket 012's selected byte-identical GENCODE v38
 `domains` member through the production `pangopup_index::mask` mmap provider;
 the one-time candidate/qualification source has been removed while its retained
-selection evidence remains. Compiled sequence-index, mask, and model delivery
-remain future work.
+selection evidence remains. Compiled sequence-index, mask, and model local
+packaging is shipped; public/remote delivery remains future work.
 
 ## Repository contract shape
 
