@@ -341,14 +341,25 @@ revalidate_upload_path() {
 Create exactly one draft with the exact amended body:
 
 ```bash
+jq -n \
+  --arg tag_name "$TAG" \
+  --arg target_commitish "$TARGET" \
+  --arg name "$TITLE" \
+  --rawfile body "$SOURCE/RELEASE-NOTES.md" \
+  '{
+    tag_name: $tag_name,
+    target_commitish: $target_commitish,
+    name: $name,
+    body: $body,
+    draft: true,
+    prerelease: false,
+    generate_release_notes: false
+  }' >"$PRIVATE/create-release.json"
+jq -rj .body "$PRIVATE/create-release.json" |
+  cmp - "$SOURCE/RELEASE-NOTES.md"
+
 gh api --method POST "repos/$REPO/releases" \
-  -f tag_name="$TAG" \
-  -f target_commitish="$TARGET" \
-  -f name="$TITLE" \
-  -f body="$(cat "$SOURCE/RELEASE-NOTES.md")" \
-  -F draft=true \
-  -F prerelease=false \
-  -F generate_release_notes=false \
+  --input "$PRIVATE/create-release.json" \
   --jq .id >"$PRIVATE/release-id"
 
 export RELEASE_ID="$(cat "$PRIVATE/release-id")"
@@ -623,6 +634,22 @@ done
 
 Pending coordinator publication after the publication-ready commit's exact
 remote `gate` succeeds.
+
+### Stopped first draft attempt
+
+The coordinator's first publication attempt created private draft release
+`362748317` with the exact reviewed tag, target, and title. The tag remained
+absent and the draft had zero assets. The immediate `check_draft 0` body check
+stopped the operation because the API body was 1,679 bytes while the retained
+notes were 1,680 bytes: Bash command substitution in the former
+`-f body="$(cat ...)"` command removed the terminal line feed.
+
+The coordinator reauthenticated that exact empty owned draft, deleted only
+release ID `362748317`, and confirmed both release and tag absent. No asset was
+opened or uploaded; no tag was created; no release was published; and the
+operation was not retried. The replacement command builds a private JSON
+request with `jq --rawfile`, proves its decoded body byte equal to the retained
+notes, and passes it to official `gh api --input`.
 
 Record only bounded, non-secret facts:
 

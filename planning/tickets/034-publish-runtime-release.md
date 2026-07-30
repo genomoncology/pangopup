@@ -349,9 +349,40 @@ authenticated and bounded unauthenticated tag-ref proof, bounded source/public
 reads, syntactically valid Bash, accurate prepublication documentation, and no
 GitHub mutation.
 
+Stopped-operation finding after publication-ready review: REJECT.
+
+- The draft-creation command used Bash command substitution for the release
+  body. It stripped the retained notes' terminal line feed, so the immediate
+  exact-body check correctly stopped the coordinator's empty private draft.
+
+Developer remediation:
+
+- Draft creation now uses `jq --rawfile` to put all 1,680 retained bytes into a
+  private JSON request. The runbook proves the decoded request body byte equal
+  to the retained notes before official `gh api --input` creates a draft.
+- The bounded stopped-attempt evidence is retained below and in
+  `planning/artifacts/034-public-runtime-release.md`. Bash syntax,
+  `git diff --check`, and the focused spec gate were rerun before re-review.
+
+The same design reviewer ACCEPTED the byte-preserving correction and confirmed
+that the stopped attempt followed the reviewed fail-closed rollback. Final
+code re-review: ACCEPT. The reviewer independently confirmed the deleted draft
+now returns 404, release/tag absence, the exact 1,679-byte failure mechanism,
+the new request's byte-exact 1,680-byte round trip and Boolean fields, valid
+Bash, clean diff, honest zero-upload evidence, and no review-time mutation.
+
 ## External Effect Evidence
 
-Coordinator: pending
+Coordinator: `/root`
+
+The first attempt created private draft release `362748317` with the exact
+reviewed tag, target, and title. The tag remained absent and the draft had zero
+assets. `check_draft 0` observed a 1,679-byte body instead of the retained
+1,680 bytes and stopped before upload. The coordinator verified the exact
+fields and that the body equaled the retained notes minus only the terminal
+line feed, reauthenticated that exact owned empty draft, deleted only release
+ID `362748317`, and confirmed release and tag absent. No asset was uploaded, no
+tag was created, no release was published, and no retry occurred.
 
 Use the exceptional lifecycle:
 
