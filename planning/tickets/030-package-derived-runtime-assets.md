@@ -49,11 +49,15 @@ repository-security and release-process blockers.
   single frames of their correspondingly named runtime members. Filesystem
   directory enumeration order is irrelevant; only the canonical ordered
   member array in `runtime-transport.json` defines order and roles. That
-  canonical manifest owns the exact member names, roles, uncompressed sizes
-  and SHA-256 digests, compressed sizes and SHA-256 digests, encoder identity,
-  runtime-profile identity, and attribution-member identities. Extra, missing,
-  substituted, symlinked, or non-regular entries and noncanonical manifest
-  member order fail closed.
+  canonical manifest has one fixed-schema ordered member array declaring the
+  other nine files and owns their exact names, roles, uncompressed sizes and
+  SHA-256 digests, compressed sizes and SHA-256 digests, encoder identity,
+  runtime-profile identity, and attribution-member identities.
+  `runtime-transport.json` is the schema-implied tenth file rather than a
+  member of its own array; the SHA-256 of its exact canonical bytes is the
+  transport ID. This avoids an impossible self-hash while still closing the
+  complete directory inventory. Extra, missing, substituted, symlinked, or
+  non-regular entries and noncanonical manifest member order fail closed.
 - Reuse the repository's pinned bundled libzstd 1.5.7 transport settings:
   level 9, checksum and content size enabled, dictionary ID disabled, no
   long-distance mode, and zero workers. Each payload is a separate frame so a
@@ -118,7 +122,7 @@ the public repository/security or upload-process lifecycle issues.
 ## Success Checklist
 
 - Two packs of the same miniature inputs are byte-for-byte identical in name,
-  inventory, metadata, notices, and compressed payloads.
+  inventory, transport ID, metadata, notices, and compressed payloads.
 - Verify authenticates all compressed and reconstructed bytes without creating
   an unpacked payload; corruption, truncation, substitution, extra entries, and
   unsafe file types fail closed.
@@ -234,6 +238,20 @@ Revised verdict: **ACCEPT**. The reviewer confirmed that generic integrity and
 production admission are now correctly separated, the exact layout and notice
 source are closed, unpack performs only one streaming decode, and no new
 material contradiction remains. Ticket 030 is ready for development.
+
+Development then exposed one material contract defect before any code changed:
+the manifest was required to declare exact metadata for all ten files,
+including itself, creating an impossible recursive SHA-256/size fixed point.
+The coordinator made `runtime-transport.json` the schema-implied file, limited
+its ordered member array to the other nine files, and defined the transport ID
+as the SHA-256 of the exact canonical manifest bytes. The directory remains
+closed at exactly ten files without a self-hash.
+
+Second revised verdict: **ACCEPT**. The reviewer confirmed that the manifest is
+now finalizable, the verifier can enforce the exact ten-name set as the
+schema-implied manifest plus nine declared members, and the transport ID
+remains derived from—not serialized into—the canonical manifest. No related
+material contradiction remains.
 
 ## Implementation Evidence
 
