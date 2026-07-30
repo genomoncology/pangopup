@@ -124,6 +124,15 @@ This proves transport integrity, not publisher identity or trusted-production
 admission. Public URLs, remote sync, and install-from-transport remain later
 delivery policy.
 
+`pangopup-build runtime-release prepare` promotes only the exact production
+transport identity into a controlled publication source. It does not inspect
+raw NCBI, GENCODE, Zenodo, or checkpoint inputs. It performs one bounded
+streaming decode of each frame to authenticate the manifest-declared
+reconstructed identities before copying the stored bytes. Its release profile
+records where the exact upstream model
+source and checkpoints can be obtained and binds the Pangopup converter paths
+to the target commit.
+
 The runtime representation was selected by measurement rather than assumption.
 The closed comparison used uppercase ASCII, exact four-bit IUPAC, and two-bit
 ACGT plus exact ambiguity runs in one common mmap container. The retained

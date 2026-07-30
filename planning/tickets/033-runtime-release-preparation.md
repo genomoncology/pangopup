@@ -1,6 +1,6 @@
 # 033 — Prepare the exact model-side runtime release
 
-Status: ready
+Status: production-ready
 
 ## Why
 
@@ -289,11 +289,88 @@ ownership.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: `/root/ticket033_implementation`
+
+Implemented the reviewed production-only `runtime-release prepare` CLI and the
+closed canonical runtime-release profile in `pangopup-assets`. The preparation
+authenticates stored and reconstructed identities through one bounded
+streaming decode from the retained descriptor set, then copies the exact
+closed stored member set once through those same descriptor-relative,
+no-follow file handles, revalidates source path/inode/metadata, writes
+deterministic profile/checksum/note bytes, applies `0400`/`0500`, and publishes
+with atomic no-replace rename. A post-rename parent-sync failure is reported as
+visible but durability-unconfirmed. No production preparation, network,
+GitHub, rebuild, recompression, or materialized decode was performed.
+
+The hidden miniature contract and fault seam cover deterministic success,
+closed profile parsing, byte equality, modes/link counts, invalid targets and
+identities, missing/extra/corrupt/truncated/symlinked/hardlinked/non-regular
+inputs, occupied output, source replacement before and after semantic
+verification, copy/sync/publication failures,
+and truthful post-publication durability failure. The executable spec covers
+help, exact grammar, duplicate/missing flags, target spelling, and normal-CLI
+rejection of a valid nonproduction transport.
+
+The first adversarial code review rejected three material gaps. Remediation
+removed the two-view pathname inspection: one held directory and one retained
+descriptor per member now supply the manifest, runtime profile, bounded raw
+reads, streaming Zstandard semantic verification, exact stored-byte copy, and
+final pathname/inode revalidation. The hidden contract now carries all ten
+expected name/role/size/digest records, and the production parser binds every
+record—including the runtime-transport manifest digest—to the fixed contract.
+Canonical negative tests alter member size, member digest, manifest digest,
+member order, component identity, and preferred model source. Documentation
+now states that semantic verification performs one bounded streaming decode
+per frame without materializing uncompressed payloads.
+
+The same reviewer then found a remaining type-admission race: replacement with
+a FIFO between `O_PATH` inspection and readable open could block. The readable
+descriptor now adds `O_NONBLOCK` (with no behavior change for regular files),
+followed by the existing type/device/inode comparison. A deterministic seam
+replaces the admitted regular pathname with a FIFO in that exact gap and proves
+prompt rejection without publication.
+
+Focused results:
+
+```text
+cargo test --locked -p pangopup-build --test runtime_release
+  9 passed
+cargo clippy --locked -p pangopup-assets -p pangopup-build --all-targets -- -D warnings
+  passed
+make spec
+  227 passed; 6 skipped
+```
+
+`Cargo.toml`, `Cargo.lock`, and all crate manifests are unchanged.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `/root/ticket033_code_review`
+
+First review: REJECT.
+
+- Path-based verification and a later independent inspection could observe two
+  transport versions.
+- The production profile parser accepted syntactically valid but false member
+  inventories.
+- Documentation denied the streaming decompression actually performed by
+  semantic verification.
+
+Remediation moved identity derivation, semantic verification, stored-byte copy,
+and final revalidation onto one held directory/ten-member descriptor set;
+pinned every production record and added canonical rebinding negatives; and
+corrected all resource claims.
+
+Second review: REJECT. A replacement with a FIFO between nonblocking type
+admission and the readable open could block. Remediation made the readable
+no-follow open nonblocking, retained post-open device/inode/type equality, and
+added an exact-gap FIFO replacement regression.
+
+Final re-review: ACCEPT. No material finding remains. The reviewer verified the
+single held trust boundary, exact ten-member binding, profile negatives,
+bounded-decompression documentation, FIFO-safe admission, atomic publication,
+post-rename error truth, unchanged manifests/lockfile, and absence of
+production/network/GitHub effects.
 
 ## External Effect Evidence
 

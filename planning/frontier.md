@@ -49,12 +49,10 @@ independently writable live GitHub settings: read-only Actions defaults,
 disabled Actions PR approval, Dependabot security updates, three
 secret-scanning controls, unbypassed history protection, and the
 administrator-bypassed pull-request/`gate` contribution policy. Validity checks
-remain disabled; publication stays blocked until that API limitation and the
-remaining release-specific evidence are resolved.
-The known organization-configuration route requires `write:org`, broader
-asynchronous verification, and retained-setting rollback design, so it remains
-a separate authority decision rather than part of this repository-local
-effect.
+remain disabled and optional; they are an alert-triage feature, and Pangopup
+has no configured repository secrets or open secret alerts. The repository
+security issue is closed and no organization authority is required for asset
+publication.
 
 ## Asset readiness — preserve, package, then publish
 
@@ -84,9 +82,9 @@ The GRCh38 sequence index, mask, and model therefore have local qualified
 content, one exact compatible four-asset profile, and one deterministic common
 local transport. The transport uses three independent frames, reconstructs
 accepted bytes exactly, and never touches the 15 GB SNV payload. It is not a
-GitHub release and it has no remote-sync policy. Publication must first close
-the separate repository-security blocker and complete the later reviewed safe
-publication lifecycle, then prove clean-machine CLI inference. No raw Zenodo,
+GitHub release and it has no remote-sync policy. Publication must complete the
+reviewed stable-source and immutable-publication lifecycle, then prove
+clean-machine CLI inference. No raw Zenodo,
 NCBI, or GENCODE source input is a Pangopup release asset. Original checkpoints
 are not installed runtime members; their separate source-availability policy
 is a model-publication prerequisite.
@@ -456,6 +454,21 @@ Unpack decodes each frame once into private staging and atomically publishes a
 byte-exact layout. Public upload, download, and install-from-transport policy
 remain later outcomes.
 
+## Established — deterministic runtime release preparation
+
+`pangopup-build runtime-release prepare` accepts only the exact retained
+production transport and a lowercase 40-character target commit. It verifies
+and copies the ten compressed transport members without rebuilding,
+recompressing, or materializing decoded payloads. Verification streams each
+frame through one bounded decode before the same held stored members are
+copied; the command then atomically publishes a private read-only stage
+containing those bytes, a canonical runtime release profile,
+`SHA256SUMS`, and release notes. The profile binds the model/reference/mask/SNV
+identities, exact immutable URLs, upstream preferred model source, and
+target-commit converter paths. Normal tests use a hidden miniature contract;
+the public CLI rejects nonproduction transports. GitHub mutation remains the
+next separately reviewed outcome.
+
 ## Established — reference reader/provenance boundary
 
 Installed-profile consumption exposed an existing coupling:
@@ -484,24 +497,20 @@ dense reference/model reads and ONNX initialization.
 
 ## Later outcome — release-ready asset publication
 
-Freeze exact model, GRCh38 sequence index, and mask release identities only
-after the complete variant scorer and CPU policy are selected. The defective
-custom upload lifecycle is removed; close the separate repository-security
-blocker and complete the
-applicable advisory/license policy, dependency inventory, SBOM, provenance,
-attribution, and immutable release review before public distribution. Publish
-only the reviewed derived runtime assets—never their raw upstream inputs—using
-a later reviewed controlled stable source, authenticated official `gh`,
+The exact model, GRCh38 sequence index, mask, target release identity,
+attribution, and preferred modification source are frozen by deterministic
+release preparation. Publish only that reviewed derived runtime stage—never
+raw upstream inputs—using authenticated official `gh`,
 non-public draft, remote inventory/digest comparison, and immutable
 finalization lifecycle. Then prove pinned sync, clean-machine CLI inference,
 and offline restart from that exact release. This outcome precedes HTTP and
 container publication.
 
-Repository and dependency controls do not replace release evidence. The
-release-specific dependency inventory, SBOM, provenance, controlled
-stable-source upload, remote inventory/digest comparison, immutable
-finalization, model-side runtime sync, and clean-machine inference all remain
-future work tied to the exact bytes and commit actually published.
+Repository and dependency controls do not replace release evidence. Remote
+inventory/digest comparison, immutable finalization, model-side runtime sync,
+and clean-machine inference remain tied to the exact bytes and commit actually
+published. Executable/container dependency inventory and SBOM remain with
+their later publication, not this data-artifact release.
 
 ## Later outcome — foreground HTTP service
 

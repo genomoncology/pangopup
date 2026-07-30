@@ -1,6 +1,6 @@
 use pangopup_assets::{
-    pack_bundle, pack_runtime_transport, prepare_release, unpack_runtime_transport,
-    unpack_transport, verify_runtime_transport, verify_transport,
+    pack_bundle, pack_runtime_transport, prepare_release, prepare_runtime_release,
+    unpack_runtime_transport, unpack_transport, verify_runtime_transport, verify_transport,
 };
 use pangopup_build::{
     CommandError, build_bundle,
@@ -43,6 +43,7 @@ fn main() -> ExitCode {
         Some("runtime-transport") => {
             json_usage("runtime-transport requires pack, verify, or unpack")
         }
+        Some("runtime-release") => json_usage("runtime-release requires prepare"),
         Some(_) => unreachable!("closed namespace catalog"),
         None => json_failure(&CommandError::new("CLI_USAGE", LEGACY_USAGE)),
     }
@@ -130,6 +131,24 @@ fn dispatch(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
         Leaf::RuntimeTransportPack
         | Leaf::RuntimeTransportVerify
         | Leaf::RuntimeTransportUnpack => runtime_transport_command(leaf, arguments),
+        Leaf::RuntimeReleasePrepare => runtime_release_command(arguments),
+    }
+}
+
+fn runtime_release_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let Ok(values) = parse_exact_flags(arguments, &["--transport", "--target-commit", "--output"])
+    else {
+        return json_usage(
+            "runtime-release prepare requires --transport, --target-commit, and --output exactly once",
+        );
+    };
+    match prepare_runtime_release(
+        Path::new(values[0]),
+        values[1].to_str().unwrap_or_default(),
+        Path::new(values[2]),
+    ) {
+        Ok(outcome) => json_success(&outcome),
+        Err(error) => json_failure(&CommandError::new(error.kind().code(), error.to_string())),
     }
 }
 

@@ -25,11 +25,12 @@ pub(crate) enum Leaf {
     RuntimeTransportPack,
     RuntimeTransportVerify,
     RuntimeTransportUnpack,
+    RuntimeReleasePrepare,
 }
 
 impl Leaf {
     #[cfg(test)]
-    const ALL: [Self; 23] = [
+    const ALL: [Self; 24] = [
         Self::Inspect,
         Self::PrototypeRoundtrip,
         Self::PrototypeOpen,
@@ -53,6 +54,7 @@ impl Leaf {
         Self::RuntimeTransportPack,
         Self::RuntimeTransportVerify,
         Self::RuntimeTransportUnpack,
+        Self::RuntimeReleasePrepare,
     ];
 }
 
@@ -227,6 +229,13 @@ const ENTRIES: &[Entry] = &[
         synopsis: "runtime-transport unpack --transport <DIR> --output <ABSENT_DIR>",
         summary: "Reconstruct model-side runtime assets with atomic publication.",
     },
+    Entry {
+        leaf: Leaf::RuntimeReleasePrepare,
+        namespace: Some("runtime-release"),
+        action: "prepare",
+        synopsis: "runtime-release prepare --transport <DIR> --target-commit <40_LOWERCASE_HEX> --output <ABSENT_DIR>",
+        summary: "Prepare the exact authenticated model-side runtime release upload set.",
+    },
 ];
 
 pub(crate) fn resolve(arguments: &[OsString]) -> Option<(Leaf, &[OsString])> {
@@ -373,7 +382,8 @@ mod tests {
                 "compatibility",
                 "model",
                 "runtime-profile",
-                "runtime-transport"
+                "runtime-transport",
+                "runtime-release"
             ]
         );
         assert!(

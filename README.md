@@ -161,6 +161,26 @@ canonical manifest binding the exact profile, metadata, notices, stored bytes,
 and reconstructed bytes. It never opens or packages the 15 GB SNV member.
 Network delivery of these derived assets remains future work.
 
+Maintainers can prepare the exact model-side publication source without
+rebuilding, recompressing, materializing decoded payloads, or uploading
+anything:
+
+```text
+pangopup-build runtime-release prepare \
+  --transport <EXACT_RETAINED_RUNTIME_TRANSPORT> \
+  --target-commit <40_LOWERCASE_HEX> \
+  --output <ABSENT_DIRECTORY>
+```
+
+The production-only command accepts the qualified transport identity, streams
+each Zstandard frame once through bounded semantic verification, then copies
+each stored file once into a private read-only stage plus a canonical
+release profile, `SHA256SUMS`, and release notes. The profile binds exact
+runtime identities, immutable future URLs, the twelve upstream model-source
+checkpoints, and converter paths at the target commit. It performs no network
+request or GitHub mutation. Raw Zenodo, NCBI, GENCODE, checkpoint, and
+qualification inputs are not included.
+
 Pangopup deliberately does not implement HGVS, transcript/protein projection,
 clinical interpretation, or general gene annotation. Callers must identify one
 concrete GRCh38 genomic variant before asking for a splice score.
@@ -729,8 +749,9 @@ SHA-256 verification. The live GitHub repository now has read-only Actions
 defaults, no Actions PR approval, Dependabot security updates, the three
 writable requested secret-scanning controls, and the two reviewed `main`
 rulesets. GitHub exposes validity checks in repository reads but not its
-repository-local write schema, so that control remains disabled and the
-publication-security issue remains open. No model-side runtime asset,
+repository-local write schema. That optional alert-triage control remains
+disabled; Pangopup has no configured repository secrets or open secret alerts,
+and the publication-security issue is closed. No model-side runtime asset,
 executable, container, SBOM, or release provenance was published by this
 baseline.
 

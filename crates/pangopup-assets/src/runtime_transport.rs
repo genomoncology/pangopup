@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
     fs::{self, File},
-    io::{self, BufRead, BufReader, Read, Write},
+    io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write},
     os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
 };
@@ -47,7 +47,7 @@ const EXPECTED: [(&str, &str, Encoding); 9] = [
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum Encoding {
+pub(crate) enum Encoding {
     Raw,
     Zstd,
 }
@@ -68,14 +68,14 @@ struct Encoder {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Member {
-    name: String,
-    role: String,
-    encoding: Encoding,
-    uncompressed_bytes: u64,
-    uncompressed_sha256: String,
-    stored_bytes: u64,
-    stored_sha256: String,
+pub(crate) struct Member {
+    pub name: String,
+    pub role: String,
+    pub encoding: Encoding,
+    pub uncompressed_bytes: u64,
+    pub uncompressed_sha256: String,
+    pub stored_bytes: u64,
+    pub stored_sha256: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -88,12 +88,12 @@ struct Attribution {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Manifest {
+pub(crate) struct Manifest {
     schema: String,
-    runtime_profile_id: String,
+    pub runtime_profile_id: String,
     encoder: Encoder,
     attribution: Attribution,
-    members: Vec<Member>,
+    pub members: Vec<Member>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -352,14 +352,11 @@ struct OpenedTransport {
     manifest: Manifest,
 }
 
-fn open_transport(path: &Path) -> Result<OpenedTransport, AssetError> {
-    let root = fs::symlink_metadata(path).map_err(|error| input_io("inspect transport", error))?;
-    if root.file_type().is_symlink() || !root.file_type().is_dir() {
-        return Err(part_set("transport is not a regular directory"));
-    }
-    let bytes = read_checked(&path.join(TRANSPORT_MANIFEST), MAX_JSON)?;
-    reject_duplicate_json(&bytes)?;
-    let manifest: Manifest = serde_json::from_slice(&bytes)
+pub(crate) fn parse_runtime_transport_manifest_for_release(
+    bytes: &[u8],
+) -> Result<Manifest, AssetError> {
+    reject_duplicate_json(bytes)?;
+    let manifest: Manifest = serde_json::from_slice(bytes)
         .map_err(|_| invalid_manifest("invalid runtime transport JSON"))?;
     let canonical = serde_jcs::to_vec(&manifest)
         .map_err(|_| invalid_manifest("serialize runtime transport manifest"))?;
@@ -369,6 +366,64 @@ fn open_transport(path: &Path) -> Result<OpenedTransport, AssetError> {
         ));
     }
     validate_manifest(&manifest)?;
+    Ok(manifest)
+}
+
+pub(crate) fn read_runtime_transport_held_raw(
+    file: &File,
+    before: &fs::Metadata,
+    member: &Member,
+) -> Result<Vec<u8>, AssetError> {
+    let mut input = file
+        .try_clone()
+        .map_err(|error| input_io("clone held runtime member", error))?;
+    input
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| input_io("rewind held runtime member", error))?;
+    let cap = MAX_JSON.max(MAX_NOTICE);
+    if member.stored_bytes > cap || before.len() != member.stored_bytes {
+        return Err(part_set("raw runtime transport member exceeds bound"));
+    }
+    let mut bytes = Vec::with_capacity(member.stored_bytes as usize);
+    Read::by_ref(&mut input)
+        .take(cap + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| input_io("read held raw runtime member", error))?;
+    validate_held_metadata(file, before)?;
+    if bytes.len() as u64 != member.stored_bytes
+        || member.stored_bytes != member.uncompressed_bytes
+        || sha256(&bytes) != member.stored_sha256
+        || member.stored_sha256 != member.uncompressed_sha256
+    {
+        return Err(AssetError::new(
+            AssetErrorKind::TransportHashMismatch,
+            "raw runtime transport member identity mismatch",
+        ));
+    }
+    Ok(bytes)
+}
+
+pub(crate) fn verify_runtime_transport_held_frame(
+    file: &File,
+    before: &fs::Metadata,
+    member: &Member,
+) -> Result<(), AssetError> {
+    let mut input = file
+        .try_clone()
+        .map_err(|error| input_io("clone held runtime member", error))?;
+    input
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| input_io("rewind held runtime member", error))?;
+    verify_frame_open(input, before, member, None, None)
+}
+
+fn open_transport(path: &Path) -> Result<OpenedTransport, AssetError> {
+    let root = fs::symlink_metadata(path).map_err(|error| input_io("inspect transport", error))?;
+    if root.file_type().is_symlink() || !root.file_type().is_dir() {
+        return Err(part_set("transport is not a regular directory"));
+    }
+    let bytes = read_checked(&path.join(TRANSPORT_MANIFEST), MAX_JSON)?;
+    let manifest = parse_runtime_transport_manifest_for_release(&bytes)?;
     require_transport_inventory(path, &manifest)?;
     let profile_member = manifest
         .members
@@ -494,6 +549,16 @@ fn verify_frame(path: &Path, member: &Member, output: Option<&mut File>) -> Resu
         AssetErrorKind::PartSetInvalid,
     )?;
     require_single_link(&before)?;
+    verify_frame_open(input, &before, member, output, Some(path))
+}
+
+fn verify_frame_open(
+    input: File,
+    before: &fs::Metadata,
+    member: &Member,
+    output: Option<&mut File>,
+    path: Option<&Path>,
+) -> Result<(), AssetError> {
     if before.len() != member.stored_bytes {
         return Err(part_set("compressed member size does not match manifest"));
     }
@@ -545,7 +610,10 @@ fn verify_frame(path: &Path, member: &Member, output: Option<&mut File>) -> Resu
         trailing = true;
     }
     let hashing = remaining.into_inner();
-    validate_retained_path(path, &hashing.inner, &before)?;
+    validate_held_metadata(&hashing.inner, before)?;
+    if let Some(path) = path {
+        validate_retained_path(path, &hashing.inner, before)?;
+    }
     if trailing {
         return Err(compression_invalid(
             "compressed member has a second frame or trailing bytes",
@@ -566,6 +634,24 @@ fn verify_frame(path: &Path, member: &Member, output: Option<&mut File>) -> Resu
             AssetErrorKind::TransportHashMismatch,
             "decompressed runtime member identity mismatch",
         ));
+    }
+    Ok(())
+}
+
+fn validate_held_metadata(file: &File, before: &fs::Metadata) -> Result<(), AssetError> {
+    let after = file
+        .metadata()
+        .map_err(|error| input_io("reinspect held runtime member", error))?;
+    if before.dev() != after.dev()
+        || before.ino() != after.ino()
+        || before.len() != after.len()
+        || before.nlink() != after.nlink()
+        || before.mtime() != after.mtime()
+        || before.mtime_nsec() != after.mtime_nsec()
+        || before.ctime() != after.ctime()
+        || before.ctime_nsec() != after.ctime_nsec()
+    {
+        return Err(bundle_invalid("held runtime member changed while read"));
     }
     Ok(())
 }

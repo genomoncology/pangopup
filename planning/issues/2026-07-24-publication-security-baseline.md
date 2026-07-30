@@ -1,9 +1,9 @@
 # Public repository and publication security baseline
 
-Status: open
+Status: closed
 Found by: 2026-07-24 adversarial project review
-Priority: block the next public model, compiled GRCh38 sequence index, mask,
-executable, or container release
+Priority: resolved repository baseline; executable/container release evidence
+remains owned by its later publication ticket
 
 ## Observation
 
@@ -28,8 +28,9 @@ compromised dependency.
   coordinator-owned direct-push lifecycle.
 - Make maintenance-tool installation content-authenticated or deliver it from
   another pinned reviewed boundary.
-- Before distributing executable/model/container artifacts, enforce dependency
-  advisory and license policy and produce the planned SBOM/provenance evidence.
+- Before distributing executable/container artifacts, enforce dependency
+  advisory and license policy and produce their planned SBOM/provenance
+  evidence.
 
 This does not block local Ticket 012 work and should not be mixed into its mask
 format implementation.
@@ -46,7 +47,7 @@ design re-review accepted preserving those builder-causal manifests and
 allowing the wildcard lint, with registry/Git sources still denied except for
 canonical crates.io.
 
-The issue remains open, but Ticket 032 applied every independently writable
+Ticket 032 applied every independently writable
 repository-local control on 2026-07-30. Actions now default to read-only and
 cannot approve pull requests; Dependabot security updates, secret scanning,
 push protection, and non-provider-pattern scanning are enabled; and two active
@@ -57,7 +58,10 @@ accepts writes for secret scanning, push protection, and non-provider patterns
 but exposes validity checks only in the repository read model, not as a
 repository-local write. Independent design re-review authorizes applying every
 other writable control while validity checks remain disabled. That bounded
-hardening is complete, but the issue and asset-publication block remain open. The
+hardening is complete. Pangopup has no configured repository secrets or open
+secret alerts, and credential-validity checks are a provider-assisted alert
+triage feature rather than a runtime or publication requirement. They remain
+an optional organization policy, not an asset-publication blocker. The
 reviewed operation and rollback plan is retained in
 [`planning/artifacts/032-publication-security-baseline.md`](../artifacts/032-publication-security-baseline.md).
 Organization code-security configurations do expose a validity-check setting,
@@ -66,7 +70,10 @@ configuration requires `write:org`, applies asynchronously, and cannot be
 rolled back by detach alone because detach retains applied repository
 settings. That route needs separate authority and lifecycle review.
 
-Release-specific dependency inventory, SBOM, provenance, controlled
-stable-source upload, remote digest comparison, immutable finalization,
-model-side runtime sync, and clean-machine inference remain future publication
-work.
+Release-specific controlled stable-source upload, remote digest comparison,
+immutable finalization, model-side runtime sync, and clean-machine inference
+remain future publication work. The model-side release is a data-artifact
+inventory rather than a newly distributed executable; its canonical profile,
+checksums, notices, and preferred modification-source record are the applicable
+inventory and provenance. Executable/container SBOM work remains with their
+later publication.

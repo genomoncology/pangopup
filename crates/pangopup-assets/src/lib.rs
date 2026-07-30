@@ -22,6 +22,7 @@ mod local;
 mod release;
 mod runtime_install;
 mod runtime_profile;
+mod runtime_release;
 mod runtime_transport;
 mod snv;
 mod sync;
@@ -50,6 +51,16 @@ pub use runtime_profile::{
     RuntimeProfileError, RuntimeProfileId, ScoringProfile, SnvBundleInspection, SnvProfile,
     canonical_runtime_profile_bytes, inspect_snv_bundle, parse_runtime_profile,
     production_runtime_profile, runtime_profile_id,
+};
+pub use runtime_release::{
+    PrepareRuntimeReleaseOutcome, RuntimeReleaseProfile, parse_runtime_release_profile,
+    prepare_runtime_release,
+};
+#[cfg(any(test, feature = "test-read-audit"))]
+pub use runtime_release::{
+    RuntimeReleaseExpectedMember, RuntimeReleaseFaultPoint, RuntimeReleasePreparationContract,
+    parse_runtime_release_profile_with_contract, prepare_runtime_release_with_contract,
+    set_runtime_release_fault,
 };
 pub use runtime_transport::{
     PackRuntimeTransportOutcome, UnpackRuntimeTransportOutcome, VerifyRuntimeTransportOutcome,

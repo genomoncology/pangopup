@@ -27,16 +27,17 @@ Dependabot security updates, the three writable requested secret-scanning
 controls, and two active `main` rulesets: unbypassed
 deletion/non-fast-forward protection plus pull-request/`gate` requirements with
 only the reviewed administrator-role bypass. Validity checks have no reviewed
-repository-local write and remain an explicit open publication blocker; that
-limitation does not withhold the independent writable protections.
+repository-local write and remain optional: Pangopup has no configured
+repository secrets or open secret alerts, and provider validity is alert
+triage rather than an asset-publication requirement.
 Organization code-security configurations can set validity checks and attach
 to selected repositories, but the existing recommended configuration enables
 broader features. A custom configuration requires `write:org`, asynchronous
 verification, and a rollback design that accounts for detach retaining applied
 settings, so it is a separately reviewed authority expansion.
 
-This baseline publishes no runtime asset. Release-specific dependency
-inventory, SBOM, provenance, attribution review, controlled stable-source
+This baseline publishes no runtime asset. Release-specific attribution review,
+controlled stable-source
 upload, remote digest comparison, immutable finalization, runtime sync, and
 clean-machine inference remain part of the later asset-publication lifecycle.
 
@@ -79,6 +80,10 @@ Model-side local transport (exactly ten files):
   reference.pgr.zst
   mask-NOTICE
   domains.pgm.zst
+Model-side publication metadata:
+  runtime-release-profile.json
+  SHA256SUMS
+  RELEASE-NOTES.md (release body; not uploaded)
 ```
 
 These future archives contain only Pangopup's derived runtime members. The raw
@@ -140,6 +145,7 @@ Lookup-only installations can continue to avoid all three model-side frames.
 pangopup-build runtime-transport pack --profile <PROFILE> --model-bundle <MODEL_BUNDLE> --reference-bundle <REFERENCE_BUNDLE> --mask <DOMAINS_PGM> --output <ABSENT_DIR>
 pangopup-build runtime-transport verify --transport <TRANSPORT_DIR>
 pangopup-build runtime-transport unpack --transport <TRANSPORT_DIR> --output <ABSENT_DIR>
+pangopup-build runtime-release prepare --transport <TRANSPORT_DIR> --target-commit <40_LOWERCASE_HEX> --output <ABSENT_DIR>
 ```
 
 Pack authenticates component/profile consistency but does not promote a
@@ -147,6 +153,18 @@ profile to the trusted production tuple. Verify streams stored and
 reconstructed identities without writing payloads. Unpack performs each decode
 once into private same-filesystem staging and atomically publishes the
 reconstructed layout. None of these commands opens or packages the SNV member.
+
+`runtime-release prepare` is a separate production-only admission boundary. It
+streams and authenticates stored and decompressed frame identities without
+materializing decoded payloads, then copies its exact ten stored members once
+through the same held no-follow descriptors and revalidates the closed source
+inventory, and creates a private read-only thirteen-file publication stage.
+The canonical release profile fixes the release identity, target commit,
+runtime/component identities, twelve preferred upstream checkpoint sources,
+converter paths, and exact member URLs, sizes, and digests. `SHA256SUMS` covers
+the ten upload members plus that profile; release notes remain local input for
+the GitHub release body. The command performs no network operation, rebuild,
+recompression, decoded output, tag creation, or upload.
 
 Every published asset name is immutable and content-addressed by the release
 manifest. GitHub immutable releases are mandatory: publication is blocked
