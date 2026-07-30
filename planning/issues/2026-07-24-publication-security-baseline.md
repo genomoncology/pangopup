@@ -46,13 +46,18 @@ design re-review accepted preserving those builder-causal manifests and
 allowing the wildcard lint, with registry/Git sources still denied except for
 canonical crates.io.
 
-The issue remains open. Read-only API capture still shows all named repository
-settings disabled or permissive. GitHub's current repository-update schema
+The issue remains open, but Ticket 032 applied every independently writable
+repository-local control on 2026-07-30. Actions now default to read-only and
+cannot approve pull requests; Dependabot security updates, secret scanning,
+push protection, and non-provider-pattern scanning are enabled; and two active
+`main` rulesets protect history and require pull requests plus the `gate`
+status, with only the reviewed contribution-policy administrator bypass.
+GitHub's current repository-update schema
 accepts writes for secret scanning, push protection, and non-provider patterns
 but exposes validity checks only in the repository read model, not as a
 repository-local write. Independent design re-review authorizes applying every
-other writable control while validity checks remain disabled. The issue and
-asset-publication block therefore remain open after that bounded hardening. The
+other writable control while validity checks remain disabled. That bounded
+hardening is complete, but the issue and asset-publication block remain open. The
 reviewed operation and rollback plan is retained in
 [`planning/artifacts/032-publication-security-baseline.md`](../artifacts/032-publication-security-baseline.md).
 Organization code-security configurations do expose a validity-check setting,

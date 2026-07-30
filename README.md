@@ -725,14 +725,13 @@ policy leaves wildcard linting allowed and retains those path edges unchanged.
 
 The checked workflow grants only read access to contents and installs the exact
 mustmatch 0.1.0 wheel and cargo-deny 0.19.4 archive only after both size and
-SHA-256 verification. Repository-admin settings are a separate external
-boundary: publication remains blocked until the live GitHub state verifies
-read-only Actions defaults, no Actions PR approval, Dependabot security
-updates, the three writable requested secret-scanning controls, and the two
-reviewed `main` rulesets. GitHub exposes validity checks in repository reads but
-not its repository-local write schema, so that control remains disabled and
-the publication-security issue remains open. No model-side runtime asset,
-executable, container, SBOM, or release provenance is published by this
+SHA-256 verification. The live GitHub repository now has read-only Actions
+defaults, no Actions PR approval, Dependabot security updates, the three
+writable requested secret-scanning controls, and the two reviewed `main`
+rulesets. GitHub exposes validity checks in repository reads but not its
+repository-local write schema, so that control remains disabled and the
+publication-security issue remains open. No model-side runtime asset,
+executable, container, SBOM, or release provenance was published by this
 baseline.
 
 The coordinator writes one ticket at a time from the previous shipped result

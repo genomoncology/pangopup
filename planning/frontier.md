@@ -44,10 +44,13 @@ bans, and source policy in `make lint`. The policy preserves the
 builder-causal versionless workspace path edges after cargo-deny 0.19.4 proved
 it cannot exempt them separately from registry wildcard linting for publishable
 workspace crates; current locked sources remain only workspace paths and the
-canonical crates.io registry. Live GitHub settings remain an external
-coordinator effect. Ticket 032 applies the independently writable settings
-while retaining validity checks as disabled; publication stays blocked until
-that API limitation and the remaining release-specific evidence are resolved.
+canonical crates.io registry. Ticket 032 also applied and verified the
+independently writable live GitHub settings: read-only Actions defaults,
+disabled Actions PR approval, Dependabot security updates, three
+secret-scanning controls, unbypassed history protection, and the
+administrator-bypassed pull-request/`gate` contribution policy. Validity checks
+remain disabled; publication stays blocked until that API limitation and the
+remaining release-specific evidence are resolved.
 The known organization-configuration route requires `write:org`, broader
 asynchronous verification, and retained-setting rollback design, so it remains
 a separate authority decision rather than part of this repository-local

@@ -1,6 +1,6 @@
 # 032 — Enforce the publication security baseline
 
-Status: publication-ready
+Status: complete
 
 ## Why
 
@@ -438,8 +438,25 @@ rollback and both ruleset semantics remain sound. No material finding remains.
 
 ## External Effect Evidence
 
-Coordinator: pending. This ticket uses the exceptional reviewed external-effect
-lifecycle:
+Coordinator: Codex `/root`, 2026-07-30.
+
+The reviewed preparation was committed and pushed as
+`6ccf186358cae56e1304400d5f60cead783312af`; GitHub Actions run
+`30572819730` passed the exact `gate` before mutation. The complete read-only
+preflight still matched the reviewed record.
+
+All five authorized operations then succeeded and verified in order. Actions
+defaults are read-only and cannot approve pull requests; Dependabot security
+updates are enabled; secret scanning, push protection, and non-provider
+patterns are enabled; and GitHub created the exact reviewed rulesets as
+`20071950` (`pangopup-main-history`) and `20071963`
+(`pangopup-main-contributions`). Vulnerability alerts remained enabled.
+Validity checks remained disabled, no code-security configuration was
+attached, and the issue/publication block therefore remains open. No rollback
+was needed, and no release or asset was changed. Sanitized exact evidence is in
+`planning/artifacts/032-publication-security-baseline.md`.
+
+This ticket used the exceptional reviewed external-effect lifecycle:
 
 ```text
 review -> publication-ready -> commit/push -> green remote gate
@@ -450,4 +467,15 @@ No release or asset mutation is authorized.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex `/root`, 2026-07-30.
+
+- Independent design and code review both accepted the final bounded result.
+- `make lint`, `make test`, and `make spec` passed locally; mustmatch reported
+  `218 passed, 4 skipped`.
+- The exact preparation commit passed GitHub's `gate` before mutation.
+- The complete GitHub after-state was read back and matched every authorized
+  writable control. The known validity-check limitation remains explicit and
+  no publication-readiness claim was made.
+- `Cargo.lock` and every `Cargo.toml` remained unchanged.
+- No model, sequence, mask, SNV, executable, container, or other release asset
+  was published.

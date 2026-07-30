@@ -316,7 +316,44 @@ pre-state read set and prove semantic equality before reporting failure.
 
 ## Observed after-state
 
-Pending coordinator external effect. No repository setting, rule, release, or
-asset was mutated during development. The future observed record must show the
-three writable secret-scanning controls enabled and validity checks still
-disabled; it must not describe this bounded result as publication readiness.
+Coordinator external effect: 2026-07-30.
+
+The reviewed preparation was committed and pushed as
+`6ccf186358cae56e1304400d5f60cead783312af`. GitHub Actions run
+`30572819730` completed successfully for that exact commit before the first
+mutation.
+
+The repeated preflight matched the captured state exactly. The five operations
+then succeeded in the reviewed order and every immediate verification passed:
+
+| Surface | Observed value |
+|---|---|
+| Actions defaults | `default_workflow_permissions=read`; `can_approve_pull_request_reviews=false` |
+| Vulnerability alerts | HTTP 204, enabled |
+| Dependabot security updates | `enabled=true`; `paused=false` |
+| Secret scanning | `enabled` |
+| Push protection | `enabled` |
+| Non-provider patterns | `enabled` |
+| Validity checks | `disabled` |
+| Attached code-security configuration | HTTP 204, none |
+| Classic main branch protection | HTTP 404, absent; repository rulesets are the active policy |
+
+GitHub assigned opaque ID `20071950` to the active
+`pangopup-main-history` ruleset. Its GET response targets only
+`refs/heads/main`, has no bypass actor, and contains exactly `deletion` and
+`non_fast_forward`.
+
+GitHub assigned opaque ID `20071963` to the active
+`pangopup-main-contributions` ruleset. Its GET response targets only
+`refs/heads/main`, contains the reviewed pull-request and `gate`
+required-status rules, and has exactly the
+`RepositoryRole/5/always` bypass. GitHub materialized additional default
+pull-request fields (`allowed_merge_methods`, empty dismissal restriction, and
+empty required reviewers); none broadens the bypass or changes the requested
+approval/status behavior.
+
+The final ruleset list contained exactly those two active rulesets. No rollback
+was needed. No release, release asset, branch ref, workflow definition,
+immutable-release setting, or unrelated repository setting was mutated by the
+external operation. Validity checks remain disabled, so this bounded result is
+not publication readiness and the publication-security issue remains open.
