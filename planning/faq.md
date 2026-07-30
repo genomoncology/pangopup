@@ -134,8 +134,12 @@ and not the accepted format. The shipped local lookup transport compresses only
 same mmap member. Executable, lookup-data, and future model assets remain
 separately versioned.
 
-The available maintenance commands are `pangopup-build transport pack`,
-`transport verify`, and `transport unpack`. `pangopup assets install` installs
+The complete maintenance catalog is available through successful
+`pangopup-build --help`; namespace and leaf help such as
+`pangopup-build transport --help` and
+`pangopup-build transport pack --help` state the exact closed grammar without
+touching an asset. The transport operations are `transport pack`, `transport
+verify`, and `transport unpack`. `pangopup assets install` installs
 an explicit transport into Linux XDG data, and `pangopup assets status` reports
 the active state. `pangopup-build release prepare` deterministically generates
 the pinned `snv-grch38-v1` profile, proof copy, checksums, and notes from bounded

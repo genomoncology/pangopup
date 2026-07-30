@@ -17,59 +17,47 @@ use pangopup_build::{
 use pangopup_model::ModelRepresentation;
 use std::{env, path::Path, process::ExitCode};
 
-const USAGE: &str = "Usage: pangopup-build inspect <SOURCE_DIR>\n       pangopup-build prototype-roundtrip <SOURCE_DIR> <OUTPUT>\n       pangopup-build prototype-open <ARTIFACT>\n       pangopup-build benchmark-corpus <SOURCE_DIR> <OUTPUT> <SELECTED_MANIFEST>";
+mod cli;
+
+use cli::Leaf;
+
+const LEGACY_USAGE: &str = "Usage: pangopup-build inspect <SOURCE_DIR>\n       pangopup-build prototype-roundtrip <SOURCE_DIR> <OUTPUT>\n       pangopup-build prototype-open <ARTIFACT>\n       pangopup-build benchmark-corpus <SOURCE_DIR> <OUTPUT> <SELECTED_MANIFEST>";
 
 fn main() -> ExitCode {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
-    if arguments.first().is_some_and(|command| command == "build") {
-        return build_command(&arguments[1..]);
+    if let Some(information) = cli::information(&arguments) {
+        println!("{}", cli::render(information));
+        return ExitCode::SUCCESS;
     }
-    if arguments.first().is_some_and(|command| command == "verify") {
-        return verify_command(&arguments[1..]);
+    if let Some((leaf, operands)) = cli::resolve(&arguments) {
+        return dispatch(leaf, operands);
     }
-    if arguments
-        .first()
-        .is_some_and(|command| command == "reference")
-    {
-        return reference_command(&arguments[1..]);
+    match cli::namespace(&arguments) {
+        Some("reference") => reference_invalid(&arguments[1..]),
+        Some("transport") => json_usage("transport requires pack, verify, or unpack"),
+        Some("release") => json_usage("release requires prepare or upload-asset"),
+        Some("compatibility") => json_usage("compatibility requires inspect or capture"),
+        Some("model") => json_usage("model requires evidence, convert, inspect, or qualify"),
+        Some("runtime-profile") => json_usage("runtime-profile requires prepare"),
+        Some(_) => unreachable!("closed namespace catalog"),
+        None => json_failure(&CommandError::new("CLI_USAGE", LEGACY_USAGE)),
     }
-    if arguments
-        .first()
-        .is_some_and(|command| command == "transport")
-    {
-        return transport_command(&arguments[1..]);
-    }
-    if arguments
-        .first()
-        .is_some_and(|command| command == "release")
-    {
-        return release_command(&arguments[1..]);
-    }
-    if arguments
-        .first()
-        .is_some_and(|command| command == "compatibility")
-    {
-        return compatibility_command(&arguments[1..]);
-    }
-    if arguments.first().is_some_and(|command| command == "model") {
-        return model_command(&arguments[1..]);
-    }
-    if arguments
-        .first()
-        .is_some_and(|command| command == "runtime-profile")
-    {
-        return runtime_profile_command(&arguments[1..]);
-    }
-    match arguments.as_slice() {
-        [command, source] if command == "inspect" => {
-            let mut stdout = std::io::stdout().lock();
-            match inspect_directory(Path::new(source), &mut stdout) {
-                Ok(_) => ExitCode::SUCCESS,
-                Err(error) => legacy_failure("SOURCE_INVALID", &error),
+}
+
+fn dispatch(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
+    match leaf {
+        Leaf::Inspect => match arguments {
+            [source] => {
+                let mut stdout = std::io::stdout().lock();
+                match inspect_directory(Path::new(source), &mut stdout) {
+                    Ok(_) => ExitCode::SUCCESS,
+                    Err(error) => legacy_failure("SOURCE_INVALID", &error),
+                }
             }
-        }
-        [command, source, output] if command == "prototype-roundtrip" => {
-            match prototype_roundtrip(Path::new(source), Path::new(output)) {
+            _ => json_failure(&CommandError::new("CLI_USAGE", LEGACY_USAGE)),
+        },
+        Leaf::PrototypeRoundtrip => match arguments {
+            [source, output] => match prototype_roundtrip(Path::new(source), Path::new(output)) {
                 Ok(summary) => {
                     println!(
                         "prototype format=fixed-11-v1 bytes={} genes={} rows={} loci={} segments={} exceptions={} verified_rows={}",
@@ -84,49 +72,63 @@ fn main() -> ExitCode {
                     ExitCode::SUCCESS
                 }
                 Err(error) => legacy_failure("SOURCE_INDEX", &error),
-            }
-        }
-        [command, artifact] if command == "prototype-open" => {
-            match prototype_open(Path::new(artifact)) {
+            },
+            _ => json_failure(&CommandError::new("CLI_USAGE", LEGACY_USAGE)),
+        },
+        Leaf::PrototypeOpen => match arguments {
+            [artifact] => match prototype_open(Path::new(artifact)) {
                 Ok(bytes) => {
                     println!("prototype-open format=fixed-11-v1 bytes={bytes} status=valid");
                     ExitCode::SUCCESS
                 }
                 Err(error) => legacy_failure("BUNDLE_INDEX", &error),
-            }
-        }
-        [command, source, output, manifest] if command == "benchmark-corpus" => {
-            match prepare_benchmark_corpus(
-                Path::new(source),
-                Path::new(output),
-                Path::new(manifest),
-            ) {
-                Ok(summary) => {
-                    println!(
-                        "benchmark-corpus genes={} loci={} rows={} observed_member_sha256={}",
-                        summary.selected_genes,
-                        summary.loci,
-                        summary.rows,
-                        summary.observed_member_sha256
-                    );
-                    ExitCode::SUCCESS
+            },
+            _ => json_failure(&CommandError::new("CLI_USAGE", LEGACY_USAGE)),
+        },
+        Leaf::BenchmarkCorpus => match arguments {
+            [source, output, manifest] => {
+                match prepare_benchmark_corpus(
+                    Path::new(source),
+                    Path::new(output),
+                    Path::new(manifest),
+                ) {
+                    Ok(summary) => {
+                        println!(
+                            "benchmark-corpus genes={} loci={} rows={} observed_member_sha256={}",
+                            summary.selected_genes,
+                            summary.loci,
+                            summary.rows,
+                            summary.observed_member_sha256
+                        );
+                        ExitCode::SUCCESS
+                    }
+                    Err(error) => legacy_failure("SOURCE_INVALID", &error),
                 }
-                Err(error) => legacy_failure("SOURCE_INVALID", &error),
             }
+            _ => json_failure(&CommandError::new("CLI_USAGE", LEGACY_USAGE)),
+        },
+        Leaf::Build => build_command(arguments),
+        Leaf::Verify => verify_command(arguments),
+        Leaf::ReferenceBuild | Leaf::ReferenceInspect | Leaf::ReferenceWindow => {
+            reference_command(leaf, arguments)
         }
-        _ => json_failure(&CommandError::new("CLI_USAGE", USAGE)),
+        Leaf::TransportPack | Leaf::TransportVerify | Leaf::TransportUnpack => {
+            transport_command(leaf, arguments)
+        }
+        Leaf::ReleasePrepare | Leaf::ReleaseUploadAsset => release_command(leaf, arguments),
+        Leaf::CompatibilityInspect | Leaf::CompatibilityCapture => {
+            compatibility_command(leaf, arguments)
+        }
+        Leaf::ModelEvidence | Leaf::ModelConvert | Leaf::ModelInspect | Leaf::ModelQualify => {
+            model_command(leaf, arguments)
+        }
+        Leaf::RuntimeProfilePrepare => runtime_profile_command(arguments),
     }
 }
 
 fn runtime_profile_command(arguments: &[std::ffi::OsString]) -> ExitCode {
-    let Some(action) = arguments.first().and_then(|value| value.to_str()) else {
-        return json_usage("runtime-profile requires prepare");
-    };
-    if action != "prepare" {
-        return json_usage("runtime-profile requires prepare");
-    }
     let Ok(values) = parse_exact_flags(
-        &arguments[1..],
+        arguments,
         &[
             "--snv-bundle",
             "--model-bundle",
@@ -151,14 +153,11 @@ fn runtime_profile_command(arguments: &[std::ffi::OsString]) -> ExitCode {
     }
 }
 
-fn model_command(arguments: &[std::ffi::OsString]) -> ExitCode {
-    let Some(action) = arguments.first().and_then(|value| value.to_str()) else {
-        return json_usage("model requires evidence, convert, inspect, or qualify");
-    };
-    match action {
-        "evidence" => {
+fn model_command(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
+    match leaf {
+        Leaf::ModelEvidence => {
             let Ok(values) = parse_exact_flags(
-                &arguments[1..],
+                arguments,
                 &["--upstream", "--python", "--corpus", "--output"],
             ) else {
                 return json_usage(
@@ -176,9 +175,9 @@ fn model_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                 Err(error) => model_failure(&error),
             }
         }
-        "convert" => {
+        Leaf::ModelConvert => {
             let Ok(values) = parse_exact_flags(
-                &arguments[1..],
+                arguments,
                 &[
                     "--upstream",
                     "--python",
@@ -213,8 +212,8 @@ fn model_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                 Err(error) => model_failure(&error),
             }
         }
-        "inspect" => {
-            let Ok(values) = parse_exact_flags(&arguments[1..], &["--bundle"]) else {
+        Leaf::ModelInspect => {
+            let Ok(values) = parse_exact_flags(arguments, &["--bundle"]) else {
                 return json_usage("model inspect requires --bundle exactly once");
             };
             match inspect_model_bundle(Path::new(values[0])) {
@@ -222,8 +221,8 @@ fn model_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                 Err(error) => model_failure(&error),
             }
         }
-        "qualify" => {
-            let Ok(values) = parse_exact_flags(&arguments[1..], &["--bundle", "--evidence"]) else {
+        Leaf::ModelQualify => {
+            let Ok(values) = parse_exact_flags(arguments, &["--bundle", "--evidence"]) else {
                 return json_usage("model qualify requires --bundle and --evidence exactly once");
             };
             match qualify_model_bundle(Path::new(values[0]), Path::new(values[1])) {
@@ -231,7 +230,7 @@ fn model_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                 Err(error) => model_failure(&error),
             }
         }
-        _ => json_usage("model requires evidence, convert, inspect, or qualify"),
+        _ => unreachable!("model dispatcher receives model leaves"),
     }
 }
 
@@ -262,19 +261,23 @@ fn model_json(value: &impl serde::Serialize, exit: u8) -> ExitCode {
     ExitCode::from(exit)
 }
 
-fn reference_command(arguments: &[std::ffi::OsString]) -> ExitCode {
-    let Some(action) = arguments.first().and_then(|value| value.to_str()) else {
+fn reference_invalid(arguments: &[std::ffi::OsString]) -> ExitCode {
+    if arguments.is_empty() {
         return reference_failure(
             "reference",
             "CLI_USAGE",
             "reference requires build, inspect, or window",
             2,
         );
-    };
-    match action {
-        "build" => {
+    }
+    reference_failure("reference", "CLI_USAGE", "reference action is invalid", 2)
+}
+
+fn reference_command(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
+    match leaf {
+        Leaf::ReferenceBuild => {
             let Ok(values) = parse_exact_flags(
-                &arguments[1..],
+                arguments,
                 &["--profile", "--source", "--assembly-report", "--output"],
             ) else {
                 return reference_failure(
@@ -302,8 +305,8 @@ fn reference_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                 Err(error) => reference_command_error("reference.build", &error),
             }
         }
-        "inspect" => {
-            let Ok(values) = parse_exact_flags(&arguments[1..], &["--bundle"]) else {
+        Leaf::ReferenceInspect => {
+            let Ok(values) = parse_exact_flags(arguments, &["--bundle"]) else {
                 return reference_failure(
                     "reference.inspect",
                     "CLI_USAGE",
@@ -316,11 +319,10 @@ fn reference_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                 Err(error) => reference_command_error("reference.inspect", &error),
             }
         }
-        "window" => {
-            let Ok(values) = parse_exact_flags(
-                &arguments[1..],
-                &["--bundle", "--contig", "--start", "--length"],
-            ) else {
+        Leaf::ReferenceWindow => {
+            let Ok(values) =
+                parse_exact_flags(arguments, &["--bundle", "--contig", "--start", "--length"])
+            else {
                 return reference_failure(
                     "reference.window",
                     "CLI_USAGE",
@@ -368,7 +370,7 @@ fn reference_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                 Err(error) => reference_command_error("reference.window", &error),
             }
         }
-        _ => reference_failure("reference", "CLI_USAGE", "reference action is invalid", 2),
+        _ => unreachable!("reference dispatcher receives reference leaves"),
     }
 }
 
@@ -453,13 +455,10 @@ fn reference_json(value: &impl serde::Serialize, exit: u8) -> ExitCode {
     ExitCode::from(exit)
 }
 
-fn compatibility_command(arguments: &[std::ffi::OsString]) -> ExitCode {
-    let Some(action) = arguments.first().and_then(|value| value.to_str()) else {
-        return json_usage("compatibility requires inspect or capture");
-    };
-    match action {
-        "inspect" => {
-            let Ok(values) = parse_exact_flags(&arguments[1..], &["--corpus"]) else {
+fn compatibility_command(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
+    match leaf {
+        Leaf::CompatibilityInspect => {
+            let Ok(values) = parse_exact_flags(arguments, &["--corpus"]) else {
                 return json_usage("compatibility inspect requires --corpus exactly once");
             };
             match inspect_corpus(Path::new(values[0])) {
@@ -467,7 +466,7 @@ fn compatibility_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                 Err(error) => json_failure(&error),
             }
         }
-        "capture" => {
+        Leaf::CompatibilityCapture => {
             let flags = [
                 "--upstream",
                 "--python",
@@ -478,7 +477,7 @@ fn compatibility_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                 "--annotation-gtf",
                 "--output",
             ];
-            let Ok(values) = parse_exact_flags(&arguments[1..], &flags) else {
+            let Ok(values) = parse_exact_flags(arguments, &flags) else {
                 return json_usage(
                     "compatibility capture requires --upstream, --python, --reference-source, --assembly-report, --reference, --annotation-db, --annotation-gtf, and --output exactly once",
                 );
@@ -498,18 +497,15 @@ fn compatibility_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                 Err(error) => json_failure(&error),
             }
         }
-        _ => json_usage("compatibility requires inspect or capture"),
+        _ => unreachable!("compatibility dispatcher receives compatibility leaves"),
     }
 }
 
-fn release_command(arguments: &[std::ffi::OsString]) -> ExitCode {
-    let Some(action) = arguments.first().and_then(|value| value.to_str()) else {
-        return json_usage("release requires prepare or upload-asset");
-    };
-    match action {
-        "prepare" => {
+fn release_command(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
+    match leaf {
+        Leaf::ReleasePrepare => {
             let Ok(values) =
-                parse_exact_flags(&arguments[1..], &["--transport", "--receipt", "--output"])
+                parse_exact_flags(arguments, &["--transport", "--receipt", "--output"])
             else {
                 return json_usage(
                     "release prepare requires --transport, --receipt, and --output exactly once",
@@ -526,9 +522,9 @@ fn release_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                 }
             }
         }
-        "upload-asset" => {
+        Leaf::ReleaseUploadAsset => {
             let Ok(values) = parse_exact_flags(
-                &arguments[1..],
+                arguments,
                 &[
                     "--transport",
                     "--prepared",
@@ -564,17 +560,13 @@ fn release_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                 }
             }
         }
-        _ => json_usage("release requires prepare or upload-asset"),
+        _ => unreachable!("release dispatcher receives release leaves"),
     }
 }
 
-fn transport_command(arguments: &[std::ffi::OsString]) -> ExitCode {
-    let Some(action) = arguments.first().and_then(|value| value.to_str()) else {
-        return json_usage("transport requires pack, verify, or unpack");
-    };
-    let arguments = &arguments[1..];
-    match action {
-        "pack" => {
+fn transport_command(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
+    match leaf {
+        Leaf::TransportPack => {
             let Ok(values) = parse_exact_flags(arguments, &["--bundle", "--output"]) else {
                 return json_usage("transport pack requires --bundle and --output exactly once");
             };
@@ -585,7 +577,7 @@ fn transport_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                 }
             }
         }
-        "verify" => {
+        Leaf::TransportVerify => {
             let Ok(values) = parse_exact_flags(arguments, &["--transport"]) else {
                 return json_usage("transport verify requires --transport exactly once");
             };
@@ -596,7 +588,7 @@ fn transport_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                 }
             }
         }
-        "unpack" => {
+        Leaf::TransportUnpack => {
             let Ok(values) = parse_exact_flags(arguments, &["--transport", "--output"]) else {
                 return json_usage(
                     "transport unpack requires --transport and --output exactly once",
@@ -609,7 +601,7 @@ fn transport_command(arguments: &[std::ffi::OsString]) -> ExitCode {
                 }
             }
         }
-        _ => json_usage("transport requires pack, verify, or unpack"),
+        _ => unreachable!("transport dispatcher receives transport leaves"),
     }
 }
 

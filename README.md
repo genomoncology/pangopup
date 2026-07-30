@@ -738,6 +738,8 @@ Release builders use explicit, read-only inputs and never download data or
 discover a home directory:
 
 ```bash skip
+pangopup-build --help
+pangopup-build <COMMAND_OR_NAMESPACE> --help
 pangopup-build build --source <PANGOLIN_SOURCE_DIR> --reference <GRCH38_FASTA_OR_GZIP> --output <NEW_BUNDLE>
 pangopup-build verify <BUNDLE>
 pangopup-build transport pack --bundle <BUNDLE> --output <ABSENT_DIR>
@@ -746,6 +748,11 @@ pangopup-build transport unpack --transport <TRANSPORT_DIR> --output <ABSENT_DIR
 pangopup-build release prepare --transport <TRANSPORT_DIR> --receipt <PROOF_RECEIPT_JSON> --output <ABSENT_DIR>
 pangopup-build release upload-asset --transport <TRANSPORT_DIR> --prepared <PREPARED_DIR> --gh <ABSOLUTE_PINNED_GH_BINARY> --release-id <POSITIVE_GITHUB_ID> --asset <EXACT_ASSET_NAME>
 ```
+
+The successful help paths above are generated from the same checked command
+catalog that dispatches maintenance operations. Namespace and leaf help state
+the exact required arguments and closed choices without opening a file,
+starting a process, loading a model, or using the network.
 
 Each successful command writes exactly one JSON line. A bundle contains only
 `manifest.json`, `NOTICE`, and `scores.pgi`; publication never mutates or

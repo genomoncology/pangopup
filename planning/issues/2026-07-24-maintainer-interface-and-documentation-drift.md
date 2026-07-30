@@ -1,6 +1,6 @@
 # Maintainer interface and documentation drift
 
-Status: open
+Status: closed
 Found by: 2026-07-24 adversarial project review
 Priority: before adding more public maintenance commands
 
@@ -48,8 +48,18 @@ subprocess lifecycle is tracked separately and is not part of this issue.
 - Add a repeatable stale-command/stale-current-claim check that is narrow
   enough to remain useful rather than becoming another long-running verifier.
 
-This remains real maintenance debt. Ticket 012's private mask qualification is
-complete and deliberately did not expand the supported maintainer interface.
-Resolve this issue before new production mask/model maintenance commands are
-presented as end-user-supported interfaces. Keep it open until public
-help/version and the stale-catalog checks are implemented.
+## Resolution
+
+Ticket 029 made one checked catalog the source of both maintenance-command
+recognition and root, namespace, and leaf help. Conventional help and version
+paths are successful, stdout-only, and side-effect free; malformed operational
+requests retain their exact previous JSON, exit class, and stream, including
+the reference namespace's stdout exception. Unit tests bind every dispatch leaf
+to one unique catalog path, and `spec/build-cli.md` executes the complete
+catalog plus representative legacy failures.
+
+Ticket 012 had already reconciled every current-state document named above.
+Accepted ADR consequence sections remain historical acceptance-time snapshots;
+README, FAQ, frontier, architecture overviews, and open issues are the
+current-state surfaces. The narrow drift is therefore resolved before any new
+production maintenance command is added.

@@ -481,8 +481,11 @@ Before the next public model, compiled GRCh38 sequence index, mask, executable,
 or container publication, close the recorded release-process and
 repository-security issues. Those issues do not block local scoring or
 packaging work.
-Close the recorded maintainer-interface/documentation drift before adding more
-public maintenance commands.
+The maintainer-interface/documentation drift is closed: `pangopup-build`
+dispatch and successful root, namespace, and leaf help share one checked
+catalog, version reporting is conventional, and executable acceptance preserves
+the established operational error bytes and streams. New maintenance commands
+must enter that catalog and its executable coverage.
 
 ## Unknowns that require evidence
 

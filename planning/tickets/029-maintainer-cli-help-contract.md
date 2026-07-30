@@ -1,6 +1,6 @@
 # 029 — Make the maintainer CLI accurately describe itself
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -157,11 +157,53 @@ bounded prerequisite for derived-runtime asset packaging.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex `/root/ticket029_implementation`
+
+- Added one 21-leaf checked catalog that owns path recognition, help synopsis,
+  summaries, namespaces, and the exhaustive internal dispatch enum. The
+  operational adapters now receive that enum instead of matching a second list
+  of command strings.
+- Added exact root/version, namespace, and leaf informational parsing. All
+  cataloged help paths are stdout-only and return before any filesystem,
+  process, model, release, or network adapter can run; misplaced and extended
+  help remains operational input.
+- Preserved the pre-ticket operational oracle, including the four-line legacy
+  root usage, compact JSON exits, and reference usage/operational JSON on
+  stdout. `spec/build-cli.md` exercises the complete catalog, every help path in
+  an empty directory, strict help placement, and representative legacy
+  failures.
+- Updated README, FAQ, and frontier to point maintainers to the checked
+  catalog, and closed the recorded maintainer-interface drift with its
+  executable resolution.
+- Focused binary unit tests: 6 passed. Full repository gate:
+  `make lint` passed; `make test` passed; `make spec` passed with 209 passed and
+  3 skipped.
+
+Remaining concern: none. This changes discoverability only and adds no
+dependency or maintenance operation.
+
+Code-review remediation removed the separate namespace-name array: namespace
+recognition, help, and display order now derive from first occurrence in the
+leaf catalog, with tests proving every catalog namespace is discoverable. The
+executable version spec now derives its oracle from the bounded local workspace
+`Cargo.toml` instead of repeating `0.1.0`.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex `/root/ticket029_code_review`
+
+Initial verdict: **REJECT**. The reviewer found a second independently
+maintained namespace list beside the leaf catalog and a hardcoded `0.1.0`
+version oracle in the executable spec.
+
+Remediation removed the namespace list so namespace recognition, help, and
+display order derive from the leaf entries themselves. Tests now prove every
+entry namespace is discoverable. The executable version oracle now derives
+from the bounded local workspace `Cargo.toml`.
+
+Revised verdict: **ACCEPT**. The reviewer confirmed both findings are resolved
+and found no regression in command resolution, exact help placement,
+side-effect ordering, legacy error bytes/streams, or documentation scope.
 
 ## External Effect Evidence
 
@@ -169,4 +211,10 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex `/root`
+
+The coordinator inspected the final catalog, dispatcher, executable spec,
+issue resolution, and current-state documentation, then reran `make lint`,
+`make test`, `make spec` (`209 passed, 3 skipped`), and `git diff --check`; all
+passed. No operational command, dependency, asset read, process, network
+request, or external effect was added.
