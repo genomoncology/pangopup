@@ -38,6 +38,20 @@ and typed mmap provider are established; its local transport and installation
 are shipped, while public release remains future work. Future SNV and sequence-index builds use
 separate causal source/dependency fingerprints; their existing production
 assets remain immutable and readable.
+The checked repository side now has a read-only workflow token, full-SHA action
+references, digest-authenticated maintenance tools, and an advisory, license,
+bans, and source policy in `make lint`. The policy preserves the
+builder-causal versionless workspace path edges after cargo-deny 0.19.4 proved
+it cannot exempt them separately from registry wildcard linting for publishable
+workspace crates; current locked sources remain only workspace paths and the
+canonical crates.io registry. Live GitHub settings remain an external
+coordinator effect. Ticket 032 applies the independently writable settings
+while retaining validity checks as disabled; publication stays blocked until
+that API limitation and the remaining release-specific evidence are resolved.
+The known organization-configuration route requires `write:org`, broader
+asynchronous verification, and retained-setting rollback design, so it remains
+a separate authority decision rather than part of this repository-local
+effect.
 
 ## Asset readiness — preserve, package, then publish
 
@@ -479,6 +493,12 @@ non-public draft, remote inventory/digest comparison, and immutable
 finalization lifecycle. Then prove pinned sync, clean-machine CLI inference,
 and offline restart from that exact release. This outcome precedes HTTP and
 container publication.
+
+Repository and dependency controls do not replace release evidence. The
+release-specific dependency inventory, SBOM, provenance, controlled
+stable-source upload, remote inventory/digest comparison, immutable
+finalization, model-side runtime sync, and clean-machine inference all remain
+future work tied to the exact bytes and commit actually published.
 
 ## Later outcome — foreground HTTP service
 

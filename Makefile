@@ -1,8 +1,9 @@
 .PHONY: lint test spec
 
-lint:          ## static analysis: rustfmt + clippy
+lint:          ## static analysis: rustfmt + clippy + dependency policy
 	cargo fmt --all --check
 	cargo clippy --locked --workspace --all-targets -- -D warnings
+	cargo deny check advisories bans licenses sources --warn unmaintained
 
 test:          ## inside-out unit and integration tests
 	cargo test --locked --workspace

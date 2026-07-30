@@ -5,6 +5,41 @@ Linux installation, and pinned resumable remote sync. The runtime opens either
 an explicitly supplied bundle path or the active receipt-bound bundle in Linux
 user data.
 
+## Repository publication-security boundary
+
+The ordinary repository gate includes a checked Rust dependency policy through
+cargo-deny 0.19.4. It denies vulnerable, unsound, yanked, unapproved-license,
+and unknown-source dependencies, carries no advisory ignore or license
+exception, and reports unmaintained advisories and duplicate versions. The
+workspace's versionless local path edges are preserved because they are
+builder-causal manifest inputs; cargo-deny 0.19.4 cannot exempt those edges
+while independently denying registry wildcards for publishable workspace
+crates. The reviewed policy therefore allows wildcard linting, while the locked
+graph and source policy admit only workspace paths and the canonical crates.io
+registry.
+
+CI has an explicit `contents: read` token, pins every action to a full commit,
+and installs mustmatch, cargo-deny, and ripgrep through reviewed exact digests.
+GitHub repository settings are an external coordinator-owned boundary rather
+than runtime code. Before another public asset family, the live repository must
+also verify read-only Actions defaults, disabled Actions PR approval, enabled
+Dependabot security updates, the three writable requested secret-scanning
+controls, and two active `main` rulesets: unbypassed
+deletion/non-fast-forward protection plus pull-request/`gate` requirements with
+only the reviewed administrator-role bypass. Validity checks have no reviewed
+repository-local write and remain an explicit open publication blocker; that
+limitation does not withhold the independent writable protections.
+Organization code-security configurations can set validity checks and attach
+to selected repositories, but the existing recommended configuration enables
+broader features. A custom configuration requires `write:org`, asynchronous
+verification, and a rollback design that accounts for detach retaining applied
+settings, so it is a separately reviewed authority expansion.
+
+This baseline publishes no runtime asset. Release-specific dependency
+inventory, SBOM, provenance, attribution review, controlled stable-source
+upload, remote digest comparison, immutable finalization, runtime sync, and
+clean-machine inference remain part of the later asset-publication lifecycle.
+
 ## GitHub Releases
 
 [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases)

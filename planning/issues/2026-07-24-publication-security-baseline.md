@@ -33,3 +33,35 @@ compromised dependency.
 
 This does not block local Ticket 012 work and should not be mixed into its mask
 format implementation.
+
+## Ticket 032 implementation state
+
+The checked-code side is prepared: CI declares read-only contents permission,
+pins both actions to full commits, authenticates the exact mustmatch 0.1.0 and
+cargo-deny 0.19.4 release bytes before installation, and runs the reviewed
+advisory/license/source policy through `make lint`. The locked graph currently
+passes. Cargo-deny 0.19.4 cannot exempt Pangopup's versionless local path edges
+while denying registry wildcards for publishable workspace crates; independent
+design re-review accepted preserving those builder-causal manifests and
+allowing the wildcard lint, with registry/Git sources still denied except for
+canonical crates.io.
+
+The issue remains open. Read-only API capture still shows all named repository
+settings disabled or permissive. GitHub's current repository-update schema
+accepts writes for secret scanning, push protection, and non-provider patterns
+but exposes validity checks only in the repository read model, not as a
+repository-local write. Independent design re-review authorizes applying every
+other writable control while validity checks remain disabled. The issue and
+asset-publication block therefore remain open after that bounded hardening. The
+reviewed operation and rollback plan is retained in
+[`planning/artifacts/032-publication-security-baseline.md`](../artifacts/032-publication-security-baseline.md).
+Organization code-security configurations do expose a validity-check setting,
+but the existing recommended configuration enables broader features. A custom
+configuration requires `write:org`, applies asynchronously, and cannot be
+rolled back by detach alone because detach retains applied repository
+settings. That route needs separate authority and lifecycle review.
+
+Release-specific dependency inventory, SBOM, provenance, controlled
+stable-source upload, remote digest comparison, immutable finalization,
+model-side runtime sync, and clean-machine inference remain future publication
+work.

@@ -1,6 +1,6 @@
 # 032 — Enforce the publication security baseline
 
-Status: ready
+Status: publication-ready
 
 ## Why
 
@@ -44,9 +44,14 @@ download behavior into repository administration.
     `Unicode-3.0`, `Unlicense`, and `Zlib`, at confidence threshold `0.93`;
     carry no package-specific license exception unless ticket design review is
     repeated with concrete locked-graph evidence;
-  - deny wildcard dependencies; report multiple versions as warnings because
-    the current locked graph legitimately contains parallel versions such as
-    `getrandom`; do not add package skip/skip-tree exceptions; and
+  - allow Cargo wildcard requirements because `cargo-deny` 0.19.4 classifies
+    Pangopup's versionless local workspace path dependencies as public
+    wildcards and cannot exempt them with `allow-wildcard-paths`; the exact
+    `Cargo.lock`, registry checksums, source policy, and reviewed manifest diff
+    remain the external-dependency controls; report multiple versions as
+    warnings because the current locked graph legitimately contains parallel
+    versions such as `getrandom`; do not add package skip/skip-tree
+    exceptions; and
   - deny unknown registries and Git sources, allowing only the canonical
     crates.io registry plus workspace packages.
 - Make `cargo deny check advisories bans licenses sources` part of `make lint`.
@@ -62,8 +67,10 @@ download behavior into repository administration.
   - Actions default workflow permission `read` and permission to approve pull
     requests `false`;
   - Dependabot security updates enabled;
-  - secret scanning, push protection, non-provider patterns, and validity
-    checks enabled when GitHub exposes them for this public repository;
+  - secret scanning, push protection, and non-provider patterns enabled;
+    validity checks remain explicitly observed and reported but are not a
+    completion condition because GitHub's current repository-local write API
+    exposes no field for them and no code-security configuration is attached;
   - one active `pangopup-main-history` ruleset with no bypass actors that
     targets `main` and rejects deletion and non-fast-forward updates; and
   - one active `pangopup-main-contributions` ruleset targeting `main` that
@@ -86,10 +93,12 @@ download behavior into repository administration.
   exact reverse order: delete only rulesets created by this ticket, then
   restore each feature and Actions field to its captured value. Verify the
   restored pre-state before reporting failure.
-- If any requested GitHub feature is unavailable or the ruleset cannot express
-  the reviewed semantics, stop before partially claiming completion. Revert
-  only settings changed by this ticket when necessary and return the observed
-  limitation to design review.
+- If any independently writable requested feature is unavailable or either
+  ruleset cannot express the reviewed semantics, stop, roll back, and return
+  the observed limitation to design review. The already-proved
+  validity-check write limitation does not block applying the other independent
+  controls; retain it precisely in the open publication-security issue and do
+  not claim the complete publication blocker is closed.
 - Do not publish, draft, upload, delete, or modify any GitHub release or asset.
   Do not open/rebuild production assets, implement runtime sync, add Dependabot
   version-update PRs, automatically merge dependencies, or change scoring,
@@ -109,8 +118,8 @@ download behavior into repository administration.
   - current advisories, licenses, bans, and sources pass;
   - a synthetic or temporary disallowed license/source/advisory policy change
     fails without modifying `Cargo.lock`; and
-  - no broad `allow-git`, `allow-registry`, advisory ignore, or unbounded
-    license confidence exception silently defeats the policy.
+  - no broad `allow-git`, `allow-registry`, advisory ignore, package skip, or
+    unbounded license confidence exception silently defeats the policy.
 - `make lint` invokes the exact deny groups before succeeding. `make test` and
   `make spec` retain their existing ownership and behavior.
 - The exact reviewed commit's GitHub `gate` workflow is green before any
@@ -119,7 +128,9 @@ download behavior into repository administration.
   - default workflow permission is read-only;
   - Actions cannot approve pull requests;
   - Dependabot security updates are enabled;
-  - every available requested secret-scanning control is enabled; and
+  - the three writable requested secret-scanning controls are enabled;
+    validity checks still report disabled with the documented API limitation;
+    and
   - the two active rulesets target `main`; history protection has no bypass,
     while contribution rules have only the reviewed administrator bypass.
 - A post-effect ordinary coordinator fast-forward documentation/evidence commit
@@ -131,9 +142,11 @@ download behavior into repository administration.
   release-specific dependency inventory, SBOM, provenance, controlled
   stable-source upload, remote digest comparison, immutable finalization,
   runtime sync, and clean-machine inference are still future publication work.
-- The publication-security issue is closed only when both checked code and
-  observed GitHub settings match the ticket. If a feature is unavailable, the
-  issue remains open with the exact limitation.
+- The publication-security issue remains open after this ticket, narrowed to
+  the validity-check limitation plus release-specific inventory/SBOM/
+  provenance and publication evidence. This ticket is complete when all
+  independently writable code/repository controls match the reviewed
+  after-state; it must not claim the overall publication blocker is closed.
 - `make lint`, `make test`, and `make spec` pass locally; both the
   pre-effect reviewed commit and post-effect completion commit have green
   remote `gate` runs.
@@ -154,9 +167,10 @@ download behavior into repository administration.
   supported `cargo-deny` version. CI downloads the exact 0.19.4 Linux-musl
   archive, checks its pinned size and SHA-256, and installs only its binary.
   The policy denies advisories/unsound/yanked/unused ignores, warns on
-  unmaintained crates, has no ignores, denies wildcards and unknown sources,
-  warns on duplicate versions without skips, and uses only the explicit
-  reviewed license allowlist in Scope.
+  unmaintained crates, has no ignores, allows wildcard syntax only because
+  cargo-deny cannot distinguish the existing publishable workspace path
+  dependencies, denies unknown sources, warns on duplicate versions without
+  skips, and uses only the explicit reviewed license allowlist in Scope.
 
 ### Authenticate the existing mustmatch binary wheel
 
@@ -236,6 +250,28 @@ download behavior into repository administration.
   dependency inventory, SBOM/provenance, attribution, stable-source upload,
   remote digest comparison, and immutable finalization before publishing.
 
+### Apply independent controls despite the validity-check API gap
+
+- **Consideration:** GitHub reports validity checks as disabled but its current
+  repository-update schema exposes no repository-local write field, and this
+  repository has no attached code-security configuration. The other controls
+  are independently writable and reversible.
+- **Options:** Make no security improvement until all four controls share one
+  API; guess an undocumented field; or apply every reviewed writable control
+  while retaining the exact residual blocker.
+- **Trade-offs:** Partial hardening does not clear publication, but withholding
+  Actions, Dependabot, scanning, push protection, and history protections adds
+  risk without helping validity checks. An undocumented field is unacceptable.
+- **Decision:** Apply and verify all independently writable controls and both
+  rulesets. Leave validity checks disabled and keep the publication-security
+  issue open. GitHub does expose validity checks through organization
+  code-security configurations, but the current token lacks required
+  `write:org`; the existing recommended configuration enables additional
+  out-of-scope features; and detach/delete retain repository settings, so a
+  custom selected-repository configuration needs separately reviewed authority,
+  asynchronous verification, and rollback. Do not publish assets under this
+  residual blocker.
+
 ## Dependencies
 
 - Ticket 031 is complete: Pangopup no longer ships or tests a custom GitHub
@@ -305,13 +341,100 @@ empirically prove the pinned tool archives and negative cases, GitHub's
 acceptance of both exact ruleset payloads, and the post-effect administrator
 fast-forward push plus green `gate`.
 
+Implementation-discovered scope revision: `cargo-deny` 0.19.4 still rejects
+versionless local path dependencies when every Pangopup crate is publishable;
+its `allow-wildcard-paths` switch does not apply. Adding redundant versions to
+all internal dependency edges would churn builder-causal manifests without
+improving registry security. The revision therefore allows wildcard syntax,
+keeps the exact lockfile and registry/source controls authoritative for
+external code, and retains no package skips. Ticket re-review: ACCEPT. The
+reviewer accepted this as a bounded, honestly documented cargo-deny limitation;
+locked gates, registry checksums, crates.io-only sources, no Git dependencies,
+and reviewed manifest/lock diffs still control the exact external graph without
+builder-causal manifest churn.
+
+Code review exposed a second design revision: GitHub has no reviewed
+repository-local validity-check write, but every other setting is independent.
+The ticket now authorizes those writable improvements, keeps validity checks
+disabled and the publication issue open, and forbids claiming release
+readiness. Ticket re-review: ACCEPT. The reviewer accepted the bounded,
+reversible partial-hardening outcome because it preserves the exact residual
+blocker without withholding unrelated protections or guessing an API.
+
+Code review then identified the organization code-security-configuration API.
+That route is not available through the current `read:org` token, the existing
+recommended configuration has broader side effects, and detach retains applied
+settings. The ticket therefore retains the accepted repository-local
+partial-hardening boundary but now records the known organization route and
+the exact authority/rollback reasons it is separate follow-up work. Ticket
+re-review: ACCEPT. The reviewer confirmed that the organization route requires
+new authority and broader asynchronous, non-equivalently reversible effects,
+so it belongs outside this repository-local operation.
+
 ## Implementation Evidence
 
-Developer: pending
+Developer: `/root/ticket032_implementation`, 2026-07-30
+
+- The checked workflow now has only `contents: read`, pins both actions to the
+  reviewed full commits, and authenticates the exact mustmatch 0.1.0 wheel
+  (`1,469,293` bytes,
+  `86c6c250…d472e77`) and cargo-deny 0.19.4 archive (`4,965,853` bytes,
+  `3bd58b78…8506f`) before installation. A same-size one-byte wheel mutation
+  failed SHA-256 verification and the controlled `uv` install root remained
+  absent, proving installation was not entered.
+- Cargo-deny 0.19.4 passes the complete locked graph for
+  `advisories bans licenses sources`. Temporary policy copies that removed
+  `MIT`, replaced the canonical crates.io registry, or added an unused advisory
+  ignore each failed at the intended policy boundary. `Cargo.lock` remained
+  byte-identical at
+  `1d8bd9db…b9feab`; the checked config has no advisory ignore, license
+  exception, Git allowance, package skip, or skip tree.
+- The independently accepted wildcard revision leaves every workspace
+  `Cargo.toml` unchanged. Focused production-identity and canonical dependency
+  projection tests passed, as did the complete builder provenance suite in
+  `make test`.
+- `make lint`, `make test`, and `make spec` pass locally with the exact
+  authenticated tools; mustmatch reports `218 passed, 4 skipped`.
+- Read-only GitHub API capture matched the ticket's pre-state. The sanitized
+  ordered payloads, exact `RepositoryRole/5/always` bypass, expected state, and
+  reverse rollback are checked in
+  `planning/artifacts/032-publication-security-baseline.md`. The current
+  official repository-update schema has no write field for the validity-check
+  status returned by repository reads. After independent design re-review, the
+  artifact authorizes the other writable controls, expects validity checks to
+  remain disabled, and keeps the issue and asset-publication block open. No
+  repository setting, ruleset, release, or asset was mutated.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `/root/ticket032_code_review`
+
+First review: REJECT. The operation artifact correctly established that the
+repository-update endpoint has no validity-check write, but its broader
+no-REST-path conclusion was incomplete. Organization code-security
+configurations can carry validity checks and attach to selected repositories;
+the live recommended configuration enables additional out-of-scope features,
+while a custom configuration requires expanded organization authority,
+asynchronous verification, and non-equivalent detach rollback. The finding
+returned the external-effect boundary to design review. All checked-code,
+authenticated-tool, dependency-policy, fingerprint, ruleset-payload, and
+existing reverse-rollback review points were otherwise clean.
+
+Design remediation: the coordinator returned the limitation to the independent
+ticket reviewer. The accepted revision authorizes every documented writable
+control, expects validity checks to remain disabled, keeps the
+publication-security issue and asset-publication block open, and forbids any
+claim of complete publication readiness. The organization-configuration route
+is accurately retained as a separate future authority/design problem rather
+than called nonexistent or guessed into this ticket. The developer updated the
+artifact, durable docs, and implementation evidence to that reviewed boundary.
+
+Re-review: ACCEPT. The revised artifact, ticket, and durable docs accurately
+authorize the five repository-local writable operations, require validity
+checks to remain disabled, keep the issue and publication blocked, and retain
+the organization-configuration route with its authority, asynchronous
+application, broader-feature, and detach-retains-settings constraints. Reverse
+rollback and both ruleset semantics remain sound. No material finding remains.
 
 ## External Effect Evidence
 

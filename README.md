@@ -530,6 +530,9 @@ the query path.
 Implemented today:
 
 - the eight-crate Rust workspace and strict lint/test/spec gates;
+- a least-privilege, full-SHA-pinned CI workflow whose downloaded maintenance
+  tools are authenticated by exact size and SHA-256, plus a checked Rust
+  advisory/license/source policy in the ordinary lint gate;
 - runtime `pangopup` CLI help/version behavior with two executable smoke specs;
 - GPL-3.0 source licensing, upstream Pangolin attribution, and CC BY 4.0
   dataset attribution;
@@ -707,6 +710,30 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
 - future `pangopup-http` — long-lived HTTP adapter over the same core.
 
 ## Development
+
+Install `cargo-deny` 0.19.4 before running the repository gate. `make lint`
+runs formatting, Clippy, then
+`cargo deny check advisories bans licenses sources --warn unmaintained`;
+`make test` and `make spec` retain their existing ownership. The checked policy
+denies vulnerabilities, unsound advisories, yanked dependencies, stale ignores,
+unreviewed licenses, and unknown registry or Git sources. Duplicate versions
+and unmaintained advisories are visible warnings. Registry wildcard
+dependencies are not present in the locked graph; cargo-deny 0.19.4 cannot
+separate them from Pangopup's intentionally versionless local path edges
+without changing publishability or builder-causal manifests, so the reviewed
+policy leaves wildcard linting allowed and retains those path edges unchanged.
+
+The checked workflow grants only read access to contents and installs the exact
+mustmatch 0.1.0 wheel and cargo-deny 0.19.4 archive only after both size and
+SHA-256 verification. Repository-admin settings are a separate external
+boundary: publication remains blocked until the live GitHub state verifies
+read-only Actions defaults, no Actions PR approval, Dependabot security
+updates, the three writable requested secret-scanning controls, and the two
+reviewed `main` rulesets. GitHub exposes validity checks in repository reads but
+not its repository-local write schema, so that control remains disabled and
+the publication-security issue remains open. No model-side runtime asset,
+executable, container, SBOM, or release provenance is published by this
+baseline.
 
 The coordinator writes one ticket at a time from the previous shipped result
 and rolling frontier. Three distinct sub-agents then provide independent ticket
