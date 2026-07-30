@@ -79,8 +79,8 @@ inside one mode-`0500` directory:
 | `mask-NOTICE` | 978 | `d8ee279f7a97ae25d2bf502b42a4fb480234cc517c0b58f85d6cf6547995bbeb` |
 | `domains.pgm.zst` | 3,933,486 | `e8353beba3820e3c4679acb46a673622080fe6f560a02b558bc6d75f50286747` |
 | `runtime-release-profile.json` | 8,043 | `d1caf6346bb24378f720056416fa6286f1153ccaf0c6a0778494f557035ef59e` |
-| `SHA256SUMS` | 934 | generated proof file |
-| `RELEASE-NOTES.md` | 1,267 | local release body |
+| `SHA256SUMS` | 934 | `ad5dfff9838b2d17a2d216954b241002b9717dd6215590f28ba3edf0ba2be59f` |
+| `RELEASE-NOTES.md` | 1,267 | `dba5e20693435d0b94368d7993f18e39e2bd31c4609de10602e4c5e204b5ba1f` |
 
 `sha256sum -c SHA256SUMS` passed all 11 listed upload/profile members. Direct
 `cmp` passed for every one of the ten copied transport members. Their exact
