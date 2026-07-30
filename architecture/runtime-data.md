@@ -224,8 +224,8 @@ lifecycle, and mask-builder fingerprint have been removed from the current
 source tree. Their detailed receipts and reports remain historical evidence.
 Runtime consumers receive none of the GTF, SQLite, Python, promotion, or
 failure material. The shipped local transport contains only the exact selected
-domains member, its identity metadata, and attribution; future public/remote
-delivery uses those same derived bytes.
+domains member, its identity metadata, and attribution. Immutable publication
+uses those same derived bytes; automatic sync remains future.
 
 ## Reproduction boundary
 
@@ -273,6 +273,6 @@ score bundle. Explicit-path or activated-profile fallback additionally needs
 the converted model bundle, compact GRCh38 sequence bundle, and compiled
 Pangolin mask member. The shipped coherent profile and offline XDG installer
 install and activate those four identities together; its local transport is
-also shipped. Only public/remote provisioning and direct
-install-from-transport integration remain future work. Lookup-only use
-continues to omit the latter three assets.
+also shipped, and its exact public assets are immutable. Automatic provisioning
+and direct install-from-transport integration remain future work. Lookup-only
+use continues to omit the latter three assets.

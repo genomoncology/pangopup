@@ -19,8 +19,8 @@ corrected full experiment retained singleton through both the drift and
 replacement gates. Persistent SQLite model-result reuse and the canonical
 four-asset compatibility profile and offline Linux/XDG installer are
 established, and installed runtime consumption is shipped. Deterministic local
-model-side packaging is shipped; public/remote delivery and HTTP remain future
-work.
+model-side packaging and immutable publication are shipped; automatic
+model-side sync and HTTP remain future work.
 
 The closed three-codec reference comparison selected `acgt2-rle-v1`; its
 candidate modules, miniature, benchmark executable, and CLI have been removed
@@ -36,10 +36,10 @@ constant-membership domains. It selected `domains` at the first p95 speed step
 after all candidates passed exhaustive semantic and corruption controls.
 ADR 0013 promotes those exact selected bytes behind the domains-only
 `pangopup_index::mask` production provider, superseding ADR 0011's requirement
-for a separately renamed format. There is no mask delivery asset yet; the
-alternate-codec and qualification results remain in durable historical
-evidence, while their one-time source and executable surfaces are no longer
-compiled.
+for a separately renamed format. The exact mask delivery asset is public in
+`runtime-grch38-v1`; automatic sync remains future. The alternate-codec and
+qualification results remain in durable historical evidence, while their
+one-time source and executable surfaces are no longer compiled.
 
 SNV and production-reference construction now have separate, artifact-local
 builder provenance. The checked source/dependency evidence is compiled into

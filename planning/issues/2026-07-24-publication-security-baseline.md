@@ -71,9 +71,9 @@ rolled back by detach alone because detach retains applied repository
 settings. That route needs separate authority and lifecycle review.
 
 Release-specific controlled stable-source upload, remote digest comparison,
-immutable finalization, model-side runtime sync, and clean-machine inference
-remain future publication work. The model-side release is a data-artifact
-inventory rather than a newly distributed executable; its canonical profile,
-checksums, notices, and preferred modification-source record are the applicable
-inventory and provenance. Executable/container SBOM work remains with their
-later publication.
+and immutable finalization are complete for `runtime-grch38-v1`. Automatic
+model-side sync and clean-machine inference remain future work. The model-side
+release is a data-artifact inventory rather than a newly distributed
+executable; its canonical profile, checksums, notices, and preferred
+modification-source record are the applicable inventory and provenance.
+Executable/container SBOM work remains with their later publication.

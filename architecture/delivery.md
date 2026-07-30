@@ -36,11 +36,11 @@ broader features. A custom configuration requires `write:org`, asynchronous
 verification, and a rollback design that accounts for detach retaining applied
 settings, so it is a separately reviewed authority expansion.
 
-This baseline itself publishes no runtime asset. Release-specific attribution,
-stable derived bytes, and GPL preferred source are now closed for
-`runtime-grch38-v1`; controlled upload, remote digest comparison, immutable
-finalization, runtime sync, and clean-machine inference remain distinct
-publication and delivery steps.
+This security baseline itself published no runtime asset. Release-specific
+attribution, stable derived bytes, GPL preferred source, controlled upload,
+remote digest comparison, and immutable finalization are now complete for
+`runtime-grch38-v1`. Runtime sync and clean-machine inference remain distinct
+delivery steps.
 
 ## GitHub Releases
 
@@ -55,8 +55,8 @@ Release families keep independently versioned concerns separate. The SNV
 lookup uses one shipped eight-file release asset set whose installable transport
 is the closed five-file subset. The executable remains a future public family.
 The converted model, compiled GRCh38 sequence index, and compiled mask form one
-qualified compatibility-bound `runtime-grch38-v1` release that is prepared but
-not yet public. Their model-side local transport is shipped:
+qualified compatibility-bound public immutable `runtime-grch38-v1` release.
+Their model-side local transport is shipped:
 
 ```text
 pangopup-<version>-<target>.tar.zst
@@ -183,6 +183,12 @@ gate and a fresh source/inventory audit. Publication starts private, verifies
 the complete remote name/size/digest set after every one-time upload, and
 becomes public only once; afterward `immutable=true` is mandatory.
 
+That lifecycle completed as release
+[`runtime-grch38-v1`](https://github.com/genomoncology/pangopup/releases/tag/runtime-grch38-v1).
+Its 15 assets total 859,643,413 bytes, every upload was attempted once, and
+GitHub's size/digest/state matched after each upload. The completed release is
+immutable and its lightweight tag points directly to the pinned target commit.
+
 Every published asset name is immutable and content-addressed by the release
 manifest. GitHub immutable releases are mandatory: publication is blocked
 unless the repository setting is enabled and the completed release reports
@@ -204,9 +210,9 @@ format or installer:
 4. pinned remote sync with resumable downloads into the same installer.
 
 All four SNV delivery stages are shipped. Deterministic local packaging and
-publication preparation of the converted model, GRCh38 sequence index, and
-mask are also shipped. The public effect, pinned download, and
-install-from-transport integration remain separate reviewed outcomes.
+publication of the converted model, GRCh38 sequence index, and mask are also
+shipped. Pinned download and install-from-transport integration remain
+separate reviewed outcomes.
 
 Retained evidence selected the `acgt2-rle-v1` reference payload by speed from
 three exact mmap candidates on the pinned six-contig RefSeq input. It now feeds
@@ -214,17 +220,16 @@ a separate production `PGRREF01` bundle and provider. The discarded candidate
 files, miniature, benchmark executable, and CLI have been removed; their
 reports and decisions remain historical evidence rather than runtime assets.
 Compiled GRCh38 sequence index XDG installation, local transport, and
-publication preparation are shipped. Public release and remote provisioning
-remain future work. The raw FASTA and assembly report are never packaged.
+publication are shipped. Automatic remote provisioning remains future work.
+The raw FASTA and assembly report are never packaged.
 
 Ticket 012's canonical export, unselected candidates, phase receipts, and
 benchmark report are retained private historical evidence and must not be
 uploaded as runtime assets. Their one-time writer, qualification binary, and
 source interfaces are no longer present at HEAD. ADR 0013 permits only the
 exact selected `domains.pgm` member to become the runtime asset. Its
-manifest-bound local transport verification, XDG installation, and
-publication preparation are shipped; publication and remote provisioning
-remain separate work. The production
+manifest-bound local transport verification, XDG installation, and publication
+are shipped; automatic remote provisioning remains separate work. The production
 reader performs none of those delivery operations.
 
 ## Shipped Linux installation and pinned remote sync
@@ -233,8 +238,8 @@ The binary embeds the canonical `snv-grch38-v1` release profile for one
 compatible lookup asset set. The shipped full runtime profile separately
 identifies the converted model, compiled GRCh38 sequence index, and mask
 assets; its offline XDG installation and activation path is established.
-The exact public payload is prepared but not published. Remote provisioning
-and direct install-from-runtime-transport remain future work.
+The exact public payload is immutable and public. Automatic remote
+provisioning and direct install-from-runtime-transport remain future work.
 
 The shipped local command accepts an already available transport:
 
@@ -338,9 +343,8 @@ only when automation or a retained run proves, from a clean supported machine:
 - corruption, a missing part, and mixed-release parts fail closed without
   replacing a previous valid installation.
 
-Future converted model, GRCh38 sequence index, and mask publication extends the
-same proof with pinned compatibility-corpus inference. Applicable
-dependency/license inventory, SBOM, build provenance, attribution, and
-repository-security checks are required before those public releases. Signing
-and broader rollback policy remain later release-hardening outcomes, not
-shipped claims.
+The immutable converted-model, GRCh38 sequence-index, and mask publication is
+complete. Pinned model-side sync and clean-machine compatibility-corpus
+inference remain the next delivery proof. Executable/container dependency
+inventory, SBOM, provenance, signing, and broader rollback policy remain later
+release-hardening outcomes, not shipped claims.

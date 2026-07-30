@@ -1,9 +1,7 @@
 # Ticket 034 immutable runtime-release publication evidence
 
-This document freezes the publication procedure and records the qualified local
-inputs. The public-effect section remains intentionally blank until the
-publication-ready commit passes its exact remote gate and the coordinator alone
-performs the operation.
+This document freezes the publication procedure, qualified local inputs,
+stopped prepublication attempts, and completed immutable public result.
 
 ## Closed release identity
 
@@ -632,8 +630,10 @@ done
 
 ## Publication result
 
-Pending coordinator publication after the publication-ready commit's exact
-remote `gate` succeeds.
+The publication-ready commit was
+`e553e9efcd2959d7a59bc483af99668761ff4d72`; GitHub Actions `ci` run
+`30586447723` completed successfully with job `gate` successful before the
+coordinator performed the public effect.
 
 ### Stopped first draft attempt
 
@@ -650,6 +650,43 @@ opened or uploaded; no tag was created; no release was published; and the
 operation was not retried. The replacement command builds a private JSON
 request with `jq --rawfile`, proves its decoded body byte equal to the retained
 notes, and passes it to official `gh api --input`.
+
+### Stopped second draft attempt
+
+The coordinator's second attempt created private draft release `362753207`
+with the exact reviewed fields, an absent tag, and zero assets. The reviewed
+Bash upload loop was mistakenly invoked from Zsh, where assigning the loop's
+`path` variable also changes the shell's special `PATH` array. Command
+resolution failed before the first upload. The coordinator reauthenticated and
+deleted only that exact empty draft, confirmed release and tag absent, and did
+not retry that attempt. No asset was opened or uploaded and nothing was
+published. The successful operation used explicit `/bin/bash`.
+
+### Successful immutable publication
+
+The coordinator created release ID `362753898` from the byte-exact reviewed
+request and uploaded each of the 15 reviewed assets exactly once. After every
+upload, the complete remote draft prefix matched the expected
+name/size/digest/state records. The final closed inventory totals 859,643,413
+bytes and matches the 15 identities recorded above.
+
+The release was published once and now reports `draft=false` and
+`immutable=true`. `refs/tags/runtime-grch38-v1` is a direct commit ref to
+`e6d8497aaf1e3db521360ad969252a2ec6fd14e4`.
+
+Bounded unauthenticated verification passed:
+
+- public release and tag metadata;
+- all 15 remote names, sizes, states, and GitHub SHA-256 digests;
+- byte-exact reads of all ten small runtime/license assets; and
+- final-HTTP-206, exactly 64-byte Range probes for both source archives.
+
+The three runtime frames and complete source archives were not downloaded a
+second time. No raw NCBI, GENCODE, or Zenodo input was published, and no
+runtime asset was rebuilt, recompressed, replaced, or retried.
+
+Public release:
+https://github.com/genomoncology/pangopup/releases/tag/runtime-grch38-v1
 
 Record only bounded, non-secret facts:
 

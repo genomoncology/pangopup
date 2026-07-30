@@ -18,7 +18,8 @@ semantics and records the selection of constant-membership domains from three
 mmap candidates in one full-source comparison. The one-time candidate and
 qualification source has been removed. The exact retained domains
 member is now available through a production, domains-only typed mmap provider
-and local transport; its public/remote delivery remains future. An authenticated combined
+and local transport and is public in `runtime-grch38-v1`; automatic sync
+remains future. An authenticated combined
 ONNX representation and qualified single-owner CPU kernel now return the
 twelve raw Pangolin channels. `pangopup-engine` now composes the sequence,
 mask, and kernel providers into compatible masked distance-50 scores for the
@@ -35,10 +36,11 @@ three model-side assets is established. The exact 691,884,908-byte read-only
 `runtime-grch38-v1` release stage has been prepared from reviewed, remotely
 green code, with byte equality and all declared checksums qualified. Its
 complete exact GPL preferred-source supplement is also retained and qualified;
-the 15-asset public effect, remote delivery, and HTTP remain future.
+the exact 15-asset set is now public and immutable. Automatic model-side sync
+and HTTP remain future.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
-and typed mmap provider are established; its local transport and installation
-are shipped, while public release remains future work. Future SNV and sequence-index builds use
+and typed mmap provider are established; its local transport, installation,
+and immutable public release are shipped. Future SNV and sequence-index builds use
 separate causal source/dependency fingerprints; their existing production
 assets remain immutable and readable.
 The checked repository side now has a read-only workflow token, full-SHA action
@@ -87,11 +89,10 @@ local transport, and one qualified 15-asset publication set. The transport
 uses three independent frames, reconstructs accepted bytes exactly, and never
 touches the 15 GB SNV payload. The publication set adds complete exact
 Pangolin/Pangopup preferred-source archives and the standalone GPL license. It
-is not yet a GitHub release and has no remote-sync policy. Publication must
-complete the reviewed draft-first immutable lifecycle; pinned sync and
-clean-machine CLI inference then remain. No raw Zenodo, NCBI, or GENCODE source
-input is a Pangopup release asset. Original checkpoints are preserved as
-preferred source, not installed runtime members.
+is now the immutable public `runtime-grch38-v1` GitHub release but has no
+remote-sync policy. Pinned sync and clean-machine CLI inference remain. No raw
+Zenodo, NCBI, or GENCODE source input is a Pangopup release asset. Original
+checkpoints are preserved as preferred source, not installed runtime members.
 
 ## Established — pinned source ingestion contract
 
@@ -472,7 +473,8 @@ identities, exact immutable URLs, upstream preferred model source, and
 target-commit converter paths. Normal tests use a hidden miniature contract;
 the public CLI rejects nonproduction transports. The complete preferred-source
 supplement and exact draft-first operation are now qualified without a GitHub
-mutation. Coordinator publication remains the one-way external effect.
+mutation. The coordinator subsequently published those exact bytes as the
+immutable `runtime-grch38-v1` release.
 
 ## Established — reference reader/provenance boundary
 
@@ -500,17 +502,17 @@ inspects that state. Explicit fallback remains all-or-nothing and takes
 precedence. Reopened SQLite hits repeat bounded identity admission but avoid
 dense reference/model reads and ONNX initialization.
 
-## Current outcome — immutable model-side asset publication
+## Established — immutable model-side asset publication
 
 The exact model, GRCh38 sequence index, mask, target release identity,
 attribution, and preferred modification source are frozen by deterministic
 release preparation. The reviewed operation publishes only that 15-asset set—
 never raw NCBI, GENCODE, or Zenodo inputs—using authenticated official `gh`, a
 non-public draft, remote inventory/digest comparison after every upload, and
-one-way immutable finalization. The coordinator public effect is pending the
-publication-ready commit and its exact remote gate. Pinned sync,
-clean-machine CLI inference, and offline restart then follow from the observed
-release. This outcome precedes HTTP and container publication.
+one-way immutable finalization. Release `runtime-grch38-v1` now contains the
+exact reviewed 15 assets and reports `immutable=true`; its tag points to the
+pinned target. Pinned sync, clean-machine CLI inference, and offline restart
+remain next. This outcome precedes HTTP and container publication.
 
 Repository and dependency controls do not replace release evidence. Remote
 inventory/digest comparison, immutable finalization, model-side runtime sync,
@@ -539,11 +541,11 @@ dependency/license inventory, SBOM and provenance, signing where practical,
 upgrade/rollback rules, and cleanup of superseded immutable assets. Re-run the
 complete clean-machine acceptance proof for releases.
 
-Before the next public model, compiled GRCh38 sequence index, mask, executable,
-or container publication, close the recorded repository-security issue and
-complete the later reviewed publication lifecycle. The deleted uploader's
-release-process issue is closed; public publication itself is not. These
-requirements do not block local scoring or packaging work.
+Before a replacement model-side runtime, executable, or container publication,
+repeat the applicable reviewed publication lifecycle and release-specific
+checks. The repository-security and deleted-uploader issues are closed, and
+the first model-side runtime publication is complete. These requirements do
+not block local scoring or packaging work.
 The maintainer-interface/documentation drift is closed: `pangopup-build`
 dispatch and successful root, namespace, and leaf help share one checked
 catalog, version reporting is conventional, and executable acceptance preserves

@@ -93,16 +93,16 @@ the activated installed profile or three explicit override flags. One canonical 
 now proves which exact SNV, model, reference, mask, and scoring-policy tuple is
 compatible. Offline coherent installation, activation, lazy lookup
 consumption, and deterministic local pack/verify/unpack are shipped. The exact
-public payload and GPL preferred source are staged but not yet public; remote
-delivery remains future. The original checkpoint containers are
+public payload and GPL preferred source are immutable and public; automatic
+sync remains future. The original checkpoint containers are
 conversion/preferred-source inputs, not installed runtime inputs. The DNA is
 pinned NCBI RefSeq GRCh38.p14
 `GCF_000001405.40`. The boundary map is compiled from the GENCODE annotation
 used by Pangolin's masking behavior. A retained comparison selected the
 constant-membership domain representation from three private mmap candidates.
 The exact selected bytes now have a production domains-only mmap provider,
-manifest-bound local transport, and a qualified publication payload;
-public/remote asset delivery remains future work. SQLite, gffutils, and raw
+manifest-bound local transport, and an immutable public payload; automatic
+asset sync remains future work. SQLite, gffutils, and raw
 GTF were one-time qualification inputs and are neither runtime nor current
 build-crate dependencies.
 
@@ -150,10 +150,10 @@ metadata without opening payload parts. None fetches or publishes remote files;
 the immutable `snv-grch38-v1` release is published separately. Pangopup ships
 no release uploader. The reviewed `runtime-grch38-v1` publication lifecycle has
 the coordinator use authenticated official `gh` directly after exact local
-reauthentication and the publication-ready remote gate. Its private draft is
-checked by complete remote name, size, and digest after each one-time upload
-before immutable publication. This remains outside runtime download and
-lookup.
+reauthentication and the publication-ready remote gate. It completed with
+every remote name, size, and digest checked after each one-time upload; the
+public release reports `immutable=true`. Publication remains outside runtime
+download and lookup.
 
 ### Does Pangopup install missing assets automatically?
 
@@ -164,9 +164,9 @@ XDG cache, and passes only a complete five-file transport to the same installer.
 Later `pangopup lookup` discovers and cheaply reuses the active immutable bundle
 without `--bundle` or network access. Lookup does not download implicitly.
 The three model-side assets can separately be installed from trusted local
-inputs with `assets runtime install`. Their exact public release is prepared
-but pending; remote sync, persistent download progress, and container prefetch
-remain future.
+inputs with `assets runtime install`. Their exact immutable public release is
+available; automatic sync, persistent download progress, and container
+prefetch remain future.
 
 ### Will asset sync download whatever release is latest?
 
@@ -229,9 +229,9 @@ although IUPAC4 touched two fewer logical pages. Normal tests use the small
 25-contig synthetic production fixture. Ticket 011 hardened the winner as the
 complete production `PGRREF01` bundle/provider. The discarded candidate codecs,
 miniature, benchmark executable, and CLI have been removed; retained reports
-and decisions preserve the selection evidence. Local packaging is shipped while
-public/remote delivery remains future work; model integration is shipped
-through `pangopup-engine`.
+and decisions preserve the selection evidence. Local packaging and immutable
+publication are shipped; automatic remote delivery remains future work. Model
+integration is shipped through `pangopup-engine`.
 
 ### Which compact GENCODE mask encoding will Pangopup use?
 
@@ -244,8 +244,8 @@ selected `PGMBEN01` v1 domains bytes behind the production
 `pangopup_index::mask` provider instead of rebuilding identical data under a
 second format identity. The other-codec results remain in retained historical
 evidence; their writer/readers and qualification machinery have been removed.
-Local mask packaging and byte-exact reconstruction are shipped. Publication and
-remote delivery remain future work.
+Local mask packaging, byte-exact reconstruction, and immutable publication are
+shipped. Automatic remote delivery remains future work.
 
 The mask retains exact versioned identifiers and `_PAR_Y`, and its effective
 gene membership is `(start,end]` because that is what the upstream point query
@@ -354,7 +354,7 @@ sequence index, and compiled GENCODE masking member. These are derived
 files Pangopup directly maps or executes. Pangopup does not republish the raw
 Zenodo archive/TSVs, NCBI FASTA/assembly report, GENCODE GTF/SQLite database, or
 other upstream data inputs. Original Pangolin checkpoints are conversion inputs
-rather than installed runtime members. The prepared model release accompanies
+rather than installed runtime members. The public model release accompanies
 the converted model with the complete exact upstream Pangolin tree, the exact
 Pangopup converter tree, and a standalone GPLv3 license; none is an installed
 runtime member.

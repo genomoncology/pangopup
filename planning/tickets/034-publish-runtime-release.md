@@ -1,6 +1,6 @@
 # 034 — Publish the exact immutable model-side runtime release
 
-Status: publication-ready
+Status: complete
 
 ## Why
 
@@ -371,6 +371,28 @@ now returns 404, release/tag absence, the exact 1,679-byte failure mechanism,
 the new request's byte-exact 1,680-byte round trip and Boolean fields, valid
 Bash, clean diff, honest zero-upload evidence, and no review-time mutation.
 
+Completion-documentation review: REJECT.
+
+- Current authoritative overviews outside the original Ticket 034 document
+  list still said model/reference/mask publication was future or that no mask
+  delivery asset existed.
+
+Developer remediation:
+
+- Reconciled `AGENTS.md`, `architecture/README.md`,
+  `architecture/runtime-data.md`, the README runtime-asset row, and the closed
+  publication-security issue with the completed immutable release. Both
+  current-state summaries in `AGENTS.md` now agree.
+- Every current overview now distinguishes completed publication from
+  still-future automatic model-side sync, direct install-from-transport,
+  clean-machine inference, HTTP, and top-level UX. Historical as-of reviews and
+  artifacts were left unchanged.
+
+Final completion-documentation re-review: ACCEPT. The reviewer confirmed that
+both `AGENTS.md` summaries and all other current authoritative overviews now
+agree, historical records remain untouched, the ticket evidence is coherent,
+and `git diff --check` passes.
+
 ## External Effect Evidence
 
 Coordinator: `/root`
@@ -384,6 +406,31 @@ line feed, reauthenticated that exact owned empty draft, deleted only release
 ID `362748317`, and confirmed release and tag absent. No asset was uploaded, no
 tag was created, no release was published, and no retry occurred.
 
+The second attempt created private draft release `362753207` with the exact
+reviewed fields, an absent tag, and zero assets. The coordinator mistakenly ran
+the reviewed Bash upload loop from Zsh; assignment to Zsh's special `path`
+array shadowed `PATH`, and command resolution failed before any upload. The
+coordinator reauthenticated and deleted only that exact empty draft, confirmed
+release and tag absent, and did not retry the attempt. Nothing was uploaded or
+published.
+
+The successful operation used explicit `/bin/bash` from publication-ready
+commit `e553e9efcd2959d7a59bc483af99668761ff4d72` after GitHub Actions `ci` run
+`30586447723` completed successfully with job `gate` successful. Release ID
+`362753898` contains exactly 15 assets totaling 859,643,413 bytes. Every asset
+was attempted once, and the complete remote name/size/digest/state prefix
+matched after every upload.
+
+The completed release reports `draft=false` and `immutable=true`.
+`refs/tags/runtime-grch38-v1` points directly to commit
+`e6d8497aaf1e3db521360ad969252a2ec6fd14e4`. Bounded unauthenticated checks
+passed release/tag metadata, the complete 15-asset inventory and digests, ten
+byte-exact small-file reads, and both source archives' exact 64-byte HTTP 206
+Range probes.
+
+Public release:
+https://github.com/genomoncology/pangopup/releases/tag/runtime-grch38-v1
+
 Use the exceptional lifecycle:
 
 ```text
@@ -393,4 +440,12 @@ review -> publication-ready -> commit/push -> green remote gate
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: `/root`
+
+The exact publication-ready commit and remote gate were green before mutation.
+Both stopped drafts were empty, exact-ID deleted, and left no tag or release.
+The successful release has the exact reviewed target, title, body, immutable
+state, tag ref, 15-asset inventory, 859,643,413-byte total, and GitHub
+SHA-256 digests. Bounded public verification passed. No raw NCBI, GENCODE, or
+Zenodo input, runtime rebuild/recompression, replacement, or upload retry
+occurred. Automatic model-side sync remains a later outcome.

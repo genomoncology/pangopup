@@ -18,18 +18,19 @@ scoring-policy tuple. Linux can now install the three fallback assets beside
 an existing certified SNV object and atomically select that coherent profile.
 Lookup now consumes the activated installed profile lazily when an SNV miss or
 supported non-SNV needs inference; explicit fallback paths remain an override.
-The exact derived model-side release and its GPL preferred source are
-qualified and staged for immutable publication. They are not public yet, so
-network delivery of those three assets and the HTTP service remain
-unimplemented. Ticket 012 has now
+The exact derived model-side release and its GPL preferred source are public
+as the immutable
+[`runtime-grch38-v1` release](https://github.com/genomoncology/pangopup/releases/tag/runtime-grch38-v1).
+Automatic model-side sync and the HTTP service remain unimplemented. Ticket
+012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
 Ticket 014 promotes the exact selected bytes behind a domains-only production
 mmap provider without rebuilding or renaming the format. The one-time
 candidate writer and qualification program have since been removed; their
 retained reports and exactness corpus remain as historical evidence. Compiled
-GRCh38 sequence-index, mask, and model bytes are frozen in the reviewed
-`runtime-grch38-v1` publication set; public delivery remains pending. The
+GRCh38 sequence-index, mask, and model bytes are frozen in the public
+`runtime-grch38-v1` publication set; automatic download remains pending. The
 completed three-format reference experiment
 has likewise been removed from the compiled workspace;
 its retained selection evidence led to the independent production `PGRREF01`
@@ -161,7 +162,8 @@ pangopup-build runtime-transport unpack --transport <TRANSPORT_DIR> --output <AB
 The transport has three independent deterministic Zstandard frames and one
 canonical manifest binding the exact profile, metadata, notices, stored bytes,
 and reconstructed bytes. It never opens or packages the 15 GB SNV member.
-Network delivery of these derived assets remains future work.
+The exact derived members are now public in `runtime-grch38-v1`; automatic
+download into the installer remains future work.
 
 Maintainers can prepare the exact model-side publication source without
 rebuilding, recompressing, materializing decoded payloads, or uploading
@@ -226,9 +228,9 @@ The target full service uses four versioned assets:
 | Asset | Used for | Original source | Installed form |
 |---|---|---|---|
 | SNV score index | Shipped fast path | Zenodo precomputed scores | Certified three-file bundle with a fixed 11-byte mmap member |
-| Model weights | Shipped raw CPU kernel, variant scorer, and installed/explicit CLI fallback | Upstream Pangolin checkpoints | Authenticated three-file ONNX bundle, staged but not yet published |
+| Model weights | Shipped raw CPU kernel, variant scorer, and installed/explicit CLI fallback | Upstream Pangolin checkpoints | Authenticated three-file ONNX bundle in immutable `runtime-grch38-v1` |
 | GRCh38 sequence index | Shipped provider for fallback sequence windows and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Certified `PGRREF01` two-bit/ambiguity-run mmap bundle |
-| Splice mask | Shipped provider for fallback masking; delivery still planned | GENCODE release 38 annotation | Exact selected 6,703,320-byte `domains.pgm` mmap member |
+| Splice mask | Shipped provider for fallback masking and immutable publication | GENCODE release 38 annotation | Exact selected 6,703,320-byte `domains.pgm` mmap member |
 
 NCBI supplies the reference genome sequence; it does not supply the Pangolin
 model. The maintainer converter already produces a verified, unquantized
@@ -256,7 +258,7 @@ database. It distributes, or plans to distribute, the compiled SNV index,
 converted ONNX model, compact GRCh38 sequence index, and compact splice mask
 because those are the files the standalone runtime maps or executes. Original
 Pangolin checkpoints are conversion inputs rather than installed runtime
-members; the pending release preserves them in a complete exact upstream
+members; the public release preserves them in a complete exact upstream
 preferred-source archive beside the converted model.
 
 ### GENCODE mask runtime and retained selection evidence
@@ -421,14 +423,14 @@ remote inventory and digest comparison, and immutable finalization before any
 new public effect. Release publication remains outside lookup, installation,
 and every credential-free runtime path.
 
-For `runtime-grch38-v1`, that local boundary is now closed and reviewed. The
-pending release has exactly 15 assets: twelve derived runtime/profile/checksum
+For `runtime-grch38-v1`, that boundary is now public and immutable. The
+release has exactly 15 assets: twelve derived runtime/profile/checksum
 files, complete exact Pangolin and Pangopup source archives, and a standalone
 upstream GPLv3 license. Its release body is a separate retained file and is not
-uploaded as an asset. The operation uses a private draft, checks every remote
-name, size, and GitHub SHA-256 after each one-time upload, then publishes only
-if the final release will be immutable. No raw Zenodo, NCBI, or GENCODE source
-input is included. Automatic model-side sync remains a later CLI outcome.
+uploaded as an asset. Every remote name, size, and GitHub SHA-256 matched after
+one upload, and the completed release reports `immutable=true`. No raw Zenodo,
+NCBI, or GENCODE source input is included. Automatic model-side sync remains a
+later CLI outcome.
 
 The runtime can sync the exact binary-pinned public transport or install an
 already available transport without networking:
@@ -645,10 +647,10 @@ Implemented today:
   transactional JSONL/table batches.
 
 Not implemented yet: HTTP service, container, persistent model-side download
-progress/status, repair/GC/rollback, or remote model-side asset delivery.
-Public delivery of the compiled GRCh38 sequence index, mask, and model is also
-not implemented. Deterministic local model-side packaging, offline installation,
-and coherent activation are implemented.
+progress/status, repair/GC/rollback, or automatic model-side asset sync.
+Public delivery of the compiled GRCh38 sequence index, mask, and model is
+complete. Deterministic local model-side packaging, offline installation, and
+coherent activation are implemented.
 Without fallback flags, an activated installation sends a pure SNV miss or
 supported non-SNV to its compatible model tuple. A complete explicit tuple
 wins. An explicit `--bundle` never borrows installed model-side assets.
@@ -704,12 +706,12 @@ The rolling outcome order is:
     (complete);
 28. package and locally verify the exact derived model, GRCh38 sequence index,
     and mask without touching the SNV member (complete);
-29. close publication prerequisites, publish only the derived model,
-    GRCh38 sequence index, and mask runtime assets, and prove pinned
-    fresh-machine sync plus CLI inference;
-30. a foreground HTTP/status service with CLI and HTTP acceptance tests;
-31. non-root Docker and documented systemd lifecycle integration;
-32. observability, security, performance, and executable/container release
+29. close publication prerequisites and publish only the derived model,
+    GRCh38 sequence index, and mask runtime assets (complete);
+30. add pinned model-side sync and prove fresh-machine CLI inference;
+31. a foreground HTTP/status service with CLI and HTTP acceptance tests;
+32. non-root Docker and documented systemd lifecycle integration;
+33. observability, security, performance, and executable/container release
     hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the
