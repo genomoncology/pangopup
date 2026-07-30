@@ -1,6 +1,6 @@
 # 034 — Publish the exact immutable model-side runtime release
 
-Status: ready
+Status: publication-ready
 
 ## Why
 
@@ -105,10 +105,10 @@ remote gate.
   `draft=false` and `immutable=true`. A mutable completed release is failure,
   not a fallback.
 - Before publication only, a failed draft may be removed by exact release ID
-  and its exact generated tag may be removed by exact ref after confirming both
-  still belong to this operation. Stop after cleanup; do not retry in the same
-  run. After publication, never delete, replace, or mutate the immutable
-  release.
+  after confirming it still belongs to this operation. The tag must remain
+  absent throughout the draft phase; an unexpected tag stops rollback and is
+  never deleted. Stop after draft cleanup; do not retry in the same run. After
+  publication, never delete, replace, or mutate the immutable release.
 - After publication, perform bounded unauthenticated reads of the public
   repository/release metadata, every small runtime asset, the standalone
   license, and the source-archive headers, checking exact bytes/ranges.
@@ -227,11 +227,127 @@ and public verification are independently testable.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: `/root/ticket034_implementation`
+
+- Added
+  `planning/artifacts/034-public-runtime-release.md` as the closed,
+  credential-free operation and evidence boundary. It records the exact
+  Ticket 033 12-file runtime payload, the exact four-file Ticket 034 retained
+  supplement, all sizes and SHA-256 identities, the 859,643,413-byte
+  15-asset total, deterministic source-archive construction, and the reviewed
+  release/tag/title/target/body identities.
+- Recorded the coordinator's retained supplement qualification:
+  mode-`0500` root, four regular single-link mode-`0400` members, exact hashes,
+  byte-deterministic `git archive` plus Zstandard 1.5.5 `-19 -T1`
+  reconstruction, 84-entry upstream inventory, 382-entry Pangopup inventory,
+  all 14 pinned upstream objects, both converter paths, standalone license
+  equality, and the unmodified Ticket 033 stage.
+- Pinned exact official-`gh` commands for read-only preflight, private-draft
+  creation, descriptor/path admission, one-at-a-time non-clobbering upload,
+  closed remote inventory/digest comparison after every asset,
+  prepublication-only rollback, one-way publication, immutable-state checks,
+  and bounded unauthenticated public verification. No uploader or credential
+  handling was added to the product.
+- Updated `README.md`, `architecture/delivery.md`, `planning/frontier.md`, and
+  `planning/faq.md` to say exactly what is true before the external effect:
+  runtime and GPL preferred-source bytes are prepared and qualified, but the
+  release and remote sync are not public or shipped yet. The docs explicitly
+  exclude raw Zenodo, NCBI, and GENCODE inputs.
+- Changed no Rust source, manifest, lockfile, test, workflow, product command,
+  runtime asset, repository setting, tag, release, or GitHub asset. No network
+  mutation occurred.
+- `git diff --check`: passed.
+- `make lint`: passed; the existing informational duplicate-dependency and
+  semver-build-metadata warnings remain policy output, with advisories, bans,
+  licenses, and sources all passing.
+- `make test`: passed.
+- `make spec`: 227 passed, 6 skipped.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `/root/ticket034_code_review`
+
+First review: REJECT.
+
+- The preflight checked a successful run but did not separately pin workflow
+  `ci` and job `gate`.
+- The preferred-source check accepted only an HTTPS upstream remote even
+  though the retained canonical checkout uses GitHub SSH.
+- The upload section listed bare commands instead of one executable,
+  reviewable mapping that held and reauthenticated each exact file around its
+  one upload and checked the resulting draft.
+- Draft rollback could delete a tag and did not require tag absence throughout
+  the private-draft phase.
+- Source-archive header reads did not require final HTTP 206 or cap the
+  response at 64 bytes.
+- Coordinator inspection also found that GNU `find` `%U` emits a numeric UID
+  while the inventory check compared it with the text `ian`.
+
+Developer remediation:
+
+- The gate check now requires exact head SHA, workflow `ci`, successful
+  completed run, and exactly one successful completed job named `gate`.
+- The upstream remote check accepts only the two canonical GitHub HTTPS/SSH
+  spellings and rejects every other origin.
+- One closed five-column upload plan now maps all 15 exact assets to
+  `RUNTIME` or `SOURCE`. A single executable loop admits and holds each
+  descriptor, hashes it, invokes official `gh` exactly once without clobber,
+  revalidates it, and checks the exact draft prefix. A second concrete loop
+  reauthenticates all 15 paths immediately before publication.
+- Every draft check requires the tag to remain absent. Rollback reauthenticates
+  the exact owned draft ID and body, refuses to act if a tag exists, deletes
+  only that release ID, and never deletes a tag.
+- Public source-header reads now require final status 206, cap the response at
+  64 bytes, and require exactly 64 matching bytes. Upstream source-object
+  downloads are capped at each reviewed expected size.
+- Inventory ownership now compares `%U` with numeric `id -u`.
+- Concatenating every documented Bash block and running `bash -n` passed.
+  Read-only execution against the retained inputs and observed Actions run
+  passed the numeric ownership checks, canonical SSH origin check, and exact
+  `ci`/`gate` checks. `git diff --check`, `make lint`, `make test`, and
+  `make spec` were rerun successfully; spec remained 227 passed, 6 skipped.
+
+Second review: REJECT.
+
+- The completed-release check proved the release's `target_commitish` field
+  but did not independently prove that GitHub's generated public tag ref
+  resolved to the pinned commit.
+
+Developer remediation:
+
+- Authenticated post-publication checks now require exact
+  `refs/tags/runtime-grch38-v1`, object type `commit`, and SHA
+  `e6d8497aaf1e3db521360ad969252a2ec6fd14e4`.
+- The bounded unauthenticated proof independently fetches the public tag-ref
+  JSON with a 65,536-byte cap and requires the same ref, type, and SHA.
+  Release metadata and all small-asset public reads now also have explicit
+  size caps.
+
+Third review: REJECT pending scope reconciliation.
+
+- The accepted scope still permitted rollback to delete a generated tag,
+  contradicting the remediated safer rule that a private draft must not create
+  a tag and that an unexpected tag is never operation-owned.
+
+Developer remediation:
+
+- The scope now matches the executable operation: rollback may delete only the
+  exact owned draft release ID, the tag must remain absent, and any unexpected
+  tag stops rollback without deletion. Because this tightens an accepted
+  external-effect criterion, the coordinator must obtain design-review
+  acknowledgment before final code-review acceptance.
+
+The same design reviewer ACCEPTED this as a safety refinement within the
+accepted scope: exact-ID deletion remains sufficient rollback, while refusing
+to delete any tag protects unexpected external state.
+
+Final re-review: ACCEPT. The reviewer verified the exact 15-asset
+859,643,413-byte plan, retained identities and Git-object equality, real
+`ci`/`gate` and canonical-origin checks, executable held-descriptor upload and
+final-reauthentication loops, closed draft checks, exact-ID-only rollback,
+authenticated and bounded unauthenticated tag-ref proof, bounded source/public
+reads, syntactically valid Bash, accurate prepublication documentation, and no
+GitHub mutation.
 
 ## External Effect Evidence
 

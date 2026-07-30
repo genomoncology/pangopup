@@ -18,16 +18,18 @@ scoring-policy tuple. Linux can now install the three fallback assets beside
 an existing certified SNV object and atomically select that coherent profile.
 Lookup now consumes the activated installed profile lazily when an SNV miss or
 supported non-SNV needs inference; explicit fallback paths remain an override.
-Network delivery of the three derived model-side assets and an HTTP service
-are planned but not implemented. Ticket 012 has now
+The exact derived model-side release and its GPL preferred source are
+qualified and staged for immutable publication. They are not public yet, so
+network delivery of those three assets and the HTTP service remain
+unimplemented. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
 Ticket 014 promotes the exact selected bytes behind a domains-only production
 mmap provider without rebuilding or renaming the format. The one-time
 candidate writer and qualification program have since been removed; their
 retained reports and exactness corpus remain as historical evidence. Compiled
-Public/remote GRCh38 sequence-index, mask, and model delivery remain future
-work; deterministic local packaging is shipped. The
+GRCh38 sequence-index, mask, and model bytes are frozen in the reviewed
+`runtime-grch38-v1` publication set; public delivery remains pending. The
 completed three-format reference experiment
 has likewise been removed from the compiled workspace;
 its retained selection evidence led to the independent production `PGRREF01`
@@ -224,14 +226,16 @@ The target full service uses four versioned assets:
 | Asset | Used for | Original source | Installed form |
 |---|---|---|---|
 | SNV score index | Shipped fast path | Zenodo precomputed scores | Certified three-file bundle with a fixed 11-byte mmap member |
-| Model weights | Shipped raw CPU kernel, variant scorer, and installed/explicit CLI fallback | Upstream Pangolin checkpoints | Authenticated three-file ONNX bundle, locally installable but not yet published |
+| Model weights | Shipped raw CPU kernel, variant scorer, and installed/explicit CLI fallback | Upstream Pangolin checkpoints | Authenticated three-file ONNX bundle, staged but not yet published |
 | GRCh38 sequence index | Shipped provider for fallback sequence windows and REF validation | NCBI RefSeq GRCh38.p14 FASTA | Certified `PGRREF01` two-bit/ambiguity-run mmap bundle |
 | Splice mask | Shipped provider for fallback masking; delivery still planned | GENCODE release 38 annotation | Exact selected 6,703,320-byte `domains.pgm` mmap member |
 
 NCBI supplies the reference genome sequence; it does not supply the Pangolin
 model. The maintainer converter already produces a verified, unquantized
-combined ONNX graph from the twelve pinned checkpoints. A later release outcome
-will publish and install that bundle as a separate GPL asset.
+combined ONNX graph from the twelve pinned checkpoints. The reviewed
+publication set pairs that converted model with complete exact upstream and
+Pangopup source archives plus a standalone GPLv3 license copy. Those
+preferred-source files are release companions, not installed runtime members.
 
 The GRCh38 sequence index maintenance builder accepts the exact pinned NCBI
 FASTA and assembly report, selects the 25 required assembled molecules,
@@ -252,8 +256,8 @@ database. It distributes, or plans to distribute, the compiled SNV index,
 converted ONNX model, compact GRCh38 sequence index, and compact splice mask
 because those are the files the standalone runtime maps or executes. Original
 Pangolin checkpoints are conversion inputs rather than installed runtime
-members; their source availability will be settled by the license-complete
-model source release before ONNX publication.
+members; the pending release preserves them in a complete exact upstream
+preferred-source archive beside the converted model.
 
 ### GENCODE mask runtime and retained selection evidence
 
@@ -416,6 +420,15 @@ publication work must define the controlled stable source, draft-first upload,
 remote inventory and digest comparison, and immutable finalization before any
 new public effect. Release publication remains outside lookup, installation,
 and every credential-free runtime path.
+
+For `runtime-grch38-v1`, that local boundary is now closed and reviewed. The
+pending release has exactly 15 assets: twelve derived runtime/profile/checksum
+files, complete exact Pangolin and Pangopup source archives, and a standalone
+upstream GPLv3 license. Its release body is a separate retained file and is not
+uploaded as an asset. The operation uses a private draft, checks every remote
+name, size, and GitHub SHA-256 after each one-time upload, then publishes only
+if the final release will be immutable. No raw Zenodo, NCBI, or GENCODE source
+input is included. Automatic model-side sync remains a later CLI outcome.
 
 The runtime can sync the exact binary-pinned public transport or install an
 already available transport without networking:

@@ -91,17 +91,18 @@ additionally needs the authenticated converted model bundle, local GRCh38 DNA
 bases, and a map of gene strand plus exon boundaries. Lookup-first routing uses
 the activated installed profile or three explicit override flags. One canonical runtime profile
 now proves which exact SNV, model, reference, mask, and scoring-policy tuple is
-compatible. Offline coherent installation, activation, and lazy lookup
-consumption and deterministic local pack/verify/unpack are shipped; remote
-delivery remains future. The original checkpoint
-containers are maintainer conversion inputs, not runtime inputs. The DNA is
+compatible. Offline coherent installation, activation, lazy lookup
+consumption, and deterministic local pack/verify/unpack are shipped. The exact
+public payload and GPL preferred source are staged but not yet public; remote
+delivery remains future. The original checkpoint containers are
+conversion/preferred-source inputs, not installed runtime inputs. The DNA is
 pinned NCBI RefSeq GRCh38.p14
 `GCF_000001405.40`. The boundary map is compiled from the GENCODE annotation
 used by Pangolin's masking behavior. A retained comparison selected the
 constant-membership domain representation from three private mmap candidates.
-The exact selected bytes now have a production domains-only mmap provider and a
-manifest-bound local transport; public/remote asset delivery remains future
-work. SQLite, gffutils, and raw
+The exact selected bytes now have a production domains-only mmap provider,
+manifest-bound local transport, and a qualified publication payload;
+public/remote asset delivery remains future work. SQLite, gffutils, and raw
 GTF were one-time qualification inputs and are neither runtime nor current
 build-crate dependencies.
 
@@ -147,12 +148,12 @@ the active state. `pangopup-build release prepare` deterministically generates
 the pinned `snv-grch38-v1` profile, proof copy, checksums, and notes from bounded
 metadata without opening payload parts. None fetches or publishes remote files;
 the immutable `snv-grch38-v1` release is published separately. Pangopup ships
-no release uploader. A later reviewed publication lifecycle will have the
-coordinator use an authenticated official `gh` executable directly after local
-preparation and verification. Prepared pathnames are not immutable; the later
-work must establish a controlled stable source, a draft-first upload, remote
-inventory and digest comparison, and immutable finalization. This remains
-outside runtime download and lookup.
+no release uploader. The reviewed `runtime-grch38-v1` publication lifecycle has
+the coordinator use authenticated official `gh` directly after exact local
+reauthentication and the publication-ready remote gate. Its private draft is
+checked by complete remote name, size, and digest after each one-time upload
+before immutable publication. This remains outside runtime download and
+lookup.
 
 ### Does Pangopup install missing assets automatically?
 
@@ -163,8 +164,9 @@ XDG cache, and passes only a complete five-file transport to the same installer.
 Later `pangopup lookup` discovers and cheaply reuses the active immutable bundle
 without `--bundle` or network access. Lookup does not download implicitly.
 The three model-side assets can separately be installed from trusted local
-inputs with `assets runtime install`; their remote sync, persistent download
-progress, and container prefetch remain future.
+inputs with `assets runtime install`. Their exact public release is prepared
+but pending; remote sync, persistent download progress, and container prefetch
+remain future.
 
 ### Will asset sync download whatever release is latest?
 
@@ -352,8 +354,10 @@ sequence index, and compiled GENCODE masking member. These are derived
 files Pangopup directly maps or executes. Pangopup does not republish the raw
 Zenodo archive/TSVs, NCBI FASTA/assembly report, GENCODE GTF/SQLite database, or
 other upstream data inputs. Original Pangolin checkpoints are conversion inputs
-rather than installed runtime members; the model publication review will settle
-their separate source availability.
+rather than installed runtime members. The prepared model release accompanies
+the converted model with the complete exact upstream Pangolin tree, the exact
+Pangopup converter tree, and a standalone GPLv3 license; none is an installed
+runtime member.
 
 The lookup set is canonical metadata, copied small bundle members, and
 deterministic parts of one compressed score stream; it is not one tar archive.

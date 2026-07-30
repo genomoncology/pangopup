@@ -36,10 +36,11 @@ broader features. A custom configuration requires `write:org`, asynchronous
 verification, and a rollback design that accounts for detach retaining applied
 settings, so it is a separately reviewed authority expansion.
 
-This baseline publishes no runtime asset. Release-specific attribution review,
-controlled stable-source
-upload, remote digest comparison, immutable finalization, runtime sync, and
-clean-machine inference remain part of the later asset-publication lifecycle.
+This baseline itself publishes no runtime asset. Release-specific attribution,
+stable derived bytes, and GPL preferred source are now closed for
+`runtime-grch38-v1`; controlled upload, remote digest comparison, immutable
+finalization, runtime sync, and clean-machine inference remain distinct
+publication and delivery steps.
 
 ## GitHub Releases
 
@@ -52,9 +53,10 @@ history or Git LFS.
 
 Release families keep independently versioned concerns separate. The SNV
 lookup uses one shipped eight-file release asset set whose installable transport
-is the closed five-file subset. The executable, converted model, compiled
-GRCh38 sequence index, and compiled mask remain future public families. Their
-model-side local transport is shipped:
+is the closed five-file subset. The executable remains a future public family.
+The converted model, compiled GRCh38 sequence index, and compiled mask form one
+qualified compatibility-bound `runtime-grch38-v1` release that is prepared but
+not yet public. Their model-side local transport is shipped:
 
 ```text
 pangopup-<version>-<target>.tar.zst
@@ -84,15 +86,20 @@ Model-side publication metadata:
   runtime-release-profile.json
   SHA256SUMS
   RELEASE-NOTES.md (release body; not uploaded)
+Model-side preferred source:
+  pangolin-5cf94b8-source.tar.zst
+  pangopup-e6d8497-source.tar.zst
+  Pangolin-GPL-3.0.txt
 ```
 
-These future archives contain only Pangopup's derived runtime members. The raw
+The twelve runtime upload members contain only Pangopup's derived runtime
+members and metadata. The raw
 Zenodo archive and extracted TSVs, NCBI FASTA and assembly report, GENCODE GTF
 and SQLite database are upstream inputs or maintainer evidence and are never
-mirrored as Pangopup runtime release assets. Original Pangolin checkpoint
-containers are also not installed runtime members; the license-complete model
-source release determines their separate source availability before ONNX
-publication.
+mirrored as Pangopup runtime release assets. The complete exact upstream
+Pangolin tree, including the original checkpoint containers, accompanies the
+converted model as GPL preferred source; it is not installed runtime data. The
+exact Pangopup target tree separately carries the converter and build source.
 
 The SNV transport compresses only the exact `scores.pgi` byte stream as one
 deterministic Zstandard frame, then cuts that stream into ordered
@@ -166,6 +173,16 @@ the ten upload members plus that profile; release notes remain local input for
 the GitHub release body. The command performs no network operation, rebuild,
 recompression, decoded output, tag creation, or upload.
 
+Ticket 034 adds no product uploader. Its retained supplement contains
+deterministic `git archive` plus Zstandard representations of the complete
+upstream Pangolin and target Pangopup trees and a byte-identical standalone GPL
+license. Together with the Ticket 033 stage, the publication input is a closed
+15-asset, 859,643,413-byte set. Only the coordinator may pass those exact
+read-only paths to official `gh`, after the publication-ready commit's remote
+gate and a fresh source/inventory audit. Publication starts private, verifies
+the complete remote name/size/digest set after every one-time upload, and
+becomes public only once; afterward `immutable=true` is mandatory.
+
 Every published asset name is immutable and content-addressed by the release
 manifest. GitHub immutable releases are mandatory: publication is blocked
 unless the repository setting is enabled and the completed release reports
@@ -186,27 +203,28 @@ format or installer:
    a documented exact manual-install path; and
 4. pinned remote sync with resumable downloads into the same installer.
 
-All four SNV delivery stages are shipped. Deterministic local packaging of the
-converted model, GRCh38 sequence index, and mask is also shipped. Public
-publication, pinned download, and install-from-transport integration remain
-separate reviewed outcomes.
+All four SNV delivery stages are shipped. Deterministic local packaging and
+publication preparation of the converted model, GRCh38 sequence index, and
+mask are also shipped. The public effect, pinned download, and
+install-from-transport integration remain separate reviewed outcomes.
 
 Retained evidence selected the `acgt2-rle-v1` reference payload by speed from
 three exact mmap candidates on the pinned six-contig RefSeq input. It now feeds
 a separate production `PGRREF01` bundle and provider. The discarded candidate
 files, miniature, benchmark executable, and CLI have been removed; their
 reports and decisions remain historical evidence rather than runtime assets.
-Compiled GRCh38 sequence index XDG installation and local transport are
-shipped. Public release and remote provisioning remain future work. The raw
-FASTA and assembly report are never packaged.
+Compiled GRCh38 sequence index XDG installation, local transport, and
+publication preparation are shipped. Public release and remote provisioning
+remain future work. The raw FASTA and assembly report are never packaged.
 
 Ticket 012's canonical export, unselected candidates, phase receipts, and
 benchmark report are retained private historical evidence and must not be
 uploaded as runtime assets. Their one-time writer, qualification binary, and
 source interfaces are no longer present at HEAD. ADR 0013 permits only the
 exact selected `domains.pgm` member to become the runtime asset. Its
-manifest-bound local transport verification and XDG installation are shipped;
-publication and remote provisioning remain separate work. The production
+manifest-bound local transport verification, XDG installation, and
+publication preparation are shipped; publication and remote provisioning
+remain separate work. The production
 reader performs none of those delivery operations.
 
 ## Shipped Linux installation and pinned remote sync
@@ -215,8 +233,8 @@ The binary embeds the canonical `snv-grch38-v1` release profile for one
 compatible lookup asset set. The shipped full runtime profile separately
 identifies the converted model, compiled GRCh38 sequence index, and mask
 assets; its offline XDG installation and activation path is established.
-Public/remote provisioning and direct install-from-runtime-transport remain
-future work.
+The exact public payload is prepared but not published. Remote provisioning
+and direct install-from-runtime-transport remain future work.
 
 The shipped local command accepts an already available transport:
 

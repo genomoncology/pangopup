@@ -33,8 +33,9 @@ profile, offline coherent XDG installation/activation, and lazy held-descriptor
 runtime consumption are established. Deterministic local packaging of the
 three model-side assets is established. The exact 691,884,908-byte read-only
 `runtime-grch38-v1` release stage has been prepared from reviewed, remotely
-green code, with byte equality and all declared checksums qualified;
-public/remote delivery and HTTP remain future.
+green code, with byte equality and all declared checksums qualified. Its
+complete exact GPL preferred-source supplement is also retained and qualified;
+the 15-asset public effect, remote delivery, and HTTP remain future.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
 and typed mmap provider are established; its local transport and installation
 are shipped, while public release remains future work. Future SNV and sequence-index builds use
@@ -81,15 +82,16 @@ The large source work is not a rebuild queue:
   is the selected graph after the corrected batching comparison retained it.
 
 The GRCh38 sequence index, mask, and model therefore have local qualified
-content, one exact compatible four-asset profile, and one deterministic common
-local transport. The transport uses three independent frames, reconstructs
-accepted bytes exactly, and never touches the 15 GB SNV payload. It is not a
-GitHub release and it has no remote-sync policy. Publication must complete the
-reviewed stable-source and immutable-publication lifecycle, then prove
-clean-machine CLI inference. No raw Zenodo,
-NCBI, or GENCODE source input is a Pangopup release asset. Original checkpoints
-are not installed runtime members; their separate source-availability policy
-is a model-publication prerequisite.
+content, one exact compatible four-asset profile, one deterministic common
+local transport, and one qualified 15-asset publication set. The transport
+uses three independent frames, reconstructs accepted bytes exactly, and never
+touches the 15 GB SNV payload. The publication set adds complete exact
+Pangolin/Pangopup preferred-source archives and the standalone GPL license. It
+is not yet a GitHub release and has no remote-sync policy. Publication must
+complete the reviewed draft-first immutable lifecycle; pinned sync and
+clean-machine CLI inference then remain. No raw Zenodo, NCBI, or GENCODE source
+input is a Pangopup release asset. Original checkpoints are preserved as
+preferred source, not installed runtime members.
 
 ## Established — pinned source ingestion contract
 
@@ -468,8 +470,9 @@ containing those bytes, a canonical runtime release profile,
 `SHA256SUMS`, and release notes. The profile binds the model/reference/mask/SNV
 identities, exact immutable URLs, upstream preferred model source, and
 target-commit converter paths. Normal tests use a hidden miniature contract;
-the public CLI rejects nonproduction transports. GitHub mutation remains the
-next separately reviewed outcome.
+the public CLI rejects nonproduction transports. The complete preferred-source
+supplement and exact draft-first operation are now qualified without a GitHub
+mutation. Coordinator publication remains the one-way external effect.
 
 ## Established — reference reader/provenance boundary
 
@@ -497,16 +500,17 @@ inspects that state. Explicit fallback remains all-or-nothing and takes
 precedence. Reopened SQLite hits repeat bounded identity admission but avoid
 dense reference/model reads and ONNX initialization.
 
-## Later outcome — release-ready asset publication
+## Current outcome — immutable model-side asset publication
 
 The exact model, GRCh38 sequence index, mask, target release identity,
 attribution, and preferred modification source are frozen by deterministic
-release preparation. Publish only that reviewed derived runtime stage—never
-raw upstream inputs—using authenticated official `gh`,
-non-public draft, remote inventory/digest comparison, and immutable
-finalization lifecycle. Then prove pinned sync, clean-machine CLI inference,
-and offline restart from that exact release. This outcome precedes HTTP and
-container publication.
+release preparation. The reviewed operation publishes only that 15-asset set—
+never raw NCBI, GENCODE, or Zenodo inputs—using authenticated official `gh`, a
+non-public draft, remote inventory/digest comparison after every upload, and
+one-way immutable finalization. The coordinator public effect is pending the
+publication-ready commit and its exact remote gate. Pinned sync,
+clean-machine CLI inference, and offline restart then follow from the observed
+release. This outcome precedes HTTP and container publication.
 
 Repository and dependency controls do not replace release evidence. Remote
 inventory/digest comparison, immutable finalization, model-side runtime sync,
