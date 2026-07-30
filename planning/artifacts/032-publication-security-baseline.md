@@ -357,3 +357,9 @@ was needed. No release, release asset, branch ref, workflow definition,
 immutable-release setting, or unrelated repository setting was mutated by the
 external operation. Validity checks remain disabled, so this bounded result is
 not publication readiness and the publication-security issue remains open.
+
+The observed evidence was committed and pushed as
+`1e35455565722b617afc608a349c1c1161620330`. GitHub explicitly reported the
+reviewed administrator bypass for the pull-request and expected-`gate` rules;
+the unbypassed history rules remained in force. GitHub Actions run
+`30573391742` then completed successfully for that exact evidence commit.
