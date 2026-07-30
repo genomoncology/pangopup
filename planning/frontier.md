@@ -31,8 +31,10 @@ neither candidate met the independent replacement gates. Persistent exact
 SQLite result reuse, one canonical four-asset production compatibility
 profile, offline coherent XDG installation/activation, and lazy held-descriptor
 runtime consumption are established. Deterministic local packaging of the
-three model-side assets is established; public/remote delivery and HTTP remain
-future.
+three model-side assets is established. The exact 691,884,908-byte read-only
+`runtime-grch38-v1` release stage has been prepared from reviewed, remotely
+green code, with byte equality and all declared checksums qualified;
+public/remote delivery and HTTP remain future.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
 and typed mmap provider are established; its local transport and installation
 are shipped, while public release remains future work. Future SNV and sequence-index builds use
