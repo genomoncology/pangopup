@@ -1,8 +1,10 @@
 # Ticket 038 public Linux release operation and evidence
 
-State: **PREPUBLICATION — seven attempts stopped before release mutation; the
-sixth and seventh produced private Actions artifacts, but no tag, release, or
-executable release asset has been created.**
+State: **COMPLETE — immutable public release `v0.1.0` targets reviewed commit
+`e0695f9acd7e3753afd95b7d58949a4e4a01747a`.**
+
+Public release:
+https://github.com/genomoncology/pangopup/releases/tag/v0.1.0
 
 This is a credential-free operation record. Never paste tokens, authentication
 headers, raw `gh auth` output, environment dumps, or signed URL query strings
@@ -99,7 +101,7 @@ UID:GID. It never changes ownership of the already-qualified data/cache trees.
 - tag: `v0.1.0`
 - title: `Pangopup v0.1.0`
 - version: `0.1.0`
-- target commit: `<PENDING_40_LOWERCASE_COMMIT>`
+- target commit: `e0695f9acd7e3753afd95b7d58949a4e4a01747a`
 - release body: `planning/artifacts/038-release-notes.md`, byte-for-byte
 - build workflow: `.github/workflows/package-linux.yml`
 - verification boundary: the exact commit's successful `ci/gate`; packaging
@@ -134,23 +136,26 @@ Record pass/fail and non-sensitive evidence for every item before dispatching
 the qualification-ownership-corrected workflow. Any failure stops the operation. Earlier
 audits belong to their consumed attempts and cannot authorize this dispatch.
 
-- [ ] repository visibility is public
-- [ ] immutable releases are enabled
-- [ ] default Actions token is read-only
-- [ ] Actions pull-request approval is disabled
-- [ ] Dependabot security updates are enabled
-- [ ] secret scanning, push protection, and non-provider-pattern controls are enabled
-- [ ] open secret alert count is zero
-- [ ] both reviewed `main` rulesets are active and unchanged
-- [ ] Cargo/workspace version is exactly `0.1.0`
-- [ ] neither tag nor release `v0.1.0` exists
-- [ ] target commit is reachable from public `main`
-- [ ] target commit's `ci` run has exactly one successful job named `gate`
+- [x] repository visibility is public
+- [x] immutable releases are enabled
+- [x] default Actions token is read-only
+- [x] Actions pull-request approval is disabled
+- [x] Dependabot security updates are enabled
+- [x] secret scanning, push protection, and non-provider-pattern controls are enabled
+- [x] open secret alert count is zero
+- [x] both reviewed `main` rulesets are active and unchanged
+- [x] Cargo/workspace version is exactly `0.1.0`
+- [x] neither tag nor release `v0.1.0` existed before publication
+- [x] target commit is reachable from public `main`
+- [x] target commit's `ci` run has exactly one successful job named `gate`
 
-Qualification-ownership-corrected audit timestamp: `<PENDING_UTC>`
-Qualification-ownership-corrected audit operator: `<PENDING>`
-Target `ci` run ID/URL: `<PENDING>`  
-Security/ruleset evidence summary: `<PENDING_CREDENTIAL_FREE_SUMMARY>`
+Qualification-ownership-corrected audit: passed after CI completed at
+`2026-07-31T19:08:44Z` and before package dispatch at `2026-07-31T19:09:03Z`.
+Qualification-ownership-corrected audit operator: `/root`
+Target `ci` run ID/URL: `30657770808`,
+https://github.com/genomoncology/pangopup/actions/runs/30657770808
+Security/ruleset evidence summary: all twelve checked boundaries above passed
+without drift before dispatch.
 
 ## Exact-commit build and local admission
 
@@ -171,21 +176,24 @@ directory. Then run the shared local admission boundary:
 scripts/qualify-linux-release.sh <EXACT_SIX_DIR> 0.1.0 "$COMMIT"
 ```
 
-Workflow run ID/URL: `<PENDING>`  
-Actions artifact ID/name: `<PENDING>`  
-Download timestamp: `<PENDING_UTC>`  
-Local qualifier result: `<PENDING>`
+Workflow run ID/URL: `30657987617`,
+https://github.com/genomoncology/pangopup/actions/runs/30657987617
+Actions artifact ID/name: `8804082427`,
+`pangopup-linux-e0695f9acd7e3753afd95b7d58949a4e4a01747a`
+Download: completed once after the workflow completed at
+`2026-07-31T19:12:25Z` and before publication.
+Local qualifier result: passed for version `0.1.0` and exact target commit.
 
 Record name, byte size, and SHA-256 for all six files:
 
 | Name | Bytes | SHA-256 |
 |---|---:|---|
-| `LICENSE` | pending | pending |
-| `NOTICE` | pending | pending |
-| `pangopup-linux-x86_64` | pending | pending |
-| `pangopup-linux-x86_64.cdx.json` | pending | pending |
-| `pangopup-linux-x86_64.sha256` | pending | pending |
-| `release-manifest.json` | pending | pending |
+| `LICENSE` | 35,149 | `3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986` |
+| `NOTICE` | 1,709 | `9b8e898daa53b28cf421f9a59676e920dc5cefb1c23b9d185f75d3cfd4281af7` |
+| `pangopup-linux-x86_64` | 26,896,320 | `2ea4bcad9cf83a68ca9281cffea13d2f91c0c497137ad4eaf411a57ac7ea68c1` |
+| `pangopup-linux-x86_64.cdx.json` | 98,422 | `b12533447c856ae9dc7daa0e1c9748b526bc5e8455a6dc05819550afa49b3383` |
+| `pangopup-linux-x86_64.sha256` | 88 | `71abe44519772c13df703713ce5fda6f2610cd810884f9a203adfaf95faf8002` |
+| `release-manifest.json` | 949 | `47349021d2413e392142cc246baffea991352428962c566fd90d1ef820a2ca81` |
 
 ## Prepublication production qualification
 
@@ -234,14 +242,17 @@ scripts/check-production-qualification.py \
   "$QUALIFICATION_ROOT/output" "$SOURCE_TREE"
 ```
 
-Container image/digest: `<PENDING>`  
-Requests TSV SHA-256: `<PENDING>`  
-Canonical SNV actual SHA-256: `<PENDING>`  
-Canonical SNV expected SHA-256: `<PENDING>`  
-M09 oracle SHA-256: `<PENDING>`  
-M09 actual SHA-256: `<PENDING>`  
-Online/offline/status result: `<PENDING>`  
-Qualification result: `<PENDING>`
+Container image/digest:
+`ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90`
+Requests TSV SHA-256: `042fcc0e550f7dfccad742a6a2e6a89b0c4e245673b0222bcefb7d42b1ffe52d`
+Canonical SNV actual SHA-256: `06a2c7e166f29f8e8eb4c1106e92a67dc4b2f6a6955f45f491b76a6156ca9129`
+Canonical SNV expected SHA-256: `06a2c7e166f29f8e8eb4c1106e92a67dc4b2f6a6955f45f491b76a6156ca9129`
+M09 oracle SHA-256: `16bbc2256a07104b576fa7c5cd81378b900dd0920e20c8f1cb53c286414a91e9`
+M09 actual SHA-256: `16bbc2256a07104b576fa7c5cd81378b900dd0920e20c8f1cb53c286414a91e9`
+Online/offline/status result: passed; fresh install, offline reuse, and combined
+ready state were exact.
+Qualification result: passed; all seven batches and exactly 1,000 SNV records,
+exact M09 inference, and the host-side evidence checker succeeded.
 
 ## Draft, upload, and publication
 
@@ -257,13 +268,15 @@ mark it Latest, then require `draft=false`, `immutable=true`, the public tag ref
 to resolve directly to `$COMMIT`, and `/releases/latest` to resolve to
 `v0.1.0`.
 
-Draft/release ID: `<PENDING>`  
-Upload attempts by member: `<PENDING>`  
-Published timestamp: `<PENDING_UTC>`  
-Public release URL: `<PENDING>`  
-Tag ref/object SHA: `<PENDING>`  
-Immutable state: `<PENDING>`  
-Latest endpoint result: `<PENDING>`
+Draft/release ID: `363278563`
+Upload attempts by member: exactly one for each of the six members
+Published timestamp: `2026-07-31T19:17:56Z`
+Public release URL:
+https://github.com/genomoncology/pangopup/releases/tag/v0.1.0
+Tag ref/object SHA: direct commit
+`e0695f9acd7e3753afd95b7d58949a4e4a01747a`
+Immutable state: `draft=false`, `immutable=true`
+Latest endpoint result: release ID `363278563`, tag `v0.1.0`
 
 Before publication only, a failed draft may be deleted by its exact ID after
 reauthentication if and only if the tag remains absent. Stop after deletion;
@@ -278,13 +291,17 @@ fresh pinned container and isolated install directory to fetch the exact
 tagged `install.sh`, install through its checksum path, reuse the already
 qualified XDG volumes offline, run status, one retained SNV, and exact M09.
 
-Public metadata result: `<PENDING>`  
-Five-small-asset result: `<PENDING>`  
-Executable reported size/digest result: `<PENDING>`  
-Tagged installer container/result: `<PENDING>`  
-Offline reuse/status result: `<PENDING>`  
-Retained SNV result: `<PENDING>`  
-Repeated M09 result: `<PENDING>`
+Public metadata result: passed unauthenticated release, direct-tag, immutable,
+and Latest checks
+Five-small-asset result: all five byte-exact downloads passed
+Executable reported size/digest result: 26,896,320 bytes and
+`sha256:2ea4bcad9cf83a68ca9281cffea13d2f91c0c497137ad4eaf411a57ac7ea68c1`
+Tagged installer container/result: passed from the exact `v0.1.0` script in a
+fresh pinned container
+Offline reuse/status result: passed as the captured non-root UID/GID
+Retained SNV result: exact match
+Repeated M09 result: exact byte match, SHA-256
+`16bbc2256a07104b576fa7c5cd81378b900dd0920e20c8f1cb53c286414a91e9`
 
 ## Exact syntax-checked coordinator runbook
 
@@ -629,8 +646,7 @@ printf 'Ticket 038 public operation passed: release_id=%s package_run_id=%s arti
 
 ## Completion-only documentation transition
 
-After all public checks pass, replace PREPUBLICATION/current-future wording in
-this record, `README.md`, `architecture/delivery.md`, `planning/frontier.md`,
-and `planning/faq.md` with the exact public URL and completed state. The same
-developer makes that bounded diff and the same code reviewer accepts it before
-the coordinator marks Ticket 038 complete and pushes the completion commit.
+The public checks passed. This record, `README.md`,
+`architecture/delivery.md`, `planning/frontier.md`, and `planning/faq.md` now
+report the exact public URL and completed state. The same code reviewer accepted
+this bounded transition after one stale `AGENTS.md` sentence was corrected.

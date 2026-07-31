@@ -558,21 +558,24 @@ must enter that catalog and its executable coverage.
 ## Unknowns that require evidence
 
 The Linux x86_64 direct-binary installer and deterministic six-file release
-preparer are established. The installer verifies and smoke-tests an atomic
+are shipped as immutable
+[`v0.1.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.1.0).
+The installer verifies and smoke-tests an atomic
 replacement while preserving an existing binary on failure, and does not
 download data or mutate `PATH`. The read-only exact-commit workflow qualifies a
-private artifact against pinned Ubuntu 24.04 and GLIBC 2.39. The next bounded
-outcome is Ticket 038's immutable executable publication and public installer
-qualification; HTTP, Docker, other platforms, and package managers remain
-later roadmap slots.
+private artifact against pinned Ubuntu 24.04 and GLIBC 2.39. Ticket 038's
+public installer qualification passed through clean production sync, exact SNV
+and model oracles, public verification, and a tagged non-root install. HTTP,
+Docker, other platforms, and package managers remain later roadmap slots; the
+next bounded ticket has not yet been selected.
 
-Ticket 038's publication-ready preparation now includes a credential-free
-operation/evidence record, exact reviewed release notes, an independently
+Ticket 038's completed publication includes a credential-free operation/evidence
+record, exact reviewed release notes, an independently
 derived M09 JSONL oracle, and checked production-qualification helpers. The
 helpers run online/offline sync, ready status, the seven retained 1,000-SNV
 batches, and M09 in an isolated environment, then compare results without
-walking the production assets. No packaging workflow, tag, release, or upload
-has occurred; the coordinator's separately gated public effect remains next.
+walking the production assets. Release `v0.1.0` is public and immutable at the
+exact reviewed commit.
 
 - whether repeated complete requests justify any result cache;
 - whether MPS, CUDA, quantization, or another runtime adds material value;

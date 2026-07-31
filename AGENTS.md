@@ -25,10 +25,10 @@ four-asset runtime profile now binds the exact compatible production tuple;
 offline Linux/XDG installation, atomic activation, and lookup consumption are
 shipped. Deterministic local model-side packaging, immutable publication, and
 the typed pinned model-side sync/install primitive and combined top-level CLI
-provisioning/status are shipped; the HTTP service remains target work. The
-checksum-verifying Linux x86_64 executable installer, deterministic six-file
-release preparer, and read-only exact-commit packaging workflow are prepared;
-public executable publication remains a separate ticket. The
+provisioning/status are shipped. The immutable Linux x86_64 executable and its
+checksum-verifying tagged installer are shipped; the deterministic six-file
+release preparer and read-only exact-commit packaging workflow remain available.
+The HTTP service remains future work. The
 reference
 wire/writer and sole mmap reader are now separate; future reference builds use
 v2 byte-producing provenance and installed admission has one held-descriptor

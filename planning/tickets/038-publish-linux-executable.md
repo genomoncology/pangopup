@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: publication-ready
+Status: complete
 
 ## Why
 
@@ -775,6 +775,12 @@ all four `setpriv` runtime calls with clean environments, correct redirect and
 executable permissions, pinned-image tool availability, and hostile runbook
 assertions. No runtime, workflow, asset, or public-state scope changed.
 
+Completion-only documentation review: ACCEPT. The reviewer confirmed the live
+release evidence and public wording, then found one stale sentence in
+`AGENTS.md` that still described publication as future work. The same developer
+corrected that sentence and added focused stale-wording assertions. Final
+re-review accepted the complete bounded transition with no remaining findings.
+
 ## External Effect Evidence
 
 Coordinator: `/root`
@@ -889,6 +895,28 @@ acceptance of the qualification ownership correction, a new exact commit's
 green CI, and a fresh security audit, exactly one ownership-corrected package
 and publication attempt is permitted.
 
+Completed ownership-corrected publication:
+
+- publication-ready commit:
+  `e0695f9acd7e3753afd95b7d58949a4e4a01747a`;
+- prerequisite successful CI run: `30657770808`;
+- successful package workflow run: `30657987617`;
+- private Actions artifact: `8804082427`;
+- public release ID: `363278563`;
+- direct tag and immutable GitHub Latest release: `v0.1.0`, targeting the exact
+  publication-ready commit;
+- public URL:
+  https://github.com/genomoncology/pangopup/releases/tag/v0.1.0;
+- production qualification: fresh sync, offline reuse, combined ready status,
+  seven exact batches totaling 1,000 SNVs, exact M09 inference, and the host
+  evidence checker all passed;
+- public verification: unauthenticated metadata and asset checks passed;
+- tagged installer: passed in a fresh pinned container, with every Pangopup
+  command running as the captured non-root UID/GID.
+
+The authorized effect is consumed and complete. The release is immutable; no
+retry, replacement, deletion, or further Ticket 038 public mutation is allowed.
+
 Use the exceptional lifecycle:
 
 ```text
@@ -908,9 +936,14 @@ production-release qualification suite. Current documentation consistently
 describes the executable as prepared but not yet public. No workflow, tag,
 release, upload, or repository-setting mutation occurred before this check.
 
-Final completion evidence and the reviewed current-state documentation
-transition remain pending the exact-commit remote gate and coordinator-owned
-external effect.
+The exact-commit remote gate and coordinator-owned external effect passed.
+Final completion evidence is recorded above and in the operation artifact. The
+same reviewer accepted the bounded current-state documentation transition after
+the stale `AGENTS.md` wording was corrected.
+
+The coordinator then inspected the final completion diff and reran `make
+lint`, `make test`, `make spec`, and `git diff --check`. All passed; Mustmatch
+reports 236 passed and 6 intentionally skipped.
 
 After corrected-baseline code-review acceptance, the coordinator inspected the
 complete correction and reran `make lint`, `make test`, `make spec`, and

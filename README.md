@@ -22,9 +22,10 @@ The exact derived model-side release and its GPL preferred source are public
 as the immutable
 [`runtime-grch38-v1` release](https://github.com/genomoncology/pangopup/releases/tag/runtime-grch38-v1).
 Pinned model-side synchronization and combined top-level CLI provisioning are
-shipped. A checksum-verifying Linux x86_64 direct-binary installer and
-read-only exact-commit release packaging workflow are prepared, but no public
-executable exists until Ticket 038. The HTTP service remains unimplemented. Ticket 012 has now
+shipped. The checksum-verifying Linux x86_64 direct binary is public in the
+immutable [`v0.1.0` release](https://github.com/genomoncology/pangopup/releases/tag/v0.1.0),
+and the tagged installer has passed clean-container installation and inference.
+The HTTP service remains unimplemented. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
 Ticket 014 promotes the exact selected bytes behind a domains-only production
@@ -825,10 +826,10 @@ forms, or the 25 exact RefSeq accessions in the opened manifest. Add one
 `--gene ENSG…` to filter the complete batch. JSON Lines is the default;
 `--format table` emits exact tab-separated rows.
 
-## Prepared executable installer
+## Linux executable installer
 
-Pangopup prepares a direct Linux x86_64 executable rather than an archive. Once
-Ticket 038 publishes `v0.1.0`, install the GitHub Latest executable with:
+Pangopup publishes a direct Linux x86_64 executable rather than an archive.
+Install the GitHub Latest executable with:
 
 ```bash skip
 curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/main/install.sh | bash
@@ -844,17 +845,16 @@ The installer supports Linux x86_64/amd64 with GLIBC 2.39 or newer and
 requires Bash, curl or wget, and one of sha256sum, shasum, or openssl. It verifies the adjacent checksum,
 smoke-tests the replacement, and atomically installs to
 `${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}`. It does not use sudo, edit `PATH`,
-or download data; run `pangopup sync` afterward. There is no public executable
-until Ticket 038 completes.
+or download data; run `pangopup sync` afterward.
 
-The publication candidate is qualified before it can become public. In an
-isolated pinned Linux container it must synchronize the already-published SNV
-and model-side assets, reuse them offline, report ready status, reproduce the
-seven-batch 1,000-SNV corpus, and reproduce one exact non-SNV model result.
+The published executable passed qualification in an isolated pinned Linux
+container: it synchronized the already-published SNV and model-side assets,
+reused them offline, reported ready status, reproduced the seven-batch
+1,000-SNV corpus, and reproduced one exact non-SNV model result.
 The checked runner and checker are
 `scripts/run-production-qualification.sh` and
-`scripts/check-production-qualification.py`. This preparation has not created
-a tag, release, or public executable.
+`scripts/check-production-qualification.py`. The immutable release targets
+commit `e0695f9acd7e3753afd95b7d58949a4e4a01747a`.
 
 Release builders use explicit, read-only inputs and never download data or
 discover a home directory:

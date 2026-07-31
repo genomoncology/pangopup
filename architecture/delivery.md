@@ -53,8 +53,8 @@ history or Git LFS.
 
 Release families keep independently versioned concerns separate. The SNV
 lookup uses one shipped eight-file release asset set whose installable transport
-is the closed five-file subset. The executable is a prepared, not yet public,
-release family.
+is the closed five-file subset. The executable is public as immutable
+[`v0.1.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.1.0).
 The converted model, compiled GRCh38 sequence index, and compiled mask form one
 qualified compatibility-bound public immutable `runtime-grch38-v1` release.
 Their model-side local transport is shipped:
@@ -93,7 +93,7 @@ Model-side preferred source:
   Pangolin-GPL-3.0.txt
 ```
 
-## Prepared Linux executable delivery
+## Linux executable delivery
 
 `install.sh` supports Linux x86_64/amd64 with Bash, curl or wget, and one of
 sha256sum, shasum, or openssl. It downloads the direct executable and adjacent
@@ -102,19 +102,19 @@ installs under `${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}`. It never uses sudo,
 changes shell configuration, or downloads runtime assets; `pangopup sync`
 remains explicit.
 
-The future immutable executable release has exactly six members: the direct
+The immutable `v0.1.0` executable release has exactly six members: the direct
 binary, checksum, CycloneDX SBOM, canonical manifest, `LICENSE`, and `NOTICE`.
 The read-only exact-commit workflow compares untouched SBOMs from two fresh
 same-path source extractions and qualifies the final stripped binary on pinned
 Ubuntu 24.04 with maximum imported GLIBC 2.39. It cannot publish, attest, tag,
-or release. Ticket 038 owns the first public executable release.
+or release. Ticket 038 performed the separately reviewed publication.
 The baseline is intentional: the selected static ONNX Runtime 1.24.2 archive
 imports GLIBC 2.38 C23 conversion symbols and cannot link on Ubuntu 22.04's
 GLIBC 2.35. The correction retains the same static runtime, direct executable,
 five admitted dynamic system dependencies, and six-file release inventory.
 
-Before that release becomes public, the downloaded exact-six artifact is
-requalified locally and its executable is exercised in an isolated pinned
+The published exact-six artifact was requalified locally and its executable
+was exercised in an isolated pinned
 Linux container. The checked runner performs online pinned sync, offline
 reuse, combined status, seven ordered batches covering the retained 1,000-SNV
 oracle, and exact M09 non-SNV inference. A separate checker canonicalizes only
@@ -123,7 +123,8 @@ warning, order, source identity, mask/window value, and status remains in the
 comparison. M09 is compared byte-for-byte against an oracle independently
 derived from the frozen compatibility case and retained production evidence.
 These helpers neither publish nor inspect the contents of production assets.
-The executable release remains prepared, not public.
+The public release is immutable, targets
+`e0695f9acd7e3753afd95b7d58949a4e4a01747a`, and is GitHub's Latest release.
 
 The twelve runtime upload members contain only Pangopup's derived runtime
 members and metadata. The raw

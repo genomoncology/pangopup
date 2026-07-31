@@ -351,7 +351,7 @@ removed.
 ### How will users install the executable?
 
 The repository contains a checksum-verifying `install.sh` for Linux x86_64.
-After Ticket 038 publishes `v0.1.0`, the latest form will be:
+The public Latest installer is:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/main/install.sh | bash
@@ -362,15 +362,17 @@ platform baseline is Linux x86_64 with GLIBC 2.39 or newer; prerequisites are Ba
 curl or wget, and sha256sum, shasum, or openssl. It
 installs under `${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}`, prints PATH guidance
 when needed, and directs the user to `pangopup sync` and `pangopup status`. It
-does not use sudo, edit shell files, or download data automatically. No public
-executable exists until Ticket 038 completes.
+does not use sudo, edit shell files, or download data automatically. The
+immutable release is
+[`v0.1.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.1.0).
 
-Before publication, the candidate must pass a clean isolated Linux run using
-the real pinned data: online sync, offline reuse, combined ready status, all
+Before publication, the candidate passed a clean isolated Linux run using the
+real pinned data: online sync, offline reuse, combined ready status, all
 1,000 retained SNVs in seven batches, and one exact non-SNV model result. The
 SNV comparison ignores only the installation-specific bundle ID; it still
 checks every biological score and position plus all other provenance. This
-qualification is prepared locally and has not created a public executable.
+qualification passed, followed by unauthenticated public checks and a clean
+tagged-installer run as a non-root user.
 
 ### How are large artifacts delivered?
 

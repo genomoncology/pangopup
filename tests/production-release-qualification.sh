@@ -231,7 +231,7 @@ if assert_ownership_contract "$root/unsafe-chown-runbook.sh"; then
 fi
 
 image=ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
-[[ "$(grep -Fc "$image" "$repo/planning/artifacts/038-public-linux-release.md")" == 3 ]]
+[[ "$(grep -Fc "$image" "$repo/planning/artifacts/038-public-linux-release.md")" == 4 ]]
 grep -Fq 'build runner: GitHub-hosted Ubuntu 24.04' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'admitted maximum imported GLIBC version: `2.39`' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'package run `30648307402` failed while linking' "$repo/planning/artifacts/038-public-linux-release.md"
@@ -239,7 +239,12 @@ grep -Fq 'Package run `30651619497` passed the full gate' "$repo/planning/artifa
 grep -Fq 'Package run `30652858960` then redundantly reran the full' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'Package run `30653836700` built the release executables' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'exactly one corrected dispatch is permitted' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'Qualification-ownership-corrected audit timestamp: `<PENDING_UTC>`' "$repo/planning/artifacts/038-public-linux-release.md"
+grep -Fq 'State: **COMPLETE — immutable public release `v0.1.0` targets reviewed commit' "$repo/planning/artifacts/038-public-linux-release.md"
+grep -Fq 'Target `ci` run ID/URL: `30657770808`' "$repo/planning/artifacts/038-public-linux-release.md"
+grep -Fq 'Workflow run ID/URL: `30657987617`' "$repo/planning/artifacts/038-public-linux-release.md"
+grep -Fq 'Draft/release ID: `363278563`' "$repo/planning/artifacts/038-public-linux-release.md"
+grep -Fq 'checksum-verifying tagged installer are shipped' "$repo/AGENTS.md"
+! grep -Fq 'public executable publication remains a separate ticket' "$repo/AGENTS.md"
 grep -Fq 'passes that exact bundle path explicitly to each of the seven ordered' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'M09 model request deliberately has no `--bundle`' "$repo/planning/artifacts/038-public-linux-release.md"
 
