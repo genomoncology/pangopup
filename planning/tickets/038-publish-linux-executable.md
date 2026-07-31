@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: publication-ready
+Status: ready
 
 ## Why
 
@@ -25,8 +25,11 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   - target: the exact publication-ready commit produced by this ticket;
   - body: one reviewed, checked-in `planning/artifacts/038-release-notes.md`.
 - Use the existing manual `package-linux` workflow as the only binary build.
-  Dispatch it once with the exact publication-ready commit, require successful
-  completion, download its private Actions artifact once, and run
+  The first dispatch, run `30648307402` for preparation commit `a82968c`,
+  stopped safely during linking before producing an artifact or changing any
+  release state. After this correction is independently reviewed, dispatch
+  exactly one corrected build from the new publication-ready commit, require
+  successful completion, download its private Actions artifact once, and run
   `scripts/qualify-linux-release.sh` again locally against that commit and
   workspace version before any release mutation.
 - Publish exactly the six regular files admitted by the qualifier, without
@@ -45,7 +48,13 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   - the successful `package-linux` run bound to the same commit and input;
   - the locally downloaded exact-six artifact still passing the shared
     qualifier, with the manifest's target commit equal to that commit.
-- Before dispatching `package-linux` (the first external effect), repeat and
+- Build and qualify the executable on pinned Ubuntu 24.04, and admit a final
+  stripped executable only when its maximum imported GLIBC symbol version is
+  no newer than 2.39. The manifest and user documentation must report the
+  measured final-binary requirement. The supported platform is Linux
+  x86_64/amd64 with GLIBC 2.39 or newer.
+- Before dispatching `package-linux` for the corrected baseline (the first
+  corrected-baseline effect), repeat and
   record the complete live publication-security audit required by
   `architecture/delivery.md`: read-only default Actions token, disabled Actions
   pull-request approval, enabled Dependabot security updates, enabled secret
@@ -137,6 +146,9 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   publication-ready commit's remote `ci`/`gate` passes before mutation.
 - The exact-commit `package-linux` run succeeds and its downloaded artifact
   passes the shared exact-six qualifier locally.
+- The corrected workflow runs on Ubuntu 24.04, every clean-container check
+  uses the reviewed pinned Ubuntu 24.04 image, and focused tests reject drift
+  back to Ubuntu 22.04 or a GLIBC ceiling other than 2.39.
 - Before publication, that artifact passes production-data online/offline
   sync, the exact seven-batch canonicalized 1,000-SNV oracle, exact M09 JSONL,
   and combined status in an isolated pinned Linux container.
@@ -175,6 +187,15 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
    its SHA-256. Avoid a redundant large download; byte-check all five small
    assets and bind the executable through the remote digest and clean installer
    execution.
+6. **Linux compatibility after the stopped build.** The selected Pyke static
+   ONNX Runtime 1.24.2 archive itself imports GLIBC 2.38 C23 conversion symbols,
+   so it cannot link on Ubuntu 22.04/GLIBC 2.35. Use Ubuntu 24.04/GLIBC 2.39 for
+   the first release. This keeps the already qualified static model runtime,
+   direct single-executable installer, six-file release, and model behavior.
+   A dynamic ONNX Runtime could support an older baseline, but would add a
+   shared-library asset and loader/install contract; a custom static build
+   would add a C/C++ build and new provenance and qualification. Either is a
+   separate measured compatibility outcome, not a repair to this publication.
 
 ## Dependencies
 
@@ -196,6 +217,9 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   SHA-256 values in the durable evidence.
 - Never print authentication headers, environment variables, raw `gh auth`
   output, or credential-bearing URLs.
+- Preserve the failed package workflow run `30648307402` as evidence. It is
+  the one stopped original-baseline attempt and does not authorize repeated
+  retries. This revised ticket permits exactly one corrected-commit dispatch.
 
 ## Coordinator Authorship
 
@@ -203,8 +227,9 @@ Coordinator: `/root`
 
 Drafted from the shipped Ticket 037 installer, qualifier, and read-only
 packaging workflow plus the two already-public immutable runtime-data releases.
-No workflow was dispatched and no tag, release, or asset was created during
-authorship.
+At original authorship, no workflow was dispatched and no tag, release, or
+asset was created. The later stopped attempt is recorded under External Effect
+Evidence.
 
 ## Independent Ticket Review
 
@@ -230,7 +255,7 @@ and code reviewer to complete and review the post-effect documentation
 transition. It also makes `v0.1.0` explicitly become GitHub `Latest`, which is
 necessary for the installer's default URL.
 
-Final re-review: ACCEPT. The reviewer confirmed that the complete live security
+Final re-review of the original preparation: ACCEPT. The reviewer confirmed that the complete live security
 audit precedes the first effect; exact production online/offline sync, ready
 status, seven-batch SNV semantics, and independently derived M09 output are
 gated before immutable publication; the public installer is proved separately
@@ -238,6 +263,28 @@ without repeating the data download; the completion documentation has an
 independent review owner; and explicit GitHub `Latest` verification preserves
 the default installer URL. The exact-six, rollback, tag/target, immutable,
 bounded-public-verification, and credential-hygiene boundaries remain coherent.
+
+Material assumption failure after publication-ready preparation: the
+coordinator completed the live audit and dispatched package workflow run
+`30648307402` for commit `a82968cfc9c29c4e95f647ecaac7452e6ef78da2`.
+The workflow failed during linking, before artifact creation, download,
+qualification, draft creation, tag creation, upload, or publication. The
+downloaded static ONNX Runtime archive requires
+`__isoc23_strtol`, `__isoc23_strtoll`, and `__isoc23_strtoull`; those symbols
+are unavailable in Ubuntu 22.04's GLIBC 2.35. Local inspection confirms the
+resulting linked executable requires GLIBC 2.38/2.39. The ticket therefore
+returns to design review with a truthful Ubuntu 24.04/GLIBC 2.39 baseline and
+one corrected build authorization.
+
+Correction review: REJECT, then ACCEPT after remediation. The reviewer agreed
+that Ubuntu 24.04/GLIBC 2.39 is the smallest truthful first-release baseline,
+but found contradictory effect history in the first revision. The coordinator
+then recorded the stopped run in External Effect Evidence, time-scoped the old
+no-dispatch statements, named the next dispatch the first corrected-baseline
+effect, and retained exactly one corrected-commit authorization. Final
+re-review confirmed the stopped-effect accounting, corrected platform tests,
+unchanged static-runtime/single-executable/six-file contract, and explicit
+exclusion of older-GLIBC runtime work. ACCEPT.
 
 ## Implementation Evidence
 
@@ -279,8 +326,10 @@ git diff --check
   passed
 ```
 
-No GitHub workflow was dispatched and no tag, release, upload, repository
-setting, or other external state was changed.
+During the original implementation preparation, no GitHub workflow was
+dispatched and no tag, release, upload, repository setting, or other external
+state was changed. The later stopped attempt is recorded under External Effect
+Evidence.
 
 Review remediation tightened all four rejected boundaries. SNV comparison now
 deletes one exact raw `bundle_id` byte span and preserves every other byte,
@@ -343,7 +392,25 @@ performed during review.
 
 ## External Effect Evidence
 
-Coordinator: pending
+Coordinator: `/root`
+
+Stopped original-baseline attempt:
+
+- target commit: `a82968cfc9c29c4e95f647ecaac7452e6ef78da2`;
+- exact remote `ci` run `30648083892`: completed successfully;
+- package workflow run: `30648307402`, completed with `failure`;
+- failure boundary: `Gate and build`, while linking the selected static ONNX
+  Runtime on Ubuntu 22.04/GLIBC 2.35;
+- artifact: none; artifact preparation, qualification, smoke, and upload steps
+  were skipped;
+- public state after the stop: no draft, release, tag, or uploaded release
+  asset for `v0.1.0`.
+
+The operation stopped at the failed workflow. It made no release mutation and
+did not retry. After this material correction is independently accepted and a
+new exact commit passes its remote gate, exactly one corrected-baseline package
+dispatch is permitted. Corrected qualification and publication evidence remain
+pending.
 
 Use the exceptional lifecycle:
 
