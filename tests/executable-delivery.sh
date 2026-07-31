@@ -42,15 +42,20 @@ EOF
 chmod +x "$smoke_bin/pangopup" "$smoke_bin/docker"
 
 smoke_log="$root/smoke.log"
+fake_cache_parent="/tmp/pangopup-smoke-fake-$PPID-$$"
+[[ ! -e "$fake_cache_parent" && ! -L "$fake_cache_parent" ]]
 SMOKE_LOG="$smoke_log" SMOKE_SCRIPT="$repo/scripts/smoke-linux-release.sh" \
   SMOKE_PANGOPUP="$smoke_bin/pangopup" \
   SMOKE_SOURCE="$repo" SMOKE_DATA="$root/smoke-data" \
-  SMOKE_CACHE="$root/smoke-cache.sqlite3" PATH="$smoke_bin:$PATH" \
+  SMOKE_CACHE="$fake_cache_parent" PATH="$smoke_bin:$PATH" \
   docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
     -v "$root:/release:ro" -v "$repo:/source:ro" smoke-image bash -ceu '
       "$SMOKE_SCRIPT" "$SMOKE_PANGOPUP" "$SMOKE_SOURCE" "$SMOKE_DATA" "$SMOKE_CACHE"
     '
 [[ "$(wc -l <"$smoke_log")" == 5 ]]
+grep -Fq -- "--model-cache $fake_cache_parent/model.sqlite3" "$smoke_log"
+[[ "$(stat -c %u "$fake_cache_parent")" == "$(id -u)" ]]
+[[ "$(stat -c %a "$fake_cache_parent")" == 700 ]]
 
 changed_smoke="$root/smoke-changed-expected.sh"
 sed 's/"status":"missing"/"status":"ready"/' \
@@ -60,7 +65,7 @@ chmod +x "$changed_smoke"
 
 if SMOKE_LOG="$smoke_log" SMOKE_SCRIPT="$changed_smoke" \
   SMOKE_PANGOPUP="$smoke_bin/pangopup" SMOKE_SOURCE="$repo" \
-  SMOKE_DATA="$root/smoke-data" SMOKE_CACHE="$root/smoke-cache.sqlite3" \
+  SMOKE_DATA="$root/smoke-data" SMOKE_CACHE="$fake_cache_parent" \
   PATH="$smoke_bin:$PATH" \
   docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
     -v "$root:/release:ro" -v "$repo:/source:ro" smoke-image bash -ceu '
@@ -68,6 +73,36 @@ if SMOKE_LOG="$smoke_log" SMOKE_SCRIPT="$changed_smoke" \
     '; then
   fail 'shared container smoke accepted a changed expected JSON value'
 fi
+rmdir "$fake_cache_parent"
+
+real_cli="$repo/target/debug/pangopup"
+[[ -x "$real_cli" && ! -L "$real_cli" ]]
+unsafe_cache="/tmp/pangopup-smoke-unsafe-$PPID-$$.sqlite3"
+[[ ! -e "$unsafe_cache" && ! -L "$unsafe_cache" ]]
+if "$real_cli" lookup \
+  --bundle "$repo/tests/fixtures/snv-regression/bundle" \
+  --variant GRCh38:chr1:5051:A:AC \
+  --reference-bundle "$repo/tests/fixtures/reference-route-test/bundle" \
+  --mask "$repo/tests/fixtures/route-mask/domains.pgm" \
+  --model-bundle "$repo/tests/fixtures/pangolin-model-kernel-mini/bundle" \
+  --model-cache "$unsafe_cache" \
+  >"$root/unsafe-cache.out" 2>"$root/unsafe-cache.err"; then
+  fail 'real CLI accepted /tmp as the immediate model-cache parent'
+fi
+grep -Fq 'MODEL_CACHE_INVALID' "$root/unsafe-cache.err"
+[[ ! -e "$unsafe_cache" && ! -L "$unsafe_cache" ]]
+
+real_cache_parent="/tmp/pangopup-smoke-real-$PPID-$$"
+[[ ! -e "$real_cache_parent" && ! -L "$real_cache_parent" ]]
+"$repo/scripts/smoke-linux-release.sh" \
+  "$real_cli" "$repo" "$root/real-smoke-data" "$real_cache_parent" \
+  >"$root/real-smoke.out"
+[[ "$(stat -c %u "$real_cache_parent")" == "$(id -u)" ]]
+[[ "$(stat -c %a "$real_cache_parent")" == 700 ]]
+[[ -f "$real_cache_parent/model.sqlite3" && ! -L "$real_cache_parent/model.sqlite3" ]]
+rm -f "$real_cache_parent/model.sqlite3" \
+  "$real_cache_parent/model.sqlite3-shm" "$real_cache_parent/model.sqlite3-wal"
+rmdir "$real_cache_parent"
 
 expect_installer_failure() {
   local expected=$1
@@ -378,7 +413,7 @@ grep -Fq '/tmp/pangopup-cyclonedx-source-v1' "$repo/.github/workflows/package-li
 grep -Eq '^    runs-on: ubuntu-24[.]04$' "$repo/.github/workflows/package-linux.yml"
 grep -Fq 'ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90' "$repo/.github/workflows/package-linux.yml"
 grep -Fq '"$maximum" 2.39' "$repo/scripts/qualify-linux-release.sh"
-smoke_invocation='              /source/scripts/smoke-linux-release.sh /release/pangopup-linux-x86_64 /source /tmp/data /tmp/model.sqlite3'
+smoke_invocation='              /source/scripts/smoke-linux-release.sh /release/pangopup-linux-x86_64 /source /tmp/data /tmp/pangopup-smoke-cache'
 grep -Fxq "$smoke_invocation" "$repo/.github/workflows/package-linux.yml"
 [[ "$(grep -Fc '/source/scripts/smoke-linux-release.sh' "$repo/.github/workflows/package-linux.yml")" == 1 ]]
 ! grep -Fq 'GRCh38:chr12:6801301:G:A' "$repo/.github/workflows/package-linux.yml"

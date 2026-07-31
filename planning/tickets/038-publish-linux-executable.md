@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: ready
+Status: publication-ready
 
 ## Why
 
@@ -465,6 +465,39 @@ git diff --check
 No GitHub operation, workflow dispatch, tag, release, upload, or repository
 setting mutation occurred during smoke-correction implementation.
 
+Cache-environment correction changes the shared smoke's fourth argument from a
+SQLite file to an absent immediate child of `/tmp`, which is the workflow's
+private tmpfs mount. After status and SNV checks, the script creates that parent
+atomically at mode `0700`, validates it is a non-symlink directory owned by the
+current user with exact mode `0700`, and gives the real model lookup only its
+`model.sqlite3` child. The workflow now passes `/tmp/pangopup-smoke-cache`.
+The retained fake-container regression still observes all five commands and
+the changed-expectation failure, and additionally confirms the child cache path
+and parent ownership/mode. A real `target/debug/pangopup` regression with the
+existing miniature SNV/reference/mask/model fixtures proves an SQLite path
+directly under `/tmp` fails with `MODEL_CACHE_INVALID`, while the exact shared
+script creates the private parent, completes model inference, and leaves a real
+SQLite database beneath it. The operation record preserves package run
+`30651619497`, its passed boundaries, cache-parent failure, absence of an
+artifact or release effect, consumed authorization, and the one remaining
+fresh-audit-gated cache-environment-corrected dispatch.
+
+Focused cache-environment checks:
+
+```text
+bash tests/executable-delivery.sh
+  passed
+bash tests/production-release-qualification.sh
+  passed
+bash -n scripts/smoke-linux-release.sh tests/executable-delivery.sh tests/production-release-qualification.sh scripts/qualify-linux-release.sh
+  passed
+git diff --check
+  passed
+```
+
+No GitHub operation, workflow dispatch, tag, release, upload, or repository
+setting mutation occurred during cache-environment implementation.
+
 ## Adversarial Code Review
 
 Reviewer: `/root/ticket037_implementation`
@@ -521,6 +554,16 @@ commands are observed, a changed expected status fails, the exact four-argument
 workflow invocation is bound, and no inline command copy remains. Focused
 suites, shell syntax, and diff checks pass; all release and runtime boundaries
 remain unchanged. Final re-review: ACCEPT.
+
+Cache-environment code review: ACCEPT. The reviewer confirmed the strict
+absent-immediate-child grammar, atomic mode-0700 creation, non-symlink/current
+owner/exact-mode validation, child SQLite path, and the real CLI proof that a
+direct `/tmp` cache fails while the shared smoke completes real model inference
+and creates the SQLite file privately. Fake five-command coverage, exact
+workflow invocation, stopped-run evidence, and all release/runtime boundaries
+remain intact. No material findings.
+
+Cache-environment code review: pending.
 
 ## External Effect Evidence
 

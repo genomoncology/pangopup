@@ -1,6 +1,6 @@
 # Ticket 038 public Linux release operation and evidence
 
-State: **PREPUBLICATION — two package attempts stopped before artifact upload;
+State: **PREPUBLICATION — three package attempts stopped before artifact upload;
 no Actions artifact, tag, release, or executable release asset has been
 created.**
 
@@ -26,10 +26,18 @@ shell removed the quotation marks from the intended JSON `grep` pattern.
 Actions artifact upload was skipped, no release state changed, and the run was
 not retried.
 
-Those two dispatch authorizations are consumed. After independent acceptance
-of the executed shared-script container smoke regression and a new exact
-commit's green remote gate, exactly one smoke-corrected dispatch is permitted.
-It must use the
+The smoke-corrected attempt targeted commit
+`6f381736df9eda5abbbf1d57641bb40f5e5b024c`; exact remote `ci` run
+`30651379985` passed. Package run `30651619497` passed the full gate, build,
+SBOM, preparation, qualification, version/help, status, and SNV smoke. Its real
+model lookup then rejected `/tmp/model.sqlite3` because `/tmp` is not an owned
+private cache directory. Artifact upload was skipped, no release state changed,
+and the run was not retried.
+
+Those three dispatch authorizations are consumed. After independent acceptance
+of the private cache-parent correction and real-CLI regression and a new exact
+commit's green remote gate, exactly one cache-environment-corrected dispatch is
+permitted. It must use the
 same Ubuntu 24.04/GLIBC 2.39 baseline and must not alter the static runtime,
 release inventory, or semantic gates.
 
@@ -43,7 +51,9 @@ release inventory, or semantic gates.
 - release body: `planning/artifacts/038-release-notes.md`, byte-for-byte
 - build workflow: `.github/workflows/package-linux.yml`
 - container smoke: `scripts/smoke-linux-release.sh`, invoked with the exact
-  executable, source tree, absent data directory, and model-cache paths
+  executable, source tree, absent data directory, and absent immediate `/tmp`
+  cache parent; the script creates and validates mode `0700`, then uses its
+  `model.sqlite3` child
 - build runner: GitHub-hosted Ubuntu 24.04
 - admitted maximum imported GLIBC version: `2.39`
 - supported runtime: Linux x86_64/amd64 with GLIBC 2.39 or newer
@@ -65,7 +75,7 @@ release-manifest.json
 ## Fresh stop-before-effect audit
 
 Record pass/fail and non-sensitive evidence for every item before dispatching
-the smoke-corrected workflow. Any failure stops the operation. Earlier audits
+the cache-environment-corrected workflow. Any failure stops the operation. Earlier audits
 belong to their consumed attempts and cannot authorize this dispatch.
 
 - [ ] repository visibility is public
@@ -81,8 +91,8 @@ belong to their consumed attempts and cannot authorize this dispatch.
 - [ ] target commit is reachable from public `main`
 - [ ] target commit's `ci` run has exactly one successful job named `gate`
 
-Smoke-corrected audit timestamp: `<PENDING_UTC>`
-Smoke-corrected audit operator: `<PENDING>`
+Cache-environment-corrected audit timestamp: `<PENDING_UTC>`
+Cache-environment-corrected audit operator: `<PENDING>`
 Target `ci` run ID/URL: `<PENDING>`  
 Security/ruleset evidence summary: `<PENDING_CREDENTIAL_FREE_SUMMARY>`
 
