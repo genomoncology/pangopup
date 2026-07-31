@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: publication-ready
+Status: ready
 
 ## Why
 
@@ -42,6 +42,11 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   produced no artifact and changed no release state. After the smoke command
   and its execution test are independently reviewed, exactly one
   smoke-corrected dispatch from a new publication-ready commit is permitted.
+  That dispatch, run `30651619497` for commit `6f38173`, passed through release
+  qualification and executed the shared smoke correctly, then stopped when the
+  real CLI rejected `/tmp/model.sqlite3` because `/tmp` is not an owned private
+  cache directory. It produced no artifact and changed no release state. After
+  review, exactly one cache-environment-corrected dispatch is permitted.
 - Publish exactly the six regular files admitted by the qualifier, without
   renaming or recompressing them:
   `pangopup-linux-x86_64`, `pangopup-linux-x86_64.sha256`,
@@ -165,6 +170,10 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   shell nesting as Actions. A valid JSON status, SNV lookup, and model lookup
   must pass; a changed expected JSON value must fail. Text-presence checks
   alone do not satisfy this boundary.
+- The shared smoke must create an owned mode-0700 cache parent under the
+  container's temporary filesystem before model lookup, use the SQLite path
+  beneath it, and be exercised with the real CLI/model fixture so an unsafe
+  cache parent cannot pass through a fake-only test.
 - Before publication, that artifact passes production-data online/offline
   sync, the exact seven-batch canonicalized 1,000-SNV oracle, exact M09 JSONL,
   and combined status in an isolated pinned Linux container.
@@ -242,6 +251,11 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   dequoted `grep` pattern; artifact upload was skipped and no release state
   exists. The prior corrected authorization is consumed. This revision permits
   exactly one smoke-corrected dispatch after review.
+- Preserve smoke-corrected package run `30651619497` as evidence. It passed the
+  shared-script status and SNV checks, then the real model lookup rejected the
+  unsafe `/tmp` cache parent. Artifact upload was skipped and no release state
+  exists. That authorization is consumed; exactly one independently reviewed
+  cache-environment-corrected dispatch remains.
 
 ## Coordinator Authorship
 
@@ -315,6 +329,13 @@ test. The first revision reused the earlier live security audit; the
 coordinator corrected the ticket to require and separately record a complete
 fresh audit immediately before every authorized package dispatch. Final
 re-review: ACCEPT.
+
+Cache-environment correction review: ACCEPT. The reviewer confirmed the exact
+safe failure and absent artifact/public state, the consumed authorization, and
+the narrow correction: preserve cache-path security by creating an owned
+mode-0700 immediate parent under container tmpfs and prove the shared smoke
+with the real CLI/model fixture. A fresh audit, new green exact commit, and one
+cache-environment-corrected dispatch remain required.
 
 ## Implementation Evidence
 
@@ -540,6 +561,24 @@ The operation stopped at the failed workflow and did not retry. The first
 corrected authorization is consumed. After independent acceptance of an
 executed smoke-command regression and a new exact commit's green remote gate,
 exactly one smoke-corrected package dispatch is permitted.
+
+Stopped smoke-corrected attempt:
+
+- target commit: `6f381736df9eda5abbbf1d57641bb40f5e5b024c`;
+- exact remote `ci` run `30651379985`: completed successfully;
+- package workflow run: `30651619497`, completed with `failure`;
+- passed boundary: full gate/build/SBOM/preparation/qualification, shared smoke
+  version/help, status, and precomputed SNV lookup;
+- failure boundary: real model lookup rejected `/tmp/model.sqlite3` with
+  `MODEL_CACHE_INVALID` because `/tmp` is not an owned private directory;
+- artifact: none; Actions artifact upload was skipped;
+- public state after the stop: no draft, release, tag, or uploaded release
+  asset for `v0.1.0`.
+
+That authorization is consumed. After independent acceptance of the private
+cache-parent correction, real-CLI smoke regression, fresh security audit, and a
+new exact commit's green gate, exactly one cache-environment-corrected package
+dispatch is permitted.
 
 Use the exceptional lifecycle:
 
