@@ -118,11 +118,7 @@ jobs:
           image='ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90'
           docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
             -v "$RUNNER_TEMP/release:/release:ro" -v "$GITHUB_WORKSPACE:/source:ro" "$image" bash -ceu '
-              /release/pangopup-linux-x86_64 --version
-              /release/pangopup-linux-x86_64 --help >/dev/null
-              /release/pangopup-linux-x86_64 status --data-dir /tmp/data | grep -q '"'"'status'"'":"'"'missing'"'"
-              /release/pangopup-linux-x86_64 lookup --bundle /source/tests/fixtures/snv-regression/bundle --variant GRCh38:chr12:6801301:G:A | grep -q '"'"'kind'"'":"'"'precomputed'"'"
-              /release/pangopup-linux-x86_64 lookup --bundle /source/tests/fixtures/snv-regression/bundle --variant GRCh38:chr1:5051:A:AC --reference-bundle /source/tests/fixtures/reference-route-test/bundle --mask /source/tests/fixtures/route-mask/domains.pgm --model-bundle /source/tests/fixtures/pangolin-model-kernel-mini/bundle --model-cache /tmp/model.sqlite3 | grep -q '"'"'kind'"'":"'"'model'"'"
+              /source/scripts/smoke-linux-release.sh /release/pangopup-linux-x86_64 /source /tmp/data /tmp/model.sqlite3
             '
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

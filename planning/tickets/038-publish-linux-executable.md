@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: ready
+Status: publication-ready
 
 ## Why
 
@@ -412,6 +412,38 @@ git diff --check
 No GitHub operation, workflow dispatch, tag, release, upload, or repository
 setting mutation occurred during corrected-baseline implementation.
 
+Smoke-correction implementation moved the complete version/help/status/SNV/
+model behavior into `scripts/smoke-linux-release.sh`. The workflow invokes
+that one checked script inside the pinned container with the exact executable,
+source, data, and model-cache arguments; it no longer duplicates commands or
+JSON patterns in nested shell text. The focused executable-delivery test invokes
+the same repository script through a fake `docker ... bash -ceu '...'`
+boundary and a fake Pangopup executable. Valid status, precomputed-SNV, and
+model JSON all pass, all five commands are observed, and a mutated copy changing
+only the expected status from `missing` to `ready` fails. An exact-line test
+binds the workflow to the shared script and its four reviewed arguments and
+rejects inline variant copies. The public operation record preserves
+corrected-baseline package run `30649914623`, its passed qualification boundary,
+failed smoke boundary, zero artifact/release effect, and consumed authorization.
+It requires a separately recorded fresh security audit before the sole
+smoke-corrected dispatch.
+
+Focused smoke-correction checks:
+
+```text
+bash tests/executable-delivery.sh
+  passed
+bash tests/production-release-qualification.sh
+  passed
+bash -n scripts/smoke-linux-release.sh tests/executable-delivery.sh tests/production-release-qualification.sh scripts/qualify-linux-release.sh
+  passed
+git diff --check
+  passed
+```
+
+No GitHub operation, workflow dispatch, tag, release, upload, or repository
+setting mutation occurred during smoke-correction implementation.
+
 ## Adversarial Code Review
 
 Reviewer: `/root/ticket037_implementation`
@@ -457,6 +489,17 @@ isolated-XDG, release-security, rollback, immutable/Latest, and installer
 boundaries. Read-only GitHub inspection also confirmed the recorded failed-run
 stage, zero workflow artifacts, and absence of a `v0.1.0` release or tag. The
 focused suites, shell syntax, and diff checks passed. No material findings.
+
+Smoke-correction code review: REJECT, then ACCEPT after remediation. The first
+test copied workflow commands and bound only their `grep` suffixes, allowing
+the workflow's executable, variants, bundles, mask, or cache arguments to drift
+untested. The developer replaced both copies with one strict shared smoke
+script invoked exactly once by the workflow inside the pinned container and by
+the focused fake-Docker/inner-Bash test. The reviewer confirmed all five
+commands are observed, a changed expected status fails, the exact four-argument
+workflow invocation is bound, and no inline command copy remains. Focused
+suites, shell syntax, and diff checks pass; all release and runtime boundaries
+remain unchanged. Final re-review: ACCEPT.
 
 ## External Effect Evidence
 
@@ -528,3 +571,9 @@ intentionally skipped. The test gate includes the GLIBC 2.40 rejection, stale
 runner/ceiling assertions, pinned-image/runbook assertions, executable delivery
 suite, and hostile production-release qualification suite. The corrected
 publication-ready documentation remains explicitly prepublication.
+
+After smoke-correction re-review acceptance, the coordinator reran the same
+full `make lint`, `make test`, `make spec`, and `git diff --check` gate. All
+passed; Mustmatch reports 236 passed and 6 intentionally skipped. The delivery
+test executed the shared smoke script through the nested shell boundary,
+observed all five commands, and rejected the changed-value mutation.

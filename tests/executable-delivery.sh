@@ -9,6 +9,66 @@ rm -rf -- "$root"
 mkdir -p "$root"
 
 fail() { printf 'executable delivery test: %s\n' "$*" >&2; exit 1; }
+
+smoke_bin="$root/smoke-bin"
+mkdir "$smoke_bin"
+cat >"$smoke_bin/pangopup" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"$SMOKE_LOG"
+if [[ "${1:-}" == --version ]]; then
+  printf 'pangopup 0.1.0\n'
+elif [[ "${1:-}" == --help ]]; then
+  printf 'usage: pangopup\n'
+elif [[ "${1:-}" == status ]]; then
+  printf '{"status":"missing"}\n'
+elif [[ " $* " == *' GRCh38:chr12:6801301:G:A '* ]]; then
+  printf '{"provenance":{"kind":"precomputed"}}\n'
+elif [[ " $* " == *' GRCh38:chr1:5051:A:AC '* ]]; then
+  printf '{"provenance":{"kind":"model"}}\n'
+else
+  exit 2
+fi
+EOF
+cat >"$smoke_bin/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+while (($#)); do
+  if [[ "$1" == bash ]]; then exec "$@"; fi
+  shift
+done
+exit 2
+EOF
+chmod +x "$smoke_bin/pangopup" "$smoke_bin/docker"
+
+smoke_log="$root/smoke.log"
+SMOKE_LOG="$smoke_log" SMOKE_SCRIPT="$repo/scripts/smoke-linux-release.sh" \
+  SMOKE_PANGOPUP="$smoke_bin/pangopup" \
+  SMOKE_SOURCE="$repo" SMOKE_DATA="$root/smoke-data" \
+  SMOKE_CACHE="$root/smoke-cache.sqlite3" PATH="$smoke_bin:$PATH" \
+  docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+    -v "$root:/release:ro" -v "$repo:/source:ro" smoke-image bash -ceu '
+      "$SMOKE_SCRIPT" "$SMOKE_PANGOPUP" "$SMOKE_SOURCE" "$SMOKE_DATA" "$SMOKE_CACHE"
+    '
+[[ "$(wc -l <"$smoke_log")" == 5 ]]
+
+changed_smoke="$root/smoke-changed-expected.sh"
+sed 's/"status":"missing"/"status":"ready"/' \
+  "$repo/scripts/smoke-linux-release.sh" >"$changed_smoke"
+chmod +x "$changed_smoke"
+! cmp -s "$repo/scripts/smoke-linux-release.sh" "$changed_smoke"
+
+if SMOKE_LOG="$smoke_log" SMOKE_SCRIPT="$changed_smoke" \
+  SMOKE_PANGOPUP="$smoke_bin/pangopup" SMOKE_SOURCE="$repo" \
+  SMOKE_DATA="$root/smoke-data" SMOKE_CACHE="$root/smoke-cache.sqlite3" \
+  PATH="$smoke_bin:$PATH" \
+  docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+    -v "$root:/release:ro" -v "$repo:/source:ro" smoke-image bash -ceu '
+      "$SMOKE_SCRIPT" "$SMOKE_PANGOPUP" "$SMOKE_SOURCE" "$SMOKE_DATA" "$SMOKE_CACHE"
+    '; then
+  fail 'shared container smoke accepted a changed expected JSON value'
+fi
+
 expect_installer_failure() {
   local expected=$1
   shift
@@ -318,6 +378,11 @@ grep -Fq '/tmp/pangopup-cyclonedx-source-v1' "$repo/.github/workflows/package-li
 grep -Eq '^    runs-on: ubuntu-24[.]04$' "$repo/.github/workflows/package-linux.yml"
 grep -Fq 'ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90' "$repo/.github/workflows/package-linux.yml"
 grep -Fq '"$maximum" 2.39' "$repo/scripts/qualify-linux-release.sh"
+smoke_invocation='              /source/scripts/smoke-linux-release.sh /release/pangopup-linux-x86_64 /source /tmp/data /tmp/model.sqlite3'
+grep -Fxq "$smoke_invocation" "$repo/.github/workflows/package-linux.yml"
+[[ "$(grep -Fc '/source/scripts/smoke-linux-release.sh' "$repo/.github/workflows/package-linux.yml")" == 1 ]]
+! grep -Fq 'GRCh38:chr12:6801301:G:A' "$repo/.github/workflows/package-linux.yml"
+! grep -Fq 'GRCh38:chr1:5051:A:AC' "$repo/.github/workflows/package-linux.yml"
 ! grep -Eq '^    runs-on: ubuntu-22[.]04$' "$repo/.github/workflows/package-linux.yml"
 ! grep -Fq '"$maximum" 2.35' "$repo/scripts/qualify-linux-release.sh"
 printf 'executable delivery tests passed\n'
