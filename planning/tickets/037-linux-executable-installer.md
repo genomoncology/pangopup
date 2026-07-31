@@ -1,6 +1,6 @@
 # 037 — Package and install the Linux x86_64 executable
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -328,12 +328,71 @@ After the accepted material revision, implementation resumed and completed:
   `git diff --check`, `make lint`, `make test`, and `make spec` pass; Mustmatch
   reports 236 passed and 6 intentionally skipped.
 
+Code-review remediation is complete:
+
+- Installer publication now uses GNU `mv -T`, so an existing executable
+  symlink is replaced rather than followed into its directory; an existing
+  directory is preserved and rejected. The smoke executable is quoted, and
+  `%q` PATH guidance is paste-safe for spaces, globs, and command substitutions.
+- Release staging is created atomically at mode `0700`, and Linux
+  `RENAME_NOREPLACE` prevents a destination appearing during preparation from
+  being overwritten. Focused tests preserve both the late destination and the
+  completed private stage.
+- The installer matrix now covers OS/architecture, downloader/checksum
+  prerequisites, downloader failure, empty/multiple/wrong-name/mismatched
+  checksum records, symlinked and multiply-linked downloads, initial and
+  regular/symlink replacement, directory/non-directory destination rejection,
+  PATH-present behavior, paste-safe PATH guidance, and every printed link.
+  Fixtures derive the workspace version.
+- The prepared manifest is semantically checked for schema, version, commit,
+  target/toolchain, numeric GLIBC ceiling, closed five-name dependency set,
+  exact member inventory, sizes, hashes, and binary size. The independently
+  accepted loader correction includes only `ld-linux-x86-64.so.2` beyond the
+  original four library names.
+- README and FAQ now state the Linux x86_64 GLIBC 2.35 baseline explicitly.
+  Focused remediation tests and fresh full `make lint`, `make test`, and
+  `make spec` gates pass; Mustmatch remains 236 passed and 6 skipped.
+- Final qualification is now one executable workflow/test boundary that
+  enumerates every immediate entry, requires exactly the six literal names,
+  and rejects every symlink, directory, or other non-regular shape. It validates
+  the manifest against independent schema/version/commit/target/toolchain and
+  five-member constants before checking each size and SHA-256. Focused tests
+  reject an extra regular file, substituted symlink and directory, all five
+  rebound manifest identities, and rebound member name/size/digest.
+
 No workflow was triggered, no runtime asset was downloaded, and no tag,
 release, attestation, registry object, or public asset was created.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `/root/ticket031_code_review`
+
+First review: REJECT.
+
+- `mv -f` followed an existing symlink-to-directory, smoke execution was
+  unquoted, and PATH guidance did not shell-escape arbitrary valid paths.
+- Preparer staging was not atomically private and final rename could replace a
+  destination created after the initial check.
+- The accepted installer/workflow/manifest test matrix and GLIBC documentation
+  were incomplete and fixtures hardcoded version `0.1.0`.
+
+The developer remediated each item. During that work, the real ELF exposed the
+standard loader allowlist fact; the coordinator and ticket reviewer revised
+and approved it before development resumed.
+
+Second review: REJECT. The workflow's final inventory counted only regular
+files, so non-regular extras could be ignored, and manifest qualification let
+the manifest define its own expected identities/members.
+
+The developer added the shared exact-six qualifier and independent fixed
+manifest contract with hostile shape and identity tests.
+
+Final re-review: ACCEPT. The reviewer verified all immediate entries are
+enumerated and exactly six literal regular non-symlink files are required;
+schema/version/commit/target/toolchain, ordered members, ELF/GLIBC, sizes, and
+digests are independently fixed; the workflow invokes that tested boundary;
+and all earlier installer/staging/documentation remediations remain intact.
+Focused Rust, shell, delivery, and diff checks passed with no regression.
 
 ## External Effect Evidence
 
@@ -341,4 +400,15 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: `/root`
+
+The coordinator inspected the final diff and independently ran the complete
+repository gate after the accepted code review. `make lint`, `make test`, and
+`make spec` all pass; the executable-delivery suite passes and Mustmatch reports
+236 passed with 6 intentionally skipped. `git diff --check` is clean. The final
+tree contains only the reviewed installer, read-only packaging workflow,
+release preparer/qualifier, tests/specifications, and their documentation.
+
+Ticket 037 caused no public effect: no workflow was dispatched, no tag or
+release was created, and no executable or attestation was uploaded. Those
+actions remain explicitly reserved for Ticket 038.

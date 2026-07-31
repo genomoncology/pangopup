@@ -26,11 +26,12 @@ pub(crate) enum Leaf {
     RuntimeTransportVerify,
     RuntimeTransportUnpack,
     RuntimeReleasePrepare,
+    ExecutableReleasePrepare,
 }
 
 impl Leaf {
     #[cfg(test)]
-    const ALL: [Self; 24] = [
+    const ALL: [Self; 25] = [
         Self::Inspect,
         Self::PrototypeRoundtrip,
         Self::PrototypeOpen,
@@ -55,6 +56,7 @@ impl Leaf {
         Self::RuntimeTransportVerify,
         Self::RuntimeTransportUnpack,
         Self::RuntimeReleasePrepare,
+        Self::ExecutableReleasePrepare,
     ];
 }
 
@@ -236,6 +238,13 @@ const ENTRIES: &[Entry] = &[
         synopsis: "runtime-release prepare --transport <DIR> --target-commit <40_LOWERCASE_HEX> --output <ABSENT_DIR>",
         summary: "Prepare the exact authenticated model-side runtime release upload set.",
     },
+    Entry {
+        leaf: Leaf::ExecutableReleasePrepare,
+        namespace: Some("executable-release"),
+        action: "prepare",
+        synopsis: "executable-release prepare --executable <FILE> --sbom <CYCLONEDX_JSON> --version <MAJOR.MINOR.PATCH> --target-commit <40_LOWERCASE_HEX> --repository <DIR> --output <ABSENT_DIR>",
+        summary: "Prepare the deterministic Linux x86_64 executable release set.",
+    },
 ];
 
 pub(crate) fn resolve(arguments: &[OsString]) -> Option<(Leaf, &[OsString])> {
@@ -383,7 +392,8 @@ mod tests {
                 "model",
                 "runtime-profile",
                 "runtime-transport",
-                "runtime-release"
+                "runtime-release",
+                "executable-release"
             ]
         );
         assert!(

@@ -1,0 +1,132 @@
+name: package-linux
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Exact lowercase 40-character commit reachable from main
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+      - name: Authenticate exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          [[ "$EXACT_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$EXACT_COMMIT" origin/main
+          git diff --quiet --
+          git diff --cached --quiet --
+      - name: Install pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain=$(sed -nE 's/^channel = "([^"]+)"$/\1/p' rust-toolchain.toml)
+          profile=$(sed -nE 's/^profile = "([^"]+)"$/\1/p' rust-toolchain.toml)
+          components=$(sed -nE 's/^components = \[(.*)\]$/\1/p' rust-toolchain.toml | tr -d '",')
+          install=(rustup toolchain install "$toolchain" --profile "$profile")
+          for component in $components; do install+=(--component "$component"); done
+          "${install[@]}"
+          rustup override set "$toolchain"
+          test "$(rustc --version | awk '{print $2}')" = 1.93.1
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.8.0"
+      - name: Install gate prerequisites
+        run: |
+          set -euo pipefail
+          wheel=mustmatch-0.1.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+          curl --fail --location --silent --show-error --output "$wheel" "https://github.com/genomoncology/mustmatch/releases/download/v0.1.0/$wheel"
+          echo "86c6c250578413009eed9ff591d5fa3107c9695176d418dbfc2ccae87d472e77  $wheel" | sha256sum --check --strict
+          uv tool install "$wheel"
+          archive=cargo-deny-0.19.4-x86_64-unknown-linux-musl.tar.gz
+          curl --fail --location --silent --show-error --output "$archive" "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.4/$archive"
+          echo "3bd58b784e83715b86ddbc9deac591890372ec77fda5741bb0826970b958506f  $archive" | sha256sum --check --strict
+          tar -xzf "$archive"
+          install -m 0755 cargo-deny-0.19.4-x86_64-unknown-linux-musl/cargo-deny "$HOME/.local/bin/cargo-deny"
+          archive=ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz
+          curl --fail --location --silent --show-error --output "$archive" "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/$archive"
+          echo "33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c  $archive" | sha256sum --check --strict
+          tar -xzf "$archive"
+          install -m 0755 ripgrep-15.2.0-x86_64-unknown-linux-musl/rg "$HOME/.local/bin/rg"
+      - name: Gate and build
+        run: |
+          set -euo pipefail
+          make lint
+          make test
+          make spec
+          cargo build --locked --release --package pangopup-cli --package pangopup-build
+          cargo install --locked --version 0.5.9 cargo-cyclonedx
+          test "$(cargo cyclonedx --version | awk '{print $2}')" = 0.5.9
+      - name: Generate deterministic untouched SBOM
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          scratch=/tmp/pangopup-cyclonedx-source-v1
+          [[ ! -e "$scratch" && ! -L "$scratch" ]]
+          owned=0
+          cleanup() { if ((owned)); then rm -rf -- "$scratch"; fi; }
+          trap cleanup EXIT
+          epoch=$(git show -s --format=%ct "$EXACT_COMMIT")
+          for round in one two; do
+            umask 077
+            mkdir "$scratch"
+            owned=1
+            test "$(stat -c %a "$scratch")" = 700
+            git archive "$EXACT_COMMIT" | tar -x -C "$scratch"
+            (cd "$scratch" && SOURCE_DATE_EPOCH="$epoch" CARGO_NET_OFFLINE=true cargo cyclonedx --manifest-path crates/pangopup-cli/Cargo.toml --target x86_64-unknown-linux-gnu --format json --describe binaries --quiet)
+            cp "$scratch/crates/pangopup-cli/pangopup_bin.cdx.json" "$RUNNER_TEMP/pangopup-$round.cdx.json"
+            rm -rf -- "$scratch"
+            owned=0
+          done
+          cmp "$RUNNER_TEMP/pangopup-one.cdx.json" "$RUNNER_TEMP/pangopup-two.cdx.json"
+      - name: Prepare exact release files
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          version=$(sed -nE 's/^version = "([^"]+)"$/\1/p' Cargo.toml | head -1)
+          target/release/pangopup-build executable-release prepare \
+            --executable target/release/pangopup \
+            --sbom "$RUNNER_TEMP/pangopup-one.cdx.json" \
+            --version "$version" --target-commit "$EXACT_COMMIT" \
+            --repository "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/release"
+      - name: Qualify final executable and inventory
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          release="$RUNNER_TEMP/release"
+          version=$(sed -nE 's/^version = "([^"]+)"$/\1/p' Cargo.toml | head -1)
+          scripts/qualify-linux-release.sh "$release" "$version" "$EXACT_COMMIT"
+      - name: Smoke in pinned clean container
+        run: |
+          set -euo pipefail
+          image='ubuntu@sha256:0e0a0fc6d18feda9db1590da249ac93e8d5abfea8f4c3c0c849ce512b5ef8982'
+          docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            -v "$RUNNER_TEMP/release:/release:ro" -v "$GITHUB_WORKSPACE:/source:ro" "$image" bash -ceu '
+              /release/pangopup-linux-x86_64 --version
+              /release/pangopup-linux-x86_64 --help >/dev/null
+              /release/pangopup-linux-x86_64 status --data-dir /tmp/data | grep -q '"'"'status'"'":"'"'missing'"'"
+              /release/pangopup-linux-x86_64 lookup --bundle /source/tests/fixtures/snv-regression/bundle --variant GRCh38:chr12:6801301:G:A | grep -q '"'"'kind'"'":"'"'precomputed'"'"
+              /release/pangopup-linux-x86_64 lookup --bundle /source/tests/fixtures/snv-regression/bundle --variant GRCh38:chr1:5051:A:AC --reference-bundle /source/tests/fixtures/reference-route-test/bundle --mask /source/tests/fixtures/route-mask/domains.pgm --model-bundle /source/tests/fixtures/pangolin-model-kernel-mini/bundle --model-cache /tmp/model.sqlite3 | grep -q '"'"'kind'"'":"'"'model'"'"
+            '
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pangopup-linux-${{ inputs.commit }}
+          path: ${{ runner.temp }}/release
+          if-no-files-found: error
+          retention-days: 7

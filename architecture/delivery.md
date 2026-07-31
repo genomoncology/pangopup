@@ -53,7 +53,8 @@ history or Git LFS.
 
 Release families keep independently versioned concerns separate. The SNV
 lookup uses one shipped eight-file release asset set whose installable transport
-is the closed five-file subset. The executable remains a future public family.
+is the closed five-file subset. The executable is a prepared, not yet public,
+release family.
 The converted model, compiled GRCh38 sequence index, and compiled mask form one
 qualified compatibility-bound public immutable `runtime-grch38-v1` release.
 Their model-side local transport is shipped:
@@ -91,6 +92,22 @@ Model-side preferred source:
   pangopup-e6d8497-source.tar.zst
   Pangolin-GPL-3.0.txt
 ```
+
+## Prepared Linux executable delivery
+
+`install.sh` supports Linux x86_64/amd64 with Bash, curl or wget, and one of
+sha256sum, shasum, or openssl. It downloads the direct executable and adjacent
+checksum, verifies and smoke-tests a same-directory replacement, then atomically
+installs under `${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}`. It never uses sudo,
+changes shell configuration, or downloads runtime assets; `pangopup sync`
+remains explicit.
+
+The future immutable executable release has exactly six members: the direct
+binary, checksum, CycloneDX SBOM, canonical manifest, `LICENSE`, and `NOTICE`.
+The read-only exact-commit workflow compares untouched SBOMs from two fresh
+same-path source extractions and qualifies the final stripped binary on pinned
+Ubuntu 22.04 with maximum imported GLIBC 2.35. It cannot publish, attest, tag,
+or release. Ticket 038 owns the first public executable release.
 
 The twelve runtime upload members contain only Pangopup's derived runtime
 members and metadata. The raw

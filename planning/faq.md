@@ -348,6 +348,23 @@ Hierarchical sparse, compressed-block, and Tabix results remain as historical
 evidence; their comparison implementations and benchmark target have been
 removed.
 
+### How will users install the executable?
+
+The repository contains a checksum-verifying `install.sh` for Linux x86_64.
+After Ticket 038 publishes `v0.1.0`, the latest form will be:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/main/install.sh | bash
+```
+
+For reproducibility, use the tagged script with `--version 0.1.0`. The only
+platform baseline is Linux x86_64 with GLIBC 2.35; prerequisites are Bash,
+curl or wget, and sha256sum, shasum, or openssl. It
+installs under `${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}`, prints PATH guidance
+when needed, and directs the user to `pangopup sync` and `pangopup status`. It
+does not use sudo, edit shell files, or download data automatically. No public
+executable exists until Ticket 038 completes.
+
 ### How are large artifacts delivered?
 
 The target is separately versioned GitHub release assets: executable, CC BY

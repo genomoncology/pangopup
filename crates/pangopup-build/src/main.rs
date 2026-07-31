@@ -5,6 +5,7 @@ use pangopup_assets::{
 use pangopup_build::{
     CommandError, build_bundle,
     compatibility::{CaptureArguments, capture_corpus, inspect_corpus},
+    executable_release::prepare_executable_release,
     inspect_directory,
     model::{
         ConvertArguments, EvidenceArguments, convert_model_bundle, create_model_evidence,
@@ -44,6 +45,7 @@ fn main() -> ExitCode {
             json_usage("runtime-transport requires pack, verify, or unpack")
         }
         Some("runtime-release") => json_usage("runtime-release requires prepare"),
+        Some("executable-release") => json_usage("executable-release requires prepare"),
         Some(_) => unreachable!("closed namespace catalog"),
         None => json_failure(&CommandError::new("CLI_USAGE", LEGACY_USAGE)),
     }
@@ -132,6 +134,36 @@ fn dispatch(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
         | Leaf::RuntimeTransportVerify
         | Leaf::RuntimeTransportUnpack => runtime_transport_command(leaf, arguments),
         Leaf::RuntimeReleasePrepare => runtime_release_command(arguments),
+        Leaf::ExecutableReleasePrepare => executable_release_command(arguments),
+    }
+}
+
+fn executable_release_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let Ok(values) = parse_exact_flags(
+        arguments,
+        &[
+            "--executable",
+            "--sbom",
+            "--version",
+            "--target-commit",
+            "--repository",
+            "--output",
+        ],
+    ) else {
+        return json_usage(
+            "executable-release prepare requires --executable, --sbom, --version, --target-commit, --repository, and --output exactly once",
+        );
+    };
+    match prepare_executable_release(
+        Path::new(values[0]),
+        Path::new(values[1]),
+        values[2].to_str().unwrap_or_default(),
+        values[3].to_str().unwrap_or_default(),
+        Path::new(values[4]),
+        Path::new(values[5]),
+    ) {
+        Ok(outcome) => json_success(&outcome),
+        Err(error) => json_failure(&error),
     }
 }
 

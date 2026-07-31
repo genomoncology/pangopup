@@ -22,7 +22,9 @@ The exact derived model-side release and its GPL preferred source are public
 as the immutable
 [`runtime-grch38-v1` release](https://github.com/genomoncology/pangopup/releases/tag/runtime-grch38-v1).
 Pinned model-side synchronization and combined top-level CLI provisioning are
-shipped; the HTTP service remains unimplemented. Ticket 012 has now
+shipped. A checksum-verifying Linux x86_64 direct-binary installer and
+read-only exact-commit release packaging workflow are prepared, but no public
+executable exists until Ticket 038. The HTTP service remains unimplemented. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
 Ticket 014 promotes the exact selected bytes behind a domains-only production
@@ -822,6 +824,28 @@ Accepted contigs are exactly `1`…`22`, `X`, `Y`, `M`, their `chr`-prefixed
 forms, or the 25 exact RefSeq accessions in the opened manifest. Add one
 `--gene ENSG…` to filter the complete batch. JSON Lines is the default;
 `--format table` emits exact tab-separated rows.
+
+## Prepared executable installer
+
+Pangopup prepares a direct Linux x86_64 executable rather than an archive. Once
+Ticket 038 publishes `v0.1.0`, install the GitHub Latest executable with:
+
+```bash skip
+curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/main/install.sh | bash
+```
+
+For an immutable version, use the tagged script and explicit version:
+
+```bash skip
+curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/v0.1.0/install.sh | bash -s -- --version 0.1.0
+```
+
+The installer supports Linux x86_64/amd64 with a GLIBC 2.35 baseline and
+requires Bash, curl or wget, and one of sha256sum, shasum, or openssl. It verifies the adjacent checksum,
+smoke-tests the replacement, and atomically installs to
+`${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}`. It does not use sudo, edit `PATH`,
+or download data; run `pangopup sync` afterward. There is no public executable
+until Ticket 038 completes.
 
 Release builders use explicit, read-only inputs and never download data or
 discover a home directory:

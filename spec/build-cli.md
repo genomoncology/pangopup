@@ -31,7 +31,9 @@ model qualify --bundle <MODEL_BUNDLE> --evidence <EVIDENCE_DIR>
 runtime-profile prepare --snv-bundle <SNV_BUNDLE> --model-bundle <MODEL_BUNDLE> --reference-bundle <REFERENCE_BUNDLE> --mask <MASK_FILE> --output <PROFILE_JSON>
 runtime-transport pack --profile <FILE> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> --output <ABSENT_DIR>
 runtime-transport verify --transport <DIR>
-runtime-transport unpack --transport <DIR> --output <ABSENT_DIR>"
+runtime-transport unpack --transport <DIR> --output <ABSENT_DIR>
+runtime-release prepare --transport <DIR> --target-commit <40_LOWERCASE_HEX> --output <ABSENT_DIR>
+executable-release prepare --executable <FILE> --sbom <CYCLONEDX_JSON> --version <MAJOR.MINOR.PATCH> --target-commit <40_LOWERCASE_HEX> --repository <DIR> --output <ABSENT_DIR>"
 ```
 
 Short help, namespace help, and leaf help are successful stdout-only
@@ -89,6 +91,8 @@ runtime-profile prepare
 runtime-transport pack
 runtime-transport verify
 runtime-transport unpack
+runtime-release prepare
+executable-release prepare
 EOF
 rm help.stderr
 test -z "$(find . -mindepth 1 -print -quit)"

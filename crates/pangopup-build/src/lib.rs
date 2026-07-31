@@ -2,6 +2,7 @@
 
 mod command_error;
 pub mod compatibility;
+pub mod executable_release;
 pub mod model;
 mod production;
 pub mod reference;

@@ -102,3 +102,7 @@ ADR 0012 defines that descriptive provenance boundary.
 Current work, unresolved priorities, and hypotheses belong in
 [`../planning/`](../planning/). Observable CLI behavior belongs in
 [`../spec/`](../spec/).
+
+Linux x86_64 executable delivery is prepared as a direct binary with checksum,
+SBOM, canonical manifest, GPL license, and notice. Its installer does not
+provision data or mutate `PATH`; publication is a separate reviewed effect.
