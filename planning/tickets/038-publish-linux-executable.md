@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: publication-ready
+Status: ready
 
 ## Why
 
@@ -92,6 +92,10 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   SBOM, preparation, qualification, clean-container smoke, and private Actions
   artifact upload. Remove prerequisites used only by the duplicate gate and
   retain every prerequisite needed by packaging/qualification.
+  Package run `30653836700` proved that the prior full gate had implicitly
+  populated metadata-only crates needed by offline CycloneDX generation. Add
+  explicit `cargo fetch --locked` before the offline two-pass SBOM; do not
+  restore the duplicate gate or permit unlocked metadata downloads.
 - Create a private draft first. Upload each of the six admitted files once,
   without replacement or `--clobber`, and compare the complete remote
   name/size/GitHub SHA-256 inventory after every upload. Stop on any mismatch.
@@ -271,6 +275,10 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   test flaked before the release build. No artifact or release state exists.
   That authorization is consumed. After review, exactly one package-only
   dispatch remains.
+- Preserve package-only run `30653836700` as evidence. Release executables built
+  successfully, but offline CycloneDX metadata lacked locked `fastrand 2.5.0`
+  because only release packages had been fetched. No artifact or public state
+  exists. After review, one locked-fetch-corrected dispatch remains.
 
 ## Coordinator Authorship
 
@@ -358,6 +366,11 @@ release mutation, while the package workflow retains every package-specific
 build, SBOM, qualification, smoke, and artifact boundary. The stopped flaky
 duplicate-gate run, consumed authorization, and one package-only dispatch are
 accurately bounded.
+
+Locked-fetch correction review: ACCEPT. The reviewer confirmed that explicit
+`cargo fetch --locked` prepares the complete lockfile-resolved metadata set
+without restoring duplicate gates or permitting online SBOM resolution. The
+stopped run and one remaining dispatch are accurately bounded.
 
 ## Implementation Evidence
 
@@ -692,6 +705,14 @@ Stopped duplicate-gate attempt:
 
 After independent acceptance of package/CI responsibility separation, a new
 green exact commit, and a fresh security audit, exactly one package-only
+dispatch is permitted.
+
+Stopped offline-SBOM attempt: exact commit
+`342fa6e6a786c89ca03e98cfcb4935e4e4e7ca46`, green CI `30653571561`, package
+run `30653836700`. Release builds passed; deterministic SBOM stopped because
+offline Cargo metadata could not find locked `fastrand 2.5.0`. Later stages
+were skipped; zero artifacts, tags, drafts, releases, or uploads exist. After
+review, new green CI, and fresh audit, exactly one locked-fetch-corrected
 dispatch is permitted.
 
 Use the exceptional lifecycle:
