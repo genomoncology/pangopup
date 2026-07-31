@@ -106,8 +106,12 @@ The future immutable executable release has exactly six members: the direct
 binary, checksum, CycloneDX SBOM, canonical manifest, `LICENSE`, and `NOTICE`.
 The read-only exact-commit workflow compares untouched SBOMs from two fresh
 same-path source extractions and qualifies the final stripped binary on pinned
-Ubuntu 22.04 with maximum imported GLIBC 2.35. It cannot publish, attest, tag,
+Ubuntu 24.04 with maximum imported GLIBC 2.39. It cannot publish, attest, tag,
 or release. Ticket 038 owns the first public executable release.
+The baseline is intentional: the selected static ONNX Runtime 1.24.2 archive
+imports GLIBC 2.38 C23 conversion symbols and cannot link on Ubuntu 22.04's
+GLIBC 2.35. The correction retains the same static runtime, direct executable,
+five admitted dynamic system dependencies, and six-file release inventory.
 
 Before that release becomes public, the downloaded exact-six artifact is
 requalified locally and its executable is exercised in an isolated pinned

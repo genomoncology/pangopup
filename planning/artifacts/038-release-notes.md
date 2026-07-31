@@ -9,7 +9,7 @@ This is Pangopup's first Linux x86_64 executable release. It provides:
 - persistent SQLite caching of model results; and
 - JSON Lines and tab-separated CLI output.
 
-The executable supports Linux x86_64/amd64 with GLIBC 2.35 or newer. Install
+The executable supports Linux x86_64/amd64 with GLIBC 2.39 or newer. Install
 the immutable version with:
 
 ```bash

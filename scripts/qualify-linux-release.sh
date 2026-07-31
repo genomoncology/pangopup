@@ -27,7 +27,7 @@ mapfile -t needed < <(readelf -d "$binary" | sed -n 's/.*(NEEDED).*\[\([^]]*\)\]
 (( ${#needed[@]} > 0 )) || { printf 'release binary has no dynamic dependencies\n' >&2; exit 1; }
 for library in "${needed[@]}"; do [[ "$library" =~ $allowed ]] || { printf 'release binary has a foreign dependency\n' >&2; exit 1; }; done
 maximum=$(readelf --version-info "$binary" | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | cut -d_ -f2 | sort -V | tail -1)
-[[ -n "$maximum" && "$(printf '%s\n' "$maximum" 2.35 | sort -V | tail -1)" == 2.35 ]] || { printf 'release binary exceeds GLIBC 2.35\n' >&2; exit 1; }
+[[ -n "$maximum" && "$(printf '%s\n' "$maximum" 2.39 | sort -V | tail -1)" == 2.39 ]] || { printf 'release binary exceeds GLIBC 2.39\n' >&2; exit 1; }
 (cd "$release" && sha256sum --check --strict pangopup-linux-x86_64.sha256 >/dev/null)
 
 uv run --no-project --python "$(command -v python3)" python - \

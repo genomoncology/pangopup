@@ -136,5 +136,10 @@ awk '
   END { if (!found) exit 1 }
 ' "$repo/planning/artifacts/038-public-linux-release.md" >"$root/coordinator-runbook.sh"
 bash -n "$root/coordinator-runbook.sh"
+image=ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
+[[ "$(grep -Fc "$image" "$repo/planning/artifacts/038-public-linux-release.md")" == 3 ]]
+grep -Fq 'build runner: GitHub-hosted Ubuntu 24.04' "$repo/planning/artifacts/038-public-linux-release.md"
+grep -Fq 'admitted maximum imported GLIBC version: `2.39`' "$repo/planning/artifacts/038-public-linux-release.md"
+grep -Fq 'package run `30648307402` failed while linking' "$repo/planning/artifacts/038-public-linux-release.md"
 
 printf 'production release qualification tests passed\n'

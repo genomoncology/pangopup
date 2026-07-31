@@ -561,7 +561,7 @@ The Linux x86_64 direct-binary installer and deterministic six-file release
 preparer are established. The installer verifies and smoke-tests an atomic
 replacement while preserving an existing binary on failure, and does not
 download data or mutate `PATH`. The read-only exact-commit workflow qualifies a
-private artifact against pinned Ubuntu 22.04 and GLIBC 2.35. The next bounded
+private artifact against pinned Ubuntu 24.04 and GLIBC 2.39. The next bounded
 outcome is Ticket 038's immutable executable publication and public installer
 qualification; HTTP, Docker, other platforms, and package managers remain
 later roadmap slots.

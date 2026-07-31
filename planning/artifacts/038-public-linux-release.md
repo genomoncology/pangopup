@@ -1,11 +1,23 @@
 # Ticket 038 public Linux release operation and evidence
 
-State: **PREPUBLICATION — no workflow has been dispatched and no tag, release,
-or executable asset has been created.**
+State: **PREPUBLICATION — the original-baseline workflow stopped during linking;
+no corrected-baseline artifact, tag, release, or executable asset has been
+created.**
 
 This is a credential-free operation record. Never paste tokens, authentication
 headers, raw `gh auth` output, environment dumps, or signed URL query strings
 into this file.
+
+## Preserved stopped-run evidence
+
+The original Ubuntu 22.04/GLIBC 2.35 attempt targeted preparation commit
+`a82968cfc9c29c4e95f647ecaac7452e6ef78da2`. Its exact remote `ci` run
+`30648083892` passed, but package run `30648307402` failed while linking the
+selected static ONNX Runtime archive. The archive imports C23 conversion
+symbols that GLIBC 2.35 does not provide. The run produced no Actions artifact,
+draft, tag, release, or uploaded release asset and was not retried. The one
+corrected-baseline dispatch authorized below uses Ubuntu 24.04/GLIBC 2.39 and
+does not alter the static runtime, release inventory, or semantic gates.
 
 ## Fixed release contract
 
@@ -16,8 +28,11 @@ into this file.
 - target commit: `<PENDING_40_LOWERCASE_COMMIT>`
 - release body: `planning/artifacts/038-release-notes.md`, byte-for-byte
 - build workflow: `.github/workflows/package-linux.yml`
+- build runner: GitHub-hosted Ubuntu 24.04
+- admitted maximum imported GLIBC version: `2.39`
+- supported runtime: Linux x86_64/amd64 with GLIBC 2.39 or newer
 - pinned qualification container:
-  `ubuntu@sha256:0e0a0fc6d18feda9db1590da249ac93e8d5abfea8f4c3c0c849ce512b5ef8982`
+  `ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90`
 - upload attempts permitted: one per member, without replacement
 
 The admitted release inventory is exactly:
@@ -117,7 +132,7 @@ packaging smoke. `QUALIFICATION_ROOT` is a new empty private host directory;
 `SOURCE_TREE` is the exact publication-ready checkout:
 
 ```bash
-IMAGE=ubuntu@sha256:0e0a0fc6d18feda9db1590da249ac93e8d5abfea8f4c3c0c849ce512b5ef8982
+IMAGE=ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
 docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
   -v "$RELEASE_DIR:/release:ro" -v "$SOURCE_TREE:/source:ro" \
   -v "$QUALIFICATION_ROOT:/qualification:rw" "$IMAGE" bash -ceu '
@@ -201,7 +216,7 @@ readonly TITLE='Pangopup v0.1.0'
 readonly COMMIT=REPLACE_WITH_40_LOWERCASE_PUBLICATION_READY_COMMIT
 readonly CI_RUN_ID=REPLACE_WITH_SUCCESSFUL_CI_RUN_ID
 readonly QUALIFICATION_ROOT=REPLACE_WITH_ABSENT_ABSOLUTE_PRIVATE_DIRECTORY
-readonly IMAGE=ubuntu@sha256:0e0a0fc6d18feda9db1590da249ac93e8d5abfea8f4c3c0c849ce512b5ef8982
+readonly IMAGE=ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
 readonly SOURCE_TREE=$PWD
 readonly BODY=$SOURCE_TREE/planning/artifacts/038-release-notes.md
 readonly HISTORY_RULESET_ID=20071950

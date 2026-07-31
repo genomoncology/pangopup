@@ -254,6 +254,22 @@ expect_qualification_failure() {
   fi
 }
 
+cp -a "$root/release-one" "$root/release-newer-glibc"
+uv run --no-project --python "$(command -v python3)" python - \
+  "$root/release-newer-glibc/pangopup-linux-x86_64" <<'PY'
+import sys
+
+path = sys.argv[1]
+with open(path, "rb") as stream:
+    original = stream.read()
+modified = original.replace(b"GLIBC_2.34\0", b"GLIBC_2.40\0")
+assert modified != original
+with open(path, "wb") as stream:
+    stream.write(modified)
+PY
+expect_qualification_failure newer-glibc "$root/release-newer-glibc"
+grep -Fq 'release binary exceeds GLIBC 2.39' "$root/qualify-newer-glibc.err"
+
 cp -a "$root/release-one" "$root/release-extra"
 printf 'extra\n' >"$root/release-extra/extra"
 expect_qualification_failure extra "$root/release-extra"
@@ -299,5 +315,9 @@ grep -Fq 'scripts/qualify-linux-release.sh "$release" "$version" "$EXACT_COMMIT"
 grep -Fq 'ld-linux-x86-64\.so\.2' "$repo/scripts/qualify-linux-release.sh"
 grep -Fq 'release inventory must contain exactly six entries' "$repo/scripts/qualify-linux-release.sh"
 grep -Fq '/tmp/pangopup-cyclonedx-source-v1' "$repo/.github/workflows/package-linux.yml"
-grep -Fq 'ubuntu@sha256:0e0a0fc6d18feda9db1590da249ac93e8d5abfea8f4c3c0c849ce512b5ef8982' "$repo/.github/workflows/package-linux.yml"
+grep -Eq '^    runs-on: ubuntu-24[.]04$' "$repo/.github/workflows/package-linux.yml"
+grep -Fq 'ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90' "$repo/.github/workflows/package-linux.yml"
+grep -Fq '"$maximum" 2.39' "$repo/scripts/qualify-linux-release.sh"
+! grep -Eq '^    runs-on: ubuntu-22[.]04$' "$repo/.github/workflows/package-linux.yml"
+! grep -Fq '"$maximum" 2.35' "$repo/scripts/qualify-linux-release.sh"
 printf 'executable delivery tests passed\n'

@@ -840,7 +840,7 @@ For an immutable version, use the tagged script and explicit version:
 curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/v0.1.0/install.sh | bash -s -- --version 0.1.0
 ```
 
-The installer supports Linux x86_64/amd64 with a GLIBC 2.35 baseline and
+The installer supports Linux x86_64/amd64 with GLIBC 2.39 or newer and
 requires Bash, curl or wget, and one of sha256sum, shasum, or openssl. It verifies the adjacent checksum,
 smoke-tests the replacement, and atomically installs to
 `${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}`. It does not use sudo, edit `PATH`,

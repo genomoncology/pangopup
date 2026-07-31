@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: ready
+Status: publication-ready
 
 ## Why
 
@@ -353,6 +353,35 @@ installer/offline-reuse/SNV/M09 proof. Placeholder values fail closed before
 the first effect. The focused remediation test passed before the final full
 gate. No coordinator command was executed.
 
+Corrected-baseline implementation changed the read-only packaging runner to
+Ubuntu 24.04 and pinned every clean-container invocation to
+`ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90`.
+The shared qualifier now admits a measured maximum imported GLIBC version of
+2.39 and rejects a test executable mutated to require GLIBC 2.40. README,
+delivery architecture, frontier, FAQ, release notes, and the operation/evidence
+runbook consistently state Linux x86_64/amd64 with GLIBC 2.39 or newer. The
+runbook preserves original package run `30648307402`, its exact preparation
+commit and successful CI run, its link-failure boundary, and the absence of an
+artifact or release mutation. The static ONNX Runtime selection, five admitted
+dynamic system dependencies, exact-six inventory, semantic qualification, and
+one corrected-dispatch boundary are unchanged.
+
+Focused implementation checks:
+
+```text
+bash tests/executable-delivery.sh
+  passed
+bash tests/production-release-qualification.sh
+  passed
+bash -n scripts/qualify-linux-release.sh tests/executable-delivery.sh tests/production-release-qualification.sh
+  passed
+git diff --check
+  passed
+```
+
+No GitHub operation, workflow dispatch, tag, release, upload, or repository
+setting mutation occurred during corrected-baseline implementation.
+
 ## Adversarial Code Review
 
 Reviewer: `/root/ticket037_implementation`
@@ -389,6 +418,15 @@ inventory checks, safe prepublication-only rollback, immutable direct-tag and
 Latest checks, unauthenticated verification, installer proof, negative tests,
 clean diff, and extracted-runbook Bash syntax. No source or GitHub mutation was
 performed during review.
+
+Corrected-baseline code review: ACCEPT. The reviewer independently confirmed
+the Ubuntu 24.04 runner and pinned amd64 image, the measured GLIBC 2.39 import
+and explicit 2.40 rejection, the unchanged exact five system dependencies and
+static ONNX Runtime, and the preserved exact-six, manifest, SBOM, semantic,
+isolated-XDG, release-security, rollback, immutable/Latest, and installer
+boundaries. Read-only GitHub inspection also confirmed the recorded failed-run
+stage, zero workflow artifacts, and absence of a `v0.1.0` release or tag. The
+focused suites, shell syntax, and diff checks passed. No material findings.
 
 ## External Effect Evidence
 
@@ -434,3 +472,11 @@ release, upload, or repository-setting mutation occurred before this check.
 Final completion evidence and the reviewed current-state documentation
 transition remain pending the exact-commit remote gate and coordinator-owned
 external effect.
+
+After corrected-baseline code-review acceptance, the coordinator inspected the
+complete correction and reran `make lint`, `make test`, `make spec`, and
+`git diff --check`. All passed; Mustmatch again reports 236 passed and 6
+intentionally skipped. The test gate includes the GLIBC 2.40 rejection, stale
+runner/ceiling assertions, pinned-image/runbook assertions, executable delivery
+suite, and hostile production-release qualification suite. The corrected
+publication-ready documentation remains explicitly prepublication.

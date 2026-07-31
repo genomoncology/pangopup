@@ -358,7 +358,7 @@ curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/main/install
 ```
 
 For reproducibility, use the tagged script with `--version 0.1.0`. The only
-platform baseline is Linux x86_64 with GLIBC 2.35; prerequisites are Bash,
+platform baseline is Linux x86_64 with GLIBC 2.39 or newer; prerequisites are Bash,
 curl or wget, and sha256sum, shasum, or openssl. It
 installs under `${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}`, prints PATH guidance
 when needed, and directs the user to `pangopup sync` and `pangopup status`. It
