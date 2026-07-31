@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: publication-ready
+Status: ready
 
 ## Why
 
@@ -28,10 +28,20 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   The first dispatch, run `30648307402` for preparation commit `a82968c`,
   stopped safely during linking before producing an artifact or changing any
   release state. After this correction is independently reviewed, dispatch
-  exactly one corrected build from the new publication-ready commit, require
-  successful completion, download its private Actions artifact once, and run
+  the corrected build from the new publication-ready commit. That attempt is
+  now consumed and recorded below. The only remaining authorization is the
+  independently reviewed smoke-corrected dispatch described next.
+  Require its successful completion, download its private Actions artifact
+  once, and run
   `scripts/qualify-linux-release.sh` again locally against that commit and
   workspace version before any release mutation.
+  The first corrected-baseline dispatch, run `30649914623` for commit
+  `dc9cf1c`, passed the full gate, build, SBOM, release preparation, and GLIBC
+  qualification, then stopped in the clean-container smoke because its shell
+  quoting removed the JSON quotation marks from the `grep` patterns. It
+  produced no artifact and changed no release state. After the smoke command
+  and its execution test are independently reviewed, exactly one
+  smoke-corrected dispatch from a new publication-ready commit is permitted.
 - Publish exactly the six regular files admitted by the qualifier, without
   renaming or recompressing them:
   `pangopup-linux-x86_64`, `pangopup-linux-x86_64.sha256`,
@@ -53,8 +63,8 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   no newer than 2.39. The manifest and user documentation must report the
   measured final-binary requirement. The supported platform is Linux
   x86_64/amd64 with GLIBC 2.39 or newer.
-- Before dispatching `package-linux` for the corrected baseline (the first
-  corrected-baseline effect), repeat and
+- Immediately before every independently authorized `package-linux` dispatch,
+  including the remaining smoke-corrected dispatch, repeat and
   record the complete live publication-security audit required by
   `architecture/delivery.md`: read-only default Actions token, disabled Actions
   pull-request approval, enabled Dependabot security updates, enabled secret
@@ -62,6 +72,8 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   alerts, and both active `main` rulesets with the reviewed deletion/
   non-fast-forward and pull-request/`gate` policies and only the approved
   administrator-role bypass. Any drift stops the ticket before dispatch.
+  Record the fresh audit separately for each attempt; an earlier passing audit
+  cannot authorize a later workflow run.
 - Use only the authenticated official `gh` executable for GitHub mutation. Do
   not add product upload code, token handling, release retries, or a publishing
   workflow.
@@ -149,6 +161,10 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
 - The corrected workflow runs on Ubuntu 24.04, every clean-container check
   uses the reviewed pinned Ubuntu 24.04 image, and focused tests reject drift
   back to Ubuntu 22.04 or a GLIBC ceiling other than 2.39.
+- The workflow smoke commands are executed by a focused test using the same
+  shell nesting as Actions. A valid JSON status, SNV lookup, and model lookup
+  must pass; a changed expected JSON value must fail. Text-presence checks
+  alone do not satisfy this boundary.
 - Before publication, that artifact passes production-data online/offline
   sync, the exact seven-batch canonicalized 1,000-SNV oracle, exact M09 JSONL,
   and combined status in an isolated pinned Linux container.
@@ -219,7 +235,13 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   output, or credential-bearing URLs.
 - Preserve the failed package workflow run `30648307402` as evidence. It is
   the one stopped original-baseline attempt and does not authorize repeated
-  retries. This revised ticket permits exactly one corrected-commit dispatch.
+  retries. Its former corrected-commit authorization was consumed by the next
+  recorded attempt.
+- Preserve corrected-baseline package run `30649914623` as evidence. It passed
+  through release qualification and failed only in the smoke's incorrectly
+  dequoted `grep` pattern; artifact upload was skipped and no release state
+  exists. The prior corrected authorization is consumed. This revision permits
+  exactly one smoke-corrected dispatch after review.
 
 ## Coordinator Authorship
 
@@ -285,6 +307,14 @@ effect, and retained exactly one corrected-commit authorization. Final
 re-review confirmed the stopped-effect accounting, corrected platform tests,
 unchanged static-runtime/single-executable/six-file contract, and explicit
 exclusion of older-GLIBC runtime work. ACCEPT.
+
+Smoke-correction review: REJECT, then ACCEPT after remediation. The reviewer
+confirmed the second stopped attempt, consumed authorization, singular
+smoke-corrected dispatch, and required positive/negative execution-level smoke
+test. The first revision reused the earlier live security audit; the
+coordinator corrected the ticket to require and separately record a complete
+fresh audit immediately before every authorized package dispatch. Final
+re-review: ACCEPT.
 
 ## Implementation Evidence
 
@@ -445,10 +475,28 @@ Stopped original-baseline attempt:
   asset for `v0.1.0`.
 
 The operation stopped at the failed workflow. It made no release mutation and
-did not retry. After this material correction is independently accepted and a
-new exact commit passes its remote gate, exactly one corrected-baseline package
-dispatch is permitted. Corrected qualification and publication evidence remain
+did not retry. Its corrected-baseline authorization was consumed by the next
+recorded attempt. Corrected qualification and publication evidence remain
 pending.
+
+Stopped corrected-baseline attempt:
+
+- target commit: `dc9cf1ccb3b0313042bed333463758da24feb184`;
+- exact remote `ci` run `30649639343`: completed successfully;
+- package workflow run: `30649914623`, completed with `failure`;
+- passed boundary: full gate and release build, deterministic SBOM, exact-six
+  preparation, and final GLIBC/dependency/inventory qualification;
+- failure boundary: clean-container smoke. The nested shell expression reduced
+  the intended JSON pattern `"status":"missing"` to `status:missing`, so it
+  rejected the valid JSON output;
+- artifact: none; Actions artifact upload was skipped;
+- public state after the stop: no draft, release, tag, or uploaded release
+  asset for `v0.1.0`.
+
+The operation stopped at the failed workflow and did not retry. The first
+corrected authorization is consumed. After independent acceptance of an
+executed smoke-command regression and a new exact commit's green remote gate,
+exactly one smoke-corrected package dispatch is permitted.
 
 Use the exceptional lifecycle:
 
