@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: design-review
+Status: publication-ready
 
 ## Why
 
@@ -592,6 +592,31 @@ git diff --check
 No GitHub operation, workflow dispatch, tag, release, upload, or repository
 setting mutation occurred during locked-fetch implementation.
 
+SNV-oracle routing correction is now implemented at the production
+qualification boundary. After fresh online/offline sync and combined status,
+the runner requires exactly one installed SNV bundle below
+`XDG_DATA_HOME/pangopup/bundles`, verifies the owned `0700` parent and immutable
+`0555` bundle-directory contract, and supplies its exact `bundle` path to all
+seven SNV lookup batches. The M09 insertion command remains unchanged and has
+no explicit bundle, preserving installed-profile model inference. The
+1,000-case checker and every oracle identity/comparison rule are unchanged.
+
+Focused tests prove all seven SNV commands receive the one exact installed
+path, M09 receives none, and zero, multiple, symlinked, and wrong-mode bundle
+layouts all stop before lookup. Evidence:
+
+```text
+bash tests/production-release-qualification.sh
+  production release qualification tests passed
+bash -n scripts/run-production-qualification.sh tests/production-release-qualification.sh
+  passed
+git diff --check
+  passed
+```
+
+No workflow dispatch, artifact download, release operation, GitHub mutation,
+or use of the preserved sixth-attempt artifact occurred during this correction.
+
 ## Adversarial Code Review
 
 Reviewer: `/root/ticket037_implementation`
@@ -676,6 +701,14 @@ ticket's external-effect ledger had not yet recorded the consumed sixth
 dispatch and still contained a stale authorization. The ledger below now
 records that run, its private artifact, the exact stopped qualification, the
 absence of public mutation, and the sole new SNV-oracle-corrected authorization.
+
+SNV-oracle correction code review: ACCEPT. The reviewer confirmed that bundle
+discovery matches the real XDG install layout and ownership/modes, zero or
+multiple bundles and symlinked/wrong-mode layouts fail closed, all seven SNV
+batches use the exact explicit bundle, and M09 remains bundle-free. The focused
+runner test, shell syntax, and diff checks pass. The 1,000-case checker, Rust
+runtime, workflow, release inventory, assets, and public GitHub state remain
+unchanged.
 
 ## External Effect Evidence
 

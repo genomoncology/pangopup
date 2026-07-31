@@ -180,8 +180,12 @@ scripts/run-production-qualification.sh \
 scripts/check-production-qualification.py <OUTPUT_DIR> <EXACT_SOURCE_TREE>
 ```
 
-The runner performs one online sync, one offline reuse, combined status, the
-seven ordered 1,000-SNV batches, and exact M09 model inference. The checker
+The runner performs one online sync, one offline reuse, combined status, then
+admits exactly one owned immutable SNV bundle below the isolated XDG data root.
+It passes that exact bundle path explicitly to each of the seven ordered
+1,000-SNV batches, preventing intentional precomputed misses from entering
+model fallback. The exact M09 model request deliberately has no `--bundle`, so
+it still qualifies installed-profile model inference. The checker
 removes only `provenance.bundle_id` from both SNV sides, compares every other
 JSON value and order, and compares M09 byte-for-byte. It reads only output and
 checked-in oracle files; it does not scan or hash installed production assets.

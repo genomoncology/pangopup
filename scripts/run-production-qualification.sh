@@ -42,6 +42,37 @@ run_clean "$output_dir/sync-online.json" "$pangopup" sync
 run_clean "$output_dir/sync-offline.json" "$pangopup" sync --offline
 run_clean "$output_dir/status.json" "$pangopup" status
 
+# Production SNV qualification deliberately bypasses installed-profile model
+# fallback. Admit exactly the one immutable SNV bundle that the fresh sync
+# installed, then give that path explicitly to every SNV oracle invocation.
+snv_root=$xdg_data_home/pangopup
+bundles_dir=$snv_root/bundles
+current_uid=$(id -u)
+safe_directory() {
+  local path=$1
+  local mode=$2
+  [[ -d "$path" && ! -L "$path" ]] || return 1
+  [[ $(stat -c '%u' -- "$path") == "$current_uid" ]] || return 1
+  [[ $(stat -c '%a' -- "$path") == "$mode" ]] || return 1
+}
+safe_directory "$snv_root" 700 && safe_directory "$bundles_dir" 700 || {
+  printf 'installed SNV bundle root is unsafe\n' >&2
+  exit 1
+}
+shopt -s nullglob dotglob
+bundle_wrappers=("$bundles_dir"/*)
+shopt -u nullglob dotglob
+(( ${#bundle_wrappers[@]} == 1 )) || {
+  printf 'expected exactly one installed SNV bundle, found %d\n' "${#bundle_wrappers[@]}" >&2
+  exit 1
+}
+bundle_wrapper=${bundle_wrappers[0]}
+snv_bundle=$bundle_wrapper/bundle
+safe_directory "$bundle_wrapper" 555 && safe_directory "$snv_bundle" 555 || {
+  printf 'installed SNV bundle is unsafe\n' >&2
+  exit 1
+}
+
 groups=(
   ENSG00000010610
   ENSG00000141499
@@ -54,7 +85,7 @@ groups=(
 for group in "${groups[@]}"; do
   mapfile -t variants < <(awk -F '\t' -v group="$group" 'NR > 1 && $2 == group { print $4 }' "$requests")
   (( ${#variants[@]} > 0 )) || { printf 'SNV group is empty: %s\n' "$group" >&2; exit 1; }
-  command=("$pangopup" lookup --format jsonl)
+  command=("$pangopup" lookup --bundle "$snv_bundle" --format jsonl)
   for variant in "${variants[@]}"; do command+=(--variant "$variant"); done
   if [[ "$group" != unfiltered ]]; then command+=(--gene "$group"); fi
   run_clean "$output_dir/snv-$group.jsonl" "${command[@]}"
