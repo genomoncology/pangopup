@@ -111,7 +111,8 @@ effects remain Ticket 038.
 - Run the preparer after build and SBOM generation, then qualify the exact
   final output file `pangopup-linux-x86_64`—not the unstripped build input—with:
   - `readelf -d` `DT_NEEDED` restricted to `libstdc++.so.6`,
-    `libgcc_s.so.1`, `libm.so.6`, and `libc.so.6`;
+    `libgcc_s.so.1`, `libm.so.6`, `libc.so.6`, and the standard x86-64 ELF
+    interpreter `ld-linux-x86-64.so.2`;
   - maximum imported `GLIBC_X.Y` derived by `readelf --version-info`, compared
     numerically and required to be at most 2.35;
   - a separate digest-pinned `ubuntu:22.04` container executing `--version`,
@@ -265,6 +266,20 @@ fixed path is created atomically mode `0700`, rejected if pre-existing, and
 removed only when the workflow recorded ownership. Offline/tool/time/target
 controls and the no-public-effect boundary remain intact.
 
+Second implementation prerequisite result: remediation measured the actual
+debug and release ELF with the prescribed `readelf -d` and found one additional
+`DT_NEEDED` entry, the standard `ld-linux-x86-64.so.2` interpreter. The
+coordinator independently reproduced the exact five-entry set. The ticket
+returns to `proposed` solely to add that standard loader to the explicit
+allowlist; changing the binary or treating the platform loader as a foreign
+runtime dependency would be incorrect. The same reviewer must approve this
+material fact correction before development resumes.
+
+Second material-change re-review: ACCEPT. The reviewer confirmed that the
+loader is part of the exact x86-64 GNU/Linux runtime contract, that the
+five-name allowlist remains closed, and that neither the GLIBC 2.35 ceiling nor
+the no-bundled-dependency policy is weakened.
+
 ## Implementation Evidence
 
 Developer: `/root/ticket037_implementation`
@@ -284,6 +299,37 @@ component and dependency references. This is not timestamp or serial drift.
 No generated SBOM or product change was committed. Per Scope, do not normalize
 the generated signed semantics: the ticket must return to coordinator design
 and independent ticket review.
+
+After the accepted material revision, implementation resumed and completed:
+
+- Added the direct Linux x86_64 `install.sh` with strict admission, literal
+  GitHub Latest/pinned URLs, one-record SHA-256 validation, singly-linked file
+  checks, and same-directory smoke-tested atomic replacement. It prints
+  immutable version links, PATH guidance, and explicit `sync`/`status` steps;
+  it never downloads data.
+- Added `pangopup-build executable-release prepare`. It requires an exact clean
+  repository commit and matching workspace/executable version, preserves its
+  inputs, validates untouched CycloneDX JSON, strips a private copy, measures
+  that final ELF's ordered dependencies and maximum GLIBC import, and
+  atomically emits the canonical six-file directory.
+- Added the read-only exact-commit packaging workflow with locked gates/build,
+  cargo-cyclonedx 0.5.9, two fresh safely-owned fixed-path source rounds,
+  untouched SBOM comparison, final-file ABI/inventory verification, pinned
+  network-free Ubuntu 22.04 smoke, and one private Actions artifact. Every
+  action is full-SHA pinned and permission is only `contents: read`.
+- The revised real probe produced byte-identical SBOMs with SHA-256
+  `8c04faeb7adedefb7c65fb24aa2b3698ce532a56cf1df08aaefdfa0c2e1890de`
+  from both fresh rounds without rewriting either output.
+- Focused offline delivery tests pass for latest/pinned URLs, curl/wget, all
+  three checksum tools, grammar rejection, checksum/version failure preserving
+  an existing executable, deterministic preparation, unchanged inputs, exact
+  inventory/checksums, and workflow policy.
+- Updated all named documentation and Mustmatch contracts. `bash -n`,
+  `git diff --check`, `make lint`, `make test`, and `make spec` pass; Mustmatch
+  reports 236 passed and 6 intentionally skipped.
+
+No workflow was triggered, no runtime asset was downloaded, and no tag,
+release, attestation, registry object, or public asset was created.
 
 ## Adversarial Code Review
 
