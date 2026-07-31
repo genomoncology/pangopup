@@ -669,7 +669,13 @@ fetch precedes the single offline CycloneDX command executed in two rounds;
 there is no online/unlocked generation or restored duplicate gate. Focused
 assertions and all retained release boundaries pass.
 
-Locked-fetch correction code review: pending.
+SNV-oracle correction design review: REJECT pending ledger remediation. The
+reviewer accepted the technical boundary—explicit bundle routing for all seven
+SNV batches and unchanged installed-profile M09 inference—but found that this
+ticket's external-effect ledger had not yet recorded the consumed sixth
+dispatch and still contained a stale authorization. The ledger below now
+records that run, its private artifact, the exact stopped qualification, the
+absence of public mutation, and the sole new SNV-oracle-corrected authorization.
 
 ## External Effect Evidence
 
@@ -749,6 +755,24 @@ offline Cargo metadata could not find locked `fastrand 2.5.0`. Later stages
 were skipped; zero artifacts, tags, drafts, releases, or uploads exist. After
 review, new green CI, and fresh audit, exactly one locked-fetch-corrected
 dispatch is permitted.
+
+Stopped production-qualification attempt: exact commit
+`c89588bb5c732c3b27c6ee29891a0384e2707abb`, green CI `30654476039`, successful
+package run `30654709505`, and private Actions artifact `8802820445` named
+`pangopup-linux-c89588bb5c732c3b27c6ee29891a0384e2707abb`. Every package stage
+passed. Fresh production sync, offline reuse, combined status, and all six
+gene-filtered SNV batches passed in the isolated root
+`/home/ian/workspace/data/pangopup-release-038-c89588b`. The unfiltered batch
+then stopped with `MODEL_REJECTED: insufficient GRCh38 reference context`
+because its six intentional precomputed misses were routed through installed
+model fallback. The artifact and isolated root are preserved and must not be
+reused as release input. No draft, release upload, tag, release, or public
+executable asset was created.
+
+That locked-fetch-corrected authorization is consumed. After independent
+acceptance of the explicit-bundle SNV-oracle correction, a new exact commit's
+green CI, and a fresh security audit, exactly one SNV-oracle-corrected package
+and publication attempt is permitted.
 
 Use the exceptional lifecycle:
 
