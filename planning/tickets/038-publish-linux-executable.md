@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: publication-ready
+Status: ready
 
 ## Why
 
@@ -47,6 +47,10 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   real CLI rejected `/tmp/model.sqlite3` because `/tmp` is not an owned private
   cache directory. It produced no artifact and changed no release state. After
   review, exactly one cache-environment-corrected dispatch is permitted.
+  That dispatch, run `30652858960` for commit `8b271c0`, stopped in the package
+  workflow's redundant `make test` after the already-green exact-commit CI gate
+  because an unrelated allocation-count test observed 184 instead of 180.
+  It produced no artifact and changed no release state.
 - Publish exactly the six regular files admitted by the qualifier, without
   renaming or recompressing them:
   `pangopup-linux-x86_64`, `pangopup-linux-x86_64.sha256`,
@@ -82,6 +86,12 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
 - Use only the authenticated official `gh` executable for GitHub mutation. Do
   not add product upload code, token handling, release retries, or a publishing
   workflow.
+- The package workflow must not rerun `make lint`, `make test`, or `make spec`.
+  The runbook already requires the exact commit's single green CI `gate`; the
+  package workflow owns only exact checkout authentication, release build,
+  SBOM, preparation, qualification, clean-container smoke, and private Actions
+  artifact upload. Remove prerequisites used only by the duplicate gate and
+  retain every prerequisite needed by packaging/qualification.
 - Create a private draft first. Upload each of the six admitted files once,
   without replacement or `--clobber`, and compare the complete remote
   name/size/GitHub SHA-256 inventory after every upload. Stop on any mismatch.
@@ -256,6 +266,11 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   unsafe `/tmp` cache parent. Artifact upload was skipped and no release state
   exists. That authorization is consumed; exactly one independently reviewed
   cache-environment-corrected dispatch remains.
+- Preserve package run `30652858960` as evidence. The exact commit CI was green,
+  but the workflow redundantly reran the full gate and an unrelated allocation
+  test flaked before the release build. No artifact or release state exists.
+  That authorization is consumed. After review, exactly one package-only
+  dispatch remains.
 
 ## Coordinator Authorship
 
@@ -336,6 +351,13 @@ the narrow correction: preserve cache-path security by creating an owned
 mode-0700 immediate parent under container tmpfs and prove the shared smoke
 with the real CLI/model fixture. A fresh audit, new green exact commit, and one
 cache-environment-corrected dispatch remain required.
+
+Package/CI separation review: ACCEPT. The reviewer confirmed the exact commit's
+full green CI gate remains authenticated before dispatch and rechecked before
+release mutation, while the package workflow retains every package-specific
+build, SBOM, qualification, smoke, and artifact boundary. The stopped flaky
+duplicate-gate run, consumed authorization, and one package-only dispatch are
+accurately bounded.
 
 ## Implementation Evidence
 
@@ -621,6 +643,19 @@ Stopped smoke-corrected attempt:
 That authorization is consumed. After independent acceptance of the private
 cache-parent correction, real-CLI smoke regression, fresh security audit, and a
 new exact commit's green gate, exactly one cache-environment-corrected package
+dispatch is permitted.
+
+Stopped duplicate-gate attempt:
+
+- target commit: `8b271c065be198df2feffc33fbdee27cd49ac463`;
+- exact remote `ci` run `30652597423`: completed successfully;
+- package workflow run: `30652858960`, completed with `failure`;
+- failure boundary: redundant `make test`; unrelated warmed-allocation test
+  observed 184 allocations after a 180-allocation baseline;
+- release build, artifact creation/upload, draft, tag, and release: none.
+
+After independent acceptance of package/CI responsibility separation, a new
+green exact commit, and a fresh security audit, exactly one package-only
 dispatch is permitted.
 
 Use the exceptional lifecycle:
