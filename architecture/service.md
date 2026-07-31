@@ -44,8 +44,8 @@ The service exposes:
 Readiness will consume the established canonical four-asset runtime profile
 and reject a mixed tuple. Offline installation, activation, CLI discovery, and
 held provider opening exist; service lifecycle composition remains future.
-Service startup may invoke the same future pinned asset-sync operation exposed
-explicitly as `pangopup assets sync`. Offline mode forbids networking and names
+Service startup may invoke the same pinned asset-sync operation exposed
+explicitly as `pangopup sync`. Offline mode forbids networking and names
 missing or incompatible assets. A running process holds one immutable opened
 profile; an upgrade is a new process, not an in-place mmap/model swap.
 

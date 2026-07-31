@@ -212,7 +212,7 @@ format or installer:
 All four SNV delivery stages are shipped. Deterministic local packaging and
 publication of the converted model, GRCh38 sequence index, and mask are also
 shipped. Pinned typed download and direct cached-transport installation are
-also shipped; combined CLI provisioning remains a separate reviewed outcome.
+also shipped; combined CLI provisioning is the shipped composition boundary.
 
 Retained evidence selected the `acgt2-rle-v1` reference payload by speed from
 three exact mmap candidates on the pinned six-contig RefSeq input. It now feeds
@@ -220,8 +220,8 @@ a separate production `PGRREF01` bundle and provider. The discarded candidate
 files, miniature, benchmark executable, and CLI have been removed; their
 reports and decisions remain historical evidence rather than runtime assets.
 Compiled GRCh38 sequence index XDG installation, local transport, and
-publication and pinned typed remote provisioning are shipped. Combined CLI
-provisioning remains future work.
+publication, pinned typed remote provisioning, and combined CLI provisioning
+are shipped.
 The raw FASTA and assembly report are never packaged.
 
 Ticket 012's canonical export, unselected candidates, phase receipts, and
@@ -231,7 +231,7 @@ source interfaces are no longer present at HEAD. ADR 0013 permits only the
 exact selected `domains.pgm` member to become the runtime asset. Its
 manifest-bound local transport verification, XDG installation, publication,
 and pinned typed remote provisioning are shipped. Combined CLI provisioning
-remains separate work. The production reader performs none of those delivery
+composes them. The production reader performs none of those delivery
 operations.
 
 ## Shipped Linux installation and pinned remote sync
@@ -241,15 +241,15 @@ compatible lookup asset set. The shipped full runtime profile separately
 identifies the converted model, compiled GRCh38 sequence index, and mask
 assets; its offline XDG installation and activation path is established.
 The exact public payload is immutable and public. The library now provides
-pinned runtime remote provisioning and direct cached-transport installation;
-one combined public CLI provisioning/status contract remains future work.
+pinned runtime remote provisioning, direct cached-transport installation, and
+one combined public CLI provisioning/status contract.
 
 The shipped local command accepts an already available transport:
 
 ```text
 pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]
-pangopup assets status [--data-dir <ABSOLUTE_PATH>]
-pangopup assets sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
+pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
+pangopup status [--data-dir <ABSOLUTE_PATH>]
 ```
 
 It resolves `--data-dir`, `PANGOPUP_DATA_DIR`, `XDG_DATA_HOME/pangopup`, then
@@ -285,7 +285,7 @@ lock is acquired before working directories or a published transport are
 inspected or changed. Hostile directory entries are validated and removed as a
 bounded stream rather than collected in memory.
 
-`pangopup assets sync` uses the compiled canonical profile directly; it does
+`pangopup sync` uses the compiled canonical profiles directly; it does
 not fetch a profile, query the GitHub API, or accept an arbitrary URL. Its
 bounded rustls client accepts only the reviewed GitHub and release-download
 hosts over HTTPS and follows at most five explicit redirects. Offline mode

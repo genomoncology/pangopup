@@ -585,6 +585,18 @@ pub fn runtime_local_status(data_root: &Path) -> Result<RuntimeLocalStatus, Asse
     )
 }
 
+pub(crate) fn runtime_local_status_locked(
+    locked: &super::local::LockedRoot,
+) -> Result<RuntimeLocalStatus, AssetError> {
+    let root_path = descriptor_path(&locked.root.dir);
+    runtime_local_status_with(
+        &root_path,
+        &locked.root.path,
+        &crate::production_runtime_profile(),
+        false,
+    )
+}
+
 /// Admit the active installed runtime tuple for the exact already-open SNV
 /// identity. Neither the SNV payload nor the dense reference payload is
 /// scanned.

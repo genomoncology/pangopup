@@ -24,8 +24,8 @@ complete model results while preserving lookup-first laziness. One canonical
 four-asset runtime profile now binds the exact compatible production tuple;
 offline Linux/XDG installation, atomic activation, and lookup consumption are
 shipped. Deterministic local model-side packaging, immutable publication, and
-the typed pinned model-side sync/install primitive are shipped; combined CLI
-provisioning and the HTTP service remain target work. The
+the typed pinned model-side sync/install primitive and combined top-level CLI
+provisioning/status are shipped; the HTTP service remains target work. The
 reference
 wire/writer and sole mmap reader are now separate; future reference builds use
 v2 byte-producing provenance and installed admission has one held-descriptor
@@ -39,7 +39,7 @@ Ticket 014 now exposes Ticket 012's selected byte-identical GENCODE v38
 the one-time candidate/qualification source has been removed while its retained
 selection evidence remains. Compiled sequence-index, mask, and model local
 packaging, immutable publication, pinned sync, and direct one-pass install from
-cached transport are shipped; combined CLI provisioning remains future work.
+cached transport and combined CLI provisioning/status are shipped.
 
 ## Repository contract shape
 

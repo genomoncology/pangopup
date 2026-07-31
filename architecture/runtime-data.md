@@ -8,8 +8,8 @@ already contains the source Ensembl gene identity, masked gain/loss values, and
 their relative positions. It does not need a FASTA, GTF, transcript database,
 or network call on this path.
 
-On Linux, `pangopup assets sync` downloads the exact compiled-in public
-transport into disposable XDG cache and passes it to the same
+On Linux, `pangopup sync` downloads both exact compiled-in public transports
+into disposable XDG cache and passes them to the same
 `pangopup assets install` boundary that reconstructs a supplied transport under
 XDG user data. The installer records its canonical receipt and atomically
 selects it in `active.json`. Normal lookup discovers that active bundle without a
@@ -278,6 +278,6 @@ the converted model bundle, compact GRCh38 sequence bundle, and compiled
 Pangolin mask member. The shipped coherent profile and offline XDG installer
 install and activate those four identities together; its local transport is
 also shipped, and its exact public assets are immutable. The typed library
-provisioning operation and direct cached-transport installation are shipped;
-one combined SNV/runtime CLI command and status surface remain future work.
+provisioning operation, direct cached-transport installation, and combined
+SNV/runtime CLI command and status surface are shipped.
 Lookup-only use continues to omit the latter three assets.

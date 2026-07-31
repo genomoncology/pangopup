@@ -20,7 +20,7 @@ replacement gates. Persistent SQLite model-result reuse and the canonical
 four-asset compatibility profile and offline Linux/XDG installer are
 established, and installed runtime consumption is shipped. Deterministic local
 model-side packaging, immutable publication, and pinned typed sync are
-shipped; combined CLI provisioning and HTTP remain future work.
+shipped; combined CLI provisioning/status is shipped and HTTP remains future work.
 
 The closed three-codec reference comparison selected `acgt2-rle-v1`; its
 candidate modules, miniature, benchmark executable, and CLI have been removed
@@ -37,8 +37,8 @@ after all candidates passed exhaustive semantic and corruption controls.
 ADR 0013 promotes those exact selected bytes behind the domains-only
 `pangopup_index::mask` production provider, superseding ADR 0011's requirement
 for a separately renamed format. The exact mask delivery asset is public in
-`runtime-grch38-v1`; pinned typed runtime sync is shipped. Combined CLI
-provisioning remains future. The alternate-codec and
+`runtime-grch38-v1`; pinned typed runtime sync and combined CLI provisioning
+are shipped. The alternate-codec and
 qualification results remain in durable historical evidence, while their
 one-time source and executable surfaces are no longer compiled.
 

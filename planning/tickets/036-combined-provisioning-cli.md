@@ -1,6 +1,6 @@
 # 036 — Synchronize and report the complete installed splice runtime
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -210,11 +210,58 @@ contract without production downloads or model initialization.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: `/root/ticket036_implementation`
+
+- Added typed `pangopup-assets` whole-product sync/status outcomes, the
+  data-root provisioning lock, coherent shared-lock status reads, and bounded
+  runtime-cache inspection. The composition retains the existing SNV/runtime
+  transport and installation primitives.
+- Replaced the three historical nested sync/status commands with exact
+  top-level `pangopup sync` and `pangopup status` grammar and ordered compact
+  success/error JSON. Explicit SNV/runtime install commands remain available.
+- Added offline miniature tests for ordering, totals/overflow, dependency
+  short-circuit, both missing inventories, partial outcomes, lock exclusion
+  and release, syncing/installing observations, ready/partial/missing identity
+  policy, mismatch/corruption policy, and exact CLI bytes. Updated executable
+  specs and every named durable/user document.
+- Focused evidence: `cargo test -p pangopup-assets provisioning
+  --no-fail-fast` passed 8; the read-only malformed-cache probe and exact
+  combined-status CLI tests passed independently; the complete CLI package now
+  passes all 26 tests across targets.
+- Code-review remediation replaced recovery-capable published-transport lookup
+  in the offline inspection path with a separate existing-path-only cache
+  opener, existing nonblocking lock, and read-only closed-inventory probe. An
+  adversarial 100-extra-entry cache test proves the probe stops at its first
+  unexpected entry and leaves every entry untouched. Additional accepted-ticket
+  tests prove zero component calls for a top-level lock loser while a real
+  installed lookup remains usable, a complete cached pair through locked
+  top-level composition, and byte-exact ready/mismatch/corrupt CLI status
+  envelopes and exits.
+- Developer gate evidence: `make lint` passed (including cargo-deny, with only
+  the repository's established duplicate-dependency warnings), `make test`
+  passed the full workspace suite, and `make spec` passed 233 with 6 skipped.
+- No production asset, network request, model initialization, format change,
+  publication, or external effect was used.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `/root/ticket036_code_review`
+
+First review: REJECT.
+
+- The first offline runtime-cache inspector reused a recovery-capable helper
+  that could delete an unbounded unexpected directory inventory, contradicting
+  the read-only bounded contract and repair/GC exclusion.
+- Top-level lock exclusion with usable lookup, complete cached-pair
+  composition, and exact ready/mismatch/corrupt CLI status tests were missing.
+
+The developer added a separate existing-path-only read-only cache opener and
+fixed-inventory probe, plus the missing top-level and byte-exact tests. The
+100-extra-entry adversarial case proves early stop and an unchanged directory.
+
+Final re-review: ACCEPT. The reviewer verified both remediations, ran all eight
+provisioning tests plus the focused cache/status cases, found no regression,
+and confirmed `git diff --check` is clean.
 
 ## External Effect Evidence
 
@@ -222,4 +269,19 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: `/root`
+
+- Independently inspected the final diff, review remediation, working-tree
+  inventory, and current-state documentation. Remaining old nested commands
+  occur only in executable rejection examples; shipped/future claims agree.
+- `git diff --check` passed.
+- `make lint` passed; cargo-deny reported only the repository's established
+  duplicate-dependency warnings and all advisory/bans/license/source policies
+  passed.
+- `make test` passed the full workspace, including 91 asset tests and 26 CLI
+  package tests; only the six established maintainer/production measurements
+  remain ignored.
+- `make spec` passed 233 with 6 skipped.
+- No external effect or production asset access occurred. Ticket 036 is
+  complete and the next bounded outcome is Linux x86_64 executable packaging
+  and the binary-only installer, not HTTP or publication yet.

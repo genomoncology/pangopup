@@ -93,16 +93,16 @@ the activated installed profile or three explicit override flags. One canonical 
 now proves which exact SNV, model, reference, mask, and scoring-policy tuple is
 compatible. Offline coherent installation, activation, lazy lookup
 consumption, and deterministic local pack/verify/unpack are shipped. The exact
-public payload and GPL preferred source are immutable and public; automatic
-sync remains future. The original checkpoint containers are
+public payload and GPL preferred source are immutable and public; pinned
+combined sync is shipped. The original checkpoint containers are
 conversion/preferred-source inputs, not installed runtime inputs. The DNA is
 pinned NCBI RefSeq GRCh38.p14
 `GCF_000001405.40`. The boundary map is compiled from the GENCODE annotation
 used by Pangolin's masking behavior. A retained comparison selected the
 constant-membership domain representation from three private mmap candidates.
 The exact selected bytes now have a production domains-only mmap provider,
-manifest-bound local transport, and an immutable public payload; automatic
-asset sync remains future work. SQLite, gffutils, and raw
+manifest-bound local transport, an immutable public payload, and automatic
+pinned asset sync. SQLite, gffutils, and raw
 GTF were one-time qualification inputs and are neither runtime nor current
 build-crate dependencies.
 
@@ -143,8 +143,8 @@ The complete maintenance catalog is available through successful
 `pangopup-build transport pack --help` state the exact closed grammar without
 touching an asset. The transport operations are `transport pack`, `transport
 verify`, and `transport unpack`. `pangopup assets install` installs
-an explicit transport into Linux XDG data, and `pangopup assets status` reports
-the active state. `pangopup-build release prepare` deterministically generates
+an explicit transport into Linux XDG data, and `pangopup status` reports the
+combined SNV/runtime state. `pangopup-build release prepare` deterministically generates
 the pinned `snv-grch38-v1` profile, proof copy, checksums, and notes from bounded
 metadata without opening payload parts. None fetches or publishes remote files;
 the immutable `snv-grch38-v1` release is published separately. Pangopup ships
@@ -157,17 +157,17 @@ download and lookup.
 
 ### Does Pangopup install missing assets automatically?
 
-Explicit remote download is shipped as `pangopup assets sync`. It uses the
-binary-pinned `snv-grch38-v1` profile, safely resumes members into disposable
-XDG cache, and passes only a complete five-file transport to the same installer.
+Explicit remote download is shipped as `pangopup sync`. It uses binary-pinned
+SNV and runtime profiles, safely resumes members into disposable XDG cache,
+and passes only complete transports to the existing installers.
 `--offline` forbids network access and can install a completed cached transport.
 Later `pangopup lookup` discovers and cheaply reuses the active immutable bundle
 without `--bundle` or network access. Lookup does not download implicitly.
 The three model-side assets can separately be installed from trusted local
 inputs with `assets runtime install`. Their exact immutable public release is
-available, and the library has a pinned resumable runtime-sync operation that
-installs its cached transport directly. A combined top-level CLI command,
-persistent download progress, and container prefetch remain future.
+available, and the combined top-level CLI installs its cached transport
+directly after the compatible SNV. Exact persistent download progress and
+container prefetch remain future.
 
 ### Will asset sync download whatever release is latest?
 
@@ -231,8 +231,8 @@ although IUPAC4 touched two fewer logical pages. Normal tests use the small
 complete production `PGRREF01` bundle/provider. The discarded candidate codecs,
 miniature, benchmark executable, and CLI have been removed; retained reports
 and decisions preserve the selection evidence. Local packaging and immutable
-publication and pinned typed remote delivery are shipped. Combined CLI
-provisioning remains future work. Model integration is shipped through
+publication, pinned typed remote delivery, and combined CLI provisioning are
+shipped. Model integration is shipped through
 `pangopup-engine`.
 
 ### Which compact GENCODE mask encoding will Pangopup use?
@@ -247,7 +247,7 @@ selected `PGMBEN01` v1 domains bytes behind the production
 second format identity. The other-codec results remain in retained historical
 evidence; their writer/readers and qualification machinery have been removed.
 Local mask packaging, byte-exact reconstruction, and immutable publication are
-shipped. Automatic remote delivery remains future work.
+shipped, including pinned remote delivery through `pangopup sync`.
 
 The mask retains exact versioned identifiers and `_PAR_Y`, and its effective
 gene membership is `(start,end]` because that is what the upstream point query

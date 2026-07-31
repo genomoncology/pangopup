@@ -5,7 +5,7 @@ Runtime status is offline and missing state is a normal compact result.
 ```bash
 rm -rf ../target/spec/runtime-install
 data=$(cd .. && pwd)/target/spec/runtime-install/data
-pangopup assets runtime status --data-dir "$data" | sed "s|$data|<data>|" | mustmatch like '{"status":"missing","data_dir":"<data>"}'
+pangopup status --data-dir "$data" | sed "s|$data|<data>|" | mustmatch like '{"status":"missing","data_dir":"<data>","syncing":false,"installing":false,"snv":{"status":"missing"},"runtime":{"status":"missing"}}'
 ```
 
 The nested grammar is closed. A complete install request requires all four
@@ -57,9 +57,9 @@ rm -rf "$data"
 install -d -m 700 "$data/runtime"
 printf '{}' > "$data/runtime/active.json"
 chmod 600 "$data/runtime/active.json"
-pangopup assets runtime status --data-dir "$data"
+pangopup status --data-dir "$data"
 ```
 
 ```text expect=runtime-status-malformed exact
-{"status":"error","code":"PROFILE_CORRUPT","message":"installed JSON is invalid","details":null}
+{"status":"error","code":"ASSET_STATUS_INVALID","message":"installed asset state is invalid","details":{"snv":{"status":"missing"},"runtime":{"status":"error","code":"PROFILE_CORRUPT","message":"installed JSON is invalid"}}}
 ```

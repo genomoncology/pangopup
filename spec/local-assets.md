@@ -13,7 +13,7 @@ gzip -n -c ../tests/fixtures/full-build-source/ENSG00000000002.tsv > ../target/s
 pangopup-build build --source ../target/spec/local-assets/source --reference ../tests/fixtures/full-build-reference.fa --output ../target/spec/local-assets/bundle >/dev/null
 pangopup-build transport pack --bundle ../target/spec/local-assets/bundle --output ../target/spec/local-assets/transport >/dev/null
 data=$(cd .. && pwd)/target/spec/local-assets/data
-pangopup assets status --data-dir "$data" | sed "s|$data|<data>|" | mustmatch like '{"status":"missing","data_dir":"<data>"}'
+pangopup status --data-dir "$data" | sed "s|$data|<data>|" | mustmatch like '{"status":"missing","data_dir":"<data>","syncing":false,"installing":false,"snv":{"status":"missing"},"runtime":{"status":"missing"}}'
 ```
 
 Install publishes one immutable bundle and an active profile. Successful
@@ -22,7 +22,7 @@ stdout is one compact object whose path names the three-member bundle itself.
 ```bash
 data=$(cd .. && pwd)/target/spec/local-assets/data
 pangopup assets install --transport ../target/spec/local-assets/transport --data-dir "$data" | sed -E "s|$data|<data>|; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch like '{"status":"installed","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle"}'
-pangopup assets status --data-dir "$data" | sed -E "s|$data|<data>|; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch like '{"status":"ready","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle","installing":false}'
+pangopup status --data-dir "$data" | sed -E "s|$data|<data>|g; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch like '{"status":"partial","data_dir":"<data>","syncing":false,"installing":false,"snv":{"status":"ready","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle"},"runtime":{"status":"missing"}}'
 test "$(stat -c %a "$data")" = 700
 test "$(stat -c %a "$data/active.json")" = 600
 test "$(find "$data/bundles" -mindepth 1 -maxdepth 1 -type d -printf '%m')" = 555
@@ -75,7 +75,7 @@ PANGOPUP_DATA_DIR=$(cd .. && pwd)/target/spec/local-assets/empty-data pangopup l
 ```
 
 ```bash run id=local-assets-relative-path exit=2 stream=stderr
-PANGOPUP_DATA_DIR=relative XDG_DATA_HOME=/tmp/pangopup-unused pangopup assets status
+PANGOPUP_DATA_DIR=relative XDG_DATA_HOME=/tmp/pangopup-unused pangopup status
 ```
 
 ```text expect=local-assets-relative-path contains

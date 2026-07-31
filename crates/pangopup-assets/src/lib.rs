@@ -19,6 +19,7 @@ use std::{
 mod error;
 mod input_audit;
 mod local;
+mod provisioning;
 mod release;
 mod runtime_install;
 mod runtime_profile;
@@ -35,6 +36,12 @@ pub use input_audit::{test_reset_input_opens, test_take_input_opens};
 pub use local::{
     ActiveBundle, DataPathInputs, InstallOutcome, LocalStatus, active_bundle, install_transport,
     local_status, open_active_bundle, resolve_data_root,
+};
+pub use provisioning::{
+    CombinedLocalStatus, CombinedStatusInvalid, CombinedStatusResult, CombinedSyncIncomplete,
+    CombinedSyncOutcome, CombinedSyncResult, ComponentError, ComponentState, RuntimeNotAttempted,
+    RuntimeReadyStatus, RuntimeStatusObservation, RuntimeSyncObservation, SnvReadyStatus,
+    SnvStatusObservation, SnvSyncObservation, combined_local_status, sync_all_assets,
 };
 pub use release::{
     PrepareReleaseOutcome, ProofReceipt, ReleaseProfile, parse_proof_receipt,
@@ -68,8 +75,8 @@ pub use runtime_transport::{
 };
 pub use snv::{BundleCertification, MAX_FIXED11_BYTES, NOTICE, NOTICE_SHA256, certify_bundle};
 pub use sync::{
-    CachePathInputs, RuntimeSyncOutcome, SyncOutcome, resolve_cache_root, sync_assets,
-    sync_runtime_assets,
+    CachePathInputs, RuntimeCacheInspection, RuntimeSyncOutcome, SyncOutcome,
+    inspect_runtime_cache, resolve_cache_root, sync_assets, sync_runtime_assets,
 };
 
 #[cfg(test)]

@@ -164,7 +164,7 @@ struct StageMarker {
 }
 
 pub(crate) struct Root {
-    path: PathBuf,
+    pub(crate) path: PathBuf,
     pub(crate) dir: Dir,
     euid: u32,
 }
@@ -175,6 +175,9 @@ pub(crate) struct Dir {
 }
 
 struct InstallLock(File);
+
+#[derive(Debug)]
+pub(crate) struct ProvisioningLock(File);
 
 struct InstallScoreWriter<'a>(&'a mut File);
 
@@ -198,6 +201,13 @@ struct ValidatedInstalled {
 }
 
 impl Drop for InstallLock {
+    fn drop(&mut self) {
+        // SAFETY: flock acts on this live owned descriptor and does not retain it.
+        unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) };
+    }
+}
+
+impl Drop for ProvisioningLock {
     fn drop(&mut self) {
         // SAFETY: flock acts on this live owned descriptor and does not retain it.
         unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) };
@@ -271,6 +281,18 @@ pub fn local_status(data_root: &Path) -> Result<LocalStatus, AssetError> {
         }),
         None => Ok(LocalStatus::Missing {
             data_dir: data_root.to_owned(),
+        }),
+    }
+}
+
+pub(crate) fn local_status_locked(locked: &LockedRoot) -> Result<LocalStatus, AssetError> {
+    match read_active_optional(&locked.root)? {
+        Some(active) => Ok(LocalStatus::Ready {
+            active,
+            installing: false,
+        }),
+        None => Ok(LocalStatus::Missing {
+            data_dir: locked.root.path.clone(),
         }),
     }
 }
@@ -1235,6 +1257,64 @@ pub(crate) fn acquire_shared_install_lock(data_root: &Path) -> Result<LockedRoot
     let root = open_root(data_root, true)?.ok_or_else(|| asset_io("create data root"))?;
     let lock = acquire_install_lock(&root)?;
     Ok(LockedRoot { root, _lock: lock })
+}
+
+pub(crate) fn acquire_existing_install_lock(
+    data_root: &Path,
+) -> Result<Option<LockedRoot>, AssetError> {
+    require_linux()?;
+    let Some(root) = open_root(data_root, false)? else {
+        return Ok(None);
+    };
+    let lock = acquire_install_lock(&root)?;
+    Ok(Some(LockedRoot { root, _lock: lock }))
+}
+
+pub(crate) fn acquire_provisioning_lock(data_root: &Path) -> Result<ProvisioningLock, AssetError> {
+    require_linux()?;
+    let root = open_root(data_root, true)?.ok_or_else(|| asset_io("create data root"))?;
+    let file = open_or_create_file(&root.dir, ".sync.lock", METADATA_MODE, &root)?;
+    set_mode(&file, METADATA_MODE)?;
+    // SAFETY: flock acts on the live descriptor and does not retain pointers.
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if result == 0 {
+        Ok(ProvisioningLock(file))
+    } else if io::Error::last_os_error().kind() == ErrorKind::WouldBlock {
+        Err(AssetError::new(
+            AssetErrorKind::AssetLocked,
+            "another Pangopup synchronization is in progress",
+        ))
+    } else {
+        Err(asset_io("lock Pangopup synchronization"))
+    }
+}
+
+pub(crate) fn probe_provisioning_lock(data_root: &Path) -> Result<bool, AssetError> {
+    require_linux()?;
+    let Some(root) = open_root(data_root, false)? else {
+        return Ok(false);
+    };
+    let Some(file) = open_optional_file(
+        &root.dir,
+        ".sync.lock",
+        METADATA_MODE,
+        &root,
+        AssetErrorKind::AssetStateInvalid,
+    )?
+    else {
+        return Ok(false);
+    };
+    // SAFETY: flock acts on this live descriptor only.
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if result == 0 {
+        // SAFETY: descriptor is live and owned here.
+        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+        Ok(false)
+    } else if io::Error::last_os_error().kind() == ErrorKind::WouldBlock {
+        Ok(true)
+    } else {
+        Err(asset_io("probe Pangopup synchronization"))
+    }
 }
 
 pub(crate) fn probe_install_lock(root: &Root) -> Result<bool, AssetError> {

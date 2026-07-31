@@ -21,8 +21,8 @@ supported non-SNV needs inference; explicit fallback paths remain an override.
 The exact derived model-side release and its GPL preferred source are public
 as the immutable
 [`runtime-grch38-v1` release](https://github.com/genomoncology/pangopup/releases/tag/runtime-grch38-v1).
-Pinned model-side library sync is shipped; combined CLI provisioning and the
-HTTP service remain unimplemented. Ticket 012 has now
+Pinned model-side synchronization and combined top-level CLI provisioning are
+shipped; the HTTP service remains unimplemented. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
 Ticket 014 promotes the exact selected bytes behind a domains-only production
@@ -147,7 +147,7 @@ pangopup-build runtime-profile prepare \
 This command reads no SNV score payload, initializes no model session, and
 performs no download, installation, activation, or publication. Its output can
 be installed offline with `pangopup assets runtime install`; bounded
-inspection uses `pangopup assets runtime status`. Installation streams the
+inspection is included in `pangopup status`. Installation streams the
 model, compact reference, and mask once into private immutable XDG data and
 reuses the installed SNV bundle without reading its 15 GB score member.
 The same three local inputs can now be packaged, verified, and reconstructed
@@ -162,8 +162,8 @@ pangopup-build runtime-transport unpack --transport <TRANSPORT_DIR> --output <AB
 The transport has three independent deterministic Zstandard frames and one
 canonical manifest binding the exact profile, metadata, notices, stored bytes,
 and reconstructed bytes. It never opens or packages the 15 GB SNV member.
-The exact derived members are now public in `runtime-grch38-v1`; automatic
-download into the installer remains future work.
+The exact derived members are now public in `runtime-grch38-v1`; `pangopup
+sync` downloads and installs them with the compatible SNV lookup.
 
 Maintainers can prepare the exact model-side publication source without
 rebuilding, recompressing, materializing decoded payloads, or uploading
@@ -430,21 +430,20 @@ upstream GPLv3 license. Its release body is a separate retained file and is not
 uploaded as an asset. Every remote name, size, and GitHub SHA-256 matched after
 one upload, and the completed release reports `immutable=true`. No raw Zenodo,
 NCBI, or GENCODE source input is included. The library now has pinned
-model-side sync; composing it with SNV sync in one public CLI command remains
-the next CLI outcome.
+model-side sync composed with SNV sync in one public CLI command.
 
-The current CLI can sync the SNV transport or install an already available SNV
-transport without networking:
+The current CLI synchronizes the complete compatible splice runtime or can
+install an already available SNV transport without networking:
 
 ```text
-pangopup assets sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
+pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
+pangopup status [--data-dir <ABSOLUTE_PATH>]
 pangopup assets install --transport <TRANSPORT_DIR> [--data-dir <ABSOLUTE_PATH>]
-pangopup assets status [--data-dir <ABSOLUTE_PATH>]
 ```
 
-`assets sync` never asks GitHub for “latest.” The binary contains the exact
-`snv-grch38-v1` profile: five literal HTTPS URLs, sizes, and SHA-256 digests.
-It downloads sequentially through a bounded buffer, follows only a short
+`pangopup sync` never asks GitHub for “latest.” The binary contains exact
+`snv-grch38-v1` and `runtime-grch38-v1` profiles with literal HTTPS URLs,
+sizes, and SHA-256 digests. It downloads sequentially through a bounded buffer, follows only a short
 allowlisted HTTPS redirect chain, and resumes an interrupted member only when
 a strong ETag and exact byte range agree. `--offline` forbids network access
 and can install a previously completed cached transport.
@@ -458,8 +457,8 @@ compressed model/reference/mask frame directly into the existing atomic
 installation stage, and never creates a second decoded transport tree.
 After a content failure, recovery deliberately rereads completed members once
 to retain authenticated good files and discard only corrupt files.
-Combining these two typed operations under top-level CLI `sync` and `status`
-belongs to the next ticket; lookup still never downloads implicitly.
+Top-level CLI `sync` and `status` compose these two typed operations; lookup
+still never downloads implicitly.
 
 It resolves an explicit data directory, `PANGOPUP_DATA_DIR`, `XDG_DATA_HOME`,
 or `HOME` in that order. Installation holds one nonblocking lock, validates and
@@ -480,7 +479,7 @@ The target is built in independently proved layers:
    and cheap verified reuse (shipped);
 3. publish immutable GitHub release assets and prove manual installation,
    offline restart, and lookup on a clean supported machine (shipped); and
-4. expose `pangopup assets sync` to resolve that observed pinned release
+4. expose `pangopup sync` to resolve that observed pinned release
    manifest and safely resume/download its exact parts through the same
    installer (shipped).
 
@@ -490,13 +489,14 @@ fallback. Remote-sync work begins only after that public contract has been
 observed and recorded.
 
 The current lookup CLI resolves and reuses a complete compatible local
-installation without networking. A future service provisioning step can invoke
-the same pinned sync/installer boundary. It will memory-map installed members,
+installation without networking. A future service can invoke the same pinned
+sync/installer boundary. It will memory-map installed members,
 initialize the selected model provider, and only then report ready. It will
 never fetch an unpinned “latest” release.
 
-The target first start may therefore also be a provisioning operation. A
-persistent progress/status surface remains future work. Later starts use the
+The explicit first `pangopup sync` is the provisioning operation, while
+`pangopup status` reports ready, partial, missing, syncing, and installing
+state. Exact byte progress remains future work. Later starts use the
 already installed bundle without contacting the network. A failed download or
 checksum will never replace an older complete bundle or start with partial
 data.
@@ -613,12 +613,12 @@ Implemented today:
   `snv-grch38-v1` public-release contract, without payload-part reads;
 - the public immutable `snv-grch38-v1` eight-asset release with exact
   server-side digests and a documented five-file manual install path;
-- Linux local `pangopup assets install` and `assets status`, with strict XDG
+- Linux local explicit installers and combined `pangopup status`, with strict XDG
   discovery, private dirfd-relative state, a nonblocking lock, single-stream
   reconstruction, canonical receipts/stage markers, immutable bundles, atomic
   active selection, crash reconciliation, and transport-free score reuse;
-- Linux `pangopup assets sync`, pinned to the compiled `snv-grch38-v1`
-  profile, with sequential bounded TLS downloads, strong-ETag range resume,
+- Linux `pangopup sync`, pinned to the compiled SNV and runtime profiles, with
+  sequential bounded TLS downloads, strong-ETag range resume,
   private atomic cache publication, offline reuse, and the same installer as
   the final publication boundary;
 - a checked 1,000-request source-derived JSONL regression fixture exercised
@@ -659,8 +659,8 @@ Implemented today:
   stable warnings/errors, gene filtering after all-gene masking, and
   transactional JSONL/table batches.
 
-Not implemented yet: combined top-level CLI provisioning/status, HTTP service,
-container, persistent model-side download progress/status, or
+Not implemented yet: HTTP service, container, exact persistent download
+progress, or
 repair/GC/rollback.
 Public delivery of the compiled GRCh38 sequence index, mask, and model is
 complete. Deterministic local model-side packaging, offline installation, and
@@ -747,7 +747,7 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
 - `pangopup-build` — offline source validation, deterministic artifact
   builders, the bounded compatibility-corpus adapter, and authenticated
   maintainer model evidence/conversion commands;
-- `pangopup-cli` — shipped lookup, pinned asset sync, local install/status, and
+- `pangopup-cli` — shipped lookup, combined pinned asset sync/status, local install, and
   output adapter; service commands remain future;
 - `pangopup-model` — exact v1 and closed v2 authenticated model bundles,
   context/strand encoding, bounded candidate batching, and the raw single-owner
@@ -805,7 +805,7 @@ Install a local transport once, then query its active bundle:
 
 ```bash skip
 pangopup assets install --transport /path/to/transport
-pangopup assets status
+pangopup status
 pangopup lookup --variant GRCh38:17:7686072:G:T
 ```
 

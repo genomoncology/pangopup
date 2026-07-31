@@ -1,8 +1,8 @@
 use pangopup_assets::{
-    AssetError, AssetErrorKind, CachePathInputs, DataPathInputs, InstalledModelInput, LocalStatus,
-    RuntimeLocalStatus, SyncOutcome, install_runtime_profile, install_transport, local_status,
-    open_active_bundle, open_installed_runtime_profile, resolve_cache_root, resolve_data_root,
-    runtime_local_status, sync_assets,
+    AssetError, AssetErrorKind, CachePathInputs, CombinedStatusResult, CombinedSyncResult,
+    DataPathInputs, InstalledModelInput, combined_local_status, install_runtime_profile,
+    install_transport, open_active_bundle, open_installed_runtime_profile, resolve_cache_root,
+    resolve_data_root, sync_all_assets,
 };
 use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
 use pangopup_cli::{OutputFormat, RenderRequest, render_requests};
@@ -30,7 +30,7 @@ use std::{
     str::FromStr,
 };
 
-const HELP: &str = "Pangopup: exact Pangolin score lookup\n\nUsage:\n  pangopup assets sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets status [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets runtime status [--data-dir <ABSOLUTE_PATH>]\n  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]\n  pangopup --help\n  pangopup --version";
+const HELP: &str = "Pangopup: exact Pangolin score lookup\n\nUsage:\n  pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]\n  pangopup status [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]\n  pangopup --help\n  pangopup --version";
 
 struct Arguments {
     bundle: Option<PathBuf>,
@@ -85,9 +85,6 @@ enum Command {
         transport: PathBuf,
         data_dir: Option<OsString>,
     },
-    Status {
-        data_dir: Option<OsString>,
-    },
     RuntimeInstall {
         profile: PathBuf,
         model_bundle: PathBuf,
@@ -95,7 +92,7 @@ enum Command {
         mask: PathBuf,
         data_dir: Option<OsString>,
     },
-    RuntimeStatus {
+    Status {
         data_dir: Option<OsString>,
     },
     Sync {
@@ -120,14 +117,24 @@ struct ErrorLine<'a> {
     details: Option<()>,
 }
 
+#[derive(Serialize)]
+struct ErrorHead<'a> {
+    status: &'static str,
+    code: &'a str,
+    message: &'a str,
+}
+
 #[derive(Debug)]
 struct Failure {
     code: &'static str,
     message: String,
     exit: u8,
+    details: Option<Vec<u8>>,
 }
 
-type SyncRunner = dyn Fn(&Path, Option<&Path>, bool) -> Result<SyncOutcome, AssetError>;
+type SyncRunner<'a> =
+    dyn Fn(&Path, Option<&Path>, bool) -> Result<CombinedSyncResult, AssetError> + 'a;
+type StatusRunner<'a> = dyn Fn(&Path) -> Result<CombinedStatusResult, AssetError> + 'a;
 
 impl Failure {
     fn usage(message: impl Into<String>) -> Self {
@@ -135,6 +142,7 @@ impl Failure {
             code: "CLI_USAGE",
             message: message.into(),
             exit: 2,
+            details: None,
         }
     }
     fn variant(message: impl Into<String>) -> Self {
@@ -142,6 +150,7 @@ impl Failure {
             code: "INVALID_VARIANT",
             message: message.into(),
             exit: 2,
+            details: None,
         }
     }
     fn gene(message: impl Into<String>) -> Self {
@@ -149,6 +158,7 @@ impl Failure {
             code: "INVALID_GENE",
             message: message.into(),
             exit: 2,
+            details: None,
         }
     }
 
@@ -158,6 +168,7 @@ impl Failure {
             message: "model scoring requires --model-bundle, --reference-bundle, and --mask"
                 .to_owned(),
             exit: 2,
+            details: None,
         }
     }
 
@@ -166,6 +177,7 @@ impl Failure {
             code: "PROFILE_CORRUPT",
             message: "installed runtime profile is invalid".to_owned(),
             exit: 1,
+            details: None,
         }
     }
 }
@@ -202,6 +214,7 @@ fn main() -> ExitCode {
                 code: "OUTPUT_IO",
                 message: error.to_string(),
                 exit: 1,
+                details: None,
             }),
         },
         Err(error) => fail(&error),
@@ -210,11 +223,19 @@ fn main() -> ExitCode {
 
 fn run(raw: &[OsString]) -> Result<Vec<u8>, Failure> {
     run_with_sync(raw, &|data, cache, offline| {
-        sync_assets(data, cache, offline)
+        sync_all_assets(data, cache, offline)
     })
 }
 
-fn run_with_sync(raw: &[OsString], syncer: &SyncRunner) -> Result<Vec<u8>, Failure> {
+fn run_with_sync(raw: &[OsString], syncer: &SyncRunner<'_>) -> Result<Vec<u8>, Failure> {
+    run_with_adapters(raw, syncer, &combined_local_status)
+}
+
+fn run_with_adapters(
+    raw: &[OsString],
+    syncer: &SyncRunner<'_>,
+    statuser: &StatusRunner<'_>,
+) -> Result<Vec<u8>, Failure> {
     match parse_command(raw)? {
         Command::Lookup(arguments) => run_lookup(arguments),
         Command::Install {
@@ -224,27 +245,6 @@ fn run_with_sync(raw: &[OsString], syncer: &SyncRunner) -> Result<Vec<u8>, Failu
             let root = data_root(data_dir)?;
             let result = install_transport(&transport, &root).map_err(map_install_error)?;
             json_line(&result)
-        }
-        Command::Status { data_dir } => {
-            let root = data_root(data_dir)?;
-            let status = local_status(&root).map_err(map_status_error)?;
-            match status {
-                LocalStatus::Missing { data_dir } => json_line(&MissingStatus {
-                    status: "missing",
-                    data_dir,
-                }),
-                LocalStatus::Installing { data_dir } => json_line(&MissingStatus {
-                    status: "installing",
-                    data_dir,
-                }),
-                LocalStatus::Ready { active, installing } => json_line(&ReadyStatus {
-                    status: "ready",
-                    bundle_id: active.bundle_id,
-                    transport_id: active.transport_id,
-                    path: active.path,
-                    installing,
-                }),
-            }
         }
         Command::RuntimeInstall {
             profile,
@@ -259,38 +259,15 @@ fn run_with_sync(raw: &[OsString], syncer: &SyncRunner) -> Result<Vec<u8>, Failu
                     .map_err(map_runtime_error)?;
             json_line(&result)
         }
-        Command::RuntimeStatus { data_dir } => {
+        Command::Status { data_dir } => {
             let root = data_root(data_dir)?;
-            match runtime_local_status(&root).map_err(map_runtime_error)? {
-                RuntimeLocalStatus::Missing { data_dir } => json_line(&MissingStatus {
-                    status: "missing",
-                    data_dir,
-                }),
-                RuntimeLocalStatus::Installing { data_dir } => json_line(&MissingStatus {
-                    status: "installing",
-                    data_dir,
-                }),
-                RuntimeLocalStatus::Ready {
-                    profile_id,
-                    snv_bundle_id,
-                    model_bundle_id,
-                    reference_bundle_id,
-                    mask_sha256,
-                    model_path,
-                    reference_path,
-                    mask_path,
-                    installing,
-                } => json_line(&RuntimeReadyStatus {
-                    status: "ready",
-                    profile_id,
-                    snv_bundle_id,
-                    model_bundle_id,
-                    reference_bundle_id,
-                    mask_sha256,
-                    model_path,
-                    reference_path,
-                    mask_path,
-                    installing,
+            match statuser(&root).map_err(map_status_error)? {
+                CombinedStatusResult::Valid(status) => json_line(&status),
+                CombinedStatusResult::Invalid(invalid) => Err(Failure {
+                    code: "ASSET_STATUS_INVALID",
+                    message: "installed asset state is invalid".to_owned(),
+                    exit: 1,
+                    details: Some(serde_json::to_vec(&invalid).expect("status is serializable")),
                 }),
             }
         }
@@ -302,39 +279,19 @@ fn run_with_sync(raw: &[OsString], syncer: &SyncRunner) -> Result<Vec<u8>, Failu
             let cache = resolve_cache_root(&CachePathInputs::from_environment(cache_dir))
                 .map_err(map_path_error)?;
             let root = data_root(data_dir)?;
-            let result = syncer(&root, cache.as_deref(), offline).map_err(map_sync_error)?;
-            json_line(&result)
+            match syncer(&root, cache.as_deref(), offline).map_err(map_sync_error)? {
+                CombinedSyncResult::Ready(result) => json_line(&result),
+                CombinedSyncResult::Incomplete(incomplete) => Err(Failure {
+                    code: "ASSET_SYNC_INCOMPLETE",
+                    message: "asset synchronization did not complete".to_owned(),
+                    exit: 1,
+                    details: Some(
+                        serde_json::to_vec(&incomplete).expect("sync outcome is serializable"),
+                    ),
+                }),
+            }
         }
     }
-}
-
-#[derive(Serialize)]
-struct MissingStatus {
-    status: &'static str,
-    data_dir: PathBuf,
-}
-
-#[derive(Serialize)]
-struct RuntimeReadyStatus {
-    status: &'static str,
-    profile_id: String,
-    snv_bundle_id: String,
-    model_bundle_id: String,
-    reference_bundle_id: String,
-    mask_sha256: String,
-    model_path: PathBuf,
-    reference_path: PathBuf,
-    mask_path: PathBuf,
-    installing: bool,
-}
-
-#[derive(Serialize)]
-struct ReadyStatus {
-    status: &'static str,
-    bundle_id: String,
-    transport_id: String,
-    path: PathBuf,
-    installing: bool,
 }
 
 fn json_line(value: &impl Serialize) -> Result<Vec<u8>, Failure> {
@@ -342,6 +299,7 @@ fn json_line(value: &impl Serialize) -> Result<Vec<u8>, Failure> {
         code: "OUTPUT_IO",
         message: error.to_string(),
         exit: 1,
+        details: None,
     })?;
     bytes.push(b'\n');
     Ok(bytes)
@@ -591,6 +549,7 @@ fn map_lookup_error(error: pangopup_core::LookupError) -> Failure {
         code: "LOOKUP_CORRUPT",
         message: error.to_string(),
         exit: 1,
+        details: None,
     }
 }
 
@@ -602,6 +561,7 @@ fn render_lookup_requests(
         code: "LOOKUP_CORRUPT",
         message: error.to_string(),
         exit: 1,
+        details: None,
     })
 }
 
@@ -616,18 +576,21 @@ fn open_model_fallback(
             code: "REFERENCE_BUNDLE_INVALID",
             message: "reference bundle is invalid".to_owned(),
             exit: 1,
+            details: None,
         })?;
     observer(FallbackComponent::Mask);
     let mask = MaskDomainsOpen::open_identified(&paths.mask).map_err(|_| Failure {
         code: "MASK_INVALID",
         message: "mask member is invalid".to_owned(),
         exit: 1,
+        details: None,
     })?;
     observer(FallbackComponent::Model);
     let model = ModelKernel::open(&paths.model).map_err(|_| Failure {
         code: "MODEL_BUNDLE_INVALID",
         message: "model bundle is invalid".to_owned(),
         exit: 1,
+        details: None,
     })?;
     Ok(ModelFallback::new(reference, mask, model))
 }
@@ -637,16 +600,19 @@ fn admit_model_fallback(paths: &FallbackPaths) -> Result<FallbackAdmission, Fail
         code: "REFERENCE_BUNDLE_INVALID",
         message: "reference bundle is invalid".to_owned(),
         exit: 1,
+        details: None,
     })?;
     let mask = MaskDomainsOpen::admit(&paths.mask).map_err(|_| Failure {
         code: "MASK_INVALID",
         message: "mask member is invalid".to_owned(),
         exit: 1,
+        details: None,
     })?;
     let model = inspect_model_admission(&paths.model).map_err(|_| Failure {
         code: "MODEL_BUNDLE_INVALID",
         message: "model bundle is invalid".to_owned(),
         exit: 1,
+        details: None,
     })?;
     let provenance = ModelProvenance::new(
         model.bundle_id().to_string(),
@@ -723,18 +689,21 @@ fn open_admitted_model_fallback(
                     code: "REFERENCE_BUNDLE_INVALID",
                     message: "reference bundle is invalid".to_owned(),
                     exit: 1,
+                    details: None,
                 })?;
             observer(FallbackComponent::Mask);
             let mask = mask.open().map_err(|_| Failure {
                 code: "MASK_INVALID",
                 message: "mask member is invalid".to_owned(),
                 exit: 1,
+                details: None,
             })?;
             observer(FallbackComponent::Model);
             let model = ModelKernel::open(&paths.model).map_err(|_| Failure {
                 code: "MODEL_BUNDLE_INVALID",
                 message: "model bundle is invalid".to_owned(),
                 exit: 1,
+                details: None,
             })?;
             ModelFallback::new(reference, mask, model)
         }
@@ -759,6 +728,7 @@ fn open_admitted_model_fallback(
             code: "MODEL_ASSET_IDENTITY_CHANGED",
             message: "model assets changed after cache admission".to_owned(),
             exit: 1,
+            details: None,
         });
     }
     Ok(fallback)
@@ -769,6 +739,7 @@ fn map_cache_error(error: pangopup_cache::CacheError) -> Failure {
         code: "MODEL_CACHE_INVALID",
         message: error.to_string(),
         exit: 1,
+        details: None,
     }
 }
 
@@ -778,11 +749,13 @@ fn map_model_fallback_error(error: ModelFallbackError) -> Failure {
             code: "MODEL_REJECTED",
             message: error.to_string(),
             exit: 2,
+            details: None,
         },
         ModelFallbackError::Scoring(error) => Failure {
             code: "MODEL_SCORING",
             message: error.to_string(),
             exit: 1,
+            details: None,
         },
     }
 }
@@ -790,36 +763,84 @@ fn map_model_fallback_error(error: ModelFallbackError) -> Failure {
 fn parse_command(raw: &[OsString]) -> Result<Command, Failure> {
     match raw.first().and_then(|value| value.to_str()) {
         Some("lookup") => parse_lookup(raw).map(Command::Lookup),
+        Some("sync") => parse_sync(raw),
+        Some("status") => parse_status(raw),
         Some("assets") => parse_assets(raw),
         _ => Err(Failure::usage(HELP)),
     }
 }
 
-fn parse_assets(raw: &[OsString]) -> Result<Command, Failure> {
-    let action = raw
-        .get(1)
-        .and_then(|value| value.to_str())
-        .ok_or_else(|| Failure::usage("assets requires sync, install, or status"))?;
-    if action == "runtime" {
-        return parse_runtime_assets(raw);
-    }
+fn parse_sync(raw: &[OsString]) -> Result<Command, Failure> {
     let mut data_dir = None;
     let mut cache_dir = None;
-    let mut transport = None;
     let mut offline = false;
-    let mut index = 2;
+    let mut index = 1;
     while index < raw.len() {
-        let option = raw[index]
-            .to_str()
-            .ok_or_else(|| Failure::usage("arguments must be UTF-8"))?;
+        let option = utf8_argument(&raw[index])?;
         index += 1;
-        if option == "--offline" && action == "sync" {
+        if option == "--offline" {
             if offline {
                 return Err(Failure::usage("--offline may be supplied once"));
             }
             offline = true;
             continue;
         }
+        let value = raw
+            .get(index)
+            .ok_or_else(|| Failure::usage(format!("{option} requires a value")))?;
+        let slot = match option {
+            "--data-dir" => &mut data_dir,
+            "--cache-dir" => &mut cache_dir,
+            _ => return Err(Failure::usage(format!("unknown sync option {option}"))),
+        };
+        if slot.replace(value.clone()).is_some() {
+            return Err(Failure::usage(format!("{option} may be supplied once")));
+        }
+        index += 1;
+    }
+    Ok(Command::Sync {
+        offline,
+        data_dir,
+        cache_dir,
+    })
+}
+
+fn parse_status(raw: &[OsString]) -> Result<Command, Failure> {
+    let mut data_dir = None;
+    let mut index = 1;
+    while index < raw.len() {
+        let option = utf8_argument(&raw[index])?;
+        index += 1;
+        if option != "--data-dir" {
+            return Err(Failure::usage(format!("unknown status option {option}")));
+        }
+        let value = raw
+            .get(index)
+            .ok_or_else(|| Failure::usage("--data-dir requires a value"))?;
+        if data_dir.replace(value.clone()).is_some() {
+            return Err(Failure::usage("--data-dir may be supplied once"));
+        }
+        index += 1;
+    }
+    Ok(Command::Status { data_dir })
+}
+
+fn parse_assets(raw: &[OsString]) -> Result<Command, Failure> {
+    let action = raw
+        .get(1)
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| Failure::usage("assets requires install or runtime install"))?;
+    if action == "runtime" {
+        return parse_runtime_assets(raw);
+    }
+    let mut data_dir = None;
+    let mut transport = None;
+    let mut index = 2;
+    while index < raw.len() {
+        let option = raw[index]
+            .to_str()
+            .ok_or_else(|| Failure::usage("arguments must be UTF-8"))?;
+        index += 1;
         let value = raw
             .get(index)
             .ok_or_else(|| Failure::usage(format!("{option} requires a value")))?;
@@ -834,11 +855,6 @@ fn parse_assets(raw: &[OsString]) -> Result<Command, Failure> {
                     return Err(Failure::usage("--transport may be supplied once"));
                 }
             }
-            "--cache-dir" if action == "sync" => {
-                if cache_dir.replace(value.clone()).is_some() {
-                    return Err(Failure::usage("--cache-dir may be supplied once"));
-                }
-            }
             _ => return Err(Failure::usage(format!("unknown assets option {option}"))),
         }
         index += 1;
@@ -849,13 +865,7 @@ fn parse_assets(raw: &[OsString]) -> Result<Command, Failure> {
                 .ok_or_else(|| Failure::usage("assets install requires --transport"))?,
             data_dir,
         }),
-        "status" if transport.is_none() => Ok(Command::Status { data_dir }),
-        "sync" if transport.is_none() => Ok(Command::Sync {
-            offline,
-            data_dir,
-            cache_dir,
-        }),
-        _ => Err(Failure::usage("assets requires sync, install, or status")),
+        _ => Err(Failure::usage("assets requires install or runtime install")),
     }
 }
 
@@ -863,7 +873,7 @@ fn parse_runtime_assets(raw: &[OsString]) -> Result<Command, Failure> {
     let action = raw
         .get(2)
         .and_then(|value| value.to_str())
-        .ok_or_else(|| Failure::usage("assets runtime requires install or status"))?;
+        .ok_or_else(|| Failure::usage("assets runtime requires install"))?;
     let mut data_dir = None;
     let mut profile = None;
     let mut model_bundle = None;
@@ -914,15 +924,7 @@ fn parse_runtime_assets(raw: &[OsString]) -> Result<Command, Failure> {
             ),
             data_dir,
         }),
-        "status"
-            if profile.is_none()
-                && model_bundle.is_none()
-                && reference_bundle.is_none()
-                && mask.is_none() =>
-        {
-            Ok(Command::RuntimeStatus { data_dir })
-        }
-        _ => Err(Failure::usage("assets runtime requires install or status")),
+        _ => Err(Failure::usage("assets runtime requires install")),
     }
 }
 
@@ -1127,6 +1129,7 @@ fn map_path_error(error: AssetError) -> Failure {
         code: error.kind().code(),
         message: error.to_string(),
         exit: 2,
+        details: None,
     }
 }
 
@@ -1142,6 +1145,7 @@ fn map_install_error(error: AssetError) -> Failure {
         } else {
             1
         },
+        details: None,
     }
 }
 
@@ -1154,6 +1158,7 @@ fn map_status_error(error: AssetError) -> Failure {
         code,
         message: error.to_string(),
         exit: 1,
+        details: None,
     }
 }
 
@@ -1175,6 +1180,7 @@ fn map_runtime_error(error: AssetError) -> Failure {
         } else {
             1
         },
+        details: None,
     }
 }
 
@@ -1190,6 +1196,7 @@ fn map_sync_error(error: AssetError) -> Failure {
         } else {
             1
         },
+        details: None,
     }
 }
 
@@ -1202,6 +1209,7 @@ fn map_lookup_asset_error(error: AssetError) -> Failure {
         code,
         message: error.to_string(),
         exit: 1,
+        details: None,
     }
 }
 
@@ -1258,6 +1266,7 @@ fn map_open_error(error: IndexError) -> Failure {
         code,
         message: error.to_string(),
         exit: 1,
+        details: None,
     }
 }
 
@@ -1269,13 +1278,27 @@ fn fail(error: &Failure) -> ExitCode {
 }
 
 fn failure_json(error: &Failure) -> Vec<u8> {
-    let line = ErrorLine {
-        status: "error",
-        code: error.code,
-        message: &error.message,
-        details: None,
+    let mut bytes = if let Some(details) = &error.details {
+        let head = ErrorHead {
+            status: "error",
+            code: error.code,
+            message: &error.message,
+        };
+        let mut bytes = serde_json::to_vec(&head).expect("fixed error line is serializable");
+        assert_eq!(bytes.pop(), Some(b'}'));
+        bytes.extend_from_slice(b",\"details\":");
+        bytes.extend_from_slice(details);
+        bytes.push(b'}');
+        bytes
+    } else {
+        serde_json::to_vec(&ErrorLine {
+            status: "error",
+            code: error.code,
+            message: &error.message,
+            details: None,
+        })
+        .expect("fixed error line is serializable")
     };
-    let mut bytes = serde_json::to_vec(&line).expect("fixed error line is serializable");
     bytes.push(b'\n');
     bytes
 }
@@ -1357,7 +1380,6 @@ mod tests {
     #[test]
     fn injected_sync_adapter_renders_exact_compact_json() {
         let args = [
-            OsString::from("assets"),
             OsString::from("sync"),
             OsString::from("--offline"),
             OsString::from("--data-dir"),
@@ -1369,21 +1391,158 @@ mod tests {
             assert_eq!(data, Path::new("/tmp/pangopup-sync-data"));
             assert_eq!(cache, Some(Path::new("/tmp/pangopup-sync-cache")));
             assert!(offline);
-            Ok(SyncOutcome {
-                status: "installed",
-                profile: "snv-grch38-v1".to_owned(),
-                bundle_id: "sha256:bundle".to_owned(),
-                transport_id: "sha256:transport".to_owned(),
-                path: PathBuf::from("/tmp/pangopup-sync-data/bundles/bundle/bundle"),
-                downloaded_bytes: 123,
-                resumed_bytes: 45,
-            })
+            Ok(CombinedSyncResult::Ready(
+                pangopup_assets::CombinedSyncOutcome {
+                    status: "ready",
+                    snv: pangopup_assets::SyncOutcome {
+                        status: "installed",
+                        profile: "snv-grch38-v1".to_owned(),
+                        bundle_id: "sha256:bundle".to_owned(),
+                        transport_id: "sha256:transport".to_owned(),
+                        path: PathBuf::from("/tmp/pangopup-sync-data/bundles/bundle/bundle"),
+                        downloaded_bytes: 123,
+                        resumed_bytes: 45,
+                    },
+                    runtime: pangopup_assets::RuntimeSyncOutcome {
+                        status: "reused",
+                        transport_id: "sha256:runtime-transport".to_owned(),
+                        profile_id: "sha256:profile".to_owned(),
+                        snv_bundle_id: "sha256:bundle".to_owned(),
+                        model_bundle_id: "sha256:model".to_owned(),
+                        reference_bundle_id: "sha256:reference".to_owned(),
+                        mask_sha256: "sha256:mask".to_owned(),
+                        path: PathBuf::from("/tmp/pangopup-sync-data/runtime/profiles/profile"),
+                        downloaded_bytes: 7,
+                        resumed_bytes: 2,
+                    },
+                    downloaded_bytes: 130,
+                    resumed_bytes: 47,
+                },
+            ))
         })
         .expect("sync output");
         assert_eq!(
             bytes,
-            b"{\"status\":\"installed\",\"profile\":\"snv-grch38-v1\",\"bundle_id\":\"sha256:bundle\",\"transport_id\":\"sha256:transport\",\"path\":\"/tmp/pangopup-sync-data/bundles/bundle/bundle\",\"downloaded_bytes\":123,\"resumed_bytes\":45}\n"
+            b"{\"status\":\"ready\",\"snv\":{\"status\":\"installed\",\"profile\":\"snv-grch38-v1\",\"bundle_id\":\"sha256:bundle\",\"transport_id\":\"sha256:transport\",\"path\":\"/tmp/pangopup-sync-data/bundles/bundle/bundle\",\"downloaded_bytes\":123,\"resumed_bytes\":45},\"runtime\":{\"status\":\"reused\",\"transport_id\":\"sha256:runtime-transport\",\"profile_id\":\"sha256:profile\",\"snv_bundle_id\":\"sha256:bundle\",\"model_bundle_id\":\"sha256:model\",\"reference_bundle_id\":\"sha256:reference\",\"mask_sha256\":\"sha256:mask\",\"path\":\"/tmp/pangopup-sync-data/runtime/profiles/profile\",\"downloaded_bytes\":7,\"resumed_bytes\":2},\"downloaded_bytes\":130,\"resumed_bytes\":47}\n"
         );
+    }
+
+    #[test]
+    fn injected_partial_sync_is_one_exact_stderr_envelope() {
+        let args = [
+            OsString::from("sync"),
+            OsString::from("--data-dir"),
+            OsString::from("/tmp/pangopup-sync-data"),
+            OsString::from("--cache-dir"),
+            OsString::from("/tmp/pangopup-sync-cache"),
+        ];
+        let failure = run_with_sync(&args, &|_, _, _| {
+            Ok(CombinedSyncResult::Incomplete(
+                pangopup_assets::CombinedSyncIncomplete {
+                    snv: pangopup_assets::SnvSyncObservation::Complete(
+                        pangopup_assets::SyncOutcome {
+                            status: "reused",
+                            profile: "snv-grch38-v1".to_owned(),
+                            bundle_id: "sha256:bundle".to_owned(),
+                            transport_id: "sha256:transport".to_owned(),
+                            path: PathBuf::from("/data/snv"),
+                            downloaded_bytes: 0,
+                            resumed_bytes: 0,
+                        },
+                    ),
+                    runtime: pangopup_assets::RuntimeSyncObservation::Error(
+                        pangopup_assets::ComponentError {
+                            status: "error",
+                            code: "ASSETS_MISSING",
+                            message: "runtime cache is incomplete".to_owned(),
+                        },
+                    ),
+                },
+            ))
+        })
+        .expect_err("partial sync");
+        assert_eq!(failure.exit, 1);
+        assert_eq!(
+            failure_json(&failure),
+            b"{\"status\":\"error\",\"code\":\"ASSET_SYNC_INCOMPLETE\",\"message\":\"asset synchronization did not complete\",\"details\":{\"snv\":{\"status\":\"reused\",\"profile\":\"snv-grch38-v1\",\"bundle_id\":\"sha256:bundle\",\"transport_id\":\"sha256:transport\",\"path\":\"/data/snv\",\"downloaded_bytes\":0,\"resumed_bytes\":0},\"runtime\":{\"status\":\"error\",\"code\":\"ASSETS_MISSING\",\"message\":\"runtime cache is incomplete\"}}}\n"
+        );
+    }
+
+    fn ready_status(runtime_snv: &str) -> pangopup_assets::CombinedLocalStatus {
+        pangopup_assets::CombinedLocalStatus {
+            status: "ready",
+            data_dir: PathBuf::from("/data"),
+            syncing: false,
+            installing: false,
+            snv: pangopup_assets::SnvStatusObservation::Ready(pangopup_assets::SnvReadyStatus {
+                status: "ready",
+                bundle_id: "sha256:snv".to_owned(),
+                transport_id: "sha256:snv-transport".to_owned(),
+                path: PathBuf::from("/data/snv"),
+            }),
+            runtime: pangopup_assets::RuntimeStatusObservation::Ready(
+                pangopup_assets::RuntimeReadyStatus {
+                    status: "ready",
+                    profile_id: "sha256:profile".to_owned(),
+                    snv_bundle_id: runtime_snv.to_owned(),
+                    model_bundle_id: "sha256:model".to_owned(),
+                    reference_bundle_id: "sha256:reference".to_owned(),
+                    mask_sha256: "sha256:mask".to_owned(),
+                    model_path: PathBuf::from("/data/model"),
+                    reference_path: PathBuf::from("/data/reference"),
+                    mask_path: PathBuf::from("/data/mask"),
+                },
+            ),
+        }
+    }
+
+    #[test]
+    fn combined_status_ready_mismatch_and_corruption_have_exact_cli_bytes() {
+        let args = [
+            OsString::from("status"),
+            OsString::from("--data-dir"),
+            OsString::from("/data"),
+        ];
+        let ready = run_with_adapters(&args, &|_, _, _| panic!("sync is not used"), &|_| {
+            Ok(CombinedStatusResult::Valid(ready_status("sha256:snv")))
+        })
+        .expect("ready status");
+        assert_eq!(
+            ready,
+            b"{\"status\":\"ready\",\"data_dir\":\"/data\",\"syncing\":false,\"installing\":false,\"snv\":{\"status\":\"ready\",\"bundle_id\":\"sha256:snv\",\"transport_id\":\"sha256:snv-transport\",\"path\":\"/data/snv\"},\"runtime\":{\"status\":\"ready\",\"profile_id\":\"sha256:profile\",\"snv_bundle_id\":\"sha256:snv\",\"model_bundle_id\":\"sha256:model\",\"reference_bundle_id\":\"sha256:reference\",\"mask_sha256\":\"sha256:mask\",\"model_path\":\"/data/model\",\"reference_path\":\"/data/reference\",\"mask_path\":\"/data/mask\"}}\n"
+        );
+
+        for (code, message) in [
+            (
+                "PROFILE_INCOMPATIBLE",
+                "installed runtime profile is bound to a different SNV bundle",
+            ),
+            ("PROFILE_CORRUPT", "installed JSON is invalid"),
+        ] {
+            let valid = ready_status("sha256:other");
+            let invalid = pangopup_assets::CombinedStatusInvalid {
+                snv: valid.snv,
+                runtime: pangopup_assets::RuntimeStatusObservation::Error(
+                    pangopup_assets::ComponentError {
+                        status: "error",
+                        code,
+                        message: message.to_owned(),
+                    },
+                ),
+            };
+            let failure = run_with_adapters(&args, &|_, _, _| panic!("sync is not used"), &|_| {
+                Ok(CombinedStatusResult::Invalid(invalid.clone()))
+            })
+            .expect_err("invalid status");
+            assert_eq!(failure.exit, 1);
+            assert_eq!(
+                failure_json(&failure),
+                format!(
+                    "{{\"status\":\"error\",\"code\":\"ASSET_STATUS_INVALID\",\"message\":\"installed asset state is invalid\",\"details\":{{\"snv\":{{\"status\":\"ready\",\"bundle_id\":\"sha256:snv\",\"transport_id\":\"sha256:snv-transport\",\"path\":\"/data/snv\"}},\"runtime\":{{\"status\":\"error\",\"code\":\"{code}\",\"message\":\"{message}\"}}}}}}\n"
+                )
+                .as_bytes()
+            );
+        }
     }
 
     #[test]
@@ -1549,16 +1708,9 @@ mod tests {
     #[test]
     fn sync_grammar_rejects_duplicates_and_values_for_flags() {
         for args in [
-            vec!["assets", "sync", "--offline", "--offline"],
-            vec![
-                "assets",
-                "sync",
-                "--cache-dir",
-                "/tmp/a",
-                "--cache-dir",
-                "/tmp/b",
-            ],
-            vec!["assets", "status", "--offline"],
+            vec!["sync", "--offline", "--offline"],
+            vec!["sync", "--cache-dir", "/tmp/a", "--cache-dir", "/tmp/b"],
+            vec!["status", "--offline"],
         ] {
             let raw: Vec<OsString> = args.into_iter().map(OsString::from).collect();
             assert!(parse_command(&raw).is_err());
@@ -1570,8 +1722,6 @@ mod tests {
         let temp = tempfile::TempDir::new().expect("temp");
         let data = temp.path().join("data");
         let status = [
-            OsString::from("assets"),
-            OsString::from("runtime"),
             OsString::from("status"),
             OsString::from("--data-dir"),
             data.clone().into_os_string(),
@@ -1580,7 +1730,7 @@ mod tests {
         assert_eq!(
             bytes,
             format!(
-                "{{\"status\":\"missing\",\"data_dir\":{}}}\n",
+                "{{\"status\":\"missing\",\"data_dir\":{},\"syncing\":false,\"installing\":false,\"snv\":{{\"status\":\"missing\"}},\"runtime\":{{\"status\":\"missing\"}}}}\n",
                 serde_json::to_string(&data).expect("path JSON")
             )
             .as_bytes()

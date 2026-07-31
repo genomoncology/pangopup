@@ -19,7 +19,7 @@ mmap candidates in one full-source comparison. The one-time candidate and
 qualification source has been removed. The exact retained domains
 member is now available through a production, domains-only typed mmap provider
 and local transport and is public in `runtime-grch38-v1`; typed pinned sync is
-shipped, while combined CLI provisioning remains future. An authenticated combined
+shipped, and combined CLI provisioning/status is established. An authenticated combined
 ONNX representation and qualified single-owner CPU kernel now return the
 twelve raw Pangolin channels. `pangopup-engine` now composes the sequence,
 mask, and kernel providers into compatible masked distance-50 scores for the
@@ -37,7 +37,7 @@ three model-side assets is established. The exact 691,884,908-byte read-only
 green code, with byte equality and all declared checksums qualified. Its
 complete exact GPL preferred-source supplement is also retained and qualified;
 the exact 15-asset set is now public and immutable. Pinned typed model-side
-sync is shipped; combined CLI provisioning and HTTP remain future.
+sync and combined CLI provisioning are shipped; HTTP remains future.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
 and typed mmap provider are established; its local transport, installation,
 and immutable public release are shipped. Future SNV and sequence-index builds use
@@ -90,8 +90,8 @@ uses three independent frames, reconstructs accepted bytes exactly, and never
 touches the 15 GB SNV payload. The publication set adds complete exact
 Pangolin/Pangopup preferred-source archives and the standalone GPL license. It
 is now the immutable public `runtime-grch38-v1` GitHub release with a pinned
-typed remote-sync policy. Combined CLI provisioning and clean-machine CLI
-inference remain. No raw
+typed remote-sync policy and combined top-level CLI provisioning. Clean-machine
+CLI inference qualification remains. No raw
 Zenodo, NCBI, or GENCODE source input is a Pangopup release asset. Original
 checkpoints are preserved as preferred source, not installed runtime members.
 
@@ -188,8 +188,8 @@ draft-first lifecycle around the authenticated official `gh` executable.
 
 ## Established — pinned remote sync
 
-`pangopup assets sync` uses the compiled exact release profile, sequentially
-streams its five reviewed URLs into a private XDG cache, verifies size and
+`pangopup sync` composes the compiled exact SNV and runtime release profiles,
+sequentially streams their reviewed URLs into private XDG cache, verifies size and
 SHA-256, resumes only through an exact strong-ETag range response, atomically
 publishes a closed cache transport, and feeds the shipped installer. It never
 selects “latest.” Exact active reuse and `--offline` perform no network work;
@@ -513,8 +513,8 @@ non-public draft, remote inventory/digest comparison after every upload, and
 one-way immutable finalization. Release `runtime-grch38-v1` now contains the
 exact reviewed 15 assets and reports `immutable=true`; its tag points to the
 pinned target. Pinned typed runtime sync and direct one-pass installation are
-now established. Combined SNV/runtime CLI provisioning, clean-machine CLI
-inference, and offline restart remain next. This outcome precedes HTTP and
+now established. Combined SNV/runtime CLI provisioning/status is established;
+clean-machine CLI inference and offline restart qualification remain next. This outcome precedes HTTP and
 container publication.
 
 Repository and dependency controls do not replace release evidence. Remote

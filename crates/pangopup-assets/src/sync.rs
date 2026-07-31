@@ -61,6 +61,7 @@ mod sync_audit {
     thread_local! {
         static FAULT: RefCell<Option<FaultPoint>> = const { RefCell::new(None) };
         static PREFIX_BYTES: RefCell<u64> = const { RefCell::new(0) };
+        static DIRECTORY_ENTRIES: RefCell<usize> = const { RefCell::new(0) };
     }
 
     pub fn set(point: FaultPoint) {
@@ -102,6 +103,18 @@ mod sync_audit {
 
     pub fn take_prefix_bytes() -> u64 {
         PREFIX_BYTES.take()
+    }
+
+    pub fn reset_directory_entries() {
+        DIRECTORY_ENTRIES.set(0);
+    }
+
+    pub fn record_directory_entry() {
+        DIRECTORY_ENTRIES.with_borrow_mut(|count| *count += 1);
+    }
+
+    pub fn take_directory_entries() -> usize {
+        DIRECTORY_ENTRIES.take()
     }
 }
 
@@ -210,6 +223,11 @@ pub struct RuntimeSyncOutcome {
     pub path: PathBuf,
     pub downloaded_bytes: u64,
     pub resumed_bytes: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeCacheInspection {
+    Complete,
 }
 
 #[derive(Clone, Debug)]
@@ -393,6 +411,51 @@ pub fn sync_runtime_assets(
             &UreqClient::production(),
         )
     })
+}
+
+/// Inspect the pinned runtime cache without installing, decoding, hashing a
+/// large member, or contacting the network.
+pub fn inspect_runtime_cache(
+    cache_root: Option<&Path>,
+) -> Result<RuntimeCacheInspection, AssetError> {
+    let (digest, release) = super::runtime_release::production_runtime_release_profile()?;
+    let cache_root = cache_root.ok_or_else(|| {
+        AssetError::new(
+            AssetErrorKind::PathUnavailable,
+            "no Linux cache directory is available",
+        )
+    })?;
+    let members = release
+        .transport
+        .members
+        .iter()
+        .map(|member| ProfileMember {
+            logical_path: member.logical_path.clone(),
+            asset_name: member.asset_name.clone(),
+            size: member.size,
+            sha256: member.sha256.clone(),
+            url: member.url.clone(),
+        })
+        .collect::<Vec<_>>();
+    let Some(cache) = ReadOnlyCache::open(cache_root, digest)? else {
+        return Err(missing_members_error_read_only(
+            &release.profile,
+            &members,
+            None,
+            None,
+        ));
+    };
+    let _lock = cache.lock()?;
+    if cache.published_complete(&members)? || cache.members_complete(&members)? {
+        Ok(RuntimeCacheInspection::Complete)
+    } else {
+        Err(missing_members_error_read_only(
+            &release.profile,
+            &members,
+            cache.members.as_ref(),
+            cache.partial.as_ref(),
+        ))
+    }
 }
 
 fn with_runtime_cache_lock<T>(
@@ -749,6 +812,78 @@ struct Cache {
     members: PathBuf,
     #[cfg(test)]
     transport: PathBuf,
+}
+
+struct ReadOnlyCache {
+    profile_dir: SafeDir,
+    partial: Option<SafeDir>,
+    members: Option<SafeDir>,
+}
+
+impl ReadOnlyCache {
+    fn open(root: &Path, digest: &str) -> Result<Option<Self>, AssetError> {
+        let identity = digest.strip_prefix("sha256:").filter(|value| {
+            value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+        });
+        let Some(identity) = identity else {
+            return Err(download_error("invalid pinned profile identity"));
+        };
+        let Some(root) = open_existing_cache_root(root)? else {
+            return Ok(None);
+        };
+        let Some(profiles) = open_private_child_optional(&root, "profiles")? else {
+            return Ok(None);
+        };
+        let Some(profile_dir) = open_private_child_optional(&profiles, identity)? else {
+            return Ok(None);
+        };
+        let partial = open_private_child_optional(&profile_dir, "partial")?;
+        let members = open_private_child_optional(&profile_dir, "members")?;
+        Ok(Some(Self {
+            profile_dir,
+            partial,
+            members,
+        }))
+    }
+
+    fn lock(&self) -> Result<CacheLock, AssetError> {
+        let file =
+            open_regular(&self.profile_dir, ".sync.lock", libc::O_RDWR).map_err(|error| {
+                if error.kind() == AssetErrorKind::AssetsMissing {
+                    asset_state("runtime cache lock is missing")
+                } else {
+                    error
+                }
+            })?;
+        validate_private_file(&file, &self.profile_dir, CACHE_FILE_MODE)?;
+        // SAFETY: flock operates on this live descriptor and retains no pointer.
+        let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if result == 0 {
+            Ok(CacheLock(file))
+        } else if io::Error::last_os_error().kind() == io::ErrorKind::WouldBlock {
+            Err(AssetError::new(
+                AssetErrorKind::AssetLocked,
+                "asset cache is already being synchronized",
+            ))
+        } else {
+            Err(asset_io("lock asset cache"))
+        }
+    }
+
+    fn published_complete(&self, members: &[ProfileMember]) -> Result<bool, AssetError> {
+        let Some(dir) = open_private_child_optional(&self.profile_dir, "transport")? else {
+            return Ok(false);
+        };
+        closed_members(&dir, members)
+    }
+
+    fn members_complete(&self, members: &[ProfileMember]) -> Result<bool, AssetError> {
+        self.members
+            .as_ref()
+            .map(|dir| closed_members(dir, members))
+            .transpose()
+            .map(Option::unwrap_or_default)
+    }
 }
 
 #[derive(Debug)]
@@ -1511,6 +1646,40 @@ fn missing_members_error(
     )
 }
 
+fn missing_members_error_read_only(
+    profile_name: &str,
+    members: &[ProfileMember],
+    completed: Option<&SafeDir>,
+    partial: Option<&SafeDir>,
+) -> AssetError {
+    let details = members
+        .iter()
+        .map(|member| {
+            let complete = completed
+                .map(|dir| complete_member_size(dir, &member.asset_name))
+                .transpose()
+                .ok()
+                .flatten()
+                .flatten()
+                .filter(|size| *size == member.size);
+            let partial = partial
+                .map(|dir| regular_size(dir, &format!("{}.partial", member.asset_name)))
+                .transpose()
+                .ok()
+                .flatten()
+                .flatten()
+                .unwrap_or(0);
+            let present = complete.unwrap_or(partial);
+            format!("{}:{present}/{}", member.asset_name, member.size)
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    AssetError::new(
+        AssetErrorKind::AssetsMissing,
+        format!("profile {profile_name} is incomplete: {details}"),
+    )
+}
+
 #[derive(Debug)]
 struct SafeDir {
     file: File,
@@ -1546,6 +1715,40 @@ fn open_or_create_cache_root(path: &Path) -> Result<SafeDir, AssetError> {
     }
     validate_private_dir(&current)?;
     Ok(current)
+}
+
+fn open_existing_cache_root(path: &Path) -> Result<Option<SafeDir>, AssetError> {
+    if !path.is_absolute() {
+        return Err(asset_state("cache root is not absolute"));
+    }
+    let root = open_path_directory(Path::new("/")).map_err(|_| asset_io("open filesystem root"))?;
+    let mut current = safe_dir(root).map_err(|_| asset_io("inspect filesystem root"))?;
+    let mut saw_component = false;
+    for component in path.components() {
+        let Component::Normal(name) = component else {
+            if matches!(component, Component::RootDir) {
+                continue;
+            }
+            return Err(asset_state("cache root contains an invalid component"));
+        };
+        let name = name
+            .to_str()
+            .ok_or_else(|| asset_state("cache root is not UTF-8"))?;
+        saw_component = true;
+        current = match open_child_dir_raw(&current, name, false) {
+            Ok(dir) => dir,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(asset_state("cache root traversal is unsafe")),
+        };
+    }
+    if !saw_component {
+        return Err(asset_state("cache root cannot be the filesystem root"));
+    }
+    if current.uid != effective_uid() {
+        return Err(asset_state("cache root is not owned by the current user"));
+    }
+    validate_private_dir(&current)?;
+    Ok(Some(current))
 }
 
 fn ensure_private_child(parent: &SafeDir, name: &str) -> Result<SafeDir, AssetError> {
@@ -1954,6 +2157,8 @@ fn for_each_name(
         if bytes == b"." || bytes == b".." {
             continue;
         }
+        #[cfg(test)]
+        sync_audit::record_directory_entry();
         let name = String::from_utf8(bytes.to_vec())
             .map_err(|_| DirectoryVisit::Asset(asset_state("cache child name is not UTF-8")))?;
         visit(name)?;
@@ -2717,6 +2922,48 @@ mod tests {
             assert!(message.contains(&format!("{}:0/{}", member.asset_name, member.size)));
         }
         assert!(message.len() < 1_024);
+    }
+
+    #[test]
+    fn runtime_cache_inspection_is_read_only_and_stops_at_first_extra_entry() {
+        let temp = Temp::new();
+        let cache_root = temp.0.join("cache");
+        let (digest, _) =
+            crate::runtime_release::production_runtime_release_profile().expect("authority");
+        let cache = Cache::open(&cache_root, digest).expect("cache");
+        {
+            let _lock = cache.lock().expect("seed lock");
+            cache
+                .initialize_working_directories()
+                .expect("working directories");
+        }
+        let transport = create_private_child(&cache.profile_dir, "transport").expect("transport");
+        for ordinal in 0..100 {
+            let name = format!("unexpected-{ordinal:03}");
+            let file = create_new_file(&transport, &name).expect("unexpected file");
+            set_file_mode(&file, COMPLETE_FILE_MODE).expect("read-only file");
+        }
+        let before = fs::read_dir(&cache.transport)
+            .expect("before")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect::<BTreeSet<_>>();
+
+        sync_audit::reset_directory_entries();
+        let error = inspect_runtime_cache(Some(&cache_root)).expect_err("malformed cache");
+        let visited = sync_audit::take_directory_entries();
+        assert_eq!(error.kind(), AssetErrorKind::AssetsMissing);
+        assert_eq!(
+            visited, 1,
+            "closed inventory stops at the first extra entry"
+        );
+        let after = fs::read_dir(&cache.transport)
+            .expect("after")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            after, before,
+            "inspection does not recover or delete entries"
+        );
     }
 
     #[test]
