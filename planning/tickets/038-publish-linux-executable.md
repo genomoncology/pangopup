@@ -107,9 +107,13 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   boundary by running the prepublication qualification container as the
   invoking host UID:GID, while retaining the runner's private-directory and
   ownership checks. The post-publication installer container must retain root
-  only for package installation, then return its new install/home/post files to
-  the invoking host UID:GID before host checks. Add focused runbook assertions
-  for both ownership transitions. After independent review, one fresh
+  only for OS-package and executable installation, then return its new
+  install/home/post trees to the invoking host UID:GID and drop to that UID:GID
+  before offline sync, status, SNV lookup, and M09 inference. It must never
+  chown the already-qualified data/cache trees. Use the pinned image's existing
+  `setpriv` executable for the explicit privilege drop. Add focused runbook
+  assertions for both ownership transitions and effective-user execution.
+  After independent review, one fresh
   exact-commit package and publication attempt is permitted; never reuse a
   consumed artifact.
 - Create a private draft first. Upload each of the six admitted files once,
@@ -725,6 +729,14 @@ batches use the exact explicit bundle, and M09 remains bundle-free. The focused
 runner test, shell syntax, and diff checks pass. The 1,000-case checker, Rust
 runtime, workflow, release inventory, assets, and public GitHub state remain
 unchanged.
+
+Qualification-ownership design review: REJECT pending remediation. The reviewer
+accepted running the prepublication container as the host UID:GID, but found
+that a root post-publication runtime would reject the host-owned private XDG
+trees before any later chown could help. The corrected design now keeps root
+only for setup, hands only the new install/home/post trees to the host UID:GID,
+and drops privileges before every Pangopup command without changing the
+qualified data/cache trees.
 
 ## External Effect Evidence
 

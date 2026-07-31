@@ -86,6 +86,13 @@ remote gate, exactly one corrected dispatch is permitted. It must use the same
 Ubuntu 24.04/GLIBC 2.39 baseline and must not alter the static runtime, release
 inventory, production assets, or score comparisons.
 
+The prepublication container runs as the invoking host UID:GID so its private
+XDG and output trees remain readable by the host checker. The post-publication
+installer container starts as root only for OS-package and executable setup,
+then changes ownership of only its newly created install/home/post trees and
+uses the pinned image's `setpriv` to run every Pangopup command as that host
+UID:GID. It never changes ownership of the already-qualified data/cache trees.
+
 ## Fixed release contract
 
 - repository: `genomoncology/pangopup`
