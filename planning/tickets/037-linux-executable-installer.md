@@ -93,14 +93,18 @@ effects remain Ticket 038.
 - Generate the CLI binary SBOM before packaging with
   `CARGO_NET_OFFLINE=true`, target `x86_64-unknown-linux-gnu`, JSON output,
   binary-only description, the CLI manifest, and
-  `SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)`. Because
-  cargo-cyclonedx writes beside its selected manifest, create two independent
-  private scratch trees by extracting `git archive <EXACT_COMMIT>`; run exact
-  `cargo-cyclonedx` 0.5.9 installed by `cargo install --locked` in each tree
-  with the existing Cargo cache available offline and the explicit CLI
-  manifest/target/JSON/binary-description arguments. Compare the two generated
-  files byte-for-byte and pass one to the preparer. Never run the generator
-  against the tracked checkout. If
+  `SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)`. cargo-cyclonedx embeds
+  its absolute source path in graph identifiers, so use one fixed absolute
+  scratch pathname `/tmp/pangopup-cyclonedx-source-v1`. Require it absent,
+  create it mode `0700`, extract `git archive <EXACT_COMMIT>`, generate and
+  retain the first SBOM outside that tree, remove the tree, then repeat a fresh
+  extraction/generation at the identical pathname. Trap cleanup and reject a
+  pre-existing file, directory, or symlink rather than reusing/deleting it.
+  Run exact `cargo-cyclonedx` 0.5.9 installed by `cargo install --locked` in
+  both rounds with the existing Cargo cache available offline and the explicit
+  CLI manifest/target/JSON/binary-description arguments. Compare the two
+  generated files byte-for-byte and pass one to the preparer. Never run the
+  generator against the tracked checkout or rewrite its identifiers. If
   cargo-cyclonedx 0.5.9 does not honor deterministic timestamp/serial inputs,
   stop and return the ticket to design review rather than normalize away
   signed semantics.
@@ -148,7 +152,8 @@ effects remain Ticket 038.
   downloader failure, checksum-record errors/mismatch, unsafe downloaded file,
   smoke-test failure preserving an existing binary, and destination failure.
 - Workflow/static tests prove full action SHAs, exact-commit/main/clean checks,
-  locked gates/build/SBOM, two deterministic SBOM runs, the explicit dynamic
+  locked gates/build/SBOM, two fresh same-path deterministic SBOM rounds with
+  hostile-preexisting-path rejection, the explicit dynamic
   library allowlist, numeric GLIBC 2.35 ceiling, separate pinned-container
   smoke, exact artifact inventory, and `contents: read` only.
 - The ordinary gate never dispatches the workflow, contacts GitHub, generates
@@ -175,7 +180,9 @@ effects remain Ticket 038.
    the exact subjects/predicate and invocation in Ticket 038.
 7. **SBOM generation inside packaging or as authenticated input.** Generate it
    reproducibly in the exact-checkout workflow, then make the offline preparer
-   validate and bind those bytes.
+   validate and bind those bytes. Because cargo-cyclonedx makes absolute source
+   paths part of its graph identifiers, compare two fresh sequential
+   extractions at one fixed safe path rather than rewriting output.
 
 ## Dependencies
 
@@ -243,9 +250,40 @@ complete, deterministic scratch SBOM generation is feasible, immutable links
 use the resolved version, the workflow remains read-only, and the simplified
 direct-binary outcome fits the frontier.
 
+Implementation prerequisite result: the developer correctly stopped after
+proving two different absolute scratch paths produce different cargo-cyclonedx
+graph identifiers despite identical source/time/options. The coordinator
+returned the ticket to `proposed` and revised the design to use two fresh
+sequential extractions at the same fixed, safely created absolute path, with no
+SBOM rewriting. The same reviewer must approve this material change before
+development resumes.
+
+Material-change re-review: ACCEPT. The reviewer confirmed that identical-path
+sequential generation removes only the observed path-dependent variance while
+preserving two fresh exact-commit inputs and untouched output comparison. The
+fixed path is created atomically mode `0700`, rejected if pre-existing, and
+removed only when the workflow recorded ownership. Offline/tool/time/target
+controls and the no-public-effect boundary remain intact.
+
 ## Implementation Evidence
 
-Developer: pending
+Developer: `/root/ticket037_implementation`
+
+Stopped before implementation as required by the reviewed ticket. The pinned
+`cargo-cyclonedx` 0.5.9 prerequisite does not produce byte-identical SBOMs in
+two independent `git archive HEAD` scratch trees, even with the same
+`SOURCE_DATE_EPOCH`, offline Cargo metadata, target, format, and binary
+description. The CLI SBOM digests were:
+
+- scratch `one`: `bd128c49539995c87bea5a678b1134428f3e4c04d8dc5a99bcb94610642f217b`
+- scratch `two`: `c36a57a7587a07bebb9750ed823a921197f4f1ae54f6c38cc8fff7543e746826`
+
+The first semantic difference is the absolute scratch path embedded in the
+root `bom-ref`; the same path-dependent difference appears in local workspace
+component and dependency references. This is not timestamp or serial drift.
+No generated SBOM or product change was committed. Per Scope, do not normalize
+the generated signed semantics: the ticket must return to coordinator design
+and independent ticket review.
 
 ## Adversarial Code Review
 
