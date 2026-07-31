@@ -50,6 +50,7 @@ jobs:
           cargo build --locked --release --package pangopup-cli --package pangopup-build
           cargo install --locked --version 0.5.9 cargo-cyclonedx
           test "$(cargo cyclonedx --version | awk '{print $2}')" = 0.5.9
+          cargo fetch --locked
       - name: Generate deterministic untouched SBOM
         env:
           EXACT_COMMIT: ${{ inputs.commit }}

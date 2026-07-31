@@ -417,6 +417,13 @@ grep -Fq 'astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b' "$repo/.g
 grep -Fq 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' "$repo/.github/workflows/package-linux.yml"
 grep -Fq 'cargo build --locked --release --package pangopup-cli' "$repo/.github/workflows/package-linux.yml"
 grep -Fq 'cargo install --locked --version 0.5.9 cargo-cyclonedx' "$repo/.github/workflows/package-linux.yml"
+grep -Fxq '          cargo fetch --locked' "$repo/.github/workflows/package-linux.yml"
+[[ "$(grep -Fc 'cargo fetch' "$repo/.github/workflows/package-linux.yml")" == 1 ]]
+fetch_line=$(grep -nF 'cargo fetch --locked' "$repo/.github/workflows/package-linux.yml" | cut -d: -f1)
+offline_line=$(grep -nF 'CARGO_NET_OFFLINE=true cargo cyclonedx --manifest-path' "$repo/.github/workflows/package-linux.yml" | cut -d: -f1)
+[[ -n "$fetch_line" && -n "$offline_line" && "$fetch_line" -lt "$offline_line" ]]
+[[ "$(grep -Fc 'CARGO_NET_OFFLINE=true cargo cyclonedx --manifest-path' "$repo/.github/workflows/package-linux.yml")" == 1 ]]
+[[ "$(grep -Fc 'cargo cyclonedx --manifest-path' "$repo/.github/workflows/package-linux.yml")" == 1 ]]
 grep -Fq 'for round in one two' "$repo/.github/workflows/package-linux.yml"
 grep -Fq 'scripts/qualify-linux-release.sh "$release" "$version" "$EXACT_COMMIT"' "$repo/.github/workflows/package-linux.yml"
 grep -Fq 'ld-linux-x86-64\.so\.2' "$repo/scripts/qualify-linux-release.sh"

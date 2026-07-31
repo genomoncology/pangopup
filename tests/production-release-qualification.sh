@@ -143,7 +143,8 @@ grep -Fq 'admitted maximum imported GLIBC version: `2.39`' "$repo/planning/artif
 grep -Fq 'package run `30648307402` failed while linking' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'Package run `30651619497` passed the full gate' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'Package run `30652858960` then redundantly reran the full' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'exactly one package-only dispatch is permitted' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'Package-only audit timestamp: `<PENDING_UTC>`' "$repo/planning/artifacts/038-public-linux-release.md"
+grep -Fq 'Package run `30653836700` built the release executables' "$repo/planning/artifacts/038-public-linux-release.md"
+grep -Fq 'exactly one locked-fetch-corrected dispatch is permitted' "$repo/planning/artifacts/038-public-linux-release.md"
+grep -Fq 'Locked-fetch-corrected audit timestamp: `<PENDING_UTC>`' "$repo/planning/artifacts/038-public-linux-release.md"
 
 printf 'production release qualification tests passed\n'

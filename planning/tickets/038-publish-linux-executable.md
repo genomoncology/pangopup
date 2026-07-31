@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: ready
+Status: publication-ready
 
 ## Why
 
@@ -562,6 +562,33 @@ git diff --check
 No GitHub operation, workflow dispatch, tag, release, upload, or repository
 setting mutation occurred during package/CI separation.
 
+Locked-SBOM fetch correction adds one `cargo fetch --locked` after the locked
+release build and pinned cargo-cyclonedx installation and before deterministic
+SBOM generation. Both CycloneDX passes remain inside the existing loop with
+`CARGO_NET_OFFLINE=true`; the duplicate CI gate remains absent. Focused source
+assertions require exactly one locked fetch before the offline generator,
+exactly one generator command executed twice by the retained loop, and reject
+additional online or unlocked fetch/generation paths. The operation record
+preserves package run `30653836700`, its release-build success, missing locked
+metadata failure, absence of any artifact or release state, consumed
+authorization, and one fresh-audit-gated locked-fetch-corrected dispatch.
+
+Focused locked-fetch checks:
+
+```text
+bash tests/executable-delivery.sh
+  passed
+bash tests/production-release-qualification.sh
+  passed
+bash -n scripts/smoke-linux-release.sh tests/executable-delivery.sh tests/production-release-qualification.sh scripts/qualify-linux-release.sh
+  passed
+git diff --check
+  passed
+```
+
+No GitHub operation, workflow dispatch, tag, release, upload, or repository
+setting mutation occurred during locked-fetch implementation.
+
 ## Adversarial Code Review
 
 Reviewer: `/root/ticket037_implementation`
@@ -634,7 +661,12 @@ SBOM, preparation, qualifier, real shared smoke, and private artifact upload
 remain. Focused assertions and suites pass, stopped-run evidence is exact, and
 all release/runtime boundaries remain unchanged.
 
-Package/CI separation code review: pending.
+Locked-fetch code review: ACCEPT. The reviewer confirmed exactly one locked
+fetch precedes the single offline CycloneDX command executed in two rounds;
+there is no online/unlocked generation or restored duplicate gate. Focused
+assertions and all retained release boundaries pass.
+
+Locked-fetch correction code review: pending.
 
 ## External Effect Evidence
 
