@@ -365,6 +365,13 @@ when needed, and directs the user to `pangopup sync` and `pangopup status`. It
 does not use sudo, edit shell files, or download data automatically. No public
 executable exists until Ticket 038 completes.
 
+Before publication, the candidate must pass a clean isolated Linux run using
+the real pinned data: online sync, offline reuse, combined ready status, all
+1,000 retained SNVs in seven batches, and one exact non-SNV model result. The
+SNV comparison ignores only the installation-specific bundle ID; it still
+checks every biological score and position plus all other provenance. This
+qualification is prepared locally and has not created a public executable.
+
 ### How are large artifacts delivered?
 
 The target is separately versioned GitHub release assets: executable, CC BY

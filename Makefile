@@ -8,6 +8,7 @@ lint:          ## static analysis: rustfmt + clippy + dependency policy
 test:          ## inside-out unit and integration tests
 	cargo test --locked --workspace
 	bash tests/executable-delivery.sh
+	bash tests/production-release-qualification.sh
 
 spec:          ## outside-in CLI contracts
 	cargo build --locked --quiet --package pangopup-cli --package pangopup-build

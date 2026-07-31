@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: ready
+Status: publication-ready
 
 ## Why
 
@@ -241,11 +241,105 @@ bounded-public-verification, and credential-hygiene boundaries remain coherent.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: `/root/ticket036_implementation`
+
+Publication-ready preparation added:
+
+- a shell-only isolated-XDG production runner covering online sync, offline
+  reuse, combined status, the exact seven ordered 1,000-SNV batches, and M09;
+- a separate `uv` checker that removes only SNV
+  `provenance.bundle_id`, compares all remaining SNV semantics, and compares
+  M09 byte-for-byte without reading production asset members;
+- the independently derived exact M09 oracle, SHA-256
+  `16bbc2256a07104b576fa7c5cd81378b900dd0920e20c8f1cb53c286414a91e9`;
+- a normal-test fake executable proving the exact orchestration, ready-state
+  checks, oracle acceptance, and rejection of a changed splice score;
+- exact release notes and a credential-free PREPUBLICATION operation/evidence
+  skeleton pinned to the packaging workflow's Ubuntu image digest; and
+- honest prepublication updates to the README, delivery architecture,
+  frontier, and FAQ.
+
+The retained request file is SHA-256
+`042fcc0e550f7dfccad742a6a2e6a89b0c4e245673b0222bcefb7d42b1ffe52d`.
+The deterministic fake-run self-test produced matching canonical SNV hashes
+`06a2c7e166f29f8e8eb4c1106e92a67dc4b2f6a6955f45f491b76a6156ca9129`
+and matching M09 hashes equal to the oracle above. Those are harness tests,
+not production-data qualification evidence.
+
+Local gates after the completed preparation:
+
+```text
+make lint
+  passed (existing duplicate-dependency warnings only)
+make test
+  passed (workspace tests plus executable-delivery and qualification scripts)
+make spec
+  236 passed, 6 skipped
+git diff --check
+  passed
+```
+
+No GitHub workflow was dispatched and no tag, release, upload, repository
+setting, or other external state was changed.
+
+Review remediation tightened all four rejected boundaries. SNV comparison now
+deletes one exact raw `bundle_id` byte span and preserves every other byte,
+including whitespace and final-newline framing. The checker admits only the
+fixed request, seven expected-oracle, and M09 hashes; independently enforces
+the exact group order, per-group order/counts, and 1,000 total; and has
+negative tests for formatting drift, truncation, request substitution, SNV
+oracle substitution, M09 substitution, and score mutation. The runner now
+requires all three output/XDG directories to be absent, replaces inherited
+HOME with a private qualification home, clears Pangopup path/cache overrides,
+and requires the first online sync to install both components. Its fake CLI
+asserts the isolated HOME/XDG environment.
+
+The publication evidence now contains one extractable, `bash -n`-checked
+coordinator program. It has exact live security/ruleset/CI assertions,
+single-run workflow discovery and artifact admission, draft/tag/body checks,
+descriptor-held private staging, one-upload prefix inventory checks, bounded
+draft rollback, immutable/Latest/direct-tag publication checks, unauthenticated
+public metadata and five-small-asset verification, and the fresh tagged
+installer/offline-reuse/SNV/M09 proof. Placeholder values fail closed before
+the first effect. The focused remediation test passed before the final full
+gate. No coordinator command was executed.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `/root/ticket037_implementation`
+
+First review: REJECT.
+
+- The SNV checker parsed and reserialized JSON, so formatting drift could pass
+  despite the promised byte equality after removing only `bundle_id`.
+- Corpus and oracle hashes/counts/order were printed but not enforced; a
+  substituted seven-record corpus passed.
+- The publication artifact described most GitHub operations in prose rather
+  than providing the required executable commands and exact assertions.
+- The production runner accepted existing XDG directories, inherited HOME,
+  and allowed first online sync to report reuse, so it did not prove a fresh
+  isolated installation.
+
+Remediation and re-review: pending.
+
+The developer remediated all four findings. The checker now removes one exact
+validated raw field span without reserializing anything else, authenticates
+the fixed request/M09/all-seven-oracle identities, enforces group order/counts
+and exactly 1,000 requests, and rejects formatting drift, truncation, score
+changes, and substituted oracles. The runner requires absent XDG/output roots,
+isolates HOME, and requires the first sync to report installation. The durable
+artifact now contains one extracted, syntax-checked official-`gh` coordinator
+program covering the full audit, build binding, exact-six qualification,
+draft/upload/prefix checks, bounded rollback, immutable/Latest publication,
+bounded public reads, and tagged-installer proof.
+
+Final re-review: ACCEPT. The reviewer independently confirmed the byte-level
+comparison, fixed corpus identities and counts, exact M09 oracle, fresh runtime
+environment, transitive exact build-input binding, one-time upload and closed
+inventory checks, safe prepublication-only rollback, immutable direct-tag and
+Latest checks, unauthenticated verification, installer proof, negative tests,
+clean diff, and extracted-runbook Bash syntax. No source or GitHub mutation was
+performed during review.
 
 ## External Effect Evidence
 
@@ -260,4 +354,16 @@ review -> publication-ready -> commit/push -> green remote gate
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: `/root` (publication-ready check)
+
+After final code-review acceptance, the coordinator inspected the complete
+diff and reran `make lint`, `make test`, `make spec`, and `git diff --check`.
+All passed; Mustmatch reports 236 passed and 6 intentionally skipped. The
+normal test gate includes the executable-delivery suite and the hostile
+production-release qualification suite. Current documentation consistently
+describes the executable as prepared but not yet public. No workflow, tag,
+release, upload, or repository-setting mutation occurred before this check.
+
+Final completion evidence and the reviewed current-state documentation
+transition remain pending the exact-commit remote gate and coordinator-owned
+external effect.

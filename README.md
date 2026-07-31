@@ -847,6 +847,15 @@ smoke-tests the replacement, and atomically installs to
 or download data; run `pangopup sync` afterward. There is no public executable
 until Ticket 038 completes.
 
+The publication candidate is qualified before it can become public. In an
+isolated pinned Linux container it must synchronize the already-published SNV
+and model-side assets, reuse them offline, report ready status, reproduce the
+seven-batch 1,000-SNV corpus, and reproduce one exact non-SNV model result.
+The checked runner and checker are
+`scripts/run-production-qualification.sh` and
+`scripts/check-production-qualification.py`. This preparation has not created
+a tag, release, or public executable.
+
 Release builders use explicit, read-only inputs and never download data or
 discover a home directory:
 

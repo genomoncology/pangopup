@@ -109,6 +109,18 @@ same-path source extractions and qualifies the final stripped binary on pinned
 Ubuntu 22.04 with maximum imported GLIBC 2.35. It cannot publish, attest, tag,
 or release. Ticket 038 owns the first public executable release.
 
+Before that release becomes public, the downloaded exact-six artifact is
+requalified locally and its executable is exercised in an isolated pinned
+Linux container. The checked runner performs online pinned sync, offline
+reuse, combined status, seven ordered batches covering the retained 1,000-SNV
+oracle, and exact M09 non-SNV inference. A separate checker canonicalizes only
+the installed SNV `provenance.bundle_id`; every score, position, record,
+warning, order, source identity, mask/window value, and status remains in the
+comparison. M09 is compared byte-for-byte against an oracle independently
+derived from the frozen compatibility case and retained production evidence.
+These helpers neither publish nor inspect the contents of production assets.
+The executable release remains prepared, not public.
+
 The twelve runtime upload members contain only Pangopup's derived runtime
 members and metadata. The raw
 Zenodo archive and extracted TSVs, NCBI FASTA and assembly report, GENCODE GTF

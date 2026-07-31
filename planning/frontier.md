@@ -566,6 +566,14 @@ outcome is Ticket 038's immutable executable publication and public installer
 qualification; HTTP, Docker, other platforms, and package managers remain
 later roadmap slots.
 
+Ticket 038's publication-ready preparation now includes a credential-free
+operation/evidence record, exact reviewed release notes, an independently
+derived M09 JSONL oracle, and checked production-qualification helpers. The
+helpers run online/offline sync, ready status, the seven retained 1,000-SNV
+batches, and M09 in an isolated environment, then compare results without
+walking the production assets. No packaging workflow, tag, release, or upload
+has occurred; the coordinator's separately gated public effect remains next.
+
 - whether repeated complete requests justify any result cache;
 - whether MPS, CUDA, quantization, or another runtime adds material value;
 - the service session-pool and backpressure shape;
