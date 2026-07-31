@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: publication-ready
+Status: design-review
 
 ## Why
 
@@ -25,32 +25,16 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   - target: the exact publication-ready commit produced by this ticket;
   - body: one reviewed, checked-in `planning/artifacts/038-release-notes.md`.
 - Use the existing manual `package-linux` workflow as the only binary build.
-  The first dispatch, run `30648307402` for preparation commit `a82968c`,
-  stopped safely during linking before producing an artifact or changing any
-  release state. After this correction is independently reviewed, dispatch
-  the corrected build from the new publication-ready commit. That attempt is
-  now consumed and recorded below. The only remaining authorization is the
-  independently reviewed smoke-corrected dispatch described next.
-  Require its successful completion, download its private Actions artifact
-  once, and run
-  `scripts/qualify-linux-release.sh` again locally against that commit and
-  workspace version before any release mutation.
-  The first corrected-baseline dispatch, run `30649914623` for commit
-  `dc9cf1c`, passed the full gate, build, SBOM, release preparation, and GLIBC
-  qualification, then stopped in the clean-container smoke because its shell
-  quoting removed the JSON quotation marks from the `grep` patterns. It
-  produced no artifact and changed no release state. After the smoke command
-  and its execution test are independently reviewed, exactly one
-  smoke-corrected dispatch from a new publication-ready commit is permitted.
-  That dispatch, run `30651619497` for commit `6f38173`, passed through release
-  qualification and executed the shared smoke correctly, then stopped when the
-  real CLI rejected `/tmp/model.sqlite3` because `/tmp` is not an owned private
-  cache directory. It produced no artifact and changed no release state. After
-  review, exactly one cache-environment-corrected dispatch is permitted.
-  That dispatch, run `30652858960` for commit `8b271c0`, stopped in the package
-  workflow's redundant `make test` after the already-green exact-commit CI gate
-  because an unrelated allocation-count test observed 184 instead of 180.
-  It produced no artifact and changed no release state.
+  Six consumed attempts and their exact evidence are retained in
+  `planning/artifacts/038-public-linux-release.md`; none created a tag, draft,
+  release, or public executable asset. The sixth produced one private Actions
+  artifact but stopped during prepublication production qualification. After
+  the correction below passes independent design and code review, exactly one
+  new dispatch from a fresh publication-ready commit is permitted. Require its
+  successful completion, download that new private artifact once, and run
+  `scripts/qualify-linux-release.sh` again locally against the exact commit and
+  workspace version before any release mutation. Never substitute or reuse an
+  artifact from a consumed attempt.
 - Publish exactly the six regular files admitted by the qualifier, without
   renaming or recompressing them:
   `pangopup-linux-x86_64`, `pangopup-linux-x86_64.sha256`,
@@ -96,6 +80,22 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   populated metadata-only crates needed by offline CycloneDX generation. Add
   explicit `cargo fetch --locked` before the offline two-pass SBOM; do not
   restore the duplicate gate or permit unlocked metadata downloads.
+  The resulting package run `30654709505` for commit `c89588b` passed every
+  package stage and produced one private Actions artifact. Prepublication
+  production qualification then stopped before any release mutation because
+  the unfiltered SNV oracle included six intentional precomputed misses. The
+  installed runtime correctly routed those misses to model fallback, where
+  chromosome-start inputs lack enough reference context. Preserve the private
+  artifact and isolated qualification root as evidence. Correct only the SNV
+  oracle boundary: after sync, identify the single installed SNV bundle and
+  invoke all seven SNV batches explicitly with `--bundle`, so the 1,000-case
+  oracle tests the precomputed index without enabling model fallback. Keep the
+  separate installed-profile M09 request unchanged so model inference remains
+  qualified. Require focused tests to reject zero/multiple/unsafe installed
+  bundle directories and any SNV oracle command that omits the explicit
+  bundle. After independent review, one fresh exact-commit package and
+  publication attempt is permitted; do not reuse the existing artifact as a
+  release input.
 - Create a private draft first. Upload each of the six admitted files once,
   without replacement or `--clobber`, and compare the complete remote
   name/size/GitHub SHA-256 inventory after every upload. Stop on any mismatch.
@@ -127,7 +127,10 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   `provenance.bundle_id` from both actual production-index output and the
   existing independently generated expected JSON. No score, position, record,
   warning, order, source DOI/archive identity, mask/window value, or status may
-  be removed from the comparison.
+  be removed from the comparison. Run these batches against the single
+  synchronized SNV bundle through explicit `--bundle`; this deliberately
+  preserves the six precomputed `not_found` cases instead of routing them to
+  the separately tested model fallback.
 - Pin the model oracle to compatibility case `M09-insertion-short-plus`, input
   `GRCh38:chr12:6801303:G:GA`. Its complete JSONL output must match a new
   reviewed checked-in oracle byte-for-byte: one ordered

@@ -1,8 +1,8 @@
 # Ticket 038 public Linux release operation and evidence
 
-State: **PREPUBLICATION — five package attempts stopped before artifact upload;
-no Actions artifact, tag, release, or executable release asset has been
-created.**
+State: **PREPUBLICATION — six attempts stopped before release mutation; the
+sixth produced one private Actions artifact, but no tag, release, or executable
+release asset has been created.**
 
 This is a credential-free operation record. Never paste tokens, authentication
 headers, raw `gh auth` output, environment dumps, or signed URL query strings
@@ -48,11 +48,28 @@ then stopped in deterministic SBOM generation because offline Cargo metadata
 could not find locked `fastrand 2.5.0`. Later stages were skipped; no artifact
 or release state was created.
 
-Those five dispatch authorizations are consumed. After independent acceptance
-of the locked fetch correction and a new exact commit's green remote gate,
-exactly one locked-fetch-corrected dispatch is permitted. It must use the
-same Ubuntu 24.04/GLIBC 2.39 baseline and must not alter the static runtime,
-release inventory, or semantic gates.
+The locked-fetch-corrected attempt targeted commit
+`c89588bb5c732c3b27c6ee29891a0384e2707abb`; exact remote `ci` run
+`30654476039` passed. Package run `30654709505` passed exact checkout, release
+builds, deterministic SBOM generation, exact-six preparation and
+qualification, the pinned clean-container smoke, and private artifact upload.
+It produced private Actions artifact `8802820445`, named
+`pangopup-linux-c89588bb5c732c3b27c6ee29891a0384e2707abb`, with no release or
+tag. Prepublication qualification synchronized and reused both production
+asset sets, reported combined ready status, and completed the six gene-filtered
+SNV batches. It stopped at `snv-unfiltered.jsonl`: that batch contains six
+intentional precomputed misses at chromosome position 1, and installed-profile
+routing correctly sent the first miss to model fallback, which rejected it for
+insufficient GRCh38 reference context. No draft, upload, release, tag, or public
+asset was created. Preserve the isolated root
+`/home/ian/workspace/data/pangopup-release-038-c89588b` and the private Actions
+artifact as evidence; neither may be reused as the release input.
+
+Those six dispatch authorizations are consumed. After independent acceptance
+of the SNV-oracle routing correction and a new exact commit's green remote
+gate, exactly one corrected dispatch is permitted. It must use the same Ubuntu
+24.04/GLIBC 2.39 baseline and must not alter the static runtime, release
+inventory, production assets, or score comparisons.
 
 ## Fixed release contract
 
@@ -92,8 +109,8 @@ release-manifest.json
 ## Fresh stop-before-effect audit
 
 Record pass/fail and non-sensitive evidence for every item before dispatching
-the locked-fetch-corrected workflow. Any failure stops the operation. Earlier audits
-belong to their consumed attempts and cannot authorize this dispatch.
+the SNV-oracle-corrected workflow. Any failure stops the operation. Earlier
+audits belong to their consumed attempts and cannot authorize this dispatch.
 
 - [ ] repository visibility is public
 - [ ] immutable releases are enabled
@@ -108,8 +125,8 @@ belong to their consumed attempts and cannot authorize this dispatch.
 - [ ] target commit is reachable from public `main`
 - [ ] target commit's `ci` run has exactly one successful job named `gate`
 
-Locked-fetch-corrected audit timestamp: `<PENDING_UTC>`
-Locked-fetch-corrected audit operator: `<PENDING>`
+SNV-oracle-corrected audit timestamp: `<PENDING_UTC>`
+SNV-oracle-corrected audit operator: `<PENDING>`
 Target `ci` run ID/URL: `<PENDING>`  
 Security/ruleset evidence summary: `<PENDING_CREDENTIAL_FREE_SUMMARY>`
 
