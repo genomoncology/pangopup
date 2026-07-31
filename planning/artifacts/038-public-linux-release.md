@@ -220,7 +220,10 @@ packaging smoke. `QUALIFICATION_ROOT` is a new empty private host directory;
 
 ```bash
 IMAGE=ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
 docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  --user "$HOST_UID:$HOST_GID" \
   -v "$RELEASE_DIR:/release:ro" -v "$SOURCE_TREE:/source:ro" \
   -v "$QUALIFICATION_ROOT:/qualification:rw" "$IMAGE" bash -ceu '
     /source/scripts/run-production-qualification.sh \
@@ -304,6 +307,8 @@ readonly COMMIT=REPLACE_WITH_40_LOWERCASE_PUBLICATION_READY_COMMIT
 readonly CI_RUN_ID=REPLACE_WITH_SUCCESSFUL_CI_RUN_ID
 readonly QUALIFICATION_ROOT=REPLACE_WITH_ABSENT_ABSOLUTE_PRIVATE_DIRECTORY
 readonly IMAGE=ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
+readonly HOST_UID=$(id -u)
+readonly HOST_GID=$(id -g)
 readonly SOURCE_TREE=$PWD
 readonly BODY=$SOURCE_TREE/planning/artifacts/038-release-notes.md
 readonly HISTORY_RULESET_ID=20071950
@@ -311,6 +316,7 @@ readonly CONTRIBUTIONS_RULESET_ID=20071963
 
 [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]
 [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+[[ "$HOST_UID" =~ ^[0-9]+$ && "$HOST_GID" =~ ^[0-9]+$ ]]
 [[ "$QUALIFICATION_ROOT" == /* && ! -e "$QUALIFICATION_ROOT" && ! -L "$QUALIFICATION_ROOT" ]]
 test "$(git remote get-url origin)" = git@github.com:genomoncology/pangopup.git
 test "$(git rev-parse HEAD)" = "$COMMIT"
@@ -451,6 +457,7 @@ scripts/qualify-linux-release.sh "$PRIVATE/release" 0.1.0 "$COMMIT"
 
 # Prove fresh XDG installation, offline reuse, 1,000 SNVs, and exact M09.
 docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  --user "$HOST_UID:$HOST_GID" \
   -v "$PRIVATE/release:/release:ro" -v "$SOURCE_TREE:/source:ro" \
   -v "$QUALIFICATION_ROOT:/qualification:rw" "$IMAGE" bash -ceu '
     /source/scripts/run-production-qualification.sh \
@@ -582,6 +589,7 @@ jq -e --argjson size "$(stat -c %s "$PRIVATE/release/pangopup-linux-x86_64")" \
 # and emits one retained SNV plus exact M09 for host comparison.
 test ! -e "$QUALIFICATION_ROOT/install" && test ! -e "$QUALIFICATION_ROOT/post"
 docker run --rm --tmpfs /tmp:rw,nosuid,size=256m \
+  --env "HOST_UID=$HOST_UID" --env "HOST_GID=$HOST_GID" \
   -v "$QUALIFICATION_ROOT:/qualification:rw" -v "$SOURCE_TREE:/source:ro" \
   "$IMAGE" bash -ceu '
     apt-get update >/dev/null
@@ -589,13 +597,20 @@ docker run --rm --tmpfs /tmp:rw,nosuid,size=256m \
     install -d -m 700 /qualification/install /qualification/post /qualification/home
     curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/v0.1.0/install.sh -o /tmp/install.sh
     PANGOPUP_INSTALL_DIR=/qualification/install bash /tmp/install.sh --version 0.1.0
-    export HOME=/qualification/home XDG_DATA_HOME=/qualification/data XDG_CACHE_HOME=/qualification/cache
-    /qualification/install/pangopup sync --offline >/qualification/post/sync.json
-    /qualification/install/pangopup status >/qualification/post/status.json
-    /qualification/install/pangopup lookup --format jsonl --gene ENSG00000010610 \
-      --variant GRCh38:chr12:6801301:G:A >/qualification/post/snv.jsonl
-    /qualification/install/pangopup lookup --format jsonl \
-      --variant GRCh38:chr12:6801303:G:GA >/qualification/post/m09.jsonl
+    test -x /usr/bin/setpriv
+    chown "$HOST_UID:$HOST_GID" /qualification/install /qualification/home /qualification/post
+    /usr/bin/setpriv --reuid="$HOST_UID" --regid="$HOST_GID" --clear-groups \
+      env -i HOME=/qualification/home XDG_DATA_HOME=/qualification/data XDG_CACHE_HOME=/qualification/cache PATH=/usr/bin:/bin \
+      /bin/sh -ceu "exec /qualification/install/pangopup sync --offline > /qualification/post/sync.json"
+    /usr/bin/setpriv --reuid="$HOST_UID" --regid="$HOST_GID" --clear-groups \
+      env -i HOME=/qualification/home XDG_DATA_HOME=/qualification/data XDG_CACHE_HOME=/qualification/cache PATH=/usr/bin:/bin \
+      /bin/sh -ceu "exec /qualification/install/pangopup status > /qualification/post/status.json"
+    /usr/bin/setpriv --reuid="$HOST_UID" --regid="$HOST_GID" --clear-groups \
+      env -i HOME=/qualification/home XDG_DATA_HOME=/qualification/data XDG_CACHE_HOME=/qualification/cache PATH=/usr/bin:/bin \
+      /bin/sh -ceu "exec /qualification/install/pangopup lookup --format jsonl --gene ENSG00000010610 --variant GRCh38:chr12:6801301:G:A > /qualification/post/snv.jsonl"
+    /usr/bin/setpriv --reuid="$HOST_UID" --regid="$HOST_GID" --clear-groups \
+      env -i HOME=/qualification/home XDG_DATA_HOME=/qualification/data XDG_CACHE_HOME=/qualification/cache PATH=/usr/bin:/bin \
+      /bin/sh -ceu "exec /qualification/install/pangopup lookup --format jsonl --variant GRCh38:chr12:6801303:G:GA > /qualification/post/m09.jsonl"
   '
 jq -e '.status == "ready" and .snv.status == "reused" and .runtime.status == "reused"' "$QUALIFICATION_ROOT/post/sync.json" >/dev/null
 jq -e '.status == "ready" and .snv.status == "ready" and .runtime.status == "ready"' "$QUALIFICATION_ROOT/post/status.json" >/dev/null

@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: design-review
+Status: publication-ready
 
 ## Why
 
@@ -637,6 +637,36 @@ git diff --check
 No workflow dispatch, artifact download, release operation, GitHub mutation,
 or use of the preserved sixth-attempt artifact occurred during this correction.
 
+Qualification ownership is now corrected in both reviewed container paths.
+The coordinator captures the invoking numeric UID and GID once. The
+prepublication container uses Docker's exact `--user UID:GID` mapping, so the
+fresh private qualification outputs remain owned and readable by the host
+checker. The post-publication container remains root only for package and
+tagged-installer setup. It then changes ownership of exactly the newly created
+`install`, `home`, and `post` directories and runs each offline sync, status,
+SNV, and M09 command through `/usr/bin/setpriv` with the captured UID/GID,
+cleared supplementary groups, and a clean environment containing only the
+fixed HOME/XDG paths and minimal PATH. It never changes ownership of the
+qualified data or cache trees.
+
+The focused extracted-runbook test binds the host identity capture, the sole
+prepublication `--user` mapping, post-container identity injection, all four
+privilege drops, all four clean HOME/XDG environments, and the exact bounded
+`chown`. Negative copies prove that a missing user mapping, drifted group drop,
+or recursive qualified-data/cache ownership change is rejected. Evidence:
+
+```text
+bash tests/production-release-qualification.sh
+  production release qualification tests passed
+bash -n tests/production-release-qualification.sh scripts/run-production-qualification.sh
+  passed
+git diff --check
+  passed
+```
+
+No workflow dispatch, artifact download/reuse, release operation, or GitHub
+mutation occurred during this correction.
+
 ## Adversarial Code Review
 
 Reviewer: `/root/ticket037_implementation`
@@ -737,6 +767,13 @@ trees before any later chown could help. The corrected design now keeps root
 only for setup, hands only the new install/home/post trees to the host UID:GID,
 and drops privileges before every Pangopup command without changing the
 qualified data/cache trees.
+
+Qualification-ownership remediated design review: ACCEPT. The accepted boundary
+is implemented above. Qualification-ownership code review: ACCEPT. The reviewer
+confirmed exact host UID:GID mapping, the root-only setup phase, bounded chown,
+all four `setpriv` runtime calls with clean environments, correct redirect and
+executable permissions, pinned-image tool availability, and hostile runbook
+assertions. No runtime, workflow, asset, or public-state scope changed.
 
 ## External Effect Evidence
 

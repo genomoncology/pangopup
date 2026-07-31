@@ -195,6 +195,41 @@ awk '
   END { if (!found) exit 1 }
 ' "$repo/planning/artifacts/038-public-linux-release.md" >"$root/coordinator-runbook.sh"
 bash -n "$root/coordinator-runbook.sh"
+
+assert_ownership_contract() {
+  local runbook=$1
+  grep -Fxq 'readonly HOST_UID=$(id -u)' "$runbook" || return 1
+  grep -Fxq 'readonly HOST_GID=$(id -g)' "$runbook" || return 1
+  [[ $(grep -Fxc -- '  --user "$HOST_UID:$HOST_GID" \' "$runbook") == 1 ]] || return 1
+  [[ $(grep -Fxc -- '  --env "HOST_UID=$HOST_UID" --env "HOST_GID=$HOST_GID" \' "$runbook") == 1 ]] || return 1
+  [[ $(grep -Fc '/usr/bin/setpriv --reuid="$HOST_UID" --regid="$HOST_GID" --clear-groups' "$runbook") == 4 ]] || return 1
+  [[ $(grep -Fc 'env -i HOME=/qualification/home XDG_DATA_HOME=/qualification/data XDG_CACHE_HOME=/qualification/cache PATH=/usr/bin:/bin' "$runbook") == 4 ]] || return 1
+  grep -Fxq '    chown "$HOST_UID:$HOST_GID" /qualification/install /qualification/home /qualification/post' "$runbook" || return 1
+  ! grep -Eq 'chown[[:space:]].*/qualification/(data|cache)|chown[[:space:]]+-R' "$runbook" || return 1
+}
+assert_ownership_contract "$root/coordinator-runbook.sh"
+
+cp "$root/coordinator-runbook.sh" "$root/missing-user-runbook.sh"
+sed -i '0,/--user "\$HOST_UID:\$HOST_GID"/s///' "$root/missing-user-runbook.sh"
+if assert_ownership_contract "$root/missing-user-runbook.sh"; then
+  printf 'ownership contract accepted missing prepublication user mapping\n' >&2
+  exit 1
+fi
+
+cp "$root/coordinator-runbook.sh" "$root/drifted-setpriv-runbook.sh"
+sed -i '0,/--clear-groups/s//--keep-groups/' "$root/drifted-setpriv-runbook.sh"
+if assert_ownership_contract "$root/drifted-setpriv-runbook.sh"; then
+  printf 'ownership contract accepted drifted privilege drop\n' >&2
+  exit 1
+fi
+
+cp "$root/coordinator-runbook.sh" "$root/unsafe-chown-runbook.sh"
+printf '\nchown -R "$HOST_UID:$HOST_GID" /qualification/data /qualification/cache\n' >>"$root/unsafe-chown-runbook.sh"
+if assert_ownership_contract "$root/unsafe-chown-runbook.sh"; then
+  printf 'ownership contract accepted qualified-data chown\n' >&2
+  exit 1
+fi
+
 image=ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
 [[ "$(grep -Fc "$image" "$repo/planning/artifacts/038-public-linux-release.md")" == 3 ]]
 grep -Fq 'build runner: GitHub-hosted Ubuntu 24.04' "$repo/planning/artifacts/038-public-linux-release.md"
@@ -204,7 +239,7 @@ grep -Fq 'Package run `30651619497` passed the full gate' "$repo/planning/artifa
 grep -Fq 'Package run `30652858960` then redundantly reran the full' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'Package run `30653836700` built the release executables' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'exactly one corrected dispatch is permitted' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'SNV-oracle-corrected audit timestamp: `<PENDING_UTC>`' "$repo/planning/artifacts/038-public-linux-release.md"
+grep -Fq 'Qualification-ownership-corrected audit timestamp: `<PENDING_UTC>`' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'passes that exact bundle path explicitly to each of the seven ordered' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'M09 model request deliberately has no `--bundle`' "$repo/planning/artifacts/038-public-linux-release.md"
 
