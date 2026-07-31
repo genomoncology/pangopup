@@ -1,6 +1,6 @@
 # Ticket 038 public Linux release operation and evidence
 
-State: **PREPUBLICATION — three package attempts stopped before artifact upload;
+State: **PREPUBLICATION — four package attempts stopped before artifact upload;
 no Actions artifact, tag, release, or executable release asset has been
 created.**
 
@@ -34,10 +34,16 @@ model lookup then rejected `/tmp/model.sqlite3` because `/tmp` is not an owned
 private cache directory. Artifact upload was skipped, no release state changed,
 and the run was not retried.
 
-Those three dispatch authorizations are consumed. After independent acceptance
-of the private cache-parent correction and real-CLI regression and a new exact
-commit's green remote gate, exactly one cache-environment-corrected dispatch is
-permitted. It must use the
+The cache-environment-corrected attempt targeted commit
+`8b271c065be198df2feffc33fbdee27cd49ac463`; exact remote `ci` run
+`30652597423` passed. Package run `30652858960` then redundantly reran the full
+gate and stopped in `make test` when an unrelated warmed-allocation test
+observed 184 allocations after a 180-allocation baseline. The release build,
+artifact creation/upload, draft, tag, and release were never reached.
+
+Those four dispatch authorizations are consumed. After independent acceptance
+of package/CI responsibility separation and a new exact commit's green remote
+gate, exactly one package-only dispatch is permitted. It must use the
 same Ubuntu 24.04/GLIBC 2.39 baseline and must not alter the static runtime,
 release inventory, or semantic gates.
 
@@ -50,6 +56,8 @@ release inventory, or semantic gates.
 - target commit: `<PENDING_40_LOWERCASE_COMMIT>`
 - release body: `planning/artifacts/038-release-notes.md`, byte-for-byte
 - build workflow: `.github/workflows/package-linux.yml`
+- verification boundary: the exact commit's successful `ci/gate`; packaging
+  does not rerun lint, tests, or specs
 - container smoke: `scripts/smoke-linux-release.sh`, invoked with the exact
   executable, source tree, absent data directory, and absent immediate `/tmp`
   cache parent; the script creates and validates mode `0700`, then uses its
@@ -75,7 +83,7 @@ release-manifest.json
 ## Fresh stop-before-effect audit
 
 Record pass/fail and non-sensitive evidence for every item before dispatching
-the cache-environment-corrected workflow. Any failure stops the operation. Earlier audits
+the package-only workflow. Any failure stops the operation. Earlier audits
 belong to their consumed attempts and cannot authorize this dispatch.
 
 - [ ] repository visibility is public
@@ -91,8 +99,8 @@ belong to their consumed attempts and cannot authorize this dispatch.
 - [ ] target commit is reachable from public `main`
 - [ ] target commit's `ci` run has exactly one successful job named `gate`
 
-Cache-environment-corrected audit timestamp: `<PENDING_UTC>`
-Cache-environment-corrected audit operator: `<PENDING>`
+Package-only audit timestamp: `<PENDING_UTC>`
+Package-only audit operator: `<PENDING>`
 Target `ci` run ID/URL: `<PENDING>`  
 Security/ruleset evidence summary: `<PENDING_CREDENTIAL_FREE_SUMMARY>`
 

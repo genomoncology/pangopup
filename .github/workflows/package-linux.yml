@@ -44,29 +44,9 @@ jobs:
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           version: "0.8.0"
-      - name: Install gate prerequisites
+      - name: Build release executables and SBOM tool
         run: |
           set -euo pipefail
-          wheel=mustmatch-0.1.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-          curl --fail --location --silent --show-error --output "$wheel" "https://github.com/genomoncology/mustmatch/releases/download/v0.1.0/$wheel"
-          echo "86c6c250578413009eed9ff591d5fa3107c9695176d418dbfc2ccae87d472e77  $wheel" | sha256sum --check --strict
-          uv tool install "$wheel"
-          archive=cargo-deny-0.19.4-x86_64-unknown-linux-musl.tar.gz
-          curl --fail --location --silent --show-error --output "$archive" "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.4/$archive"
-          echo "3bd58b784e83715b86ddbc9deac591890372ec77fda5741bb0826970b958506f  $archive" | sha256sum --check --strict
-          tar -xzf "$archive"
-          install -m 0755 cargo-deny-0.19.4-x86_64-unknown-linux-musl/cargo-deny "$HOME/.local/bin/cargo-deny"
-          archive=ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz
-          curl --fail --location --silent --show-error --output "$archive" "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/$archive"
-          echo "33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c  $archive" | sha256sum --check --strict
-          tar -xzf "$archive"
-          install -m 0755 ripgrep-15.2.0-x86_64-unknown-linux-musl/rg "$HOME/.local/bin/rg"
-      - name: Gate and build
-        run: |
-          set -euo pipefail
-          make lint
-          make test
-          make spec
           cargo build --locked --release --package pangopup-cli --package pangopup-build
           cargo install --locked --version 0.5.9 cargo-cyclonedx
           test "$(cargo cyclonedx --version | awk '{print $2}')" = 0.5.9

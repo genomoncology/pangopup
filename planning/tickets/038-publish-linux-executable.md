@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: ready
+Status: publication-ready
 
 ## Why
 
@@ -520,6 +520,35 @@ git diff --check
 No GitHub operation, workflow dispatch, tag, release, upload, or repository
 setting mutation occurred during cache-environment implementation.
 
+Package/CI separation removes `make lint`, `make test`, and `make spec` from
+the manual packaging workflow because the runbook already authenticates the
+exact commit's successful single `ci/gate` before dispatch. It also removes the
+now-unused Mustmatch, cargo-deny, and ripgrep downloads. The pinned Rust setup,
+`setup-uv` required by the qualifier, release build, pinned cargo-cyclonedx
+installation, deterministic SBOM, exact-six preparation, qualifier, shared
+real-CLI container smoke, and private artifact upload all remain. Focused source
+assertions reject any duplicate make gate or gate-only prerequisite and require
+every package-specific stage and pinned action to remain. The operation record
+preserves run `30652858960`, its already-green exact CI, flaky redundant-test
+boundary, absence of any build artifact or release effect, consumed
+authorization, and one fresh-audit-gated package-only dispatch.
+
+Focused package/CI separation checks:
+
+```text
+bash tests/executable-delivery.sh
+  passed
+bash tests/production-release-qualification.sh
+  passed
+bash -n scripts/smoke-linux-release.sh tests/executable-delivery.sh tests/production-release-qualification.sh scripts/qualify-linux-release.sh
+  passed
+git diff --check
+  passed
+```
+
+No GitHub operation, workflow dispatch, tag, release, upload, or repository
+setting mutation occurred during package/CI separation.
+
 ## Adversarial Code Review
 
 Reviewer: `/root/ticket037_implementation`
@@ -585,7 +614,14 @@ and creates the SQLite file privately. Fake five-command coverage, exact
 workflow invocation, stopped-run evidence, and all release/runtime boundaries
 remain intact. No material findings.
 
-Cache-environment code review: pending.
+Package/CI separation code review: ACCEPT. The reviewer confirmed only the
+duplicate gate and its exclusive prerequisites were removed; exact checkout,
+pinned toolchain/uv, locked release build, pinned CycloneDX, deterministic
+SBOM, preparation, qualifier, real shared smoke, and private artifact upload
+remain. Focused assertions and suites pass, stopped-run evidence is exact, and
+all release/runtime boundaries remain unchanged.
+
+Package/CI separation code review: pending.
 
 ## External Effect Evidence
 

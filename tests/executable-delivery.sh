@@ -403,6 +403,18 @@ while IFS= read -r action; do
 done < <(sed -nE 's/^[[:space:]]*- uses: ([^ #]+).*/\1/p' "$repo/.github/workflows/package-linux.yml")
 grep -Fq 'git merge-base --is-ancestor "$EXACT_COMMIT" origin/main' "$repo/.github/workflows/package-linux.yml"
 grep -Fq 'git diff --cached --quiet --' "$repo/.github/workflows/package-linux.yml"
+for stage in \
+  'Authenticate exact checkout' \
+  'Install pinned Rust toolchain' \
+  'Build release executables and SBOM tool' \
+  'Generate deterministic untouched SBOM' \
+  'Prepare exact release files' \
+  'Qualify final executable and inventory' \
+  'Smoke in pinned clean container'; do
+  grep -Fq -- "- name: $stage" "$repo/.github/workflows/package-linux.yml"
+done
+grep -Fq 'astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b' "$repo/.github/workflows/package-linux.yml"
+grep -Fq 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' "$repo/.github/workflows/package-linux.yml"
 grep -Fq 'cargo build --locked --release --package pangopup-cli' "$repo/.github/workflows/package-linux.yml"
 grep -Fq 'cargo install --locked --version 0.5.9 cargo-cyclonedx' "$repo/.github/workflows/package-linux.yml"
 grep -Fq 'for round in one two' "$repo/.github/workflows/package-linux.yml"
@@ -418,6 +430,8 @@ grep -Fxq "$smoke_invocation" "$repo/.github/workflows/package-linux.yml"
 [[ "$(grep -Fc '/source/scripts/smoke-linux-release.sh' "$repo/.github/workflows/package-linux.yml")" == 1 ]]
 ! grep -Fq 'GRCh38:chr12:6801301:G:A' "$repo/.github/workflows/package-linux.yml"
 ! grep -Fq 'GRCh38:chr1:5051:A:AC' "$repo/.github/workflows/package-linux.yml"
+! grep -Eq 'make (lint|test|spec)' "$repo/.github/workflows/package-linux.yml"
+! grep -Eq 'Install gate prerequisites|mustmatch|cargo-deny|ripgrep' "$repo/.github/workflows/package-linux.yml"
 ! grep -Eq '^    runs-on: ubuntu-22[.]04$' "$repo/.github/workflows/package-linux.yml"
 ! grep -Fq '"$maximum" 2.35' "$repo/scripts/qualify-linux-release.sh"
 printf 'executable delivery tests passed\n'

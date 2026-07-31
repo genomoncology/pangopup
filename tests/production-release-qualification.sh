@@ -142,7 +142,8 @@ grep -Fq 'build runner: GitHub-hosted Ubuntu 24.04' "$repo/planning/artifacts/03
 grep -Fq 'admitted maximum imported GLIBC version: `2.39`' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'package run `30648307402` failed while linking' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'Package run `30651619497` passed the full gate' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'exactly one cache-environment-corrected dispatch is' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'Cache-environment-corrected audit timestamp: `<PENDING_UTC>`' "$repo/planning/artifacts/038-public-linux-release.md"
+grep -Fq 'Package run `30652858960` then redundantly reran the full' "$repo/planning/artifacts/038-public-linux-release.md"
+grep -Fq 'exactly one package-only dispatch is permitted' "$repo/planning/artifacts/038-public-linux-release.md"
+grep -Fq 'Package-only audit timestamp: `<PENDING_UTC>`' "$repo/planning/artifacts/038-public-linux-release.md"
 
 printf 'production release qualification tests passed\n'
