@@ -1,6 +1,6 @@
 # 038 — Publish and qualify the immutable Linux executable
 
-Status: publication-ready
+Status: design-review
 
 ## Why
 
@@ -96,6 +96,22 @@ only after the publication-ready commit's exact remote `ci`/`gate` is green.
   bundle. After independent review, one fresh exact-commit package and
   publication attempt is permitted; do not reuse the existing artifact as a
   release input.
+  The resulting SNV-oracle-corrected package run `30656466387` for commit
+  `5fc7d12` passed every package stage and produced one private Actions
+  artifact. Fresh production qualification then completed online/offline sync,
+  combined status, all seven exact SNV batches (1,000 records), and exact M09
+  inference. The host checker could not open `sync-online.json` because the
+  pinned container ran as root and created the output directory root-owned mode
+  `0700`. No checker comparison or release mutation occurred. Preserve the
+  private artifact and isolated root as evidence. Correct the ownership
+  boundary by running the prepublication qualification container as the
+  invoking host UID:GID, while retaining the runner's private-directory and
+  ownership checks. The post-publication installer container must retain root
+  only for package installation, then return its new install/home/post files to
+  the invoking host UID:GID before host checks. Add focused runbook assertions
+  for both ownership transitions. After independent review, one fresh
+  exact-commit package and publication attempt is permitted; never reuse a
+  consumed artifact.
 - Create a private draft first. Upload each of the six admitted files once,
   without replacement or `--clobber`, and compare the complete remote
   name/size/GitHub SHA-256 inventory after every upload. Stop on any mismatch.
@@ -805,6 +821,23 @@ executable asset was created.
 That locked-fetch-corrected authorization is consumed. After independent
 acceptance of the explicit-bundle SNV-oracle correction, a new exact commit's
 green CI, and a fresh security audit, exactly one SNV-oracle-corrected package
+and publication attempt is permitted.
+
+Stopped host-checker ownership attempt: exact commit
+`5fc7d127ebcc57a55b7e747fe6c028e588fe069d`, green CI `30656188860`, successful
+package run `30656466387`, and private Actions artifact `8803494573` named
+`pangopup-linux-5fc7d127ebcc57a55b7e747fe6c028e588fe069d`. Every package stage
+passed. The isolated production runner completed fresh online/offline sync,
+combined status, all seven SNV batches with exactly 1,000 output lines, and
+M09 inference with its exact expected SHA-256. The host checker then failed to
+open `sync-online.json` because the container created `output` root-owned mode
+`0700`. Preserve `/home/ian/workspace/data/pangopup-release-038-5fc7d12` and
+the private artifact; neither may be reused as release input. No draft, upload,
+tag, release, or public executable asset was created.
+
+That SNV-oracle-corrected authorization is consumed. After independent
+acceptance of the qualification ownership correction, a new exact commit's
+green CI, and a fresh security audit, exactly one ownership-corrected package
 and publication attempt is permitted.
 
 Use the exceptional lifecycle:

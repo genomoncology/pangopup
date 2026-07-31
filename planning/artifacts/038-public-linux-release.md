@@ -1,8 +1,8 @@
 # Ticket 038 public Linux release operation and evidence
 
-State: **PREPUBLICATION — six attempts stopped before release mutation; the
-sixth produced one private Actions artifact, but no tag, release, or executable
-release asset has been created.**
+State: **PREPUBLICATION — seven attempts stopped before release mutation; the
+sixth and seventh produced private Actions artifacts, but no tag, release, or
+executable release asset has been created.**
 
 This is a credential-free operation record. Never paste tokens, authentication
 headers, raw `gh auth` output, environment dumps, or signed URL query strings
@@ -65,10 +65,25 @@ asset was created. Preserve the isolated root
 `/home/ian/workspace/data/pangopup-release-038-c89588b` and the private Actions
 artifact as evidence; neither may be reused as the release input.
 
-Those six dispatch authorizations are consumed. After independent acceptance
-of the SNV-oracle routing correction and a new exact commit's green remote
-gate, exactly one corrected dispatch is permitted. It must use the same Ubuntu
-24.04/GLIBC 2.39 baseline and must not alter the static runtime, release
+The SNV-oracle-corrected attempt targeted commit
+`5fc7d127ebcc57a55b7e747fe6c028e588fe069d`; exact remote `ci` run
+`30656188860` passed. Package run `30656466387` passed every package stage and
+produced private Actions artifact `8803494573`, named
+`pangopup-linux-5fc7d127ebcc57a55b7e747fe6c028e588fe069d`. Fresh production
+qualification completed online sync, offline reuse, combined ready status, all
+seven SNV batches with exactly 1,000 output lines, and the M09 model request;
+the M09 output SHA-256 was the expected
+`16bbc2256a07104b576fa7c5cd81378b900dd0920e20c8f1cb53c286414a91e9`.
+The host checker then stopped before reading any result because the root-run
+container had created `/qualification/output` as root-owned mode `0700`.
+No draft, upload, tag, release, or public executable asset was created. Preserve
+`/home/ian/workspace/data/pangopup-release-038-5fc7d12` and the private artifact
+as evidence; neither may be reused as release input.
+
+Those seven dispatch authorizations are consumed. After independent acceptance
+of the qualification-ownership correction and a new exact commit's green
+remote gate, exactly one corrected dispatch is permitted. It must use the same
+Ubuntu 24.04/GLIBC 2.39 baseline and must not alter the static runtime, release
 inventory, production assets, or score comparisons.
 
 ## Fixed release contract
@@ -109,7 +124,7 @@ release-manifest.json
 ## Fresh stop-before-effect audit
 
 Record pass/fail and non-sensitive evidence for every item before dispatching
-the SNV-oracle-corrected workflow. Any failure stops the operation. Earlier
+the qualification-ownership-corrected workflow. Any failure stops the operation. Earlier
 audits belong to their consumed attempts and cannot authorize this dispatch.
 
 - [ ] repository visibility is public
@@ -125,8 +140,8 @@ audits belong to their consumed attempts and cannot authorize this dispatch.
 - [ ] target commit is reachable from public `main`
 - [ ] target commit's `ci` run has exactly one successful job named `gate`
 
-SNV-oracle-corrected audit timestamp: `<PENDING_UTC>`
-SNV-oracle-corrected audit operator: `<PENDING>`
+Qualification-ownership-corrected audit timestamp: `<PENDING_UTC>`
+Qualification-ownership-corrected audit operator: `<PENDING>`
 Target `ci` run ID/URL: `<PENDING>`  
 Security/ruleset evidence summary: `<PENDING_CREDENTIAL_FREE_SUMMARY>`
 
