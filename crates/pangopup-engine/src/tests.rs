@@ -1417,6 +1417,69 @@ fn pure_snv_misses_require_model_and_non_snvs_skip_lookup() {
 }
 
 #[test]
+fn explicit_model_request_bypasses_a_provider_that_would_cover_the_snv() {
+    let stable = EnsemblGeneId::from_str("ENSG00000000001").expect("stable");
+    let score = PangolinScore::new(
+        ScoreMagnitude::new(10).expect("gain"),
+        RelativePosition::new(1).expect("gain position"),
+        ScoreMagnitude::new(20).expect("loss"),
+        RelativePosition::new(-1).expect("loss position"),
+    );
+    let (router, calls) = router_with(vec![GeneScoreRecord::new(stable, score)], Vec::new());
+    let request = RouteRequest::new(
+        Grch38Variant::new(
+            Grch38Contig::autosome(12).expect("chr12"),
+            GenomicPosition::new(6_801_301).expect("position"),
+            "G",
+            "A",
+        )
+        .expect("covered route variant"),
+        None,
+    );
+    let explicit = ExplicitModelRequest::new(request.clone());
+
+    assert_eq!(explicit.variant(), request.variant());
+    assert_eq!(explicit.gene(), None);
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let scorer = VariantScorer {
+        engine: spy_engine(
+            Arc::clone(&events),
+            SpyReferenceOutcome::Bases(reference_context(b"G")),
+            Ok(MaskGenes {
+                plus: vec![test_gene(&[])],
+                minus: Vec::new(),
+            }),
+            None,
+        ),
+    };
+    let mut fallback = ModelFallback {
+        scorer,
+        provenance: ModelProvenance {
+            model_bundle_id: "sha256:model".to_owned(),
+            model_profile: "test-model".to_owned(),
+            reference: dummy_provenance(),
+            mask_bytes: 123,
+            mask_sha256: "sha256:mask".to_owned(),
+        },
+    };
+    let result = fallback
+        .complete_explicit(explicit)
+        .expect("explicit model completion");
+    assert!(matches!(result, RoutedResult::Modeled { .. }));
+    assert_eq!(
+        *events.lock().expect("events"),
+        vec!["reference", "mask", "model:+", "model:+"],
+        "explicit request must traverse the real scoring boundary"
+    );
+    assert!(
+        calls.lock().expect("calls").is_empty(),
+        "explicit model completion must not call the covering score provider"
+    );
+
+    drop(router);
+}
+
+#[test]
 fn model_completion_masks_all_genes_before_filtering_and_preserves_order() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let first = test_gene(&[]);

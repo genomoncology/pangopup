@@ -219,6 +219,16 @@ read-only and do not refresh that order. Precomputed SNV hits do not use
 SQLite. Deleting the database is always safe; Pangopup recomputes model results
 as needed.
 
+### Can a caller force model inference for an SNV?
+
+Yes. `pangopup lookup --model-only` bypasses the SNV index for every variant in
+the batch. It uses either the activated canonical model/reference/mask profile
+or one complete explicit tuple; the explicit form needs no SNV bundle or
+installation. Output, provenance, filtering, caching, and transactional failure
+remain the same as ordinary model fallback. Pangopup does not automatically
+rerun scores near a threshold; callers make a normal call and a model-only call
+when they want both authorities.
+
 ### Which compact reference encoding will Pangopup use?
 
 `acgt2-rle-v1`: two-bit ACGT with exact ambiguity runs. In the one retained
@@ -307,16 +317,6 @@ or another external process manager owns start, stop, and restart. Keeping one
 foreground process avoids building a second supervisor and produces the same
 service behavior in containers and native deployments.
 
-### Will non-SNV inference use a persistent cache?
-
-Only if measurements justify it. The operating-system page cache already helps
-the SNV mmap path, while model results have a more complicated identity. Any
-future model cache key must include the literal variant, gene/masking context,
-checkpoint, GRCh38 sequence-index and mask identities, window, and
-inference parameters. A ticket must first demonstrate a representative repeated
-workload whose latency or compute cost improves enough to justify memory/disk
-use, locking, eviction, corruption recovery, and invalidation.
-
 ## Settled product choices
 
 ### What does CLI v1 require?
@@ -324,7 +324,9 @@ use, locking, eviction, corruption recovery, and invalidation.
 Accept an explicit GRCh38 contig, position, reference, and alternate plus an
 optional Ensembl source-gene filter. Without a filter, return every matching
 gene-specific score. Literal uppercase A/C/G/T multi-base alleles are accepted
-when a complete explicit reference/mask/model fallback set is supplied. No
+through the activated runtime or when a complete explicit
+reference/mask/model fallback set is supplied. `--model-only` can explicitly
+bypass SNV lookup. No
 implicit best-gene selection, normalization, or projection.
 
 ### How much HGVS does Pangopup own?

@@ -14,7 +14,10 @@ The `pangopup-engine` crate now composes those providers into compatible
 variant-level scoring and lookup-first routing for the supported literal
 allele subset. The CLI consumes the activated installed runtime profile lazily
 for fallback, while retaining a complete explicit reference/mask/model
-override, and emits exact modeled JSONL/table results. Complete-request CPU policy
+override. Its `--model-only` flag bypasses SNV lookup through a distinct typed
+engine request and can use either the activated model-side profile or a
+self-sufficient explicit model tuple without opening an SNV asset. The CLI
+emits exact modeled JSONL/table results. Complete-request CPU policy
 selection is established. Ticket 022 corrected and repeated the
 singleton/zero-padded/paired comparison after code review caught missing v2
 export axes. Both policies were inconclusive from singleton drift and neither

@@ -606,14 +606,24 @@ pub fn open_installed_runtime_profile(
 ) -> Result<InstalledRuntimeProfile, AssetError> {
     open_installed_runtime_profile_with(
         data_root,
-        expected_snv_bundle_id,
+        Some(expected_snv_bundle_id),
         &crate::production_runtime_profile(),
     )
 }
 
+/// Admit the model-side members of the active canonical runtime profile.
+///
+/// This path validates the complete trusted profile identity but neither
+/// requires nor opens the separately installed SNV lookup bundle.
+pub fn open_installed_runtime_profile_for_model(
+    data_root: &Path,
+) -> Result<InstalledRuntimeProfile, AssetError> {
+    open_installed_runtime_profile_with(data_root, None, &crate::production_runtime_profile())
+}
+
 fn open_installed_runtime_profile_with(
     data_root: &Path,
-    expected_snv_bundle_id: &str,
+    expected_snv_bundle_id: Option<&str>,
     trusted: &RuntimeProfile,
 ) -> Result<InstalledRuntimeProfile, AssetError> {
     let root = super::local::open_root(data_root, false)
@@ -668,8 +678,9 @@ fn open_installed_runtime_profile_with(
         return Err(profile_corrupt_runtime());
     }
     if &profile != trusted
-        || profile.snv.bundle_id != expected_snv_bundle_id
-        || trusted.snv.bundle_id != expected_snv_bundle_id
+        || expected_snv_bundle_id.is_some_and(|expected| {
+            profile.snv.bundle_id != expected || trusted.snv.bundle_id != expected
+        })
     {
         return Err(profile_incompatible_runtime());
     }
@@ -2409,7 +2420,7 @@ mod tests {
         let temp = TempDir::new().expect("temp");
         let root = temp.path().join("data");
         let (snv, profile) = install_mini_runtime(&root);
-        let installed = open_installed_runtime_profile_with(&root, &snv.bundle_id, &profile)
+        let installed = open_installed_runtime_profile_with(&root, Some(&snv.bundle_id), &profile)
             .expect("installed admission");
         let (_, model, reference, mask) = installed.into_parts();
         assert_eq!(
@@ -2423,13 +2434,33 @@ mod tests {
     }
 
     #[test]
+    fn model_only_runtime_admission_does_not_require_the_snv_installation() {
+        let temp = TempDir::new().expect("temp");
+        let root = temp.path().join("data");
+        let (_snv, profile) = install_mini_runtime(&root);
+        fs::remove_file(root.join("active.json")).expect("remove active SNV profile");
+        fs::rename(
+            root.join("bundles"),
+            temp.path().join("removed-snv-bundles"),
+        )
+        .expect("make SNV bundles unavailable");
+
+        let installed = open_installed_runtime_profile_with(&root, None, &profile)
+            .expect("model-side runtime admission");
+        let (_, model, reference, mask) = installed.into_parts();
+        model.open().expect("model remains available");
+        assert_eq!(reference.manifest().profile, profile.reference.profile);
+        mask.open().expect("mask remains available");
+    }
+
+    #[test]
     fn installed_runtime_is_bound_to_snv_identity_and_detects_pre_return_replacement() {
         let temp = TempDir::new().expect("temp");
         let root = temp.path().join("data");
         let (snv, profile) = install_mini_runtime(&root);
         let incompatible = open_installed_runtime_profile_with(
             &root,
-            &format!("sha256:{}", "f".repeat(64)),
+            Some(&format!("sha256:{}", "f".repeat(64))),
             &profile,
         )
         .expect_err("SNV identity mismatch");
@@ -2440,7 +2471,7 @@ mod tests {
         );
 
         REPLACE_RUNTIME_BEFORE_RETURN.set(true);
-        let replaced = open_installed_runtime_profile_with(&root, &snv.bundle_id, &profile)
+        let replaced = open_installed_runtime_profile_with(&root, Some(&snv.bundle_id), &profile)
             .expect_err("pre-return pathname replacement");
         assert_eq!(replaced.kind(), AssetErrorKind::BundleInvalid);
         assert_eq!(replaced.to_string(), "installed runtime profile is invalid");
@@ -2468,8 +2499,9 @@ mod tests {
             b"{\"schema\":\"wrong\"}",
         )
         .expect("malformed active");
-        let error = open_installed_runtime_profile_with(&malformed_root, &snv.bundle_id, &profile)
-            .expect_err("malformed profile");
+        let error =
+            open_installed_runtime_profile_with(&malformed_root, Some(&snv.bundle_id), &profile)
+                .expect_err("malformed profile");
         assert_eq!(error.kind(), AssetErrorKind::BundleInvalid);
         assert_eq!(error.to_string(), "installed runtime profile is invalid");
 
@@ -2481,8 +2513,9 @@ mod tests {
             fs::Permissions::from_mode(0o644),
         )
         .expect("unsafe mode");
-        let error = open_installed_runtime_profile_with(&bad_mode_root, &snv.bundle_id, &profile)
-            .expect_err("unsafe mode");
+        let error =
+            open_installed_runtime_profile_with(&bad_mode_root, Some(&snv.bundle_id), &profile)
+                .expect_err("unsafe mode");
         assert_eq!(error.kind(), AssetErrorKind::StagingInvalid);
         assert_eq!(error.to_string(), "installed runtime state is unsafe");
 
@@ -2494,8 +2527,9 @@ mod tests {
             bad_link.path().join("active-link.json"),
         )
         .expect("unsafe link");
-        let error = open_installed_runtime_profile_with(&bad_link_root, &snv.bundle_id, &profile)
-            .expect_err("unsafe link");
+        let error =
+            open_installed_runtime_profile_with(&bad_link_root, Some(&snv.bundle_id), &profile)
+                .expect_err("unsafe link");
         assert_eq!(error.kind(), AssetErrorKind::StagingInvalid);
         assert_eq!(error.to_string(), "installed runtime state is unsafe");
 
@@ -2514,8 +2548,9 @@ mod tests {
         fs::write(profile_dir.join("unexpected"), b"x").expect("unsafe entry");
         fs::set_permissions(&profile_dir, fs::Permissions::from_mode(DIR_IMMUTABLE))
             .expect("restore profile dir");
-        let error = open_installed_runtime_profile_with(&bad_entry_root, &snv.bundle_id, &profile)
-            .expect_err("unsafe entry");
+        let error =
+            open_installed_runtime_profile_with(&bad_entry_root, Some(&snv.bundle_id), &profile)
+                .expect_err("unsafe entry");
         assert_eq!(error.kind(), AssetErrorKind::StagingInvalid);
         assert_eq!(error.to_string(), "installed runtime state is unsafe");
     }
@@ -2525,7 +2560,7 @@ mod tests {
         let temp = TempDir::new().expect("temp");
         let root = temp.path().join("data");
         let (snv, profile) = install_mini_runtime(&root);
-        let installed = open_installed_runtime_profile_with(&root, &snv.bundle_id, &profile)
+        let installed = open_installed_runtime_profile_with(&root, Some(&snv.bundle_id), &profile)
             .expect("installed admission");
         let (_, model, reference, mask) = installed.into_parts();
 

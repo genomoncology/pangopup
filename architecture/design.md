@@ -4,7 +4,9 @@
 
 The shipped CLI accepts a literal GRCh38 genomic variant, preserves every
 authoritative gene-specific record present in one pinned source archive, and
-can run the model for caller-enabled SNV misses and supported non-SNVs.
+can run the model for caller-enabled SNV misses and supported non-SNVs. The
+single `--model-only` override bypasses lookup for the complete request batch;
+it contains no score threshold or comparison policy.
 
 ```text
 CLI/HTTP structured genomic variant
@@ -20,6 +22,9 @@ CLI/HTTP structured genomic variant
 The CLI is the shipped observable adapter: JSON Lines is its stable default and
 exact tab-separated output is available explicitly. A future HTTP service calls
 the same Rust API and owns no scoring, normalization, or file-format rules.
+The typed engine distinguishes a lookup-inspected `ModelRequired` request from
+an `ExplicitModelRequest`, so adapters can request inference without creating
+or consulting a score provider.
 
 ## Crate ownership
 
@@ -267,22 +272,24 @@ Every result carries enough provenance to identify:
 ## Target runtime behavior
 
 Today the CLI opens either one explicitly supplied SNV bundle or the atomically
-selected active Linux installation. It optionally opens one explicit local
-identified reference, identified mask, and model tuple only after a batch needs
-fallback.
-Local install/status and active discovery and pinned remote sync are shipped;
-no HTTP adapter exists. In the target service,
-before serving, an adapter asks remote sync to obtain one binary-pinned
-compatible transport and passes it through the same local installer. The core
-then opens one immutable bundle. A replacement bundle requires a new process.
+selected active Linux installation. It opens an explicit local identified
+reference, identified mask, and model tuple only after a default batch needs
+fallback, or immediately when the caller supplies `--model-only`. Combined
+pinned sync, coherent four-asset activation, local status, and clean-machine
+CLI inference are shipped. No HTTP adapter exists. A future service can invoke
+the same sync and installation boundary before serving, then hold the immutable
+installed members for the process lifetime. A replacement profile requires a
+new process.
 
 The installed flow checks transport and reconstructed hashes while streaming
 once. Ordinary startup performs cheap receipt, identity, version, size, and
 structural checks so it does not page through every multi-gigabyte member. The
 shipped build-time verification command owns exhaustive semantic scanning.
 
-The operating-system page cache is the first lookup cache; Pangopup does not add
-an application result cache until measurements show a miss it can improve.
+The operating-system page cache is the lookup cache for the mmap SNV fast path.
+Measured model fallback additionally uses the shipped persistent SQLite cache
+for complete modeled results across process restarts. Authoritative SNV hits do
+not inspect that cache or model assets.
 
 Lookups are deterministic and thread-safe through one `ScoreProvider: Send +
 Sync`. Results own small sorted record and ambiguity collections rather than
@@ -290,20 +297,18 @@ exposing mmap lifetimes. The selected installed profile is decompression-free
 fixed-width mmap; transport compression is removed once at installation and
 never appears on the query path.
 
-The current sync profile provisions only the SNV transport. A future full
-service must pin a coherent set of SNV, compiled GRCh38 sequence index, mask,
-and converted model identities before it can report readiness. Explicit-path
-fallback is operational; coherent asset activation is not.
+The current sync command provisions both the SNV transport and the separately
+published model-side transport. One canonical profile binds the SNV, compiled
+GRCh38 sequence index, mask, and converted model identities; installation and
+status use that coherent identity. Explicit-path and activated-profile model
+fallback are both operational.
 
 ## Planned extensions not yet shipped
 
-- application-level model-result caching only if measurements justify it;
-- separately versioned converted model, compiled GRCh38 sequence index, and mask
-  publication and pinned sync;
 - foreground HTTP serving plus container and native service-manager
-  integration; and
-- evidence-gated complete-model-result caching after the corrected batching
-  experiment retained singleton.
+  integration;
+- exact persistent download progress; and
+- repair, garbage-collection, rollback, and broader release hardening.
 
 These extensions must preserve the exact, compact, fast SNV index rather than
 complicate or replace it.

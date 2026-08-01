@@ -1,8 +1,9 @@
 use pangopup_assets::{
     AssetError, AssetErrorKind, CachePathInputs, CombinedStatusResult, CombinedSyncResult,
     DataPathInputs, InstalledModelInput, combined_local_status, install_runtime_profile,
-    install_transport, open_active_bundle, open_installed_runtime_profile, resolve_cache_root,
-    resolve_data_root, sync_all_assets,
+    install_transport, open_active_bundle, open_installed_runtime_profile,
+    open_installed_runtime_profile_for_model, resolve_cache_root, resolve_data_root,
+    sync_all_assets,
 };
 use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
 use pangopup_cli::{OutputFormat, RenderRequest, render_requests};
@@ -11,8 +12,8 @@ use pangopup_core::{
     ReferenceProvenance, ScoreProvider,
 };
 use pangopup_engine::{
-    LookupFirstRouter, ModelFallback, ModelFallbackError, ModelProvenance, RouteDecision,
-    RouteRequest, RoutedResult,
+    ExplicitModelRequest, LookupFirstRouter, ModelFallback, ModelFallbackError, ModelProvenance,
+    ModelRequired, RouteDecision, RouteRequest, RoutedResult,
 };
 use pangopup_index::{
     BundleOpen, IndexError,
@@ -30,11 +31,12 @@ use std::{
     str::FromStr,
 };
 
-const HELP: &str = "Pangopup: exact Pangolin score lookup\n\nUsage:\n  pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]\n  pangopup status [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]\n  pangopup --help\n  pangopup --version";
+const HELP: &str = "Pangopup: exact Pangolin score lookup\n\nUsage:\n  pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]\n  pangopup status [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]\n  pangopup --help\n  pangopup --version";
 
 struct Arguments {
     bundle: Option<PathBuf>,
     data_dir: Option<OsString>,
+    model_only: bool,
     variants: Vec<Grch38Variant>,
     gene: Option<EnsemblGeneId>,
     format: OutputFormat,
@@ -71,6 +73,35 @@ enum AdmittedFallbackSource {
     Installed(Box<InstalledFallbackInput>),
     #[cfg(test)]
     Test(Box<dyn FnOnce() -> Result<ModelFallback, Failure>>),
+}
+
+enum PendingModel {
+    Lookup(ModelRequired),
+    Explicit(ExplicitModelRequest),
+}
+
+impl PendingModel {
+    fn variant(&self) -> &Grch38Variant {
+        match self {
+            Self::Lookup(request) => request.variant(),
+            Self::Explicit(request) => request.variant(),
+        }
+    }
+
+    fn gene(&self) -> Option<EnsemblGeneId> {
+        match self {
+            Self::Lookup(request) => request.gene(),
+            Self::Explicit(request) => request.gene(),
+        }
+    }
+}
+
+// Keep authoritative values inline: boxing this variant would allocate on
+// every ordinary SNV hit, the highest-priority route.
+#[allow(clippy::large_enum_variant)]
+enum BatchDecision {
+    Authoritative(RoutedResult),
+    Model(PendingModel),
 }
 
 struct InstalledFallbackInput {
@@ -135,6 +166,7 @@ struct Failure {
 type SyncRunner<'a> =
     dyn Fn(&Path, Option<&Path>, bool) -> Result<CombinedSyncResult, AssetError> + 'a;
 type StatusRunner<'a> = dyn Fn(&Path) -> Result<CombinedStatusResult, AssetError> + 'a;
+type RuntimeOpener<'a> = dyn Fn(&Path, Option<&str>) -> Result<FallbackAdmission, Failure> + 'a;
 
 impl Failure {
     fn usage(message: impl Into<String>) -> Self {
@@ -325,7 +357,7 @@ fn run_lookup_with_observer(
 fn run_lookup_with_runtime_opener(
     arguments: Arguments,
     observer: &mut dyn FnMut(FallbackComponent),
-    runtime_opener: &dyn Fn(&Path, &str) -> Result<FallbackAdmission, Failure>,
+    runtime_opener: &RuntimeOpener<'_>,
 ) -> Result<Vec<u8>, Failure> {
     let explicit_bundle = arguments.bundle.is_some();
     if explicit_bundle
@@ -340,6 +372,7 @@ fn run_lookup_with_runtime_opener(
     let Arguments {
         bundle: bundle_path,
         data_dir,
+        model_only,
         variants,
         gene,
         format,
@@ -348,6 +381,32 @@ fn run_lookup_with_runtime_opener(
         implicit_cache_path,
         implicit_cache_limit,
     } = arguments;
+    if model_only {
+        let admission = match fallback_paths.as_ref() {
+            Some(paths) => admit_model_fallback(paths)?,
+            None => {
+                let root = data_root(data_dir)?;
+                runtime_opener(&root, None)?
+            }
+        };
+        let decisions = variants
+            .into_iter()
+            .map(|variant| {
+                BatchDecision::Model(PendingModel::Explicit(ExplicitModelRequest::new(
+                    RouteRequest::new(variant, gene),
+                )))
+            })
+            .collect();
+        return complete_model_batch(
+            decisions,
+            admission,
+            format,
+            cache_options,
+            implicit_cache_path,
+            implicit_cache_limit,
+            observer,
+        );
+    }
     let (bundle, installed_binding) = match bundle_path {
         Some(path) => (BundleOpen::open(&path).map_err(map_open_error)?, None),
         None => {
@@ -389,8 +448,15 @@ fn run_lookup_with_runtime_opener(
         let decision = router
             .inspect(RouteRequest::new(variant, gene))
             .map_err(map_lookup_error)?;
-        needs_model |= matches!(decision, RouteDecision::ModelRequired(_));
-        decisions.push(decision);
+        match decision {
+            RouteDecision::Authoritative(result) => {
+                decisions.push(BatchDecision::Authoritative(result));
+            }
+            RouteDecision::ModelRequired(required) => {
+                needs_model = true;
+                decisions.push(BatchDecision::Model(PendingModel::Lookup(required)));
+            }
+        }
     }
 
     let mut admission = if needs_model {
@@ -400,13 +466,43 @@ fn run_lookup_with_runtime_opener(
                 let (root, snv_bundle_id) = installed_binding
                     .as_ref()
                     .expect("implicit route opened an installed SNV bundle");
-                runtime_opener(root, snv_bundle_id)?
+                runtime_opener(root, Some(snv_bundle_id))?
             }
         })
     } else {
         None
     };
-    let mut cache = if needs_model {
+    if let Some(admission) = admission.take() {
+        return complete_model_batch(
+            decisions,
+            admission,
+            format,
+            cache_options,
+            implicit_cache_path,
+            implicit_cache_limit,
+            observer,
+        );
+    }
+    let requests = decisions
+        .into_iter()
+        .map(|decision| match decision {
+            BatchDecision::Authoritative(result) => RenderRequest::from_routed(result),
+            BatchDecision::Model(_) => unreachable!("model decisions require admission"),
+        })
+        .collect::<Vec<_>>();
+    render_lookup_requests(format, &requests)
+}
+
+fn complete_model_batch(
+    decisions: Vec<BatchDecision>,
+    mut admission: FallbackAdmission,
+    format: OutputFormat,
+    cache_options: Option<CacheOptions>,
+    implicit_cache_path: Option<PathBuf>,
+    implicit_cache_limit: Option<EntryLimit>,
+    observer: &mut dyn FnMut(FallbackComponent),
+) -> Result<Vec<u8>, Failure> {
+    let mut cache = {
         let implicit_options;
         let options = if let Some(options) = cache_options.as_ref() {
             options
@@ -425,22 +521,17 @@ fn run_lookup_with_runtime_opener(
             Err(pangopup_cache::CacheError::Busy) => None,
             Err(error) => return Err(map_cache_error(error)),
         }
-    } else {
-        None
     };
     let mut fallback = None;
     let mut requests = Vec::with_capacity(decisions.len());
     for decision in decisions {
         let routed = match decision {
-            RouteDecision::Authoritative(result) => result,
-            RouteDecision::ModelRequired(required) => {
+            BatchDecision::Authoritative(result) => result,
+            BatchDecision::Model(required) => {
                 let (key, cached_provenance) = {
-                    let admitted = admission
-                        .as_ref()
-                        .expect("model-required batch has one admission");
                     (
-                        cache_key(required.variant(), admitted).map_err(map_cache_error)?,
-                        admitted.provenance.clone(),
+                        cache_key(required.variant(), &admission).map_err(map_cache_error)?,
+                        admission.provenance.clone(),
                     )
                 };
                 let cached = match cache.as_mut() {
@@ -452,22 +543,23 @@ fn run_lookup_with_runtime_opener(
                     None => None,
                 };
                 if let Some(records) = cached {
-                    routed_from_cached(required, records, cached_provenance)
+                    routed_from_cached(&required, records, cached_provenance)
                 } else {
                     if fallback.is_none() {
-                        fallback = Some(open_admitted_model_fallback(
-                            admission
-                                .as_mut()
-                                .expect("model-required batch has one admission"),
-                            observer,
-                        )?);
+                        fallback = Some(open_admitted_model_fallback(&mut admission, observer)?);
                     }
                     let filter = required.gene();
-                    let modeled = fallback
-                        .as_mut()
-                        .expect("model miss opened one fallback")
-                        .complete_unfiltered(required)
-                        .map_err(map_model_fallback_error)?;
+                    let modeled = match required {
+                        PendingModel::Lookup(required) => fallback
+                            .as_mut()
+                            .expect("model miss opened one fallback")
+                            .complete_unfiltered(required),
+                        PendingModel::Explicit(required) => fallback
+                            .as_mut()
+                            .expect("model miss opened one fallback")
+                            .complete_unfiltered_explicit(required),
+                    }
+                    .map_err(map_model_fallback_error)?;
                     if let RoutedResult::Modeled {
                         variant,
                         mut records,
@@ -498,7 +590,7 @@ fn run_lookup_with_runtime_opener(
 }
 
 fn routed_from_cached(
-    required: pangopup_engine::ModelRequired,
+    required: &PendingModel,
     mut records: Vec<pangopup_core::ModelGeneScoreRecord>,
     provenance: ModelProvenance,
 ) -> RoutedResult {
@@ -640,10 +732,13 @@ fn admit_model_fallback(paths: &FallbackPaths) -> Result<FallbackAdmission, Fail
 
 fn admit_installed_model_fallback(
     data_root: &Path,
-    snv_bundle_id: &str,
+    snv_bundle_id: Option<&str>,
 ) -> Result<FallbackAdmission, Failure> {
-    let installed =
-        open_installed_runtime_profile(data_root, snv_bundle_id).map_err(map_runtime_error)?;
+    let installed = match snv_bundle_id {
+        Some(snv_bundle_id) => open_installed_runtime_profile(data_root, snv_bundle_id),
+        None => open_installed_runtime_profile_for_model(data_root),
+    }
+    .map_err(map_runtime_error)?;
     let (profile, model, reference, mask) = installed.into_parts();
     let model_admission = model.admission().clone();
     let provenance = ModelProvenance::new(
@@ -939,6 +1034,7 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
     let mut mask = None;
     let mut model_cache = None;
     let mut model_cache_max_entries = None;
+    let mut model_only = false;
     let mut seen_format = false;
     let mut index = 1;
     while index < raw.len() {
@@ -946,6 +1042,13 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
             .to_str()
             .ok_or_else(|| Failure::usage("arguments must be UTF-8"))?;
         index += 1;
+        if option == "--model-only" {
+            if model_only {
+                return Err(Failure::usage("--model-only may be supplied once"));
+            }
+            model_only = true;
+            continue;
+        }
         let value = raw
             .get(index)
             .ok_or_else(|| Failure::usage(format!("{option} requires a value")))?;
@@ -1019,6 +1122,9 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
             "--bundle and --data-dir are mutually exclusive",
         ));
     }
+    if model_only && bundle.is_some() {
+        return Err(Failure::usage("--bundle cannot be used with --model-only"));
+    }
     if variants.is_empty() {
         return Err(Failure::usage("lookup requires at least one --variant"));
     }
@@ -1035,6 +1141,11 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
             ));
         }
     };
+    if model_only && data_dir.is_some() && fallback.is_some() {
+        return Err(Failure::usage(
+            "--data-dir cannot be combined with explicit model assets under --model-only",
+        ));
+    }
     if bundle.is_some()
         && fallback.is_none()
         && (model_cache.is_some() || model_cache_max_entries.is_some())
@@ -1050,6 +1161,7 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
     Ok(Arguments {
         bundle,
         data_dir,
+        model_only,
         variants,
         gene,
         format,
@@ -1605,6 +1717,58 @@ mod tests {
             initialized.get(),
             3,
             "recomposed cache hits do not initialize dense providers"
+        );
+    }
+
+    #[test]
+    fn installed_model_only_opens_no_snv_bundle_or_active_snv_installation() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        fs::set_permissions(
+            temp.path(),
+            <fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o700),
+        )
+        .expect("private temp");
+        let data = temp.path().join("data-with-no-snv");
+        let cache = temp.path().join("model-only.sqlite3");
+        let command = vec![
+            "lookup".to_owned(),
+            "--model-only".to_owned(),
+            "--data-dir".to_owned(),
+            data.display().to_string(),
+            "--variant".to_owned(),
+            "GRCh38:chr1:5051:A:C".to_owned(),
+            "--model-cache".to_owned(),
+            cache.display().to_string(),
+        ];
+        let bounded = Rc::new(Cell::new(0));
+        let initialized = Rc::new(Cell::new(0));
+        let first = run_lookup_with_runtime_opener(
+            lookup_arguments(&command),
+            &mut |_| {},
+            &|root, snv_bundle_id| {
+                assert_eq!(root, data);
+                assert_eq!(snv_bundle_id, None);
+                fixture_runtime_admission(&bounded, &initialized)
+            },
+        )
+        .expect("installed model-only output");
+        let second = run_lookup_with_runtime_opener(
+            lookup_arguments(&command),
+            &mut |_| {},
+            &|root, snv_bundle_id| {
+                assert_eq!(root, data);
+                assert_eq!(snv_bundle_id, None);
+                fixture_runtime_admission(&bounded, &initialized)
+            },
+        )
+        .expect("installed model-only cache hit");
+        assert_eq!(second, first);
+        assert!(String::from_utf8_lossy(&first).contains("\"kind\":\"model\""));
+        assert_eq!(bounded.get(), 2);
+        assert_eq!(initialized.get(), 1);
+        assert!(
+            !data.exists(),
+            "test route must not synthesize an SNV install"
         );
     }
 

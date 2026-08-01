@@ -51,7 +51,8 @@ pub use release::{
 pub use release::{ReleasePreparationContract, prepare_release_with_contract};
 pub use runtime_install::{
     InstalledModelInput, InstalledRuntimeProfile, RuntimeInstallOutcome, RuntimeLocalStatus,
-    install_runtime_profile, open_installed_runtime_profile, runtime_local_status,
+    install_runtime_profile, open_installed_runtime_profile,
+    open_installed_runtime_profile_for_model, runtime_local_status,
 };
 pub use runtime_profile::{
     MaskProfile, ModelProfile, RUNTIME_PROFILE_SCHEMA, ReferenceProfile, RuntimeProfile,

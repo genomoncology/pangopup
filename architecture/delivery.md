@@ -39,8 +39,8 @@ settings, so it is a separately reviewed authority expansion.
 This security baseline itself published no runtime asset. Release-specific
 attribution, stable derived bytes, GPL preferred source, controlled upload,
 remote digest comparison, and immutable finalization are now complete for
-`runtime-grch38-v1`. Runtime sync and clean-machine inference remain distinct
-delivery steps.
+`runtime-grch38-v1`. Pinned runtime sync and clean-machine CLI inference are
+also shipped. HTTP serving and container delivery remain separate future work.
 
 ## GitHub Releases
 
@@ -393,8 +393,8 @@ only when automation or a retained run proves, from a clean supported machine:
 - corruption, a missing part, and mixed-release parts fail closed without
   replacing a previous valid installation.
 
-The immutable converted-model, GRCh38 sequence-index, and mask publication is
-complete. Pinned model-side sync and clean-machine compatibility-corpus
-inference remain the next delivery proof. Executable/container dependency
+The immutable converted-model, GRCh38 sequence-index, and mask publication,
+pinned model-side sync, coherent XDG activation, offline reuse, and
+clean-machine CLI inference are complete. HTTP/container delivery, dependency
 inventory, SBOM, provenance, signing, and broader rollback policy remain later
 release-hardening outcomes, not shipped claims.

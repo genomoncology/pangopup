@@ -131,6 +131,29 @@ impl ModelRequired {
     }
 }
 
+/// A caller's explicit request to bypass precomputed lookup and use the model.
+///
+/// Unlike [`ModelRequired`], constructing this value does not require or
+/// consult a [`ScoreProvider`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExplicitModelRequest {
+    request: RouteRequest,
+}
+
+impl ExplicitModelRequest {
+    pub const fn new(request: RouteRequest) -> Self {
+        Self { request }
+    }
+
+    pub const fn variant(&self) -> &Grch38Variant {
+        self.request.variant()
+    }
+
+    pub const fn gene(&self) -> Option<EnsemblGeneId> {
+        self.request.gene()
+    }
+}
+
 /// The result of the cheap lookup-first decision.
 #[derive(Clone, Debug, Eq, PartialEq)]
 // Keeping the authoritative value inline avoids one heap allocation on every
@@ -349,6 +372,21 @@ impl ModelFallback {
         Ok(routed)
     }
 
+    /// Complete one caller-requested model route without consulting lookup.
+    pub fn complete_explicit(
+        &mut self,
+        request: ExplicitModelRequest,
+    ) -> Result<RoutedResult, ModelFallbackError> {
+        let filter = request.gene();
+        let mut routed = self.complete_unfiltered_explicit(request)?;
+        if let RoutedResult::Modeled { records, .. } = &mut routed
+            && let Some(filter) = filter
+        {
+            records.retain(|record| record.gene().stable() == filter);
+        }
+        Ok(routed)
+    }
+
     /// Complete one route without applying its optional stable-gene filter.
     ///
     /// Runtime composition uses this narrow seam to persist one reusable,
@@ -357,9 +395,24 @@ impl ModelFallback {
         &mut self,
         required: ModelRequired,
     ) -> Result<RoutedResult, ModelFallbackError> {
+        self.complete_request_unfiltered(required.request)
+    }
+
+    /// Complete an explicit model route without applying its optional filter.
+    pub fn complete_unfiltered_explicit(
+        &mut self,
+        request: ExplicitModelRequest,
+    ) -> Result<RoutedResult, ModelFallbackError> {
+        self.complete_request_unfiltered(request.request)
+    }
+
+    fn complete_request_unfiltered(
+        &mut self,
+        request: RouteRequest,
+    ) -> Result<RoutedResult, ModelFallbackError> {
         let result = self
             .scorer
-            .score(required.variant())
+            .score(request.variant())
             .map_err(ModelFallbackError::Scoring)?;
         let records = match result {
             ModelScoreResult::Scored(records) => records,
@@ -368,7 +421,7 @@ impl ModelFallback {
             }
         };
         Ok(RoutedResult::Modeled {
-            variant: required.request.variant,
+            variant: request.variant,
             records,
             provenance: self.provenance.clone(),
         })

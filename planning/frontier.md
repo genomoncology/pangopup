@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-07-30
+Updated: 2026-08-01
 
 ## Current boundary
 
@@ -31,13 +31,18 @@ comparison retained singleton after both policies exceeded the drift limit and
 neither candidate met the independent replacement gates. Persistent exact
 SQLite result reuse, one canonical four-asset production compatibility
 profile, offline coherent XDG installation/activation, and lazy held-descriptor
-runtime consumption are established. Deterministic local packaging of the
-three model-side assets is established. The exact 691,884,908-byte read-only
+runtime consumption are established. The explicit `--model-only` route now
+bypasses precomputed lookup for complete batches and can consume either the
+activated model-side profile without the SNV object or a self-sufficient
+explicit model/reference/mask tuple. It reuses the shipped exact SQLite cache
+and modeled output contract. Deterministic local packaging of the three
+model-side assets is established. The exact 691,884,908-byte read-only
 `runtime-grch38-v1` release stage has been prepared from reviewed, remotely
 green code, with byte equality and all declared checksums qualified. Its
 complete exact GPL preferred-source supplement is also retained and qualified;
 the exact 15-asset set is now public and immutable. Pinned typed model-side
-sync and combined CLI provisioning are shipped; HTTP remains future.
+sync and combined CLI provisioning are shipped; the released executable passed
+clean-container installation and inference. HTTP remains future.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
 and typed mmap provider are established; its local transport, installation,
 and immutable public release are shipped. Future SNV and sequence-index builds use
@@ -90,8 +95,8 @@ uses three independent frames, reconstructs accepted bytes exactly, and never
 touches the 15 GB SNV payload. The publication set adds complete exact
 Pangolin/Pangopup preferred-source archives and the standalone GPL license. It
 is now the immutable public `runtime-grch38-v1` GitHub release with a pinned
-typed remote-sync policy and combined top-level CLI provisioning. Clean-machine
-CLI inference qualification remains. No raw
+typed remote-sync policy and combined top-level CLI provisioning. Ticket 038's
+clean-machine CLI inference qualification is complete. No raw
 Zenodo, NCBI, or GENCODE source input is a Pangopup release asset. Original
 checkpoints are preserved as preferred source, not installed runtime members.
 
@@ -503,6 +508,10 @@ inspects that state. Explicit fallback remains all-or-nothing and takes
 precedence. Reopened SQLite hits repeat bounded identity admission but avoid
 dense reference/model reads and ONNX initialization.
 
+Explicit model-only admission instead validates the canonical activated
+profile and opens only its model-side members; it neither requires nor opens
+the active SNV object. A complete explicit model tuple needs no installation.
+
 ## Established — immutable model-side asset publication
 
 The exact model, GRCh38 sequence index, mask, target release identity,
@@ -514,13 +523,14 @@ one-way immutable finalization. Release `runtime-grch38-v1` now contains the
 exact reviewed 15 assets and reports `immutable=true`; its tag points to the
 pinned target. Pinned typed runtime sync and direct one-pass installation are
 now established. Combined SNV/runtime CLI provisioning/status is established;
-clean-machine CLI inference and offline restart qualification remain next. This outcome precedes HTTP and
-container publication.
+the released executable passed clean-container installation and inference.
+Offline restart and service-level qualification remain with HTTP/container
+work.
 
 Repository and dependency controls do not replace release evidence. Remote
 inventory/digest comparison, immutable finalization, model-side runtime sync,
-and clean-machine inference remain tied to the exact bytes and commit actually
-published. Executable/container dependency inventory and SBOM remain with
+and clean-machine inference are tied to the exact bytes and commit actually
+published. Container dependency inventory and SBOM remain with
 their later publication, not this data-artifact release.
 
 ## Later outcome — foreground HTTP service
@@ -577,11 +587,14 @@ batches, and M09 in an isolated environment, then compare results without
 walking the production assets. Release `v0.1.0` is public and immutable at the
 exact reviewed commit.
 
-- whether repeated complete requests justify any result cache;
+Repeated complete requests and asset grouping are no longer unknowns. The
+shipped persistent SQLite cache retains 10,000 complete model results by
+default. The model, compiled GRCh38 sequence index, and mask are grouped in the
+immutable public `runtime-grch38-v1` release, separately from the immutable
+`snv-grch38-v1` release.
+
 - whether MPS, CUDA, quantization, or another runtime adds material value;
 - the service session-pool and backpressure shape;
-- the final public release grouping for the GRCh38 sequence index, mask, and
-  model;
 - production resource limits derived from complete-request measurements.
 
 These are intentional roadmap slots, not tickets. Do not select or implement

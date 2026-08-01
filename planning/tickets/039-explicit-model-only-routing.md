@@ -1,6 +1,6 @@
 # 039 — Explicit model-only routing
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -38,7 +38,8 @@ default response remain unchanged.
 - Add executable CLI coverage to `spec/model-routing.md` and inside-out
   routing/parser/cache tests in the owning crates.
 - Update the shipped and durable behavior descriptions in `README.md`,
-  `AGENTS.md`, `architecture/design.md`, `architecture/service.md`,
+  `AGENTS.md`, `architecture/design.md`, `architecture/delivery.md`,
+  `architecture/service.md`,
   `architecture/decisions/0016-lookup-first-cli-model-routing.md`,
   `planning/frontier.md`, and `planning/faq.md`. These updates must also remove
   stale claims in the touched passages that model assets, combined activation,
@@ -56,8 +57,9 @@ default response remain unchanged.
 - `pangopup lookup --model-only` sends a covered SNV through the model and emits
   the existing modeled JSONL/table shape with `provenance.kind` equal to
   `model`; it does not emit or merge the available precomputed record.
-- A routing-layer spy test proves model-only construction does not call the
-  `ScoreProvider`, rather than merely observing model-shaped fixture output.
+- A routing-layer spy test completes an explicit model request for an SNV that
+  its lookup provider would cover, proves real model work and modeled output,
+  and records zero `ScoreProvider` calls.
 - A CLI/admission test proves an explicit model-only request neither opens nor
   reads an SNV bundle: it succeeds with a complete valid explicit model tuple,
   an absent active installation, and no SNV bundle anywhere in the test root.
@@ -81,9 +83,10 @@ default response remain unchanged.
   `--data-dir` plus an explicit model tuple, and partial explicit tuples are
   usage errors.
 - Existing default-routing specs remain unchanged and green. New executable
-  specs demonstrate the same covered SNV returning `precomputed` by default and
-  `model` with the flag, using bounded checked fixtures rather than production
-  assets or network access.
+  specs independently demonstrate precomputed default routing and explicit
+  model-only JSONL/table routing using existing bounded checked fixtures. The
+  owning engine test above supplies the exact same-SNV override proof without
+  adding a new binary reference profile or misleading source provenance.
 - No threshold such as `0.2`, `0.5`, or `0.8` appears in routing logic. The
   caller may compare a normal lookup call with a separate model-only call.
 - The focused tests and `make lint`, `make test`, and `make spec` pass.
@@ -242,13 +245,99 @@ finding is resolved, the default and cache contracts are protected, explicit
 and installed asset selection are unambiguous, and the bounded outcome is the
 correct prerequisite for the HTTP contract.
 
+Acceptance-adjustment re-review: **ACCEPT**. After implementation review exposed
+the cost of an identical-coordinate executable fixture, the same reviewer
+approved the simpler layered proof: exact same-SNV bypass and real completion
+at the typed engine boundary, plus independent existing-fixture CLI proofs.
+The reviewer agreed that adding a 1.7 MB synthetic reference and permanent
+builder/reader profile code would create test-only maintenance and provenance
+risk without proving another production behavior.
+
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex sub-agent `/root/ticket039_implementation`
+
+- Added the distinct typed `ExplicitModelRequest`; a provider spy whose response
+  covers the requested SNV completes real explicit inference and proves zero
+  score lookups.
+- Added `--model-only` as an at-most-once flag. Explicit model/reference/mask
+  inputs bypass XDG and SNV admission completely; installed model-only validates
+  and opens the canonical model-side profile without an active SNV object.
+- Reused the existing modeled result, provenance, stable-gene filtering,
+  transactional batch rendering, and exact SQLite key/value contract. Focused
+  observation proves the second process is byte-identical and does not
+  initialize dense providers on a cache hit.
+- Added parser/conflict, ordered-batch, late-rejection, explicit-asset,
+  installed-profile, cache, engine-spy, and executable CLI coverage. Updated all
+  named user, architecture, delivery, frontier, FAQ, and executable help/spec
+  documents.
+- Corrected live roadmap and delivery claims to record shipped combined pinned
+  sync, coherent activation, persistent SQLite caching, and clean-machine CLI
+  inference while leaving HTTP and container delivery explicitly future.
+- Corrected the live frontier to remove settled clean-machine inference,
+  repeated-request caching, and public runtime grouping from its open unknowns;
+  the HTTP session pool, backpressure, and resource limits remain open.
+- Existing checked fixtures independently prove precomputed default routing and
+  explicit model-only JSONL/table routing. The same-variant semantic proof is
+  kept at the typed engine boundary, where a provider that would return that
+  exact SNV is observed to receive zero calls while real model completion
+  succeeds. This avoids adding a 1.7 MB reference profile and production
+  builder/reader code solely for an adapter test.
+- Focused evidence: `cargo test -p pangopup-engine` (12 passed); `cargo test -p
+  pangopup-assets` (92 passed); `cargo test -p pangopup-cli` (30 passed across
+  unit/integration targets); selected-crate clippy with warnings denied passed;
+  `make spec` (241 passed, 6 skipped). No network, production asset, Python, or
+  conformance-corpus work ran.
+- The engine provider spy now completes the same provider-covered SNV through
+  `ModelFallback::complete_explicit`, observes reference/mask/model work and a
+  modeled result, and still records zero lookup calls. Ordinary authoritative
+  decisions remain inline; no heap allocation was added to the hot SNV path.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex sub-agent `/root/ticket039_code_review`
+
+Initial verdict: **REJECT**.
+
+The reviewer required one exact same-SNV executable default/model proof, model
+table coverage, and a provider spy that completed explicit inference rather
+than proving construction alone. The coordinator additionally identified that
+boxing authoritative batch decisions allocated on every ordinary lookup hit.
+
+Developer disposition: accepted all findings. Added the bounded overlapping
+lookup/model fixture and same-SNV JSONL/table binary coverage; strengthened the
+engine test through explicit model completion; removed the box and retained an
+inline authoritative result with the same documented large-enum rationale as
+the public router. Focused tests, executable specs, clippy, and diff checks pass.
+
+Re-review verdict: **REJECT**. The second reviewer found that the first
+overlapping lookup fixture was synthetic but claimed Zenodo provenance in its
+fixed-v1 manifest and NOTICE. Although bounded and test-only, that was an
+unacceptable provenance claim and weakened the meaning of the proof.
+
+Developer disposition: accepted and removed that fixture entirely. An attempted
+replacement using the genuine regression row required a new 1.7 MB synthetic
+reference plus roughly 140 lines of closed production builder/reader profile
+machinery solely for this test. The coordinator rejected that over-engineered
+test seam and narrowed the executable criterion to independent existing-fixture
+proofs, while retaining the exact same-SNV override proof through real model
+completion at the typed engine boundary. This material acceptance adjustment
+returns to the original ticket reviewer before final code re-review.
+
+Final re-review verdict: **ACCEPT**. The reviewer confirmed that the abandoned
+fixture/profile code is absent, every prior behavior and provenance finding is
+resolved, the ordinary lookup result remains inline without a new allocation,
+and the final code, tests, specs, and documentation satisfy the revised ticket.
+
+Coordinator stale-claim review found that current README/design/delivery text
+still described shipped sync, activation, cache, and clean-machine inference as
+future. The developer corrected those named durable docs. Reviewer verdict:
+**REJECT**, because three live frontier statements still described completed
+clean-machine inference, persistent-cache selection, and runtime release
+grouping as unknown. Developer disposition: accepted; corrected those three
+claims while preserving genuine HTTP session-pool, backpressure, alternate
+runtime, and resource-limit questions. Final documentation re-review verdict:
+**ACCEPT**. The prior code acceptance remains valid.
 
 ## External Effect Evidence
 
@@ -256,4 +345,16 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex `/root`
+
+- Inspected the complete diff and confirmed no build/index profile changes,
+  abandoned fixture, production data, threshold policy, HTTP/Docker scope, or
+  untracked files remain.
+- `make lint`: passed. The established dependency-duplicate and semver-metadata
+  warnings remain advisory; advisories, bans, licenses, and sources passed.
+- `make test`: passed across the locked workspace.
+- `make spec`: passed, 241 scenarios with 6 established skips.
+- `git diff --check`: passed. Named shipped/future documentation was scanned for
+  stale asset, cache, clean-machine, and HTTP claims.
+- After the reviewed documentation remediations, the coordinator reran all
+  three gates with the same passing results.

@@ -98,7 +98,8 @@ The response identifies whether its values came from `precomputed` lookup or
 `model` inference. Because genes can overlap and Pangolin masking is
 gene-specific, one genomic variant can return several source-gene score records.
 A caller may provide an optional Ensembl gene filter; Pangopup never guesses a
-single best gene.
+single best gene. Add `--model-only` when the caller deliberately wants to
+bypass the SNV index and score every supplied variant with the model.
 
 Lookup-only use remains valid and preserves legacy SNV misses:
 
@@ -123,6 +124,21 @@ pangopup lookup --bundle <SNV_BUNDLE> \
   --mask <DOMAINS_PGM> \
   --model-bundle <MODEL_BUNDLE>
 ```
+
+Explicit model-only scoring needs no SNV bundle or installation:
+
+```text
+pangopup lookup --model-only \
+  --variant GRCh38:17:43106534:C:A \
+  --reference-bundle <REFERENCE_BUNDLE> \
+  --mask <DOMAINS_PGM> \
+  --model-bundle <MODEL_BUNDLE>
+```
+
+Without an explicit model tuple, `--model-only` uses the model, reference, and
+mask from the activated XDG runtime profile. It still does not open the SNV
+asset. `--bundle` is therefore rejected with `--model-only`; callers compare
+the two authorities by making one ordinary call and one model-only call.
 
 The default cache is
 `${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/model-results.sqlite3` and retains the
@@ -725,7 +741,7 @@ The rolling outcome order is:
     and mask without touching the SNV member (complete);
 29. close publication prerequisites and publish only the derived model,
     GRCh38 sequence index, and mask runtime assets (complete);
-30. add pinned model-side sync and prove fresh-machine CLI inference;
+30. add pinned model-side sync and prove fresh-machine CLI inference (complete);
 31. a foreground HTTP/status service with CLI and HTTP acceptance tests;
 32. non-root Docker and documented systemd lifecycle integration;
 33. observability, security, performance, and executable/container release

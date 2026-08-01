@@ -18,6 +18,12 @@ validated GRCh38 variant
   -> unsupported or failed route: stable typed error
 ```
 
+Callers may explicitly request the parallel typed model-only route. That route
+bypasses the SNV provider for the whole batch and otherwise reuses the same
+model scoring, filtering, cache, result, and provenance contracts. The future
+HTTP request should expose the equivalent optional `model_only` boolean; it
+does not need a general scoring-mode grammar or a comparison envelope.
+
 Every result identifies its route and the exact lookup bundle or model,
 compiled GRCh38 sequence index, mask, and inference parameters involved. A
 precomputed SNV hit is authoritative and must not be recomputed merely because

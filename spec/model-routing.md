@@ -14,6 +14,54 @@ pangopup lookup \
   | rg -o '"kind":"precomputed"' | mustmatch like '"kind":"precomputed"'
 ```
 
+`--model-only` explicitly bypasses SNV lookup. A complete explicit model tuple
+is self-sufficient: no SNV bundle or active installation is required. The
+default command still returns a genuinely covered Zenodo-derived row, while
+the independent model-only command traverses the existing checked model route.
+
+```bash
+pangopup lookup \
+  --bundle ../tests/fixtures/snv-regression/bundle \
+  --variant GRCh38:chr12:6801301:G:A \
+  | rg -o '"position":6801301.*"kind":"precomputed"' \
+  | mustmatch like '"position":6801301,"ref":"G","alt":"A","status":"found","records":[{"gene":"ENSG00000010610","gain_score":"0.00","gain_position":-50,"loss_score":"0.00","loss_position":-50}],"source_reference_ambiguities":[],"provenance":{"kind":"precomputed"'
+pangopup lookup \
+  --model-only \
+  --variant GRCh38:chr1:5051:A:C \
+  --reference-bundle ../tests/fixtures/reference-route-test/bundle \
+  --mask ../tests/fixtures/route-mask/domains.pgm \
+  --model-bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle \
+  | rg -o '"position":5051,"ref":"A","alt":"C","status":"found".*"kind":"model"' \
+  | mustmatch like '"position":5051,"ref":"A","alt":"C","status":"found","records":[{"gene":"ENSG00000000001.1","gain_score":"0.33","gain_position":-50,"loss_score":"0.00","loss_position":-50,"warnings":["no_annotated_sites"]}],"source_reference_ambiguities":[],"provenance":{"kind":"model"'
+pangopup lookup \
+  --model-only \
+  --variant GRCh38:chr1:5051:A:C \
+  --reference-bundle ../tests/fixtures/reference-route-test/bundle \
+  --mask ../tests/fixtures/route-mask/domains.pgm \
+  --model-bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle \
+  --format table \
+  | tail -1 \
+  | mustmatch like 'GRCh38	chr1	5051	A	C	found	ENSG00000000001.1	0.33	-50	0.00	-50	.	.	.	sha256:aba3f0a07075f24cc5c3c59eb4312176bae4f2886db8946500280b19e686edca'
+```
+
+Contradictory or duplicated model-only controls are usage errors.
+
+```bash run id=model-only-bundle-conflict exit=2 stream=stderr
+pangopup lookup --model-only --bundle /missing/snv --variant GRCh38:chr1:5051:A:C
+```
+
+```text expect=model-only-bundle-conflict contains
+{"status":"error","code":"CLI_USAGE"
+```
+
+```bash run id=model-only-duplicate exit=2 stream=stderr
+pangopup lookup --model-only --model-only --variant GRCh38:chr1:5051:A:C
+```
+
+```text expect=model-only-duplicate contains
+{"status":"error","code":"CLI_USAGE"
+```
+
 A non-SNV requires the complete explicit fallback set.
 
 ```bash run id=model-assets-required exit=2 stream=stderr

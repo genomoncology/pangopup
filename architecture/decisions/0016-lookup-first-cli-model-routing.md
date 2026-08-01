@@ -27,6 +27,15 @@ identities, masking/window settings, exact versioned GENCODE IDs, and ordered
 warnings. Table output keeps the existing compact columns. Complete batches are
 buffered before stdout is written.
 
+Ticket 039 adds one explicit exception without weakening lookup-first default
+behavior: `pangopup lookup --model-only` creates an `ExplicitModelRequest` and
+bypasses the score provider for the whole batch. A complete explicit
+reference/mask/model tuple is self-sufficient and requires no SNV bundle or
+installation. With no explicit tuple, model-only admits the model-side members
+of the activated canonical runtime profile without opening the separately
+installed SNV object. Both paths reuse the existing modeled result, persistent
+cache identity, filtering, and transactional rendering.
+
 ## Why
 
 Published SNV scores are faster and authoritative. Model inference is needed
@@ -57,3 +66,7 @@ and owns the same fixed scoring algorithm.
 This decision does not add automatic asset installation, a coherent four-asset
 profile, model caching, CPU tuning/batching, HTTP, Docker, systemd, HGVS, or
 normalization.
+
+The historical exclusions above describe the original Ticket 020 decision.
+Coherent profile installation, persistent model caching, and explicit
+model-only routing have since shipped; HTTP and deployment remain future.

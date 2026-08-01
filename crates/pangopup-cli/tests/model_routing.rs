@@ -55,6 +55,17 @@ fn modeled_args(variant: &str) -> Vec<String> {
     args
 }
 
+fn model_only_args(variant: &str) -> Vec<String> {
+    let mut args = vec![
+        "lookup".to_owned(),
+        "--model-only".to_owned(),
+        "--variant".to_owned(),
+        variant.to_owned(),
+    ];
+    args.extend(fallback_args());
+    args
+}
+
 fn error(output: &Output) -> Value {
     assert!(output.stdout.is_empty());
     let line: Value = serde_json::from_slice(&output.stderr).expect("compact JSON error");
@@ -136,6 +147,107 @@ fn real_file_backed_model_route_json_table_and_filter_are_exact() {
         "GRCh38\tchr1\t5051\tA\tAC\tfound\tENSG00000000001.1\t0.33\t-50\t0.00\t-50\t.\t.\t.\tsha256:aba3f0a07075f24cc5c3c59eb4312176bae4f2886db8946500280b19e686edca\n",
     );
     assert_eq!(output.stdout, expected.as_bytes());
+}
+
+#[test]
+fn explicit_model_only_bypasses_snv_assets_and_reuses_the_exact_cache() {
+    let temp = tempfile::tempdir().expect("temp");
+    fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o700)).expect("private temp");
+    let cache = temp.path().join("model-only.sqlite3");
+    let ordinary = run(&[
+        "lookup".to_owned(),
+        "--bundle".to_owned(),
+        lookup_bundle().display().to_string(),
+        "--variant".to_owned(),
+        "GRCh38:chr12:6801301:G:A".to_owned(),
+    ]);
+    assert!(ordinary.status.success());
+    assert!(String::from_utf8_lossy(&ordinary.stdout).contains("\"kind\":\"precomputed\""));
+
+    let mut args = model_only_args("GRCh38:chr1:5051:A:C");
+    args.extend(["--model-cache".to_owned(), cache.display().to_string()]);
+
+    let first = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        .args(&args)
+        .env("PANGOPUP_DATA_DIR", "relative/invalid-snv-installation")
+        .output()
+        .expect("first model-only process");
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert!(String::from_utf8_lossy(&first.stdout).contains("\"kind\":\"model\""));
+
+    let second = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        .args(&args)
+        .env("PANGOPUP_DATA_DIR", "relative/invalid-snv-installation")
+        .output()
+        .expect("second model-only process");
+    assert!(second.status.success());
+    assert_eq!(second.stdout, first.stdout);
+    assert!(second.stderr.is_empty());
+    assert!(cache.is_file());
+
+    let mut table_args = args;
+    table_args.extend(["--format".to_owned(), "table".to_owned()]);
+    let table = run(&table_args);
+    assert!(table.status.success());
+    let table = String::from_utf8(table.stdout).expect("UTF-8 table");
+    assert!(
+        table.contains("GRCh38\tchr1\t5051\tA\tC\tfound\tENSG00000000001.1\t0.33\t-50\t0.00\t-50")
+    );
+    assert!(
+        table.contains("sha256:aba3f0a07075f24cc5c3c59eb4312176bae4f2886db8946500280b19e686edca")
+    );
+}
+
+#[test]
+fn model_only_batch_is_ordered_and_transactional() {
+    let mut ordered = model_only_args("GRCh38:chr1:5051:A:C");
+    ordered.splice(
+        4..4,
+        ["--variant".to_owned(), "GRCh38:chr1:5051:A:AC".to_owned()],
+    );
+    let output = run(&ordered);
+    assert!(output.status.success());
+    let lines = String::from_utf8(output.stdout).expect("UTF-8 output");
+    let lines = lines.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0].contains("\"alt\":\"C\""));
+    assert!(lines[1].contains("\"alt\":\"AC\""));
+    assert!(lines.iter().all(|line| line.contains("\"kind\":\"model\"")));
+
+    let mut rejected = model_only_args("GRCh38:chr1:5051:A:C");
+    rejected.splice(
+        4..4,
+        ["--variant".to_owned(), "GRCh38:chr1:5051:A:TC".to_owned()],
+    );
+    let output = run(&rejected);
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(error(&output)["code"], "MODEL_REJECTED");
+}
+
+#[test]
+fn model_only_grammar_rejects_contradictory_and_duplicate_inputs() {
+    for extra in [
+        vec!["--model-only", "--bundle", "/missing/snv"],
+        vec!["--model-only", "--model-only"],
+        vec!["--model-only", "--data-dir", "/tmp/data"],
+    ] {
+        let mut args = vec![
+            "lookup".to_owned(),
+            "--variant".to_owned(),
+            "GRCh38:chr1:5051:A:C".to_owned(),
+        ];
+        args.extend(extra.into_iter().map(str::to_owned));
+        if args.contains(&"--data-dir".to_owned()) {
+            args.extend(fallback_args());
+        }
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(2));
+        assert_eq!(error(&output)["code"], "CLI_USAGE");
+    }
 }
 
 #[test]
