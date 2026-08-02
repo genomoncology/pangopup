@@ -1,6 +1,6 @@
 # 040 — Measured service model partition
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -59,7 +59,7 @@ design the service queue or open an HTTP port.
   nonempty, and using its 1/10/100 prefixes with their existing gene filters.
   Every lookup must match its frozen expected result exactly and remain on the
   authoritative precomputed path.
-- Record startup time, p50/p95/p99 wall latency, saturated model throughput,
+- Record startup time, p50/p95/p99 wall latency, model-batch throughput,
   peak RSS, minor/major faults, inference counts, asset identities, affinity,
   CPU/kernel/runtime versions, candidate, round, and exactness status as
   canonical JSON Lines. Run three fresh-process rounds per candidate.
@@ -102,7 +102,8 @@ design the service queue or open an HTTP port.
 - Retain `planning/artifacts/040-service-scheduling-raw.jsonl` and a concise
   `planning/artifacts/040-service-scheduling.md` report. The report must explain
   in plain English what was compared, the selected mapping, lookup behavior
-  under model load, memory cost, and limitations of one-host measurements.
+  while a model batch is in flight, memory cost, and limitations of one-host
+  measurements.
 - Add ADR `architecture/decisions/0024-measured-service-scheduling.md` and
   update `architecture/service.md`, `planning/frontier.md`, `README.md`, and
   `AGENTS.md` so the next ticket can distinguish the portable `1×1` default
@@ -278,11 +279,55 @@ exclusions resolve every material finding. The ticket is implementation-ready.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex sub-agent `/root/ticket040_implementation`
+
+- Added `service_scheduling_measurement.rs` as an ignored, environment-path-
+  gated Linux x86-64 production harness. Its disposable dispatcher opens each
+  scorer inside its owning OS thread, opens workers sequentially, warms every
+  worker with M09, uses the reviewed common-release round-robin schedule, and
+  rejects any loaded SNV sample whose start or end has no active model worker.
+- The SNV corpus is derived from the first 100 found/nonempty source-order
+  regression rows and is explicitly warmed once before either measured series.
+  Every lookup is compared field-for-field with the frozen fixture and retains
+  the production precomputed route.
+- Seven normal bounded tests cover nearest-rank indexing, exact three-round
+  aggregation, checked 5-percent and 125-percent arithmetic, selection and tie
+  order, stable round-robin assignment, overlap rejection, incomplete sets,
+  exact candidate parsing, operational failure, exactness failure, and the
+  1-GiB RSS rejection.
+- Ran three fresh-process rounds for all ten candidates under affinities `0`,
+  `0,2`, `0,2,4,6`, and `0,2,4,6,8,10,12,14`. All 30 rounds authenticated the
+  exact SNV/model/reference/mask/corpus/runtime identities, were operational
+  and exact, and stayed below 1 GiB RSS. Raw rows are retained in
+  `planning/artifacts/040-service-scheduling-raw.jsonl`.
+- Mechanical selection chose `1×1`, `1×2`, `1×4`, and `2×4`. Most
+  multi-session candidates failed the single-request latency guard; `2×4`
+  passed it and won the eligible eight-core throughput comparison. Fresh
+  final-binary qualification reruns for all four selections reproduced 14
+  cases and 21 ordered records exactly.
+- The selected loaded 1/10/100-SNV median-round p50 ranges were 682–741 ns,
+  6,693–7,304 ns, and 67,562–89,185 ns. The report, ADR 0024, service boundary,
+  frontier, README, and repository map distinguish these host-qualified values
+  from ADR 0017's unchanged portable `1×1` policy.
+- Every measurement now authenticates the exact 220,071-byte compatibility
+  member before parsing, rejects any CPU/topology/affinity mismatch, and binds
+  the complete harness source with SHA-256. All 30 matrix rows and four selected
+  qualifications were regenerated after those review remediations.
+- Focused checks passed: `cargo fmt --check`; Clippy with warnings denied for
+  the integration test; seven normal tests with two production tests ignored;
+  a 34-line raw-artifact identity/schema/count assertion; and `git diff --check`.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex sub-agent `/root/ticket040_code_review`
+
+Accepted after remediation. The reviewer independently reproduced all 30
+measurement rows, the four qualification rows, the selection math, and the
+exact 14-case/21-record qualifications. The final review confirmed that the
+corpus bytes, complete harness source, assets, runtime, CPU topology, and
+affinity are authenticated; the documentation matches the measured evidence;
+and no scheduler, queue, cache, HTTP implementation, local asset path, or other
+out-of-scope production behavior was introduced.
 
 ## External Effect Evidence
 
@@ -290,4 +335,13 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex `/root`
+
+- `make lint` passed. The existing non-failing dependency-duplicate and
+  `zstd-sys` semver-metadata warnings remain unchanged.
+- `make test` passed, including the seven bounded Ticket 040 tests; both
+  retained-production measurement entry points remain explicitly ignored.
+- `make spec` passed: 241 scenarios passed and 6 were skipped.
+- `git diff --check` passed, retained evidence contains no local asset paths,
+  and the final selected host-qualified mappings are `1×1`, `1×2`, `1×4`, and
+  `2×4`. ADR 0017's portable `1×1` default remains unchanged.

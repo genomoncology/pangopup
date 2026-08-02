@@ -13,7 +13,9 @@ GRCh38 variants, preserves compatible ensemble/indel/masking arithmetic, and
 routes authoritative lookup or installed-profile/explicit-path model fallback
 into ordered exact CLI results. Complete-request CPU qualification keeps the portable ordinary
 session at sequential `1/1` while retaining fixed `8/1` as this host's measured
-frontier result. The first zero-padded and paired-strand batching run is
+frontier result. A later equal-budget service-partition experiment retains
+host-qualified `1×1`, `1×2`, `1×4`, and `2×4` mappings while leaving portable
+`1×1` unchanged. The first zero-padded and paired-strand batching run is
 ineligible because the v2 exporter omitted its declared dynamic axes. The
 corrected full experiment retained singleton through both the drift and
 replacement gates. Persistent SQLite model-result reuse and the canonical
@@ -90,6 +92,9 @@ ADR 0012 defines that descriptive provenance boundary.
 - [`decisions/0023-derived-runtime-transport.md`](decisions/0023-derived-runtime-transport.md)
   — deterministic three-frame packaging, closed integrity verification, and
   byte-exact atomic reconstruction of the model-side assets.
+- [`decisions/0024-measured-service-scheduling.md`](decisions/0024-measured-service-scheduling.md)
+  — host-qualified equal-budget model partitions and the unchanged portable
+  `1×1` fallback.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)

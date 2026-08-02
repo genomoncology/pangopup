@@ -30,6 +30,21 @@ precomputed SNV hit is authoritative and must not be recomputed merely because
 the model is available. Adapters own transport parsing and rendering, not
 scoring, masking, index layout, or model-runtime types.
 
+## Measured model partition boundary
+
+ADR 0024 retains one host-qualified partition table for the AMD Ryzen 7 5825U
+under exact non-SMT affinities: `1×1`, `1×2`, `1×4`, and `2×4` for physical-CPU
+budgets 1, 2, 4, and 8. The portable ordinary policy remains `1×1`; the service
+must not extrapolate the table from logical CPU count, cgroup quota, or an
+unmatched CPU identity.
+
+The measurement also proves that the separately opened SNV mmap stays fast
+while a model batch is in flight. The service must therefore keep lookup
+outside model queue admission. Ticket 040 deliberately did not choose queue
+capacity, backpressure, dispatch, SQLite connection ownership, concurrent-fill
+coalescing, or failure fan-out; the HTTP implementation owns and tests those
+policies.
+
 ## Foreground lifecycle
 
 The planned executable exposes `pangopup serve` as one foreground process. It

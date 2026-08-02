@@ -18,7 +18,10 @@ override. Its `--model-only` flag bypasses SNV lookup through a distinct typed
 engine request and can use either the activated model-side profile or a
 self-sufficient explicit model tuple without opening an SNV asset. The CLI
 emits exact modeled JSONL/table results. Complete-request CPU policy
-selection is established. Ticket 022 corrected and repeated the
+selection is established. A retained ten-candidate service-partition
+experiment selects host-qualified `1×1`, `1×2`, `1×4`, and `2×4` mappings on
+the retained Ryzen host while preserving portable `1×1` and keeping production
+service scheduling future. Ticket 022 corrected and repeated the
 singleton/zero-padded/paired comparison after code review caught missing v2
 export axes. Both policies were inconclusive from singleton drift and neither
 candidate met the independent replacement gates, so ordinary dispatch remains

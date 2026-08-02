@@ -379,6 +379,16 @@ production model. See
 [ADR 0014](architecture/decisions/0014-authenticated-onnx-cpu-kernel.md) and
 the [qualification report](planning/artifacts/018-authenticated-cpu-model-kernel.md).
 
+A later service-partition experiment compared ten equal-budget worker/thread
+shapes in 30 fresh processes. On the retained AMD Ryzen 7 5825U it selected
+`1×1`, `1×2`, `1×4`, and `2×4`. Most multi-session shapes
+failed the 125-percent single-request latency guard even when they improved
+batch throughput. Warm 100-SNV batches remained in the tens to low hundreds of
+microseconds while a model batch was in flight. These are host-qualified service
+inputs, not portable defaults or user-facing thread flags; see
+[ADR 0024](architecture/decisions/0024-measured-service-scheduling.md) and the
+[retained report](planning/artifacts/040-service-scheduling.md).
+
 `pangopup-engine` constructs fixed distance-50 reference and alternate
 contexts, preserves upstream dtype-specific indel arithmetic, averages the
 four tissue groups, applies shared-array masking in authenticated gene order,
@@ -742,9 +752,11 @@ The rolling outcome order is:
 29. close publication prerequisites and publish only the derived model,
     GRCh38 sequence index, and mask runtime assets (complete);
 30. add pinned model-side sync and prove fresh-machine CLI inference (complete);
-31. a foreground HTTP/status service with CLI and HTTP acceptance tests;
-32. non-root Docker and documented systemd lifecycle integration;
-33. observability, security, performance, and executable/container release
+31. measure equal-budget service model partitions while proving SNV lookup
+    remains independent (complete: host-qualified mappings);
+32. a foreground HTTP/status service with CLI and HTTP acceptance tests;
+33. non-root Docker and documented systemd lifecycle integration;
+34. observability, security, performance, and executable/container release
     hardening.
 
 These are outcome boundaries rather than a prewritten ticket backlog. Only the

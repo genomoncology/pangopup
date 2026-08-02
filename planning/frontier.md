@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-08-01
+Updated: 2026-08-02
 
 ## Current boundary
 
@@ -42,7 +42,13 @@ green code, with byte equality and all declared checksums qualified. Its
 complete exact GPL preferred-source supplement is also retained and qualified;
 the exact 15-asset set is now public and immutable. Pinned typed model-side
 sync and combined CLI provisioning are shipped; the released executable passed
-clean-container installation and inference. HTTP remains future.
+clean-container installation and inference. HTTP remains future. One retained
+service-partition experiment now compares all ten equal-budget worker/thread
+shapes for 1, 2, 4, and 8 physical cores. It selects `1×1`, `1×2`, `1×4`, and
+`2×4` on the retained Ryzen host,
+preserves ADR 0017's portable `1×1` default elsewhere, and demonstrates that
+separately opened warm SNV lookup remains fast while a model batch is in flight.
+Service queue and backpressure policy remain future HTTP work.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
 and typed mmap provider are established; its local transport, installation,
 and immutable public release are shipped. Future SNV and sequence-index builds use
@@ -418,6 +424,24 @@ qualification passed exact accepted identities. ADR 0017 and
 [`artifacts/021-measured-cpu-policy.md`](artifacts/021-measured-cpu-policy.md)
 retain the policy and evidence.
 
+## Established — measured service model partition
+
+Thirty fresh processes compared all integer model-session/intra-op-thread
+partitions of 1, 2, 4, and 8 physical cores. All ten candidates reproduced the
+reviewed cases, stayed below 1 GiB RSS, and retained valid idle/loaded
+1/10/100-SNV measurements. The selected host mappings are `1×1`, `1×2`,
+`1×4`, and `2×4`. Most multi-session candidates failed the 125-percent
+single-request latency guard; `2×4` passed it and won the eight-core throughput
+comparison.
+
+Each selected mapping then reproduced all 14 scored compatibility cases and
+21 ordered records exactly. ADR 0024 and
+[`artifacts/040-service-scheduling.md`](artifacts/040-service-scheduling.md)
+retain the decision and evidence. This does not change the portable `1×1`
+default or implement a scheduler. The service still owns bounded admission,
+backpressure, dispatch, SQLite connections, fill coalescing, and failure
+fan-out, and must keep SNV lookup outside model admission.
+
 ## Established — corrected reference/alternate graph batching
 
 The first candidate run is retained as historical evidence but cannot select a
@@ -594,7 +618,8 @@ immutable public `runtime-grch38-v1` release, separately from the immutable
 `snv-grch38-v1` release.
 
 - whether MPS, CUDA, quantization, or another runtime adds material value;
-- the service session-pool and backpressure shape;
+- the service queue capacity, backpressure, cache/coalescing, and dispatch
+  shape around the selected host-qualified model partition;
 - production resource limits derived from complete-request measurements.
 
 These are intentional roadmap slots, not tickets. Do not select or implement
