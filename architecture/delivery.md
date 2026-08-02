@@ -40,7 +40,8 @@ This security baseline itself published no runtime asset. Release-specific
 attribution, stable derived bytes, GPL preferred source, controlled upload,
 remote digest comparison, and immutable finalization are now complete for
 `runtime-grch38-v1`. Pinned runtime sync and clean-machine CLI inference are
-also shipped. HTTP serving and container delivery remain separate future work.
+also shipped. Foreground HTTP serving is shipped; container delivery remains
+future work.
 
 ## GitHub Releases
 

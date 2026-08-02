@@ -25,7 +25,7 @@ Pinned model-side synchronization and combined top-level CLI provisioning are
 shipped. The checksum-verifying Linux x86_64 direct binary is public in the
 immutable [`v0.1.0` release](https://github.com/genomoncology/pangopup/releases/tag/v0.1.0),
 and the tagged installer has passed clean-container installation and inference.
-The HTTP service remains unimplemented. Ticket 012 has now
+The foreground HTTP service is now shipped. Ticket 012 has now
 authenticated the complete GENCODE v38 mask semantics and selected the
 constant-membership `domains` encoding by a retained speed-first comparison.
 Ticket 014 promotes the exact selected bytes behind a domains-only production
@@ -517,11 +517,10 @@ completed release reports `immutable=true`; a mutable release is never a
 fallback. Remote-sync work begins only after that public contract has been
 observed and recorded.
 
-The current lookup CLI resolves and reuses a complete compatible local
-installation without networking. A future service can invoke the same pinned
-sync/installer boundary. It will memory-map installed members,
-initialize the selected model provider, and only then report ready. It will
-never fetch an unpinned “latest” release.
+The lookup CLI and foreground service resolve and reuse a complete compatible
+local installation without networking. The service memory-maps installed
+members, initializes its selected model workers, and only then listens and
+reports ready. It never performs sync or fetches an unpinned “latest” release.
 
 The explicit first `pangopup sync` is the provisioning operation, while
 `pangopup status` reports ready, partial, missing, syncing, and installing
@@ -555,21 +554,42 @@ This shipped installer and sync client are Linux-only; macOS and Windows
 behavior is not claimed. Persistent progress, signatures, repair/GC/rollback,
 and container preinstall remain future work.
 
-## Planned service operation
+## Foreground HTTP service
 
-Pangopup will expose one foreground HTTP process, `pangopup serve`, over the
-same typed lookup-first routing API used by the CLI. It will provide stable
-batch JSON, bounded requests, readiness, liveness, and status information.
-`pangopup status` will expose the same non-secret runtime and asset identities
-to command-line operators.
+`pangopup serve` opens the active four-asset profile once and serves the same
+lookup-first behavior through ordinary HTTP request/response calls. It does not
+download assets; run `pangopup sync` first.
+
+```text
+pangopup serve --listen 127.0.0.1:8080
+```
+
+`POST /v1/score` accepts up to 100 literal GRCh38 variants and an optional
+stable Ensembl `gene` or `model_only` boolean. SNV and completed SQLite hits do
+not wait behind inference. Uncached model work uses fixed workers and one
+bounded FIFO waiting line; a full line receives HTTP 429 immediately. Defaults
+are one worker, one model thread, and 16 waiting requests. Override them with
+`--model-workers`, `--model-threads`, and `--model-queue-capacity`. The retained
+Ryzen host measured `2×4` as its explicit eight-core choice; Pangopup never
+infers that choice from the host.
+
+`GET /livez`, `GET /readyz`, and `GET /v1/status` expose process health and
+non-secret asset/worker state. SIGINT and SIGTERM stop new score admission,
+drain accepted work, and exit; a second signal forces exit. A caller may use a
+blocking or asynchronous HTTP client—the server keeps one connection open and
+returns the final result, with no job IDs or polling.
+
+The default listener is loopback. This service has no authentication or TLS;
+do not bind it to an untrusted network without a trusted authenticated TLS
+proxy.
 Docker, systemd, Kubernetes, or another external manager will own process
 start, stop, and restart. Pangopup will not daemonize or implement a second
 process supervisor.
 
 A future minimal container will run as a non-root user, use a read-only runtime
 filesystem, expose a healthcheck, and either contain a verified pinned asset
-profile or mount one read-only. The HTTP service, lifecycle integration, and
-container are not implemented yet.
+profile or mount one read-only. Container and systemd packaging are not
+implemented yet.
 
 ## Performance priorities
 
@@ -688,8 +708,7 @@ Implemented today:
   stable warnings/errors, gene filtering after all-gene masking, and
   transactional JSONL/table batches.
 
-Not implemented yet: HTTP service, container, exact persistent download
-progress, or
+Not implemented yet: container, exact persistent download progress, or
 repair/GC/rollback.
 Public delivery of the compiled GRCh38 sequence index, mask, and model is
 complete. Deterministic local model-side packaging, offline installation, and
@@ -754,7 +773,8 @@ The rolling outcome order is:
 30. add pinned model-side sync and prove fresh-machine CLI inference (complete);
 31. measure equal-budget service model partitions while proving SNV lookup
     remains independent (complete: host-qualified mappings);
-32. a foreground HTTP/status service with CLI and HTTP acceptance tests;
+32. a foreground HTTP/status service with CLI and HTTP acceptance tests
+    (complete);
 33. non-root Docker and documented systemd lifecycle integration;
 34. observability, security, performance, and executable/container release
     hardening.
@@ -778,8 +798,8 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
 - `pangopup-build` — offline source validation, deterministic artifact
   builders, the bounded compatibility-corpus adapter, and authenticated
   maintainer model evidence/conversion commands;
-- `pangopup-cli` — shipped lookup, combined pinned asset sync/status, local install, and
-  output adapter; service commands remain future;
+- `pangopup-cli` — shipped lookup, combined pinned asset sync/status, local
+  install, output adapter, and foreground HTTP service;
 - `pangopup-model` — exact v1 and closed v2 authenticated model bundles,
   context/strand encoding, bounded candidate batching, and the raw single-owner
   ONNX Runtime CPU kernel;
@@ -787,7 +807,6 @@ See [`planning/frontier.md`](planning/frontier.md) for the current boundary and
   post-processing/masking, and ordered modeled results;
 - `pangopup-cache` — persistent exact model-result keys and values, bounded
   insertion/update-order eviction, and disposable SQLite recovery;
-- future `pangopup-http` — long-lived HTTP adapter over the same core.
 
 ## Development
 

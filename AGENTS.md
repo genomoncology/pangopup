@@ -21,7 +21,9 @@ emits exact modeled JSONL/table results. Complete-request CPU policy
 selection is established. A retained ten-candidate service-partition
 experiment selects host-qualified `1×1`, `1×2`, `1×4`, and `2×4` mappings on
 the retained Ryzen host while preserving portable `1×1` and keeping production
-service scheduling future. Ticket 022 corrected and repeated the
+service mappings. The foreground HTTP service now keeps lookup/cache hits
+outside one fixed bounded FIFO model queue and exposes health/status. Ticket
+022 corrected and repeated the
 singleton/zero-padded/paired comparison after code review caught missing v2
 export axes. Both policies were inconclusive from singleton drift and neither
 candidate met the independent replacement gates, so ordinary dispatch remains
@@ -34,7 +36,7 @@ the typed pinned model-side sync/install primitive and combined top-level CLI
 provisioning/status are shipped. The immutable Linux x86_64 executable and its
 checksum-verifying tagged installer are shipped; the deterministic six-file
 release preparer and read-only exact-commit packaging workflow remain available.
-The HTTP service remains future work. The
+Container and process-manager packaging remain future work. The
 reference
 wire/writer and sole mmap reader are now separate; future reference builds use
 v2 byte-producing provenance and installed admission has one held-descriptor

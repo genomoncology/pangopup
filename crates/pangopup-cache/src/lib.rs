@@ -91,17 +91,7 @@ impl CacheIdentity {
                 model_representation,
                 "singleton" | "zero-padded-batch" | "paired-strand-batch"
             )
-            || !matches!(
-                cpu_policy,
-                "sequential:auto/1"
-                    | "sequential:1/1"
-                    | "sequential:2/1"
-                    | "sequential:4/1"
-                    | "sequential:8/1"
-                    | "parallel:1/2"
-                    | "parallel:1/4"
-                    | "parallel:1/8"
-            )
+            || !valid_cpu_policy(cpu_policy)
             || !valid_sha256(reference_bundle_id)
             || !valid_profile(reference_profile)
             || !valid_sha256(reference_sequence_set_sha256)
@@ -124,6 +114,19 @@ impl CacheIdentity {
             mask_sha256: mask_sha256.to_owned(),
         })
     }
+}
+
+fn valid_cpu_policy(value: &str) -> bool {
+    if let Some(threads) = value
+        .strip_prefix("sequential:")
+        .and_then(|value| value.strip_suffix("/1"))
+    {
+        return threads == "auto"
+            || threads
+                .parse::<u8>()
+                .is_ok_and(|value| (1..=8).contains(&value) && value.to_string() == threads);
+    }
+    matches!(value, "parallel:1/2" | "parallel:1/4" | "parallel:1/8")
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -1553,6 +1556,43 @@ mod tests {
             ),
         ] {
             assert!(matches!(result, Err(CacheError::Configuration(_))));
+        }
+    }
+
+    #[test]
+    fn service_sequential_thread_policies_are_exactly_bounded() {
+        let sha = format!("sha256:{:064x}", 1);
+        for threads in 1..=8 {
+            assert!(
+                CacheIdentity::new(
+                    &sha,
+                    "model",
+                    "singleton",
+                    &format!("sequential:{threads}/1"),
+                    &sha,
+                    "reference",
+                    &sha,
+                    1,
+                    &sha,
+                )
+                .is_ok()
+            );
+        }
+        for invalid in ["sequential:0/1", "sequential:9/1", "sequential:01/1"] {
+            assert!(
+                CacheIdentity::new(
+                    &sha,
+                    "model",
+                    "singleton",
+                    invalid,
+                    &sha,
+                    "reference",
+                    &sha,
+                    1,
+                    &sha,
+                )
+                .is_err()
+            );
         }
     }
 

@@ -16,12 +16,13 @@ CLI/HTTP structured genomic variant
        -> miss: continue
   -> if supported, run model with mmap reference + masking data
   -> typed gene-specific result(s) with source provenance
-  -> stable CLI JSONL/table or future HTTP JSON output
+  -> stable CLI JSONL/table or HTTP JSON output
 ```
 
-The CLI is the shipped observable adapter: JSON Lines is its stable default and
-exact tab-separated output is available explicitly. A future HTTP service calls
-the same Rust API and owns no scoring, normalization, or file-format rules.
+The CLI and foreground HTTP server are shipped observable adapters. JSON Lines
+is the CLI's stable default and exact tab-separated output is available
+explicitly. HTTP calls the same Rust API and owns no scoring, normalization, or
+file-format rules.
 The typed engine distinguishes a lookup-inspected `ModelRequired` request from
 an `ExplicitModelRequest`, so adapters can request inference without creating
 or consulting a score provider.
@@ -173,11 +174,11 @@ fill. Valid hits are read-only. The cache does
 not own inference, masking, routing, assets, rendering, or concurrent service
 admission.
 
-A future `pangopup-http` crate must consume the same routed result boundary
-rather than leak model runtime, HTTP, or cache types into the scoring API. The
+The HTTP module consumes the same routed result boundary rather than leaking
+model runtime, HTTP, or cache types into the scoring API. The
 shipped assets crate owns explicit pinned remote sync plus its Linux
 XDG installation adapter. `pangopup-core` performs no network or home-directory
-access. The future HTTP adapter runs in the
+access. The HTTP adapter runs in the
 foreground; process lifecycle belongs to external managers as described in
 [`service.md`](service.md).
 
@@ -276,10 +277,9 @@ selected active Linux installation. It opens an explicit local identified
 reference, identified mask, and model tuple only after a default batch needs
 fallback, or immediately when the caller supplies `--model-only`. Combined
 pinned sync, coherent four-asset activation, local status, and clean-machine
-CLI inference are shipped. No HTTP adapter exists. A future service can invoke
-the same sync and installation boundary before serving, then hold the immutable
-installed members for the process lifetime. A replacement profile requires a
-new process.
+CLI inference and the HTTP adapter are shipped. Service startup performs no
+sync; it holds the already-installed immutable members for the process
+lifetime. A replacement profile requires a new process.
 
 The installed flow checks transport and reconstructed hashes while streaming
 once. Ordinary startup performs cheap receipt, identity, version, size, and

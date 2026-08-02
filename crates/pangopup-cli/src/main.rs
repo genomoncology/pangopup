@@ -31,7 +31,9 @@ use std::{
     str::FromStr,
 };
 
-const HELP: &str = "Pangopup: exact Pangolin score lookup\n\nUsage:\n  pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]\n  pangopup status [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]\n  pangopup --help\n  pangopup --version";
+mod service;
+
+const HELP: &str = "Pangopup: exact Pangolin score lookup\n\nUsage:\n  pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]\n  pangopup status [--data-dir <ABSOLUTE_PATH>]\n  pangopup serve [--listen <ADDRESS>] [--data-dir <ABSOLUTE_PATH>] [--model-workers <1..8>] [--model-threads <1..8>] [--model-queue-capacity <1..1024>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]\n  pangopup --help\n  pangopup --version";
 
 struct Arguments {
     bundle: Option<PathBuf>,
@@ -75,6 +77,7 @@ enum AdmittedFallbackSource {
     Test(Box<dyn FnOnce() -> Result<ModelFallback, Failure>>),
 }
 
+#[derive(Clone)]
 enum PendingModel {
     Lookup(ModelRequired),
     Explicit(ExplicitModelRequest),
@@ -238,6 +241,9 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         _ => {}
+    }
+    if raw.first().is_some_and(|value| value == "serve") {
+        return service::run(&raw[1..]);
     }
     match run(&raw) {
         Ok(bytes) => match std::io::stdout().lock().write_all(&bytes) {

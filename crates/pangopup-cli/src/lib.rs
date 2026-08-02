@@ -63,6 +63,21 @@ pub fn render_requests(
     }
 }
 
+/// Render one result as an already-validated raw JSON object. Envelope
+/// adapters use this form when byte-stable object key order matters.
+pub fn render_result_raw(
+    result: RoutedResult,
+) -> Result<Box<serde_json::value::RawValue>, RenderError> {
+    let mut bytes = render_jsonl(&[RenderRequest::from_routed(result)])?;
+    if bytes.pop() != Some(b'\n') {
+        return Err(RenderError("lookup result serialization failed"));
+    }
+    let text =
+        String::from_utf8(bytes).map_err(|_| RenderError("lookup result serialization failed"))?;
+    serde_json::value::RawValue::from_string(text)
+        .map_err(|_| RenderError("lookup result serialization failed"))
+}
+
 fn precomputed_status(result: &LookupResult) -> &'static str {
     match (
         result.records().is_empty(),
@@ -255,6 +270,7 @@ struct JsonModelProvenance<'a> {
     scoring_semantics: &'static str,
     model_bundle_id: &'a str,
     model_profile: &'a str,
+    effective_cpu_policy: &'a str,
     reference_bundle_id: &'a str,
     reference_profile: &'a str,
     reference_sequence_set_sha256: &'a str,
@@ -271,6 +287,7 @@ impl<'a> From<&'a ModelProvenance> for JsonModelProvenance<'a> {
             scoring_semantics: value.scoring_semantics(),
             model_bundle_id: value.model_bundle_id(),
             model_profile: value.model_profile(),
+            effective_cpu_policy: value.effective_cpu_policy(),
             reference_bundle_id: value.reference().bundle_id(),
             reference_profile: value.reference().profile(),
             reference_sequence_set_sha256: value.reference().sequence_set_sha256(),
@@ -513,6 +530,7 @@ mod tests {
             scoring_semantics: "pangopup-variant-score-v1",
             model_bundle_id: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
             model_profile: "pangopup-model-kernel-mini-v1",
+            effective_cpu_policy: "sequential:1/1",
             reference_bundle_id: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
             reference_profile: "pangopup-reference-route-test-v1",
             reference_sequence_set_sha256: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
@@ -555,8 +573,8 @@ mod tests {
         serde_json::to_writer(&mut actual, &miss_line).expect("miss JSON");
         actual.push(b'\n');
         let expected = concat!(
-            "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":5051,\"ref\":\"A\",\"alt\":\"AC\",\"status\":\"found\",\"records\":[{\"gene\":\"ENSG00000000001.1\",\"gain_score\":\"0.35\",\"gain_position\":25,\"loss_score\":\"-0.10\",\"loss_position\":2,\"warnings\":[\"no_annotated_sites\"]}],\"source_reference_ambiguities\":[],\"provenance\":{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"model_profile\":\"pangopup-model-kernel-mini-v1\",\"reference_bundle_id\":\"sha256:2222222222222222222222222222222222222222222222222222222222222222\",\"reference_profile\":\"pangopup-reference-route-test-v1\",\"reference_sequence_set_sha256\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"mask_bytes\":512,\"mask_sha256\":\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"masked\":true,\"window\":50}}\n",
-            "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":5052,\"ref\":\"A\",\"alt\":\"AG\",\"status\":\"not_found\",\"records\":[],\"source_reference_ambiguities\":[],\"provenance\":{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"model_profile\":\"pangopup-model-kernel-mini-v1\",\"reference_bundle_id\":\"sha256:2222222222222222222222222222222222222222222222222222222222222222\",\"reference_profile\":\"pangopup-reference-route-test-v1\",\"reference_sequence_set_sha256\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"mask_bytes\":512,\"mask_sha256\":\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"masked\":true,\"window\":50}}\n",
+            "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":5051,\"ref\":\"A\",\"alt\":\"AC\",\"status\":\"found\",\"records\":[{\"gene\":\"ENSG00000000001.1\",\"gain_score\":\"0.35\",\"gain_position\":25,\"loss_score\":\"-0.10\",\"loss_position\":2,\"warnings\":[\"no_annotated_sites\"]}],\"source_reference_ambiguities\":[],\"provenance\":{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"model_profile\":\"pangopup-model-kernel-mini-v1\",\"effective_cpu_policy\":\"sequential:1/1\",\"reference_bundle_id\":\"sha256:2222222222222222222222222222222222222222222222222222222222222222\",\"reference_profile\":\"pangopup-reference-route-test-v1\",\"reference_sequence_set_sha256\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"mask_bytes\":512,\"mask_sha256\":\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"masked\":true,\"window\":50}}\n",
+            "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":5052,\"ref\":\"A\",\"alt\":\"AG\",\"status\":\"not_found\",\"records\":[],\"source_reference_ambiguities\":[],\"provenance\":{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"model_profile\":\"pangopup-model-kernel-mini-v1\",\"effective_cpu_policy\":\"sequential:1/1\",\"reference_bundle_id\":\"sha256:2222222222222222222222222222222222222222222222222222222222222222\",\"reference_profile\":\"pangopup-reference-route-test-v1\",\"reference_sequence_set_sha256\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"mask_bytes\":512,\"mask_sha256\":\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"masked\":true,\"window\":50}}\n",
         );
         assert_eq!(actual, expected.as_bytes());
     }

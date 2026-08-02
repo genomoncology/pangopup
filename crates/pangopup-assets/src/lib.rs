@@ -54,6 +54,8 @@ pub use runtime_install::{
     install_runtime_profile, open_installed_runtime_profile,
     open_installed_runtime_profile_for_model, runtime_local_status,
 };
+#[cfg(feature = "test-fixtures")]
+pub use runtime_install::{install_test_runtime_profile, open_test_runtime_profile};
 pub use runtime_profile::{
     MaskProfile, ModelProfile, RUNTIME_PROFILE_SCHEMA, ReferenceProfile, RuntimeProfile,
     RuntimeProfileError, RuntimeProfileId, ScoringProfile, SnvBundleInspection, SnvProfile,

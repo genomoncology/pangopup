@@ -9,6 +9,7 @@ build = "build.rs"
 
 [features]
 test-read-audit = []
+test-fixtures = []
 
 [dependencies]
 libc = "0.2.188"

@@ -22,7 +22,8 @@ replacement gates. Persistent SQLite model-result reuse and the canonical
 four-asset compatibility profile and offline Linux/XDG installer are
 established, and installed runtime consumption is shipped. Deterministic local
 model-side packaging, immutable publication, and pinned typed sync are
-shipped; combined CLI provisioning/status is shipped and HTTP remains future work.
+shipped. Combined CLI provisioning/status and the foreground HTTP adapter are
+shipped with bounded FIFO model admission; deployment packaging remains future.
 
 The closed three-codec reference comparison selected `acgt2-rle-v1`; its
 candidate modules, miniature, benchmark executable, and CLI have been removed
@@ -95,12 +96,15 @@ ADR 0012 defines that descriptive provenance boundary.
 - [`decisions/0024-measured-service-scheduling.md`](decisions/0024-measured-service-scheduling.md)
   — host-qualified equal-budget model partitions and the unchanged portable
   `1×1` fallback.
+- [`decisions/0025-bounded-foreground-service.md`](decisions/0025-bounded-foreground-service.md)
+  — fixed model workers, bounded FIFO admission, cache bypass, and graceful
+  foreground lifecycle.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)
   — accepted no-tar transport, deterministic codec boundary, and verification
   layers.
-- [`service.md`](service.md) — planned lookup-first HTTP boundary, foreground
+- [`service.md`](service.md) — shipped lookup-first HTTP boundary, foreground
   lifecycle, deployment, and operational proof.
 - [`decisions/`](decisions/) — accepted cross-cutting decisions.
 

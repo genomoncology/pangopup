@@ -203,6 +203,21 @@ impl InstalledModelInput {
         ModelKernel::open_held_authenticated(&self.manifest_bytes, &self.notice_bytes, self.member)
             .map_err(|_| profile_corrupt_runtime())
     }
+
+    /// Initialize this authenticated held model using service-owned CPU
+    /// scheduling rather than the portable default.
+    pub fn open_with_cpu_policy(
+        self,
+        policy: pangopup_model::CpuPolicy,
+    ) -> Result<ModelKernel, AssetError> {
+        ModelKernel::open_held_authenticated_with_cpu_policy(
+            &self.manifest_bytes,
+            &self.notice_bytes,
+            self.member,
+            policy,
+        )
+        .map_err(|_| profile_corrupt_runtime())
+    }
 }
 
 /// The exact installed model-side tuple bound to an already-open SNV identity.
@@ -308,6 +323,35 @@ pub fn install_runtime_profile(
                 staged_reference,
                 staged_mask,
                 &profile,
+            )
+        },
+    )
+}
+
+#[cfg(feature = "test-fixtures")]
+pub fn install_test_runtime_profile(
+    profile: &RuntimeProfile,
+    model_bundle: &Path,
+    reference_bundle: &Path,
+    mask: &Path,
+    data_root: &Path,
+) -> Result<RuntimeInstallOutcome, AssetError> {
+    let bytes = canonical_runtime_profile_bytes(profile).map_err(profile_parse_error)?;
+    install_with_stager(
+        &bytes,
+        profile,
+        data_root,
+        |staged_model, staged_reference, staged_mask| {
+            stage_local_sources(
+                InstallSources {
+                    model: model_bundle,
+                    reference: reference_bundle,
+                    mask,
+                },
+                staged_model,
+                staged_reference,
+                staged_mask,
+                profile,
             )
         },
     )
@@ -609,6 +653,15 @@ pub fn open_installed_runtime_profile(
         Some(expected_snv_bundle_id),
         &crate::production_runtime_profile(),
     )
+}
+
+#[cfg(feature = "test-fixtures")]
+pub fn open_test_runtime_profile(
+    data_root: &Path,
+    expected_snv_bundle_id: &str,
+    trusted: &RuntimeProfile,
+) -> Result<InstalledRuntimeProfile, AssetError> {
+    open_installed_runtime_profile_with(data_root, Some(expected_snv_bundle_id), trusted)
 }
 
 /// Admit the model-side members of the active canonical runtime profile.

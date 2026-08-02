@@ -1460,6 +1460,7 @@ fn explicit_model_request_bypasses_a_provider_that_would_cover_the_snv() {
             reference: dummy_provenance(),
             mask_bytes: 123,
             mask_sha256: "sha256:mask".to_owned(),
+            effective_cpu_policy: "sequential:1/1".to_owned(),
         },
     };
     let result = fallback
@@ -1506,6 +1507,7 @@ fn model_completion_masks_all_genes_before_filtering_and_preserves_order() {
             reference: dummy_provenance(),
             mask_bytes: 123,
             mask_sha256: "sha256:mask".to_owned(),
+            effective_cpu_policy: "sequential:1/1".to_owned(),
         },
     };
     let filter = EnsemblGeneId::from_str("ENSG00000000002").expect("filter");

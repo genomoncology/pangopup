@@ -42,13 +42,17 @@ green code, with byte equality and all declared checksums qualified. Its
 complete exact GPL preferred-source supplement is also retained and qualified;
 the exact 15-asset set is now public and immutable. Pinned typed model-side
 sync and combined CLI provisioning are shipped; the released executable passed
-clean-container installation and inference. HTTP remains future. One retained
+clean-container installation and inference. A foreground HTTP service now
+opens the coherent installed profile once, keeps lookup/cache hits outside a
+fixed bounded FIFO model queue, and exposes stable score/health/status JSON.
+One retained
 service-partition experiment now compares all ten equal-budget worker/thread
 shapes for 1, 2, 4, and 8 physical cores. It selects `1×1`, `1×2`, `1×4`, and
 `2×4` on the retained Ryzen host,
 preserves ADR 0017's portable `1×1` default elsewhere, and demonstrates that
 separately opened warm SNV lookup remains fast while a model batch is in flight.
-Service queue and backpressure policy remain future HTTP work.
+The service defaults to portable `1×1`, 16 waiting requests, immediate 429
+backpressure, and graceful signal drain. Container packaging remains future.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
 and typed mmap provider are established; its local transport, installation,
 and immutable public release are shipped. Future SNV and sequence-index builds use
@@ -557,12 +561,15 @@ and clean-machine inference are tied to the exact bytes and commit actually
 published. Container dependency inventory and SBOM remain with
 their later publication, not this data-artifact release.
 
-## Later outcome — foreground HTTP service
+## Established — foreground HTTP service
 
-Add a foreground `pangopup serve` HTTP process with stable batch JSON, bounded
-requests, health/readiness/status endpoints, timeouts, backpressure, and clean
-shutdown. Expose `pangopup status` as the CLI view of the same non-secret
-runtime and asset identities.
+`pangopup serve` is one foreground process with stable ordered batch JSON,
+64-KiB bodies, 100-variant batches, at most 10 uncached model variants per
+request, health/readiness/status routes, bounded FIFO admission, fail-closed
+worker loss, and graceful SIGINT/SIGTERM drain. It keeps authoritative mmap and
+completed SQLite hits outside model admission. It has no daemon commands,
+durable jobs, polling, in-memory LRU, automatic sync, authentication, TLS, or
+server-side inference timeout.
 
 ## Later outcome — deployment
 

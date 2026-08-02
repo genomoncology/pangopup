@@ -172,6 +172,7 @@ pub struct ModelProvenance {
     reference: ReferenceProvenance,
     mask_bytes: u64,
     mask_sha256: String,
+    effective_cpu_policy: String,
 }
 
 impl ModelProvenance {
@@ -188,7 +189,15 @@ impl ModelProvenance {
             reference,
             mask_bytes,
             mask_sha256,
+            effective_cpu_policy: pangopup_model::CpuPolicy::production_default().to_string(),
         }
+    }
+
+    /// Bind the operational session policy used to produce this result.
+    #[must_use]
+    pub fn with_effective_cpu_policy(mut self, policy: impl Into<String>) -> Self {
+        self.effective_cpu_policy = policy.into();
+        self
     }
 
     pub const fn scoring_semantics(&self) -> &'static str {
@@ -213,6 +222,10 @@ impl ModelProvenance {
 
     pub fn mask_sha256(&self) -> &str {
         &self.mask_sha256
+    }
+
+    pub fn effective_cpu_policy(&self) -> &str {
+        &self.effective_cpu_policy
     }
 
     pub const fn masked(&self) -> bool {
@@ -346,6 +359,7 @@ impl ModelFallback {
             reference: reference_provenance,
             mask_bytes: mask_identity.bytes(),
             mask_sha256: format!("sha256:{}", mask_identity.sha256()),
+            effective_cpu_policy: model.cpu_policy().to_string(),
         };
         Self {
             scorer: VariantScorer::new(reference, mask, model),
@@ -447,7 +461,7 @@ struct MaskGenes {
     minus: Vec<MaskGene>,
 }
 
-trait GeneMaskSource {
+trait GeneMaskSource: Send {
     fn query(
         &mut self,
         contig: Grch38Contig,
@@ -528,7 +542,7 @@ impl RawScores {
     }
 }
 
-trait RawKernel {
+trait RawKernel: Send {
     fn infer(&mut self, context: &[u8], strand: Strand) -> Result<RawScores, ModelScoringError>;
 
     fn representation(&self) -> ModelRepresentation {

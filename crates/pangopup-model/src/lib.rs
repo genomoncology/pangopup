@@ -808,6 +808,7 @@ pub struct ModelKernel {
     kind: BundleKind,
     profile: String,
     representation: ModelRepresentation,
+    cpu_policy: CpuPolicy,
     last_accounting: InferenceAccounting,
     // Keep the authenticated descriptor alive for the entire session. The
     // graph was loaded from bytes read through this descriptor, not a reopened
@@ -839,7 +840,24 @@ impl ModelKernel {
     pub fn open_held_authenticated(
         manifest_bytes: &[u8],
         notice_bytes: &[u8],
+        model_file: File,
+    ) -> Result<Self, ModelError> {
+        Self::open_held_authenticated_with_cpu_policy(
+            manifest_bytes,
+            notice_bytes,
+            model_file,
+            CpuPolicy::production_default(),
+        )
+    }
+
+    /// Initialize an authenticated held model with an explicit service-owned
+    /// CPU policy. The descriptor identity checks are identical to the default
+    /// held-open path.
+    pub fn open_held_authenticated_with_cpu_policy(
+        manifest_bytes: &[u8],
+        notice_bytes: &[u8],
         mut model_file: File,
+        policy: CpuPolicy,
     ) -> Result<Self, ModelError> {
         let manifest = parse_any_manifest(manifest_bytes)?;
         let identity = bundle_identity(manifest_bytes);
@@ -875,7 +893,7 @@ impl ModelKernel {
                 model_file,
                 model_bytes,
             },
-            CpuPolicy::production_default(),
+            policy,
         )?;
         if kernel.representation != ModelRepresentation::Singleton {
             return Err(ModelError::IncompatibleBundle(
@@ -930,6 +948,7 @@ impl ModelKernel {
             kind: authenticated.manifest.kind(),
             profile: authenticated.manifest.profile().to_owned(),
             representation: authenticated.manifest.representation(),
+            cpu_policy: policy,
             last_accounting: InferenceAccounting::default(),
             _model_file: authenticated.model_file,
         };
@@ -957,6 +976,11 @@ impl ModelKernel {
             });
         }
         Ok(kernel)
+    }
+
+    #[must_use]
+    pub const fn cpu_policy(&self) -> CpuPolicy {
+        self.cpu_policy
     }
 
     #[must_use]

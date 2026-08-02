@@ -1,6 +1,6 @@
 # 041 — Foreground HTTP scoring service
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -42,8 +42,8 @@ jobs or require polling.
     result/provenance fields and score strings as the shipped CLI JSONL
     contract. Success is the canonical compact JSON object
     `{"results":[<existing CLI JSON result objects>]}` followed by one newline.
-- Every HTTP body is canonical compact JSON followed by one newline and uses
-  `Content-Type: application/json`. Errors use the closed envelope
+- Every non-HEAD HTTP body is canonical compact JSON followed by one newline
+  and uses `Content-Type: application/json`. Errors use the closed envelope
   `{"error":{"code":"<STABLE_CODE>","message":"<BOUNDED_MESSAGE>"}}`.
   The status/code contract is: malformed/unknown/duplicate/invalid input is
   `400 INVALID_REQUEST`; body overflow is `413 REQUEST_TOO_LARGE`; too many
@@ -53,6 +53,15 @@ jobs or require polling.
   `500 SCORING_FAILED`; an unknown route is `404 NOT_FOUND`; and a known route
   with the wrong method is `405 METHOD_NOT_ALLOWED`. Health/readiness/status
   responses use the same JSON and newline rules.
+- HTTP `HEAD` on a known route is the sole body exception required by HTTP: it
+  returns `405 METHOD_NOT_ALLOWED`, `Content-Type: application/json`, and the
+  `Content-Length` of the canonical method-not-allowed error representation,
+  but transmits no body bytes. Every 405 includes the route's exact `Allow`
+  header: `GET` for `/livez`, `/readyz`, and `/v1/status`; `POST` for
+  `/v1/score`. This is not an implicit successful GET/HEAD route. Pin status,
+  content type, content length, `Allow`, and zero HEAD body bytes in a
+  network-level negative test. Unknown-route HEAD remains 404 and has no
+  `Allow` requirement.
 - `/v1/status` is the closed canonical object
   `{"version":"<VERSION>","readiness":"ready|draining|failed","assets":{"snv_bundle_id":"<ID>","model_bundle_id":"<ID>","reference_bundle_id":"<ID>","mask_sha256":"<ID>"},"routes":{"lookup":true,"model":true,"model_only":true},"model":{"effective_cpu_policy":"sequential:<THREADS>/1","workers":<N>,"threads_per_worker":<N>,"running":<N>,"queued":<N>,"queue_capacity":<N>}}`.
   Asset paths, cache paths, environment, request contents, and host details are
@@ -107,12 +116,17 @@ jobs or require polling.
   must be used in every SQLite cache key. Never read or write an entry under a
   false `1/1` key. Add the effective policy to the shared modeled provenance so
   ordinary CLI output honestly records its unchanged `sequential:1/1` policy.
-- Count capacity as running jobs plus waiting jobs. A worker removes one job
-  from the waiting count when it starts. When every worker is occupied and the
-  waiting line is full, a new request requiring uncached model work receives a
-  stable `429 Too Many Requests` JSON error immediately. SNV hits and cache hits
-  still succeed while that line is full. No request priority or dynamic worker
-  resizing exists.
+- Count capacity as occupied worker slots plus waiting jobs. Public `running`
+  means an accepted request owns an immediate worker slot, including the short
+  handoff before its OS worker begins executing; it is bounded by `workers`.
+  Public `queued` means only accepted requests consuming waiting capacity; it
+  is bounded by `queue_capacity`. Admission atomically reserves an available
+  worker slot first, then a waiting slot, otherwise returns a stable `429 Too
+  Many Requests`. Completion/cancellation atomically promotes the next FIFO
+  waiting request into the released worker slot or releases that running slot,
+  so status and shutdown never under-report accepted work. SNV hits and cache
+  hits still succeed while the waiting line is full. No request priority or
+  dynamic worker resizing exists.
 - Recheck SQLite inside the worker before each inference so an earlier request
   may satisfy a queued duplicate. Do not add a separate in-memory LRU or an
   in-flight coalescing registry. Cache locks must never be held during model
@@ -142,10 +156,25 @@ jobs or require polling.
 
 ## Success Checklist
 
-- `pangopup serve --listen 127.0.0.1:0` starts against injected miniature
-  installed assets for tests, reports its chosen address without secrets, and
-  serves the four exact routes. Production startup uses only the activated
-  installed profile.
+- Normal production builds must not contain a miniature-profile trust bypass.
+  An explicit, nondefault test feature may compose the actual child
+  `pangopup serve` executable with a grammar-valid miniature installed profile;
+  that child must bind `127.0.0.1:0`, emit the exact listening line, serve all
+  four routes, and receive real OS signals. The feature and its bounded delay
+  control must be absent from normal builds. Separate subprocess tests invoke
+  the normal actual executable and prove option parsing plus missing and
+  incompatible production profiles fail before bind. Production startup uses
+  only the exact activated production profile.
+- Add one explicitly ignored retained-production qualification that invokes
+  the actual `pangopup serve --listen 127.0.0.1:0` against caller-supplied
+  production XDG data, observes the listening line, and probes all four routes.
+  Its single score call is one ordered two-variant batch: a known authoritative
+  SNV hit from the checked regression fixture followed by the supported M09
+  non-SNV from the compatibility corpus. Require ordered `precomputed` then
+  `model` provenance so this proves the actual installed HTTP-to-worker-to-
+  reference/mask/model composition, not merely listener and mmap startup. Run
+  it once for Ticket 041 evidence on the retained host; normal gates and CI do
+  not require or download the multi-gigabyte production assets.
 - HTTP response fixtures prove byte-stable success and error envelopes,
   CLI-equivalent result/provenance fields, input order, `model_only`, body and
   batch limits, duplicate/unknown-field rejection, and malformed variant
@@ -170,9 +199,12 @@ jobs or require polling.
 - A deterministic worker-loss test proves panic/exit cannot strand the queue:
   readiness becomes failed, all accepted responses complete with
   `MODEL_WORKER_UNAVAILABLE`, new admission is refused, and shutdown begins.
-- Lifecycle tests prove startup fails before bind on missing/incompatible
-  assets, readiness transitions, new admission stops during shutdown, accepted
-  work drains, and SIGINT/SIGTERM use the same graceful path.
+- Child-process lifecycle tests prove readiness transitions, new admission
+  stops during shutdown, accepted work drains, persistent SIGINT/SIGTERM
+  listeners share the same graceful path, and a real second signal forces
+  exit. Actual-executable tests prove startup fails before bind on
+  missing/incompatible production assets; the ignored retained qualification
+  proves the successful production composition without weakening trust.
 - Normal tests use only miniature/fake providers and complete quickly; they do
   not download assets or run the production model. One ignored maintainer test
   may exercise the retained production assets, but it is not required for the
@@ -259,11 +291,130 @@ bounded and does not introduce a general scheduler or durable job system.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex sub-agent `/root/ticket041_implementation`
+
+Implemented one foreground `pangopup serve` adapter in `pangopup-cli`. It opens
+the coherent installed profile and every SQLite/model worker before bind,
+keeps authoritative lookup and completed cache hits outside one fixed bounded
+FIFO, returns ordinary ordered HTTP responses, and implements stable health,
+status, backpressure, worker-loss, disconnect, and two-signal drain behavior.
+No scheduler framework, durable jobs, polling, automatic sync, in-memory LRU,
+or in-flight registry was added.
+
+The model kernel now retains its actual CPU policy. Installed held models can
+open under the service-selected sequential thread count; modeled provenance
+and every SQLite key record that effective policy. Ordinary CLI fixtures prove
+their unchanged `sequential:1/1` policy. ADR 0025 records the bounded service
+choice.
+
+Inside-out service tests use fake lookup/cache/model providers and finish
+without production assets. They cover exact HTTP bytes and status order,
+closed input and size limits, model-only ordering, lookup and cache bypass
+under saturation, worker/FIFO/queue counts, immediate 429, both disconnect
+states, all-or-error model failure, worker panic fan-out/readiness, and drain
+admission. The test-only implementation is split from the production service
+module for readability.
+
+Developer verification:
+
+- `cargo test --locked -p pangopup-cli service::tests`: 11 passed.
+- `cargo test --locked -p pangopup-cli`: 38 passed.
+- `cargo test --locked -p pangopup-cache service_sequential_thread_policies_are_exactly_bounded`: 1 passed.
+- `cargo clippy --locked --workspace --all-targets -- -D warnings`: passed.
+- `make test`: passed, including executable-delivery and production-release
+  qualification scripts.
+- `make spec`: 246 passed, 6 skipped.
+- `git diff --check`: passed.
+
+One assumption was refined during implementation: serializing routed results
+through a generic JSON value would reorder object keys. HTTP therefore embeds
+the already-validated raw CLI JSON object inside its response envelope, keeping
+the promised CLI field order without a second result serializer.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex sub-agent `/root/ticket041_code_review`
+
+Final verdict: accepted after remediation and two independent re-reviews.
+
+The first review rejected the implementation on nine concrete grounds:
+admission counted only channel slots rather than workers plus waiting slots;
+production SQLite/worker behavior lacked direct tests; listener and signal
+lifecycle coverage was too synthetic; status counters could be sampled across
+separate transitions; `HEAD` inherited Axum's implicit `GET`; worker-loss
+fan-out was under-tested; worker-owned sender clones prevented explicit pool
+closure; full-byte and boundary fixtures were incomplete; and one superseded
+renderer remained.
+
+All findings were remediated without adding a scheduler. One mutex now owns
+readiness, running, queued, and the sole optional sender. Admission accepts
+exactly `workers + queue_capacity` jobs, queued-to-running is one coherent
+transition, status reads one snapshot, and workers retain no sender. Shutdown
+closes the sender and joins every worker. The persistent signal collector makes
+a second signal observable throughout drain.
+
+Production-path tests now exercise a real `ProductionWorker` and SQLite for
+queued recheck, CPU-policy key separation, saturation bypass, absence of a
+cache transaction during inference, running-disconnect write-through, and
+write-failure result validity. Panic coverage includes one running and two
+queued callers, permanent new-admission refusal, shutdown observation, and
+ordinary worker join. A real TCP listener pins health bytes and method
+behavior. Known-route `HEAD` is 405 with exact `Allow` (`GET` or `POST`), JSON
+representation headers, and the empty wire body required by HTTP; unknown
+`HEAD` remains 404. The original design reviewer approved that clarified HEAD
+contract.
+
+Post-remediation verification:
+
+- focused service tests: 21 passed;
+- executable pre-bind lifecycle test: 1 passed;
+- `make test`: passed, including executable delivery and production release
+  qualification;
+- `make spec`: 246 passed, 6 skipped;
+- workspace Clippy with `-D warnings`: passed;
+- `git diff --check`: passed.
+
+The full gate caught and prevented an early test-only asset feature from
+changing the pinned production source identity. The final test support is an
+explicit nondefault feature, absent from normal production builds, and uses
+the real atomic installer and actual child executable rather than inventing a
+second HTTP runner. The model-oracle checksum was updated only for the
+authorized addition of `effective_cpu_policy` to the exact M09 provenance
+fixture.
+
+### Final re-review remediation
+
+Each accepted model job now carries its admission class (`running` reservation
+or `queued` waiting slot). One locked transition reserves an available worker
+slot before waiting capacity, so a burst admits exactly `workers +
+queue_capacity`, `running <= workers`, and `queued <= queue_capacity` even
+before a worker receives from the channel. Cancellation, completion, worker
+loss, and shutdown release the same per-job reservation rather than inferring
+it from timing.
+
+Unix SIGINT and SIGTERM streams are registered once and remain live throughout
+drain. A process-level test sends two real, different signals while work is
+running and observes the forced-exit path. Feature-gated child-process tests
+run the actual executable over real TCP with atomically installed miniature
+assets, probe all four routes, prove accepted work drains on SIGTERM, prove a
+second signal forces exit, and prove an incompatible installed profile fails
+before the listening line.
+
+Final verification:
+
+- focused service unit tests: 20 passed;
+- feature-gated actual-executable lifecycle tests: 4 passed, 1 retained-
+  production qualification ignored;
+- retained-production qualification: passed once against the existing
+  qualified installed profile; the actual executable served all four routes
+  and returned one ordered batch as known regression SNV `precomputed` then
+  M09 non-SNV `model`;
+- workspace Clippy with all targets, all features, and `-D warnings`: passed.
+- `make lint`: passed (dependency-policy duplicate notices remain warnings);
+- `make test`: passed, including executable-delivery and production-release
+  qualification;
+- `make spec`: 246 passed, 6 skipped;
+- `git diff --check`: passed.
 
 ## External Effect Evidence
 
@@ -271,4 +422,19 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex `/root`
+
+- Inspected the final diff and confirmed the default production binary contains
+  no miniature-profile or artificial-delay trust path; those controls require
+  the explicit nondefault test-fixture feature.
+- Confirmed no local asset paths, request bodies, environment dumps, or secrets
+  entered product code, retained user documentation, or executable specs.
+- `make lint` passed. Existing non-failing dependency duplicate and
+  `zstd-sys` semver-metadata notices remain warnings.
+- `make test` passed, including the service unit tests, executable delivery,
+  and production-release qualification. Retained multi-gigabyte tests remain
+  explicitly ignored in the normal gate.
+- `make spec` passed: 246 scenarios passed and 6 were skipped.
+- `git diff --check` passed. The only model oracle change is the reviewed
+  additive `effective_cpu_policy` provenance field, with ordinary CLI output
+  fixed at `sequential:1/1`.

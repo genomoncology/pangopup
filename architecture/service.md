@@ -1,15 +1,15 @@
 # Service Boundary
 
-This document records target service design. Pangopup does not yet ship an HTTP
-server, service lifecycle integration, container, or metrics. The shipped
-runtime interface is `pangopup lookup`; its typed
+Pangopup ships a foreground HTTP server and signal lifecycle. It does not yet
+ship a container, systemd example, or metrics. The CLI interface remains
+`pangopup lookup`; its typed
 lookup-first/model route already returns stable JSON Lines or exact
 tab-separated output from an activated installed profile or complete explicit
 override and persists successful model results in a bounded SQLite cache.
 
 ## One lookup-first core
 
-The current CLI and future HTTP adapter call the same typed routing API:
+The CLI and HTTP adapter call the same typed routing API:
 
 ```text
 validated GRCh38 variant
@@ -20,8 +20,8 @@ validated GRCh38 variant
 
 Callers may explicitly request the parallel typed model-only route. That route
 bypasses the SNV provider for the whole batch and otherwise reuses the same
-model scoring, filtering, cache, result, and provenance contracts. The future
-HTTP request should expose the equivalent optional `model_only` boolean; it
+model scoring, filtering, cache, result, and provenance contracts. The HTTP
+request exposes the equivalent optional `model_only` boolean; it
 does not need a general scoring-mode grammar or a comparison envelope.
 
 Every result identifies its route and the exact lookup bundle or model,
@@ -39,15 +39,16 @@ must not extrapolate the table from logical CPU count, cgroup quota, or an
 unmatched CPU identity.
 
 The measurement also proves that the separately opened SNV mmap stays fast
-while a model batch is in flight. The service must therefore keep lookup
-outside model queue admission. Ticket 040 deliberately did not choose queue
-capacity, backpressure, dispatch, SQLite connection ownership, concurrent-fill
-coalescing, or failure fan-out; the HTTP implementation owns and tests those
-policies.
+while a model batch is in flight. The service keeps lookup outside model queue
+admission. It uses fixed workers, a bounded FIFO waiting line, immediate 429
+backpressure, one handler SQLite connection, and one SQLite connection per
+worker. It deliberately does not coalesce in-flight work.
 
 ## Foreground lifecycle
 
-The planned executable exposes `pangopup serve` as one foreground process. It
+ADR 0025 records the fixed-worker, bounded-FIFO, and drain choices below.
+
+The executable exposes `pangopup serve` as one foreground process. It
 does not fork, daemonize, write PID files, or implement its own
 start/stop/restart supervisor. Docker, systemd, Kubernetes, or another external
 process manager owns those lifecycle actions and restart policy.
@@ -62,21 +63,20 @@ The service exposes:
   configuration; and
 - graceful shutdown on ordinary process-manager signals.
 
-Readiness will consume the established canonical four-asset runtime profile
+Readiness consumes the established canonical four-asset runtime profile
 and reject a mixed tuple. Offline installation, activation, CLI discovery, and
-held provider opening exist; service lifecycle composition remains future.
-Service startup may invoke the same pinned asset-sync operation exposed
-explicitly as `pangopup sync`. Offline mode forbids networking and names
-missing or incompatible assets. A running process holds one immutable opened
-profile; an upgrade is a new process, not an in-place mmap/model swap.
+held provider opening are established. Service startup performs no sync or
+network operation; operators run `pangopup sync` explicitly. A running process
+holds one immutable opened profile; an upgrade is a new process, not an
+in-place mmap/model swap.
 
-## HTTP contract direction
+## HTTP contract
 
-The first HTTP slice should be small: versioned batch JSON over explicit GRCh38
-variants, stable typed errors, health/readiness/status endpoints, request/body
-and batch limits, timeouts, backpressure, and deterministic ordering. It should
-not add transcript HGVS, projection, clinical interpretation, or remote calls
-to other genomic services.
+The first HTTP slice is versioned batch JSON over explicit GRCh38 variants,
+stable typed errors, health/readiness/status endpoints, 64-KiB bodies,
+100-variant batches, a 10-uncached-model-variant limit, backpressure, and
+deterministic ordering. It adds no transcript HGVS, projection, clinical
+interpretation, remote calls, job IDs, polling, or server-side model timeout.
 
 The executable CLI's JSONL contract is already shipped and remains useful for
 process-boundary integration and testing. HTTP defines a separate JSON request
@@ -107,9 +107,9 @@ without changing masking. The default is 10,000 entries with deterministic
 insertion/update-order eviction; valid hits are read-only and `unlimited` is
 explicit.
 
-The future HTTP adapter reuses this database and key/value contract. Concurrent
-fill coalescing belongs to that service's bounded worker/queue design and is
-not hidden in the sequential CLI or scoring engine.
+The HTTP adapter reuses this database and key/value contract. Workers recheck
+SQLite before each inference; there is no separate in-memory cache or
+in-flight-fill registry.
 
 ## Operational proof
 
