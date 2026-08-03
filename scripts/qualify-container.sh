@@ -126,7 +126,7 @@ size=$(docker image inspect --format '{{.Size}}' "$image")
 }
 
 stage=focused-help-no-assets
-check_focused_help sync 'Usage: pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]' sync
+check_focused_help sync 'Usage: pangopup sync [--offline] [--progress | --quiet] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]' sync
 check_focused_help status 'Usage: pangopup status [--data-dir <ABSOLUTE_PATH>]' status
 check_focused_help serve 'Usage: pangopup serve [--listen <ADDRESS>] [--data-dir <ABSOLUTE_PATH>] [--model-workers <1..8>] [--model-threads <1..8>] [--model-queue-capacity <1..1024>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]' serve
 check_focused_help assets 'Usage: pangopup assets <ACTION>' assets

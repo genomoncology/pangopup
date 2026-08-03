@@ -1,6 +1,6 @@
 # 046 — Close resilient-sync qualification
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -91,11 +91,53 @@ not claim that this Linux checkout independently opened the raw Mac evidence.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Kierkegaard the 2nd
+
+Changed only the independent container oracle, its narrow delivery test, the
+supplied-Mac audit summary, this ticket, and the rolling frontier. No runtime,
+CLI, asset, model, HTTP, installer, Dockerfile, workflow, or release behavior
+changed.
+
+Focused evidence:
+
+- `bash -n scripts/qualify-container.sh tests/container-delivery.sh`: passed.
+- `bash tests/container-delivery.sh`: passed. The test requires the one exact
+  shipped sync usage assertion and retains explicit stale and broadened
+  negative controls.
+- A local native AMD64 final image passed the complete
+  `scripts/qualify-container.sh` miniature qualification; observed image size
+  was 56,374,667 bytes.
+- Two derived negative images changed only `sync -h`/`sync --help`. The
+  pre-Ticket-045 line and a broadened `Usage: pangopup sync [OPTIONS]` line
+  each failed at `stage=focused-help-no-assets`,
+  `check=sync-h-first-line`, exit 1.
+- The frontier stale-claim search
+  `rg -n "resilient.*(next|future)|next.*resilien|Ticket 04[345].*(next|future)|043.*(next|future)|044.*(next|future)|045.*(next|future)" planning/frontier.md`
+  returned no matches.
+- `git diff --check`: passed.
+
+Full developer gates:
+
+- `make lint`: passed (existing cargo-deny duplicate warnings only).
+- `make test`: passed; retained-production/measurement tests remained
+  intentionally ignored by their existing contracts.
+- `make spec`: passed, 259 passed and 7 skipped.
+
+The Apple artifact explicitly says its evidence was supplied, its raw directory
+was not opened from this Linux checkout, and no within-process retry was
+deliberately induced. Exact commit, image size, downloaded bytes, resumed
+bytes, and monotonic/final-total observations match the supplied report.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Lorentz the 3rd
+
+Verdict: ACCEPT. The reviewer found no material issues, independently ran the
+delivery test and full local final-image qualification, and confirmed both the
+stale pre-Ticket-045 line and a broadened `[OPTIONS]` line fail at
+`focused-help-no-assets` / `sync-h-first-line`. The literal oracle remains
+independent of the image, the supplied-Mac artifact is honest, the frontier has
+no stale Ticket 043–045 claims, and no product behavior changed.
 
 ## External Effect Evidence
 
@@ -103,4 +145,9 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex
+
+`git diff --check`, `make lint`, `make test`, and `make spec` passed after the
+accepted review; the spec gate reported 259 passed and 7 skipped. Exact-commit
+GitHub `ci` and both native `container` jobs are the remaining pushed-candidate
+qualification before ticket cleanup.

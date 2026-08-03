@@ -602,17 +602,27 @@ startup. Root help remains byte-compatible with the pre-ticket executable, and
 the stripped non-root final image proves the full matrix without networking or
 mounted assets.
 
+Resilient synchronization is established. Active reads use progress-reset
+timeouts and four bounded transient attempts, safe partials resume across
+processes, and optional phase/byte progress remains separate from the unchanged
+final JSON. The Apple M5 Max retest at exact commit `e5d7d1a` proved focused
+help, read-only status without mutation, an exact 263,438,336-byte resumed
+prefix, monotonic progress matching final totals, lookup/model/cache behavior,
+and the HTTP service on native Linux/ARM64 Docker. It did not deliberately
+induce a within-process retry. The retained Apple friction is ONNX Runtime
+1.24.2's unknown-CPU-vendor warning on stderr.
+
 Following that completed outcome, retain these ordered slots rather than
 drafting a backlog:
 
-1. resilient resumable synchronization with useful phase/byte progress;
-2. first-use Docker and Apple Silicon documentation, HTTP examples, and an
-   image update/restart playbook;
-3. an ARM CPU thread-policy experiment before changing the qualified default;
-4. a documented systemd example only if native process-manager deployment
-   remains a product need;
-5. executable-release follow-up and, separately, reviewed multi-architecture
-   container publication and clean-machine acceptance.
+1. replace the pinned ONNX Runtime with a version that handles Apple Silicon
+   without warning while preserving exact model outputs and qualified CPU
+   behavior;
+2. compact the README around first use, Docker and Apple Silicon behavior,
+   complete HTTP examples, update/restart, and safe manual uninstall;
+3. publish the next qualified executable release;
+4. separately add reviewed multi-architecture container publication and
+   clean-machine acceptance.
 
 Docker, systemd, Kubernetes, or another external manager owns
 start/stop/restart; Pangopup does not become its own process supervisor.
@@ -648,8 +658,12 @@ private artifact against pinned Ubuntu 24.04 and GLIBC 2.39. Ticket 038's
 public installer qualification passed through clean production sync, exact SNV
 and model oracles, public verification, and a tagged non-root install. HTTP and
 the native AMD64/ARM64 Docker image are shipped. Other package managers remain
-later roadmap slots; focused runtime CLI help is complete and resilient
-resumable synchronization feedback is the next undrafted outcome.
+later roadmap slots. Read-only status, focused runtime help, resilient
+resumable synchronization feedback, and the exact-commit Apple Silicon retest
+are complete. The next bounded outcome is removing the Apple ONNX Runtime
+warning without changing model results; compact user documentation, the next
+executable release, and reviewed multi-architecture container publication
+follow in that order.
 
 Ticket 038's completed publication includes a credential-free operation/evidence
 record, exact reviewed release notes, an independently

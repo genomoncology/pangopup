@@ -37,6 +37,24 @@ grep -Fq 'stage=read-only-installed-status' scripts/qualify-container.sh
 grep -Fq 'stage=focused-help-no-assets' scripts/qualify-container.sh
 grep -Fq 'check_focused_help assets-runtime-install' scripts/qualify-container.sh
 grep -Fq 'help_run=(docker run --rm --network none --read-only' scripts/qualify-container.sh
+sync_help_check=$(grep '^check_focused_help sync ' scripts/qualify-container.sh)
+expected_sync_usage='Usage: pangopup sync [--offline] [--progress | --quiet] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]'
+expected_sync_help_check="check_focused_help sync '$expected_sync_usage' sync"
+if [[ "$sync_help_check" != "$expected_sync_help_check" ]]; then
+  printf 'container qualification must assert the exact shipped sync usage line\n' >&2
+  exit 1
+fi
+eval "$(sed -n '/^expect_equal() {/,/^}/p' scripts/qualify-container.sh)"
+(stage=sync-help-negative-control; expect_equal sync "$expected_sync_usage" "$expected_sync_usage")
+for rejected_sync_usage in \
+  'Usage: pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]' \
+  'Usage: pangopup sync [OPTIONS]'; do
+  if (stage=sync-help-negative-control; expect_equal sync "$expected_sync_usage" "$rejected_sync_usage") \
+    >/dev/null 2>&1; then
+    printf 'container qualification accepted stale or broadened sync usage\n' >&2
+    exit 1
+  fi
+done
 if sed -n '/stage=focused-help-no-assets/,/stage=filesystem-inventory/p' scripts/qualify-container.sh \
   | grep -Fq -- '-v '; then
   printf 'container help qualification must not mount assets or caches\n' >&2
