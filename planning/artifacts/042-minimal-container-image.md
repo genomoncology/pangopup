@@ -106,6 +106,16 @@ qualification remains pending until the corrected exact commit passes the
 native AMD64 and ARM64 manual matrix; run `30828329814` must not be cited as a
 production-compatible result.
 
+Corrected exact-commit workflow run
+[`30829221866`](https://github.com/genomoncology/pangopup/actions/runs/30829221866)
+resolved that pending check. It checked
+`423e806cf8577488c71fd95403ab9b37b7f02d90`; both native production jobs
+authenticated the runtime transport, executed all 14 retained model cases,
+and passed the exact ordered result and provenance comparison. The native
+AMD64 and ARM64 miniature smoke jobs also passed. No image or asset was
+published. This run is the production-compatible container evidence for
+Ticket 042.
+
 The ordinary native smoke copies `model-results.sqlite3` from the named volume
 after the first and second calls, checks the SQLite header, and requires the two
 database files and two public outputs to be byte-identical. The production

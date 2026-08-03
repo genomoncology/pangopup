@@ -1,6 +1,6 @@
 # 042 — Minimal qualified Docker image
 
-Status: pending production qualification
+Status: complete
 
 ## Why
 
@@ -345,6 +345,14 @@ all 14 checked oracle records cover the corrected invocation. Production
 qualification remains pending until this correction passes an exact-commit
 native AMD64/ARM64 rerun.
 
+Resolution: exact-commit workflow run
+[`30829221866`](https://github.com/genomoncology/pangopup/actions/runs/30829221866)
+checked commit `423e806cf8577488c71fd95403ab9b37b7f02d90` and passed all
+four jobs. The AMD64 and ARM64 production jobs each authenticated the
+runtime-only transport, ran all 14 retained cases through the final image, and
+passed the exact ordered body and provenance comparison. Both native miniature
+smoke jobs also passed. The workflow published nothing.
+
 ## External Effect Evidence
 
 Coordinator: not applicable — this ticket must not publish a container image
@@ -362,6 +370,9 @@ manual native AMD64/ARM64 production-runtime matrix remains deliberately
 dispatch-only and performs no publication. Run `30828329814` proved that all
 14 production inference cases execute on both architectures, but its broken
 host-side jq invocation never performed the required exact output comparison.
-The reviewed correction is present and locally checked; the coordinator final
-production check and Ticket 042 completion remain pending an exact-commit
-native matrix rerun.
+The reviewed correction was committed as `423e806` and exact-commit workflow
+run `30829221866` passed the native AMD64 and ARM64 miniature smoke and
+production-model jobs. Each production job reproduced all 14 checked results
+and their provenance exactly. Push CI run `30829219037` and the ordinary
+container run `30829214589` also passed. No image, asset, or registry object was
+published. Ticket 042 is complete.
