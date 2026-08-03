@@ -30,5 +30,7 @@ if grep -Fq -- '-v "$cache:/cache"' scripts/qualify-container-production.sh; the
   exit 1
 fi
 grep -Fq 'cmp "$work/cache-before.sqlite3" "$work/cache-after.sqlite3"' scripts/qualify-container.sh
+grep -Fq 'container qualification failed: stage=%s check=%s' scripts/qualify-container.sh
+grep -Fq "expect_equal exposed-ports '{\"8080/tcp\":{}}'" scripts/qualify-container.sh
 [[ "$(jq '.results | length' tests/fixtures/container-qualification/production-model-oracle.json)" == 14 ]]
 [[ "$(jq -r '.results[].records[].loss_score' tests/fixtures/container-qualification/production-model-oracle.json | grep -Fxc -- '-0.08')" == 1 ]]

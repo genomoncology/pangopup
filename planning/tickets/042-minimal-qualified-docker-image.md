@@ -309,6 +309,17 @@ SQLite path, with a static regression check rejecting the former root-owned
 `/cache` mount. The focused shell/static contract, `make lint`, and `make spec`
 pass after this change.
 
+The first pushed native smoke then failed at a shared early silent assertion on
+both architectures. The helper now emits actionable stage/check/expected/
+observed diagnostics for image metadata, and validates exposed ports through
+canonical JSON rather than implementation-specific empty-value rendering. A
+fresh no-cache AMD64 build passes the complete local qualification; re-running
+the two native jobs is the remaining external evidence.
+
+Independent re-review accepted the canonical whole-object port check and
+actionable diagnostics: all metadata constraints remain exact, cleanup remains
+active, and no check was weakened.
+
 Final re-review: accepted. The reviewer independently confirmed the signed
 loss sentinel, decoded runtime permissions, all-result provenance comparison,
 byte-stable SQLite reuse, correct non-root cache mount, scope, and

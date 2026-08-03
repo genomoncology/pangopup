@@ -73,6 +73,14 @@ The production cache volume is mounted at the image-prepared
 `/var/cache/pangopup`, so numeric UID/GID `65532:65532` can create the default
 SQLite file.
 
+The first post-push native smoke exposed a portability problem in an early
+silent metadata assertion on both runners. Metadata checks now report the
+stage, named field, expected value, and observed value, and exposed ports are
+compared as canonical Docker JSON (`{"8080/tcp":{}}`) instead of relying on a
+Go-template rendering of the indexed empty value. A deliberate local revision
+mismatch proved the actionable diagnostic, while a fresh no-cache image passed
+the complete native AMD64 qualification.
+
 The ordinary native smoke copies `model-results.sqlite3` from the named volume
 after the first and second calls, checks the SQLite header, and requires the two
 database files and two public outputs to be byte-identical. The production

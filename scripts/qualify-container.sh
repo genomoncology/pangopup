@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+stage=argument-validation
+report_failure() {
+  local status=$1 line=$2 command=$3
+  trap - ERR
+  printf 'container qualification failed: stage=%s line=%s exit=%s command=%q\n' \
+    "$stage" "$line" "$status" "$command" >&2
+  exit "$status"
+}
+trap 'report_failure "$?" "$LINENO" "$BASH_COMMAND"' ERR
+
+expect_equal() {
+  local name=$1 expected=$2 observed=$3
+  if [[ "$observed" != "$expected" ]]; then
+    printf 'container qualification failed: stage=%s check=%s expected=%q observed=%q\n' \
+      "$stage" "$name" "$expected" "$observed" >&2
+    exit 1
+  fi
+}
+
 [[ $# == 4 ]] || {
   printf 'usage: qualify-container.sh <IMAGE> <SOURCE_TREE> <PANGOPUP_BUILD> <WORK_DIR>\n' >&2
   exit 2
@@ -54,24 +73,35 @@ copy_cache_database() {
   docker rm "$cache_copy_container" >/dev/null
 }
 
-[[ "$(docker image inspect --format '{{.Architecture}}' "$image")" == "$expected_arch" ]]
-[[ "$(docker image inspect --format '{{.Config.User}}' "$image")" == '65532:65532' ]]
-[[ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" == '["/usr/local/bin/pangopup"]' ]]
-[[ "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" == '["serve","--listen","0.0.0.0:8080"]' ]]
-[[ "$(docker image inspect --format '{{.Config.StopSignal}}' "$image")" == 'SIGTERM' ]]
-[[ "$(docker image inspect --format '{{index .Config.ExposedPorts "8080/tcp"}}' "$image")" == '{}' ]]
-[[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.title"}}' "$image")" == 'Pangopup' ]]
-[[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' "$image")" == 'https://github.com/genomoncology/pangopup' ]]
-[[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.licenses"}}' "$image")" == 'GPL-3.0-only' ]]
-[[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")" == "$(git -C "$source_tree" rev-parse HEAD)" ]]
-[[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")" == "$(sed -nE 's/^version = "([^"]+)"$/\1/p' "$source_tree/Cargo.toml" | head -1)" ]]
+stage=image-metadata
+expect_equal architecture "$expected_arch" "$(docker image inspect --format '{{.Architecture}}' "$image")"
+expect_equal user '65532:65532' "$(docker image inspect --format '{{.Config.User}}' "$image")"
+expect_equal entrypoint '["/usr/local/bin/pangopup"]' "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")"
+expect_equal command '["serve","--listen","0.0.0.0:8080"]' "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")"
+expect_equal stop-signal SIGTERM "$(docker image inspect --format '{{.Config.StopSignal}}' "$image")"
+expect_equal exposed-ports '{"8080/tcp":{}}' "$(docker image inspect --format '{{json .Config.ExposedPorts}}' "$image")"
+expect_equal title Pangopup "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.title"}}' "$image")"
+expect_equal source https://github.com/genomoncology/pangopup "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' "$image")"
+expect_equal license GPL-3.0-only "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.licenses"}}' "$image")"
+expect_equal revision "$(git -C "$source_tree" rev-parse HEAD)" "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")"
+expect_equal version "$(sed -nE 's/^version = "([^"]+)"$/\1/p' "$source_tree/Cargo.toml" | head -1)" "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")"
 environment=$(docker image inspect --format '{{json .Config.Env}}' "$image")
 grep -Fq 'PANGOPUP_DATA_DIR=/var/lib/pangopup' <<<"$environment"
 grep -Fq 'PANGOPUP_CACHE_DIR=/var/cache/pangopup' <<<"$environment"
 grep -Fq 'PANGOPUP_MODEL_CACHE=/var/cache/pangopup/model-results.sqlite3' <<<"$environment"
 size=$(docker image inspect --format '{{.Size}}' "$image")
-((size <= 78643200))
+[[ "$size" =~ ^[0-9]+$ ]] || {
+  printf 'container qualification failed: stage=%s check=image-size observed=%q\n' \
+    "$stage" "$size" >&2
+  exit 1
+}
+((size <= 78643200)) || {
+  printf 'container qualification failed: stage=%s check=image-size limit=%s observed=%s\n' \
+    "$stage" 78643200 "$size" >&2
+  exit 1
+}
 
+stage=filesystem-inventory
 docker create --name "$container" "$image" >/dev/null
 docker export "$container" >"$work/rootfs.tar"
 if tar -tf "$work/rootfs.tar" | grep -E '(^|/)(\.git|target|\.venv)(/|$)|\.(pgi|pgr|pgm|onnx)$|(^|/)(bin/(ba)?sh|usr/bin/(apt|apt-get|dpkg|apk))$' >/dev/null; then
@@ -83,6 +113,7 @@ docker volume create "$data_volume" >/dev/null
 docker volume create "$cache_volume" >/dev/null
 docker volume create "$empty_volume" >/dev/null
 
+stage=empty-volume-smoke
 "${run[@]}" "$image" --version | grep -Fxq 'pangopup 0.1.0'
 "${run[@]}" "$image" status | grep -Fq '"status":"missing"'
 
@@ -94,6 +125,7 @@ if docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size
 fi
 grep -Fq 'run pangopup sync' "$work/default.err"
 
+stage=miniature-snv-install
 "$pangopup_build" transport pack \
   --bundle "$source_tree/tests/fixtures/snv-regression/bundle" \
   --output "$work/snv-transport" >/dev/null
@@ -103,6 +135,7 @@ chmod -R a+rX "$work/snv-transport"
 "${run[@]}" "$image" lookup --variant GRCh38:chr12:6801301:G:A \
   | grep -Fq '"kind":"precomputed"'
 
+stage=miniature-model-cache
 model_args=(lookup --model-only --format jsonl
   --variant GRCh38:chr1:5051:A:AC
   --model-bundle /fixtures/model
