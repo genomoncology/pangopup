@@ -312,8 +312,13 @@ hashes are checked. Files are synced and published with no-replace rename, a
 canonical receipt binds the immutable directory, and `active.json` is replaced
 atomically. Crash reconciliation removes only same-filesystem, effective-uid
 owned, no-follow marked stages. Published bundles are never overwritten or
-deleted. Status is lock-free apart from a nonblocking probe; lookup never takes
-the install lock.
+deleted. Combined status opens the existing installation authority read-only
+and takes a nonblocking shared lock while reading both component pointers.
+Installers retain the nonblocking exclusive lock; contention returns an
+immediate best-effort `installing` observation, while a successfully held
+shared guard provides the coherent cross-component view. Status never creates
+the root or lock authority, changes modes, repairs state, scans payloads, or
+initializes the model. Lookup never takes the install lock.
 
 Reuse validates the receipt, bounded metadata hashes, member shapes and sizes,
 and cheap `BundleOpen` structure without opening transport parts or hashing the

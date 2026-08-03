@@ -1,6 +1,6 @@
 # 043 — Read-only coherent installed status
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -200,23 +200,56 @@ consistent and feasible. There are no remaining material findings.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: `ticket043_implementation` (independent implementation sub-agent)
 
-Record focused tests, measurements, generated artifact identities, and any
-scope-relevant deviation, including named documentation changes, then set
-status to `review`. The developer cannot be the author or either reviewer and
-does not commit or push.
+- Replaced combined status's read-write/exclusive open-or-create operation with
+  an existing-file, descriptor-relative read-only observation path using
+  `O_RDONLY | O_NOFOLLOW | O_CLOEXEC` and a nonblocking shared `flock`.
+  Installers retain the existing exclusive lock. Missing root, missing lock
+  authority, acquired coherent guard, and exclusive-lock contention remain
+  distinct outcomes.
+- Added generic tests for two concurrent shared observers, exclusion of an
+  installer, wrong-mode/non-regular/symlink lock rejection, absent-root
+  noncreation, installed-SNV partial state without filesystem mutation,
+  activated state without lock authority, prompt best-effort contention, and
+  fixture-only compatible combined readiness through the ordinary runtime
+  validation/status implementation.
+- Extended final-image qualification after the shipped miniature SNV install.
+  The literal network-disabled command uses the image's UID/GID 65532,
+  read-only root filesystem, `/var/lib/pangopup:ro`, and writable cache volume;
+  it asserts `partial`, SNV `ready`, runtime `missing`, and
+  `installing: false`. No production asset or test-only CLI path is used.
+- Updated `README.md`, `architecture/delivery.md`, `spec/local-assets.md`,
+  `spec/container-image.md`, `scripts/qualify-container.sh`, and
+  `planning/frontier.md`. The existing malformed-runtime spec fixture also now
+  supplies the lock authority required by its stated test subject, and the
+  container delivery check asserts the new final-image stage.
+- Focused evidence: `cargo test -p pangopup-assets` passed 96 tests;
+  `cargo clippy --locked --package pangopup-assets --all-targets -- -D warnings`
+  passed; `make spec` passed 246 tests with 7 intentionally skipped; and
+  `bash tests/container-delivery.sh` passed. A locally built stripped AMD64
+  image passed `scripts/qualify-container.sh` with the new read-only named-
+  volume proof (`architecture=amd64`, `image_size=55,566,875` bytes). The
+  helper removed its temporary containers, volumes, and work directory.
+- No scoring, asset format, path, response schema, installer, sync, model, or
+  publication behavior changed. There was no scope-relevant deviation.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `ticket043_code_review` (independent read-only sub-agent)
 
-Record diff/test findings and their disposition before completion. The
-reviewer is read-only and cannot be the author, ticket reviewer, or developer.
-Material fixes return to the same developer and then this reviewer. Review
-includes every named documentation file and a check that shipped and future
-behavior are not confused. The ticket may become `complete` and enter final
-gates only after the reviewer records approval.
+Accepted with no material findings. The reviewer verified the descriptor-
+relative `O_RDONLY | O_NOFOLLOW | O_CLOEXEC` authority open, inherited trust
+checks, shared-reader/exclusive-installer lifetime, missing-authority failure,
+prompt best-effort contention, unchanged successful JSON, and the absence of
+payload scanning, hashing, scoring, or model initialization. It also confirmed
+that fixture-only runtime installation remains test-only, that the shipped CLI
+drives the literal final-image `/var/lib/pangopup:ro` proof, and that the two
+additional existing acceptance files are necessary rather than scope creep.
+
+Independent review checks passed: `git diff --check`, assets clippy with
+warnings denied, and all 96 `pangopup-assets` tests. The pre-existing Cargo
+warning about build metadata in the pinned `zstd-sys` requirement is unrelated.
 
 ## External Effect Evidence
 
@@ -226,12 +259,18 @@ This ticket performs no public or irreversible external effect.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex
 
-Record final `make lint`, `make test`, and `make spec` results plus a
-documentation stale-claim scan. The coordinator authors and remediates the
-ticket, orchestrates the independent stages, records evidence, and commits and
-pushes approved work; it does not implement product code or review its own
-ticket. A material final-gate or documentation finding returns to the same
-developer and code reviewer; a scope defect returns to the coordinator and
-same ticket reviewer.
+The complete final gate passed: `make lint`, `make test`, and `make spec` (246
+passed, 7 intentionally skipped). This includes the full locked Rust workspace,
+executable-delivery checks, production-release qualification harness, and the
+offline mustmatch suite. The only warnings are the pre-existing allowed
+duplicate-dependency report and `zstd-sys` build-metadata warning.
+
+The first stale-claim scan found that `planning/frontier.md` still described
+the bug as current and the ticket as awaiting review. The same developer
+corrected only that paragraph, and the same code reviewer accepted the
+remediation. A final scan across `README.md`, `architecture/delivery.md`, the
+three affected specs, and `planning/frontier.md` found no remaining shipped-
+versus-future contradiction. `git diff --check` passes; no external effect was
+performed.

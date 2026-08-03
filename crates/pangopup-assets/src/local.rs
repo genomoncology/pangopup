@@ -1252,6 +1252,17 @@ pub(crate) struct LockedRoot {
     _lock: InstallLock,
 }
 
+/// Result of trying to establish a coherent, read-only installed-state view.
+///
+/// A missing root and an existing root without its lock authority are kept
+/// distinct so callers can reject activated state without silently repairing
+/// the asset store.
+pub(crate) enum InstallObservation {
+    MissingRoot,
+    MissingAuthority,
+    Acquired(LockedRoot),
+}
+
 pub(crate) fn acquire_shared_install_lock(data_root: &Path) -> Result<LockedRoot, AssetError> {
     require_linux()?;
     let root = open_root(data_root, true)?.ok_or_else(|| asset_io("create data root"))?;
@@ -1259,15 +1270,38 @@ pub(crate) fn acquire_shared_install_lock(data_root: &Path) -> Result<LockedRoot
     Ok(LockedRoot { root, _lock: lock })
 }
 
-pub(crate) fn acquire_existing_install_lock(
+pub(crate) fn acquire_install_observation(
     data_root: &Path,
-) -> Result<Option<LockedRoot>, AssetError> {
+) -> Result<InstallObservation, AssetError> {
     require_linux()?;
     let Some(root) = open_root(data_root, false)? else {
-        return Ok(None);
+        return Ok(InstallObservation::MissingRoot);
     };
-    let lock = acquire_install_lock(&root)?;
-    Ok(Some(LockedRoot { root, _lock: lock }))
+    let Some(file) = open_optional_file(
+        &root.dir,
+        ".install.lock",
+        METADATA_MODE,
+        &root,
+        AssetErrorKind::AssetStateInvalid,
+    )?
+    else {
+        return Ok(InstallObservation::MissingAuthority);
+    };
+    // SAFETY: flock acts on this live descriptor and does not retain pointers.
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) };
+    if result == 0 {
+        Ok(InstallObservation::Acquired(LockedRoot {
+            root,
+            _lock: InstallLock(file),
+        }))
+    } else if io::Error::last_os_error().kind() == ErrorKind::WouldBlock {
+        Err(AssetError::new(
+            AssetErrorKind::AssetLocked,
+            "another asset installation is in progress",
+        ))
+    } else {
+        Err(asset_io("observe asset store"))
+    }
 }
 
 pub(crate) fn acquire_provisioning_lock(data_root: &Path) -> Result<ProvisioningLock, AssetError> {
@@ -1959,6 +1993,75 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static SERIAL: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn observation_guards_are_shared_and_exclude_installation() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path().join("data");
+        let installer = acquire_shared_install_lock(&root).expect("create lock authority");
+        drop(installer);
+
+        let InstallObservation::Acquired(first) =
+            acquire_install_observation(&root).expect("first observer")
+        else {
+            panic!("first observer did not acquire the shared guard")
+        };
+        let InstallObservation::Acquired(second) =
+            acquire_install_observation(&root).expect("second observer")
+        else {
+            panic!("second observer did not acquire the shared guard")
+        };
+        let blocked = match acquire_shared_install_lock(&root) {
+            Ok(_) => panic!("installer unexpectedly acquired an exclusive lock"),
+            Err(error) => error,
+        };
+        assert_eq!(blocked.kind(), AssetErrorKind::AssetLocked);
+
+        drop(first);
+        drop(second);
+        let replacement = acquire_shared_install_lock(&root).expect("guards released");
+        drop(replacement);
+    }
+
+    #[test]
+    fn observation_requires_a_safe_existing_lock_file() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path().join("data");
+        fs::create_dir(&root).expect("root");
+        fs::set_permissions(&root, fs::Permissions::from_mode(ROOT_MODE)).expect("root mode");
+
+        assert!(matches!(
+            acquire_install_observation(&root).expect("absent authority"),
+            InstallObservation::MissingAuthority
+        ));
+
+        let lock = root.join(".install.lock");
+        fs::write(&lock, b"").expect("lock");
+        fs::set_permissions(&lock, fs::Permissions::from_mode(0o644)).expect("wrong mode");
+        let wrong_mode = match acquire_install_observation(&root) {
+            Ok(_) => panic!("wrong-mode lock was accepted"),
+            Err(error) => error,
+        };
+        assert_eq!(wrong_mode.kind(), AssetErrorKind::AssetStateInvalid);
+
+        fs::remove_file(&lock).expect("remove wrong-mode lock");
+        fs::create_dir(&lock).expect("directory lock");
+        fs::set_permissions(&lock, fs::Permissions::from_mode(METADATA_MODE))
+            .expect("directory mode");
+        let non_regular = match acquire_install_observation(&root) {
+            Ok(_) => panic!("non-regular lock was accepted"),
+            Err(error) => error,
+        };
+        assert_eq!(non_regular.kind(), AssetErrorKind::AssetStateInvalid);
+
+        fs::remove_dir(&lock).expect("remove directory lock");
+        std::os::unix::fs::symlink(temp.path().join("outside"), &lock).expect("symlink lock");
+        let symlink = match acquire_install_observation(&root) {
+            Ok(_) => panic!("symlink lock was accepted"),
+            Err(error) => error,
+        };
+        assert_eq!(symlink.kind(), AssetErrorKind::AssetStateInvalid);
+    }
 
     #[test]
     fn path_resolution_is_strict_and_precedence_ordered() {

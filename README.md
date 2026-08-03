@@ -524,7 +524,11 @@ reports ready. It never performs sync or fetches an unpinned “latest” releas
 
 The explicit first `pangopup sync` is the provisioning operation, while
 `pangopup status` reports ready, partial, missing, syncing, and installing
-state. Exact byte progress remains future work. Later starts use the
+state. Status opens the existing installation authority read-only and holds a
+nonblocking shared lock across both component observations; it neither creates
+nor repairs installed state. An active installer returns promptly as
+`installing: true`, with best-effort component details rather than a coherent
+cross-component snapshot. Exact byte progress remains future work. Later starts use the
 already installed bundle without contacting the network. A failed download or
 checksum will never replace an older complete bundle or start with partial
 data.
@@ -943,6 +947,12 @@ docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
   -v pangopup-data:/var/lib/pangopup:ro \
   -v pangopup-cache:/var/cache/pangopup pangopup:local
 ```
+
+The `status` command above is intentionally supported with the durable data
+volume mounted `:ro`. It reads only bounded pointer, receipt, manifest, and
+structural metadata; it does not hash or scan the score/reference payloads or
+initialize the model. A missing installation-lock authority in an activated
+store is reported as invalid rather than recreated by observation.
 
 The image entrypoint is the ordinary `pangopup` CLI, so these commands need no
 wrapper shell. Removing a container or replacing the image preserves both

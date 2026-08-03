@@ -641,6 +641,15 @@ pub(crate) fn runtime_local_status_locked(
     )
 }
 
+#[cfg(test)]
+pub(crate) fn runtime_local_status_locked_with_profile(
+    locked: &super::local::LockedRoot,
+    profile: &RuntimeProfile,
+) -> Result<RuntimeLocalStatus, AssetError> {
+    let root_path = descriptor_path(&locked.root.dir);
+    runtime_local_status_with(&root_path, &locked.root.path, profile, false)
+}
+
 /// Admit the active installed runtime tuple for the exact already-open SNV
 /// identity. Neither the SNV payload nor the dense reference payload is
 /// scanned.
@@ -2378,6 +2387,27 @@ mod tests {
         )
         .expect("install miniature runtime");
         (snv, profile)
+    }
+
+    #[test]
+    fn fixture_combined_status_is_ready_under_the_shared_observation_guard() {
+        let temp = TempDir::new().expect("temp");
+        let root = temp.path().join("data");
+        let (_, profile) = install_mini_runtime(&root);
+
+        let crate::CombinedStatusResult::Valid(status) =
+            crate::provisioning::combined_local_status_with_runtime_profile(&root, &profile)
+                .expect("combined fixture status")
+        else {
+            panic!("fixture pair was not a valid combined status")
+        };
+        assert_eq!(status.status, "ready");
+        assert!(!status.installing);
+        assert!(matches!(status.snv, crate::SnvStatusObservation::Ready(_)));
+        assert!(matches!(
+            status.runtime,
+            crate::RuntimeStatusObservation::Ready(_)
+        ));
     }
 
     #[test]

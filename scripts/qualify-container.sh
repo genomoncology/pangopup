@@ -63,6 +63,10 @@ owned=1
 run=(docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m
   -v "$data_volume:/var/lib/pangopup"
   -v "$cache_volume:/var/cache/pangopup")
+read_only_data_run=(docker run --rm --network none --read-only
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m
+  -v "$data_volume:/var/lib/pangopup:ro"
+  -v "$cache_volume:/var/cache/pangopup")
 
 copy_cache_database() {
   local destination=$1
@@ -134,6 +138,13 @@ chmod -R a+rX "$work/snv-transport"
   "$image" assets install --transport /fixtures/snv-transport >/dev/null
 "${run[@]}" "$image" lookup --variant GRCh38:chr12:6801301:G:A \
   | grep -Fq '"kind":"precomputed"'
+
+stage=read-only-installed-status
+"${read_only_data_run[@]}" "$image" status >"$work/read-only-status.json"
+grep -Fq '"status":"partial"' "$work/read-only-status.json"
+grep -Fq '"installing":false' "$work/read-only-status.json"
+grep -Fq '"snv":{"status":"ready"' "$work/read-only-status.json"
+grep -Fq '"runtime":{"status":"missing"}' "$work/read-only-status.json"
 
 stage=miniature-model-cache
 model_args=(lookup --model-only --format jsonl

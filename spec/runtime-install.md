@@ -55,6 +55,7 @@ diagnostic does not expose file contents.
 data=$(cd .. && pwd)/target/spec/runtime-install/malformed
 rm -rf "$data"
 install -d -m 700 "$data/runtime"
+install -m 600 /dev/null "$data/.install.lock"
 printf '{}' > "$data/runtime/active.json"
 chmod 600 "$data/runtime/active.json"
 pangopup status --data-dir "$data"

@@ -579,16 +579,19 @@ The minimal non-root Docker image is shipped and Apple Silicon qualification
 proved native Linux/ARM64 build, resumable provisioning, offline reuse, lookup,
 model fallback, persistent SQLite reuse, HTTP service operation, and named-
 volume persistence. It also exposed one deterministic deployment-contract bug:
-combined `pangopup status` requests write access to `.install.lock`, so the
-documented read-only data-volume command fails even though lookup and service
-operation work with the same mount.
+combined `pangopup status` requested write access to `.install.lock`, so the
+documented read-only data-volume command failed even though lookup and service
+operation worked with the same mount. Reviewed Ticket 043 fixed that defect:
+installed-state observation now opens the existing lock authority read-only
+and holds a shared guard for the coherent SNV/runtime snapshot, while the
+installer retains its exclusive guard. Generic crate tests cover missing
+authority, hostile locks, concurrent observers, installer contention, partial
+state, and fixture-only combined readiness. The literal non-root,
+network-disabled final-image command with `/var/lib/pangopup:ro` passed as its
+acceptance proof.
 
-Ticket 043 is the one active outcome: make installed-state observation
-genuinely read-only while retaining a coherent SNV/runtime snapshot and the
-installer's exclusive lock. The literal non-root, network-disabled final-image
-command with `/var/lib/pangopup:ro` is its acceptance boundary.
-
-After that outcome, retain these ordered slots rather than drafting a backlog:
+Following that completed outcome, retain these ordered slots rather than
+drafting a backlog:
 
 1. focused successful help for each runtime subcommand;
 2. resilient resumable synchronization with useful phase/byte progress;

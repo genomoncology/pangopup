@@ -231,21 +231,52 @@ pub enum CombinedStatusResult {
 }
 
 pub fn combined_local_status(data_root: &Path) -> Result<CombinedStatusResult, AssetError> {
+    combined_local_status_with(data_root, &|locked| {
+        crate::runtime_install::runtime_local_status_locked(locked)
+    })
+}
+
+fn combined_local_status_with(
+    data_root: &Path,
+    locked_runtime_status: &dyn Fn(
+        &crate::local::LockedRoot,
+    ) -> Result<RuntimeLocalStatus, AssetError>,
+) -> Result<CombinedStatusResult, AssetError> {
     let syncing = crate::local::probe_provisioning_lock(data_root)?;
-    match crate::local::acquire_existing_install_lock(data_root) {
-        Ok(Some(locked)) => {
+    match crate::local::acquire_install_observation(data_root) {
+        Ok(crate::local::InstallObservation::Acquired(locked)) => {
             let snv = observe_snv(crate::local::local_status_locked(&locked));
-            let runtime =
-                observe_runtime(crate::runtime_install::runtime_local_status_locked(&locked));
+            let runtime = observe_runtime(locked_runtime_status(&locked));
             Ok(finish_status(data_root, syncing, false, true, snv, runtime))
         }
-        Ok(None) => Ok(CombinedStatusResult::Valid(combined_status(
-            data_root,
-            syncing,
-            false,
-            SnvStatusObservation::State(ComponentState { status: "missing" }),
-            RuntimeStatusObservation::State(ComponentState { status: "missing" }),
-        ))),
+        Ok(crate::local::InstallObservation::MissingRoot) => {
+            Ok(CombinedStatusResult::Valid(combined_status(
+                data_root,
+                syncing,
+                false,
+                SnvStatusObservation::State(ComponentState { status: "missing" }),
+                RuntimeStatusObservation::State(ComponentState { status: "missing" }),
+            )))
+        }
+        Ok(crate::local::InstallObservation::MissingAuthority) => {
+            let snv = observe_snv(local_status(data_root));
+            let runtime = observe_runtime(runtime_local_status(data_root));
+            if matches!(
+                (&snv, &runtime),
+                (
+                    SnvStatusObservation::State(ComponentState { status: "missing" }),
+                    RuntimeStatusObservation::State(ComponentState { status: "missing" })
+                )
+            ) {
+                return Ok(CombinedStatusResult::Valid(combined_status(
+                    data_root, syncing, false, snv, runtime,
+                )));
+            }
+            Err(AssetError::new(
+                AssetErrorKind::AssetStateInvalid,
+                "installed asset state requires an existing .install.lock authority",
+            ))
+        }
         Err(error) if error.kind() == AssetErrorKind::AssetLocked => {
             let snv = observe_snv(local_status(data_root));
             let runtime = observe_runtime(runtime_local_status(data_root));
@@ -253,6 +284,16 @@ pub fn combined_local_status(data_root: &Path) -> Result<CombinedStatusResult, A
         }
         Err(error) => Err(error),
     }
+}
+
+#[cfg(test)]
+pub(crate) fn combined_local_status_with_runtime_profile(
+    data_root: &Path,
+    profile: &crate::RuntimeProfile,
+) -> Result<CombinedStatusResult, AssetError> {
+    combined_local_status_with(data_root, &|locked| {
+        crate::runtime_install::runtime_local_status_locked_with_profile(locked, profile)
+    })
 }
 
 fn finish_status(
@@ -390,6 +431,36 @@ mod tests {
     use pangopup_core::{DnaBase, GenomicPosition, Grch38Contig, Grch38Snv, ScoreProvider};
     use std::cell::RefCell;
     use std::fs;
+    use std::os::unix::fs::MetadataExt;
+    use std::time::SystemTime;
+
+    fn tree_snapshot(root: &Path) -> Vec<(PathBuf, u32, u64, SystemTime)> {
+        fn visit(base: &Path, current: &Path, entries: &mut Vec<(PathBuf, u32, u64, SystemTime)>) {
+            let mut children = fs::read_dir(current)
+                .expect("read installed tree")
+                .map(|entry| entry.expect("directory entry").path())
+                .collect::<Vec<_>>();
+            children.sort();
+            for path in children {
+                let metadata = fs::symlink_metadata(&path).expect("installed metadata");
+                entries.push((
+                    path.strip_prefix(base).expect("relative path").to_owned(),
+                    metadata.mode(),
+                    metadata.len(),
+                    metadata.modified().expect("modified time"),
+                ));
+                if metadata.is_dir() {
+                    visit(base, &path, entries);
+                }
+            }
+        }
+
+        let mut entries = Vec::new();
+        if root.exists() {
+            visit(root, root, &mut entries);
+        }
+        entries
+    }
 
     fn snv(downloaded: u64, resumed: u64) -> SyncOutcome {
         SyncOutcome {
@@ -589,6 +660,51 @@ mod tests {
             })
         ));
         drop(owner);
+    }
+
+    #[test]
+    fn installed_partial_status_is_read_only_and_requires_lock_authority() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path().join("data");
+        let transport = temp.path().join("transport");
+        crate::pack_bundle(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/snv-regression/bundle"),
+            &transport,
+        )
+        .expect("pack miniature bundle");
+        crate::install_transport(&transport, &root).expect("install miniature bundle");
+
+        let before = tree_snapshot(&root);
+        let CombinedStatusResult::Valid(status) =
+            combined_local_status(&root).expect("read-only status")
+        else {
+            panic!("valid partial status")
+        };
+        assert_eq!(status.status, "partial");
+        assert!(!status.installing);
+        assert!(matches!(status.snv, SnvStatusObservation::Ready(_)));
+        assert!(matches!(
+            status.runtime,
+            RuntimeStatusObservation::State(ComponentState { status: "missing" })
+        ));
+        assert_eq!(
+            tree_snapshot(&root),
+            before,
+            "status changed installed state"
+        );
+
+        fs::remove_file(root.join(".install.lock")).expect("remove lock authority");
+        let missing_authority = combined_local_status(&root).expect_err("authority is required");
+        assert_eq!(missing_authority.kind(), AssetErrorKind::AssetStateInvalid);
+        assert_eq!(
+            missing_authority.to_string(),
+            "installed asset state requires an existing .install.lock authority"
+        );
+        assert!(
+            !root.join(".install.lock").exists(),
+            "status repaired missing authority"
+        );
     }
 
     #[test]
