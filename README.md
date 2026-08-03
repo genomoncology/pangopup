@@ -551,8 +551,9 @@ The data directory is authoritative and must not be treated as disposable
 cache. `PANGOPUP_DATA_DIR` or `--data-dir` can override durable discovery;
 `PANGOPUP_CACHE_DIR` or `--cache-dir` can override disposable download storage.
 This shipped installer and sync client are Linux-only; macOS and Windows
-behavior is not claimed. Persistent progress, signatures, repair/GC/rollback,
-and container preinstall remain future work.
+behavior is not claimed. Persistent progress, signatures, and
+repair/GC/rollback remain future work. Containers reuse these same directories
+through explicit named volumes rather than a separate preinstall format.
 
 ## Foreground HTTP service
 
@@ -582,14 +583,14 @@ returns the final result, with no job IDs or polling.
 The default listener is loopback. This service has no authentication or TLS;
 do not bind it to an untrusted network without a trusted authenticated TLS
 proxy.
-Docker, systemd, Kubernetes, or another external manager will own process
+Docker, systemd, Kubernetes, or another external manager owns process
 start, stop, and restart. Pangopup will not daemonize or implement a second
 process supervisor.
 
-A future minimal container will run as a non-root user, use a read-only runtime
-filesystem, expose a healthcheck, and either contain a verified pinned asset
-profile or mount one read-only. Container and systemd packaging are not
-implemented yet.
+The shipped minimal Dockerfile runs as a non-root user with a read-only runtime
+filesystem and explicit asset volumes. It does not define a shell healthcheck;
+operators probe the existing `/livez` and `/readyz` endpoints. Systemd
+packaging is not implemented yet.
 
 ## Performance priorities
 
@@ -708,7 +709,7 @@ Implemented today:
   stable warnings/errors, gene filtering after all-gene masking, and
   transactional JSONL/table batches.
 
-Not implemented yet: container, exact persistent download progress, or
+Not implemented yet: exact persistent download progress or
 repair/GC/rollback.
 Public delivery of the compiled GRCh38 sequence index, mask, and model is
 complete. Deterministic local model-side packaging, offline installation, and
@@ -775,7 +776,7 @@ The rolling outcome order is:
     remains independent (complete: host-qualified mappings);
 32. a foreground HTTP/status service with CLI and HTTP acceptance tests
     (complete);
-33. non-root Docker and documented systemd lifecycle integration;
+33. non-root Docker (complete) and documented systemd lifecycle integration;
 34. observability, security, performance, and executable/container release
     hardening.
 
@@ -902,6 +903,54 @@ The checked runner and checker are
 `scripts/run-production-qualification.sh` and
 `scripts/check-production-qualification.py`. The immutable release targets
 commit `e0695f9acd7e3753afd95b7d58949a4e4a01747a`.
+
+## Docker
+
+Pangopup ships a thin, non-root Dockerfile for native Linux AMD64 and ARM64.
+The image contains the executable and license notices, not the 15 GB installed
+SNV index or the model, compact reference, and splice mask. Build it locally:
+
+```bash skip
+docker build -t pangopup:local .
+docker volume create pangopup-data
+docker volume create pangopup-cache
+```
+
+Provision the pinned assets once. This is the only container command that uses
+the network:
+
+```bash skip
+docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  -v pangopup-data:/var/lib/pangopup \
+  -v pangopup-cache:/var/cache/pangopup \
+  pangopup:local sync
+```
+
+Then inspect, query, or run the foreground service without downloading:
+
+```bash skip
+docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  -v pangopup-data:/var/lib/pangopup:ro \
+  -v pangopup-cache:/var/cache/pangopup pangopup:local status
+
+docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  -v pangopup-data:/var/lib/pangopup:ro \
+  -v pangopup-cache:/var/cache/pangopup \
+  pangopup:local lookup --variant GRCh38:chr17:7686072:G:T
+
+docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  -p 127.0.0.1:8080:8080 \
+  -v pangopup-data:/var/lib/pangopup:ro \
+  -v pangopup-cache:/var/cache/pangopup pangopup:local
+```
+
+The image entrypoint is the ordinary `pangopup` CLI, so these commands need no
+wrapper shell. Removing a container or replacing the image preserves both
+named volumes. Explicitly deleting `pangopup-data` removes installed assets;
+deleting `pangopup-cache` removes resumable downloads and disposable SQLite
+model results. The image has no shell, package manager, embedded assets,
+Compose file, or built-in healthcheck. `/livez` and `/readyz` are the service
+probes. No registry image is published yet.
 
 Release builders use explicit, read-only inputs and never download data or
 discover a home directory:

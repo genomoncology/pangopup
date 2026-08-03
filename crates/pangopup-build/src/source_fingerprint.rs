@@ -22,7 +22,7 @@ struct Entry<'a> {
 const SNV_ENTRIES: &[Entry<'static>] = &[
     Entry {
         path: "NOTICE",
-        bytes: include_bytes!("../../../NOTICE"),
+        bytes: include_bytes!("../../../assets/notices/SNV-BUNDLE-NOTICE-v1"),
     },
     Entry {
         path: "crates/pangopup-assets/src/error.rs",
@@ -204,7 +204,7 @@ mod tests {
     };
 
     const EXPECTED_SNV_SHA256: &str =
-        "b3bdc4d9d8e710fb554fd47f0cfc6f6a7bb764451069e6ae4a98534d8c5dc6a2";
+        "c40e9b931784f92f5b21236259b13979870582388acebf0cf0c3802d458447bb";
     const EXPECTED_REFERENCE_SHA256: &str =
         "09cd44449b77592e4b9948cc0756e736b01ecf5220b3d5312c52b12b6b6e9c65";
     static RESOLVER_SERIAL: AtomicU64 = AtomicU64::new(0);

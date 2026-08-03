@@ -1,6 +1,6 @@
 # 042 — Minimal qualified Docker image
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -85,11 +85,18 @@ only `pangopup sync` performs network provisioning.
 - The final image runs `--version`, exact missing `status`, an installed
   miniature SNV lookup, and miniature ONNX model inference as non-root with
   `--read-only`, a bounded `/tmp` tmpfs, and explicit named data/cache volumes.
-  The qualification must install both miniature SNV and miniature runtime
-  profiles through the real transport/install paths, then create and reuse the
-  SQLite model cache. This proves that fresh named volumes at both
+  The ordinary smoke must install the miniature SNV through its real transport
+  path and run the explicit miniature model/reference/mask tuple; it must not
+  add a test-profile bypass to production runtime admission. It must prove
+  SQLite cache creation and a cache hit by copying the database from the named
+  cache volume before and after the second call and showing that the second
+  call leaves it byte-identical. This proves that fresh named volumes at both
   `/var/lib/pangopup` and `/var/cache/pangopup` are writable by UID/GID 65532
-  rather than merely inferring ownership from image metadata.
+  rather than merely inferring ownership from image metadata. Ticket 042 does
+  not re-prove the combined production runtime-profile installer, because that
+  installer intentionally requires the already-installed 15 GB production SNV
+  bundle and this ticket forbids downloading it. The already-shipped installer
+  qualification remains its authority.
 - The final image's default command fails before listening with the existing
   stable missing-assets error when the data volume lacks a complete profile;
   overriding the command with `sync`, `status`, `lookup`, and explicit `serve`
@@ -98,10 +105,12 @@ only `pangopup sync` performs network provisioning.
   Before either architecture is described as production model compatible, a
   manually dispatched exact-commit matrix qualification downloads only the
   existing 691,874,664-byte `runtime-grch38-v1` transport, verifies every
-  declared size/SHA-256, unpacks it with `pangopup-build`, and runs the entire
+  declared size/SHA-256, unpacks it with `pangopup-build`, mounts the explicit
+  authenticated model/reference/mask tuple read-only, and runs the entire
   ordered 14-case batch at `sequential:1/1` through `pangopup lookup
   --model-only` inside that architecture's final stripped distroless image. It
-  must not download or reconstruct the 15 GB SNV artifact.
+  must not download or reconstruct the 15 GB SNV artifact or claim to re-test
+  the combined installed-profile path.
 - Both final-image results preserve the established public hundredth scores,
   positions, record and request order, warnings, errors, and model/reference/
   mask identities. A mismatch blocks that architecture's support claim; the
@@ -227,13 +236,83 @@ Re-review: approved. The reviewer confirmed that the final-image authority now
 covers both native architectures, that host-binary substitution and emulation
 are forbidden, and that the image-size and writable-volume proofs are exact.
 
+Implementation clarification: the shipped runtime installer correctly rejects
+miniature test profiles. Requiring a miniature runtime installation would add
+a production bypass solely for container testing. The ordinary smoke therefore
+installs the miniature SNV, mounts the explicit miniature model tuple, and
+proves SQLite creation plus byte-stable reuse. The production runtime installer
+also requires the bound production SNV, so the 691 MB manual matrix cannot
+exercise installation without violating the ticket's no-15-GB-download rule;
+it authenticates/unpacks and explicitly mounts the production tuple instead.
+The previously shipped installer qualification remains authoritative.
+Re-review: approved. The reviewer confirmed this is the feasible boundary
+without downloading the 15 GB production SNV bundle or weakening runtime
+profile admission.
+
 ## Implementation Evidence
 
-Developer: pending
+Developer: Avicenna the 2nd
+
+Implemented the pinned multi-stage distroless Dockerfile, allowlisted context,
+numeric non-root runtime, explicit persistent paths, OCI configuration, native
+two-runner read-only workflow, bounded miniature and runtime-only production
+qualification helpers, corpus-derived 14-case public oracle, notice correction,
+ADR, user documentation, and planning updates. The immutable SNV bundle notice
+was split from the corrected root product notice without changing its bytes or
+published identity.
+
+Focused checks passed: the corpus/oracle Rust test, static container delivery
+test, shell syntax checks, native AMD64 Docker build, and the complete bounded
+final-image miniature qualification. Docker reported 55,564,827 bytes and the
+expected `linux/amd64`, `65532:65532`, entrypoint, command, stop signal,
+environment, port, and labels. The helper proved fresh named-volume writes via
+real SNV transport installation and SQLite model-cache creation/reuse under a
+read-only root. No image, workflow artifact, registry object, or release was
+published. Native ARM64 and the 691,874,664-byte runtime-only 14-case production
+run remain the deliberately manual read-only workflow evidence.
+
+The complete offline gate passed: `make lint`, `make test`, and `make spec`
+(246 passed, 7 skipped). The production helper authenticates and unpacks the
+runtime-only transport, makes the decoded files read-only and traversable by
+the image user, and explicitly mounts the model/reference/mask tuple for the
+14-case model-only run. Splitting the immutable SNV notice from the root
+product notice regenerated only the checked miniature's builder provenance and
+derived identity; its payload, source, request, reference, and notice bytes are
+unchanged, and historical and production identities remain pinned.
+
+Durable detail: `planning/artifacts/042-minimal-container-image.md`.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Ampere the 3rd
+
+The first code review rejected four points: a reversed non-zero loss sign in
+the new oracle, unreadable permissions after private production unpack, a
+comparator that authenticated provenance only on the first result, and the
+ordinary smoke's failure to prove SQLite reuse. It also identified the literal
+miniature-runtime-install requirement as incompatible with the intentional
+production profile trust boundary.
+
+Remediation preserves the corpus's signed `-0.08` loss with an explicit
+sentinel, makes only the authenticated decoded runtime tree read/traverse-only,
+compares exact provenance on all 14 ordered results, and copies the SQLite file
+before and after the second call to prove byte-stable reuse. Production
+qualification now mounts the authenticated tuple explicitly, mounts its cache
+volume at the image-prepared `/var/cache/pangopup`, and makes no runtime-install
+claim. Focused oracle/static/shell/native-container checks and
+the complete `make lint`, `make test`, and `make spec` gate pass. Re-review is
+pending.
+
+The remaining cache-mount finding is also remediated: production qualification
+uses the image-prepared `/var/cache/pangopup` volume and its configured default
+SQLite path, with a static regression check rejecting the former root-owned
+`/cache` mount. The focused shell/static contract, `make lint`, and `make spec`
+pass after this change.
+
+Final re-review: accepted. The reviewer independently confirmed the signed
+loss sentinel, decoded runtime permissions, all-result provenance comparison,
+byte-stable SQLite reuse, correct non-root cache mount, scope, and
+documentation. No material correctness or security findings remain.
 
 ## External Effect Evidence
 
@@ -242,4 +321,10 @@ or mutate a registry.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex
+
+Reviewed the final worktree and reran `make lint`, `make test`, and `make spec`.
+All passed; mustmatch reported 246 passed and 7 intentionally skipped. The
+native AMD64 final-image qualification remains green at 55,564,827 bytes. The
+manual native AMD64/ARM64 production-runtime matrix remains deliberately
+dispatch-only and performs no publication. Ticket 042 is complete.

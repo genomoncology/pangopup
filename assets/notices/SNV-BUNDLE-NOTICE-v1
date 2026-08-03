@@ -17,13 +17,10 @@ behavior of the GPL-3.0 Pangolin project:
   Citation: Zeng T, Li YI. Predicting RNA splicing from DNA sequence using
             Pangolin. Genome Biology 23, 103 (2022).
 
-Pangopup distributes a converted ONNX representation of the Pangolin 1.0.2
-checkpoint set in its separately versioned `runtime-grch38-v1` release. That
-release retains the upstream license and notices, identifies the exact source
-commit and checkpoint hashes, identifies Pangopup's conversion, and provides
-the corresponding Pangolin and Pangopup preferred source archives. The thin
-container image does not embed the model; `pangopup sync` installs it from the
-authenticated runtime release.
+Pangopup is not yet distributing Pangolin model checkpoints. A release that
+does so must retain the upstream license and notices, identify the exact source
+commit and checkpoint hashes, identify Pangopup's modifications, and provide
+the corresponding preferred source and conversion/build instructions.
 
 Pangolin precomputed scores dataset
 -----------------------------------

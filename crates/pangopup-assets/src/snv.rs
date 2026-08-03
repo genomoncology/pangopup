@@ -12,7 +12,7 @@ use std::{
     path::Path,
 };
 
-pub const NOTICE: &[u8] = include_bytes!("../../../NOTICE");
+pub const NOTICE: &[u8] = include_bytes!("../../../assets/notices/SNV-BUNDLE-NOTICE-v1");
 pub const NOTICE_SHA256: &str =
     "sha256:9b8e898daa53b28cf421f9a59676e920dc5cefb1c23b9d185f75d3cfd4281af7";
 pub const MAX_FIXED11_BYTES: u64 = 17_179_869_184;

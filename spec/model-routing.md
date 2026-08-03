@@ -79,7 +79,7 @@ Without fallback flags, a pure SNV miss keeps the legacy precomputed
 pangopup lookup \
   --bundle ../tests/fixtures/snv-regression/bundle \
   --variant GRCh38:chr10:1:A:C \
-  | mustmatch like '{"assembly":"GRCh38","contig":"chr10","position":1,"ref":"A","alt":"C","status":"not_found","records":[],"source_reference_ambiguities":[],"provenance":{"kind":"precomputed","bundle_id":"sha256:fbb637198f52a28f93c43bf6803cfe7cfcb2d13351b518025ef78a65373610b5","source_doi":"10.5281/zenodo.15649338","source_archive_md5":"679ef0b50e511b6102b4b88fbf811108","masked":true,"window":50}}'
+  | mustmatch like '{"assembly":"GRCh38","contig":"chr10","position":1,"ref":"A","alt":"C","status":"not_found","records":[],"source_reference_ambiguities":[],"provenance":{"kind":"precomputed","bundle_id":"sha256:73a36d75c32db2bfdbe1b3098dd397e1bbe8575c64614136648d5bd8c49f0c60","source_doi":"10.5281/zenodo.15649338","source_archive_md5":"679ef0b50e511b6102b4b88fbf811108","masked":true,"window":50}}'
 ```
 
 The checked synthetic route traverses the real PGRREF01 reader, domains mmap,

@@ -40,8 +40,25 @@ This security baseline itself published no runtime asset. Release-specific
 attribution, stable derived bytes, GPL preferred source, controlled upload,
 remote digest comparison, and immutable finalization are now complete for
 `runtime-grch38-v1`. Pinned runtime sync and clean-machine CLI inference are
-also shipped. Foreground HTTP serving is shipped; container delivery remains
-future work.
+also shipped. Foreground HTTP serving and a locally buildable, qualified thin
+container are shipped; registry publication remains future work.
+
+## Thin container delivery
+
+The root Dockerfile builds the existing CLI in a pinned Rust Debian 13 stage
+and copies only the stripped executable plus `LICENSE` and `NOTICE` into a
+pinned Debian 13 distroless runtime. The configured user is `65532:65532`; the
+default command is the foreground server on port 8080. Durable assets and the
+SQLite result cache remain outside the image at `/var/lib/pangopup` and
+`/var/cache/pangopup`. The Dockerfile intentionally declares no `VOLUME`, so a
+missing mount does not create an anonymous multi-gigabyte volume.
+
+Normal native AMD64 and ARM64 CI builds use miniature lookup/model fixtures.
+Manual production qualification downloads only the ten authenticated
+`runtime-grch38-v1` transport members and runs the complete ordered 14-case
+public-output oracle through the final image. The workflow has read-only
+repository permission and cannot publish an image or release asset. See
+[ADR 0026](decisions/0026-minimal-container-image.md).
 
 ## GitHub Releases
 
@@ -396,6 +413,7 @@ only when automation or a retained run proves, from a clean supported machine:
 
 The immutable converted-model, GRCh38 sequence-index, and mask publication,
 pinned model-side sync, coherent XDG activation, offline reuse, and
-clean-machine CLI inference are complete. HTTP/container delivery, dependency
-inventory, SBOM, provenance, signing, and broader rollback policy remain later
-release-hardening outcomes, not shipped claims.
+clean-machine CLI inference are complete. The foreground HTTP service and
+locally qualified thin Dockerfile are also shipped. Registry image publication,
+image SBOM/provenance/signing, orchestration, and broader rollback policy remain
+later release-hardening outcomes, not shipped claims.

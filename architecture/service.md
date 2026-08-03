@@ -1,7 +1,7 @@
 # Service Boundary
 
-Pangopup ships a foreground HTTP server and signal lifecycle. It does not yet
-ship a container, systemd example, or metrics. The CLI interface remains
+Pangopup ships a foreground HTTP server, signal lifecycle, and thin non-root
+Docker image. It does not yet ship a systemd example, registry image, or metrics. The CLI interface remains
 `pangopup lookup`; its typed
 lookup-first/model route already returns stable JSON Lines or exact
 tab-separated output from an activated installed profile or complete explicit
@@ -82,17 +82,23 @@ The executable CLI's JSONL contract is already shipped and remains useful for
 process-boundary integration and testing. HTTP defines a separate JSON request
 and response envelope while reusing the same core result fields and provenance.
 
-## Deployment direction
+## Container deployment
 
-A future minimal container should:
+The shipped minimal container:
 
 - run the foreground service as a non-root user;
 - use a read-only runtime filesystem and no package manager/toolchain;
-- accept a verified asset profile through an immutable image layer or read-only
-  mount;
+- keeps installed assets in explicit named volumes and runs `sync` only when
+  the operator requests it;
 - expose the readiness/liveness endpoints as its health contract;
 - preserve GPL and source-dataset notices; and
-- have bounded CPU, memory, request, timeout, and shutdown behavior tested.
+- retains the existing bounded request and graceful shutdown behavior.
+
+The Dockerfile deliberately adds no Compose, restart policy, shell-based
+healthcheck, registry publication, TLS, or orchestration policy. The final
+image is checked natively on AMD64 and ARM64 with miniature assets; a manual
+read-only workflow checks all 14 retained production cases through each
+architecture's final stripped image.
 
 A native systemd example may invoke the same foreground command and point at
 the same installed profile. Pangopup-specific `start`, `stop`, and `restart`

@@ -1,0 +1,17 @@
+**
+!Cargo.toml
+!Cargo.lock
+!assets/
+!assets/notices/
+!assets/notices/GENCODE-v38-NOTICE
+!assets/notices/SNV-BUNDLE-NOTICE-v1
+!crates/
+!crates/**
+!LICENSE
+!NOTICE
+!release-profiles/
+!release-profiles/proofs/
+!release-profiles/proofs/snv-grch38-v1.json
+!release-profiles/runtime-release-profile.json
+!release-profiles/runtime-transport.json
+!release-profiles/snv-grch38-v1.json

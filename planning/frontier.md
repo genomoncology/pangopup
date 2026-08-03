@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-08-02
+Updated: 2026-08-03
 
 ## Current boundary
 
@@ -52,7 +52,9 @@ shapes for 1, 2, 4, and 8 physical cores. It selects `1×1`, `1×2`, `1×4`, and
 preserves ADR 0017's portable `1×1` default elsewhere, and demonstrates that
 separately opened warm SNV lookup remains fast while a model batch is in flight.
 The service defaults to portable `1×1`, 16 waiting requests, immediate 429
-backpressure, and graceful signal drain. Container packaging remains future.
+backpressure, and graceful signal drain. A pinned distroless Dockerfile now
+packages that same executable without assets, runs as UID/GID 65532, and is
+qualified natively on AMD64 and ARM64 without publication authority.
 The compiled production GRCh38 sequence-index bundle, authenticated builder,
 and typed mmap provider are established; its local transport, installation,
 and immutable public release are shipped. Future SNV and sequence-index builds use
@@ -573,7 +575,8 @@ server-side inference timeout.
 
 ## Later outcome — deployment
 
-Add a minimal non-root Docker image and documented systemd example.
+The minimal non-root Docker image is shipped. Add a documented systemd example
+only if native process-manager deployment remains a product need.
 Docker, systemd, Kubernetes, or another external manager owns
 start/stop/restart; Pangopup does not become its own process supervisor.
 

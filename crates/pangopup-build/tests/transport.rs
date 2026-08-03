@@ -131,7 +131,9 @@ fn snv_builder_digest(mutation: Option<&str>) -> String {
     let mut entries = Vec::new();
     let mut mutation_seen = mutation.is_none();
     for logical in declaration.lines() {
-        let source = if let Some(relative) = logical
+        let source = if logical == "NOTICE" {
+            workspace.join("assets/notices/SNV-BUNDLE-NOTICE-v1")
+        } else if let Some(relative) = logical
             .strip_prefix("dependencies/")
             .or_else(|| logical.strip_prefix("wiring/"))
         {
@@ -706,7 +708,7 @@ fn builder_identity_covers_assets_manifest_notice_and_certification_source() {
     let actual = snv_builder_digest(None);
     assert_eq!(
         actual,
-        "sha256:b3bdc4d9d8e710fb554fd47f0cfc6f6a7bb764451069e6ae4a98534d8c5dc6a2"
+        "sha256:c40e9b931784f92f5b21236259b13979870582388acebf0cf0c3802d458447bb"
     );
     assert_eq!(manifest.builder.source_sha256, actual);
     for causal in [

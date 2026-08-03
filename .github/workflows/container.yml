@@ -1,0 +1,80 @@
+name: container
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Exact lowercase 40-character commit reachable from main
+        required: true
+        type: string
+      production_model:
+        description: Run the runtime-only 14-case production model qualification
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Build native qualification helper
+        run: cargo build --locked --package pangopup-build
+      - name: Build final native image
+        run: |
+          set -euo pipefail
+          version=$(sed -nE 's/^version = "([^"]+)"$/\1/p' Cargo.toml | head -1)
+          docker build --pull --tag pangopup:qualified \
+            --build-arg PANGOPUP_REVISION="$GITHUB_SHA" \
+            --build-arg PANGOPUP_VERSION="$version" .
+      - name: Qualify final native image with miniature assets
+        run: |
+          scripts/qualify-container.sh pangopup:qualified "$GITHUB_WORKSPACE" \
+            target/debug/pangopup-build "$RUNNER_TEMP/pangopup-container-smoke"
+
+  production-model:
+    if: github.event_name == 'workflow_dispatch' && inputs.production_model
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+      - name: Authenticate exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          [[ "$EXACT_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$EXACT_COMMIT" origin/main
+          git diff --quiet --
+          git diff --cached --quiet --
+      - name: Build native runtime transport helper
+        run: cargo build --locked --release --package pangopup-build
+      - name: Build final native image
+        run: |
+          set -euo pipefail
+          version=$(sed -nE 's/^version = "([^"]+)"$/\1/p' Cargo.toml | head -1)
+          docker build --pull --tag pangopup:production-qualified \
+            --build-arg PANGOPUP_REVISION="${{ inputs.commit }}" \
+            --build-arg PANGOPUP_VERSION="$version" .
+      - name: Qualify all retained cases through the final image
+        run: |
+          scripts/qualify-container-production.sh pangopup:production-qualified \
+            "$GITHUB_WORKSPACE" target/release/pangopup-build \
+            "$RUNNER_TEMP/runtime-transport" "$RUNNER_TEMP/model-results.jsonl"

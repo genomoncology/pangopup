@@ -8,7 +8,7 @@
     },
     "migrated_manifest": {
       "bytes": 3370,
-      "sha256": "fbb637198f52a28f93c43bf6803cfe7cfcb2d13351b518025ef78a65373610b5"
+      "sha256": "73a36d75c32db2bfdbe1b3098dd397e1bbe8575c64614136648d5bd8c49f0c60"
     },
     "invariant_files": [
       {
@@ -57,56 +57,56 @@
         "path": "expected.jsonl",
         "lines": 1000,
         "incumbent_sha256": "344680fea8bb93428a6419f3adb0931e3c3accfafefe35ce9ee4417f880366eb",
-        "migrated_sha256": "1fde1c108f45ccfce1d3e68a4289102b977c90bf54bb8f1f8339e20a9345c4a2",
+        "migrated_sha256": "341c4a868ed3107a19ead2f0fd6819185f111f339c6b12e73809912638a03dcb",
         "without_bundle_id_sha256": "652524f8edfa15c6de0d647e60b83a839d7ceb288a57bbfe651bf3b51bde39d6"
       },
       {
         "path": "expected/ENSG00000010610.jsonl",
         "lines": 318,
         "incumbent_sha256": "ecee2b57e8748b49a22610060c74603aa066c89b074b96eb3c7a53e201cb0546",
-        "migrated_sha256": "3a7ac3b091ef94249ddd7a95e040cee3a44405ff9310b1715bd0135cda3684c0",
+        "migrated_sha256": "83e3aac1fe5feaefddeb3d4419e7dbb36cbb1566e0e8b6d49327e2dcdfccf183",
         "without_bundle_id_sha256": "03a463f4282cddb557066db27fe2a3ab7e1e8e00c961c74cd2a7a9949346332c"
       },
       {
         "path": "expected/ENSG00000141499.jsonl",
         "lines": 320,
         "incumbent_sha256": "d681c5c825b0b2dea50f90ed4eeb920ce63c840b00a10ec4f34a144bc518f30b",
-        "migrated_sha256": "88c50558919f1504d18d6e215aef3bb0df9f6755130c10f7e32d879b238a4ab1",
+        "migrated_sha256": "4ec3696e837b56c9fa1f7711c7ec7ed4bddbe9574c464f93b6677eb0cd6948ed",
         "without_bundle_id_sha256": "45b5d5a2d284d16a81212a2081f3ac8d9b478d4ea2b187359efe3153739de906"
       },
       {
         "path": "expected/ENSG00000141510.jsonl",
         "lines": 320,
         "incumbent_sha256": "117bbcdd55da4ac75652e85feb8787f48571570310c7b1a361eb351d7fe114c0",
-        "migrated_sha256": "2b6010b8ff8c08213850ba7626f4f5a84f8ccc48c7321302fa8e026fbd57a518",
+        "migrated_sha256": "a36503fd551ee6421c2384bca6edd82dc614cf0844016cb4cd94c7ed5ada9dc0",
         "without_bundle_id_sha256": "521a23289623ffaf84fd15a387ffbd9727e201e6479e400b948b6cea89d63c99"
       },
       {
         "path": "expected/ENSG00000169129.jsonl",
         "lines": 6,
         "incumbent_sha256": "2c0fc04162a78ec608fab6087b517e61d1d72ee4bb822932c901c32aea047e2b",
-        "migrated_sha256": "a702a4ff5c4c81696697efc0695076477737b1fe9f5c9ff7cfcdeb4ceba23438",
+        "migrated_sha256": "9b54aaf6de9f9bb0c70bb9f9acb1ad5f7d5c46f3e666e1a6e10c9c27915c0bca",
         "without_bundle_id_sha256": "fb65babe13740da8390037c0a1c1b54fece016ed9aa27a37d4a3bf99962dcc34"
       },
       {
         "path": "expected/ENSG00000175727.jsonl",
         "lines": 6,
         "incumbent_sha256": "90f9e48391626e8b4ffa312c1531a7720ed0249b80f1126a45a11f895c57883d",
-        "migrated_sha256": "ae74708584f0f166004219503a5829501b3e60c581f164d31447b3bb84b5f472",
+        "migrated_sha256": "c8e4625fc7253f36844bde07796dbf3adb0934a7e36bc607dc73920e3e2d9055",
         "without_bundle_id_sha256": "d0a56fbafb48a27a405e793760b139d49d5d1dc0a68a8c2acf4cf7acc7439668"
       },
       {
         "path": "expected/ENSG00000185974.jsonl",
         "lines": 6,
         "incumbent_sha256": "e8cc8c6d0f290e98c6f97f6c5025266602b78b2f7b0dfd5a8496380f76269c71",
-        "migrated_sha256": "4038e311c672562022a32a43c44e67190e22507f24d03d8e129e4e2272240fb7",
+        "migrated_sha256": "65f5cfe6740d501d767597e9d9a3f560d34cabf08a7789918ccd274bb0cc39ec",
         "without_bundle_id_sha256": "e4ae6e9d4f5f9872347a1ecf938cb435922af198b2b5938132036bd3d2961a2e"
       },
       {
         "path": "expected/unfiltered.jsonl",
         "lines": 24,
         "incumbent_sha256": "f6ac1b58aff16b6a95a15a7380ee30c9152d20712fff48876206d0407d501f75",
-        "migrated_sha256": "65b7996ebef2f6c976b1492913777177614876079cf28960b8deccf394436633",
+        "migrated_sha256": "f70408edb9503e39788274cadc32a3b6a17cf29dc2950b6af25ca6dd8e1c2e1d",
         "without_bundle_id_sha256": "2f59807d953366fc4eca0ae04da0c5b6f887904a86c25a565f7e049ed1502c91"
       }
     ]

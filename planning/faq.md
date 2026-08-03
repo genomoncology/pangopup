@@ -167,7 +167,17 @@ The three model-side assets can separately be installed from trusted local
 inputs with `assets runtime install`. Their exact immutable public release is
 available, and the combined top-level CLI installs its cached transport
 directly after the compatible SNV. Exact persistent download progress and
-container prefetch remain future.
+container prefetch is unnecessary because the shipped thin image uses explicit
+named volumes and the same `pangopup sync` command.
+
+### Does the Docker image contain the large assets?
+
+No. It contains only the stripped Pangopup executable and required license
+notices on a distroless runtime. Run `pangopup sync` once with named data and
+cache volumes, then reuse those volumes when the image is replaced. This keeps
+software upgrades small, preserves mmap behavior, and makes network access an
+explicit provisioning action. The repository builds and qualifies native
+AMD64 and ARM64 images but does not yet publish one to a registry.
 
 ### Will asset sync download whatever release is latest?
 
