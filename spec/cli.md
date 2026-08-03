@@ -15,7 +15,7 @@ runtime path provides focused help without opening assets:
 pangopup | cmp - ../tests/fixtures/runtime-cli/root-help.txt
 pangopup -h | cmp - ../tests/fixtures/runtime-cli/root-help.txt
 pangopup --help | cmp - ../tests/fixtures/runtime-cli/root-help.txt
-pangopup --help | rg -F 'pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]' | mustmatch like '  pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]'
+pangopup --help | rg -F 'pangopup sync [--offline] [--progress | --quiet] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]' | mustmatch like '  pangopup sync [--offline] [--progress | --quiet] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]'
 pangopup --help | rg -F 'pangopup status [--data-dir <ABSOLUTE_PATH>]' | mustmatch like '  pangopup status [--data-dir <ABSOLUTE_PATH>]'
 pangopup --help | rg -F 'pangopup serve [--listen <ADDRESS>]' | mustmatch like '  pangopup serve [--listen <ADDRESS>] [--data-dir <ABSOLUTE_PATH>] [--model-workers <1..8>] [--model-threads <1..8>] [--model-queue-capacity <1..1024>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]'
 pangopup --help | rg -F 'pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]' | mustmatch like '  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]'
@@ -39,7 +39,7 @@ for flag in -h --help; do
   pangopup assets runtime "$flag" | head -1
   pangopup assets runtime install "$flag" | head -1
   PANGOPUP_DATA_DIR=relative PANGOPUP_CACHE_DIR=relative pangopup lookup "$flag" | head -1
-done | mustmatch like "Usage: pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
+done | mustmatch like "Usage: pangopup sync [--offline] [--progress | --quiet] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
 Usage: pangopup status [--data-dir <ABSOLUTE_PATH>]
 Usage: pangopup serve [--listen <ADDRESS>] [--data-dir <ABSOLUTE_PATH>] [--model-workers <1..8>] [--model-threads <1..8>] [--model-queue-capacity <1..1024>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]
 Usage: pangopup assets <ACTION>
@@ -47,7 +47,7 @@ Usage: pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]
 Usage: pangopup assets runtime <ACTION>
 Usage: pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]
 Usage: pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]
-Usage: pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
+Usage: pangopup sync [--offline] [--progress | --quiet] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
 Usage: pangopup status [--data-dir <ABSOLUTE_PATH>]
 Usage: pangopup serve [--listen <ADDRESS>] [--data-dir <ABSOLUTE_PATH>] [--model-workers <1..8>] [--model-threads <1..8>] [--model-queue-capacity <1..1024>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]
 Usage: pangopup assets <ACTION>

@@ -1,8 +1,9 @@
 //! Whole-product provisioning and status composition.
 
 use crate::{
-    AssetError, AssetErrorKind, LocalStatus, RuntimeLocalStatus, RuntimeSyncOutcome, SyncOutcome,
-    inspect_runtime_cache, local_status, runtime_local_status, sync_assets, sync_runtime_assets,
+    AssetError, AssetErrorKind, LocalStatus, RuntimeLocalStatus, RuntimeSyncOutcome, SyncEvent,
+    SyncOutcome, inspect_runtime_cache, local_status, runtime_local_status, sync_assets_observed,
+    sync_runtime_assets_observed,
 };
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -58,9 +59,12 @@ pub enum CombinedSyncResult {
     Incomplete(CombinedSyncIncomplete),
 }
 
+#[cfg(test)]
 type SnvSync<'a> = dyn Fn(&Path, Option<&Path>, bool) -> Result<SyncOutcome, AssetError> + 'a;
+#[cfg(test)]
 type RuntimeSync<'a> =
     dyn Fn(&Path, Option<&Path>, bool) -> Result<RuntimeSyncOutcome, AssetError> + 'a;
+#[cfg(test)]
 type RuntimeInspect<'a> =
     dyn Fn(Option<&Path>) -> Result<crate::RuntimeCacheInspection, AssetError> + 'a;
 
@@ -69,16 +73,129 @@ pub fn sync_all_assets(
     cache_root: Option<&Path>,
     offline: bool,
 ) -> Result<CombinedSyncResult, AssetError> {
-    sync_all_assets_with(
-        data_root,
-        cache_root,
-        offline,
-        &sync_assets,
-        &sync_runtime_assets,
-        &inspect_runtime_cache,
-    )
+    sync_all_assets_observed(data_root, cache_root, offline, &mut |_| {})
 }
 
+pub fn sync_all_assets_observed(
+    data_root: &Path,
+    cache_root: Option<&Path>,
+    offline: bool,
+    observer: &mut dyn FnMut(SyncEvent),
+) -> Result<CombinedSyncResult, AssetError> {
+    let _lock = crate::local::acquire_provisioning_lock(data_root)?;
+    let snv = match sync_assets_observed(data_root, cache_root, offline, observer) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            let runtime = if offline && error.kind() == AssetErrorKind::AssetsMissing {
+                match inspect_runtime_cache(cache_root) {
+                    Ok(crate::RuntimeCacheInspection::Complete) => {
+                        RuntimeSyncObservation::NotAttempted(RuntimeNotAttempted {
+                            status: "not_attempted",
+                            reason: "snv_sync_failed",
+                            cache: Some("complete"),
+                        })
+                    }
+                    Err(runtime) => RuntimeSyncObservation::Error(component_error(runtime, false)),
+                }
+            } else {
+                RuntimeSyncObservation::NotAttempted(RuntimeNotAttempted {
+                    status: "not_attempted",
+                    reason: "snv_sync_failed",
+                    cache: None,
+                })
+            };
+            return Ok(CombinedSyncResult::Incomplete(CombinedSyncIncomplete {
+                snv: SnvSyncObservation::Error(component_error(error, false)),
+                runtime,
+            }));
+        }
+    };
+    let snv_downloaded = snv.downloaded_bytes;
+    let snv_resumed = snv.resumed_bytes;
+    let (runtime_result, event_error) = {
+        let mut event_error = None;
+        let mut translate =
+            |event: SyncEvent| match offset_event(event, snv_downloaded, snv_resumed) {
+                Ok(event) => observer(event),
+                Err(error) => event_error = Some(error),
+            };
+        let result = sync_runtime_assets_observed(data_root, cache_root, offline, &mut translate);
+        (result, event_error)
+    };
+    if let Some(error) = event_error {
+        return Err(error);
+    }
+    let runtime = match runtime_result {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            return Ok(CombinedSyncResult::Incomplete(CombinedSyncIncomplete {
+                snv: SnvSyncObservation::Complete(snv),
+                runtime: RuntimeSyncObservation::Error(component_error(error, true)),
+            }));
+        }
+    };
+    let downloaded_bytes = snv_downloaded
+        .checked_add(runtime.downloaded_bytes)
+        .ok_or_else(counter_overflow)?;
+    let resumed_bytes = snv_resumed
+        .checked_add(runtime.resumed_bytes)
+        .ok_or_else(counter_overflow)?;
+    observer(SyncEvent::Complete {
+        downloaded_bytes,
+        resumed_bytes,
+    });
+    Ok(CombinedSyncResult::Ready(CombinedSyncOutcome {
+        status: "ready",
+        snv,
+        runtime,
+        downloaded_bytes,
+        resumed_bytes,
+    }))
+}
+
+fn offset_event(event: SyncEvent, downloaded: u64, resumed: u64) -> Result<SyncEvent, AssetError> {
+    Ok(match event {
+        SyncEvent::Transfer {
+            component,
+            asset_name,
+            attempt,
+            max_attempts,
+            mode,
+            member_bytes,
+            member_total,
+            invocation_downloaded_bytes,
+            invocation_resumed_bytes,
+        } => SyncEvent::Transfer {
+            component,
+            asset_name,
+            attempt,
+            max_attempts,
+            mode,
+            member_bytes,
+            member_total,
+            invocation_downloaded_bytes: downloaded
+                .checked_add(invocation_downloaded_bytes)
+                .ok_or_else(counter_overflow)?,
+            invocation_resumed_bytes: resumed
+                .checked_add(invocation_resumed_bytes)
+                .ok_or_else(counter_overflow)?,
+        },
+        SyncEvent::Complete {
+            downloaded_bytes,
+            resumed_bytes,
+        } => SyncEvent::Complete {
+            downloaded_bytes: downloaded
+                .checked_add(downloaded_bytes)
+                .ok_or_else(counter_overflow)?,
+            resumed_bytes: resumed
+                .checked_add(resumed_bytes)
+                .ok_or_else(counter_overflow)?,
+        },
+        other => other,
+    })
+}
+
+#[cfg(test)]
 fn sync_all_assets_with(
     data_root: &Path,
     cache_root: Option<&Path>,
@@ -98,6 +215,7 @@ fn sync_all_assets_with(
     )
 }
 
+#[cfg(test)]
 fn sync_all_with(
     data_root: &Path,
     cache_root: Option<&Path>,
@@ -547,6 +665,72 @@ mod tests {
         .expect_err("overflow");
         assert_eq!(error.kind(), AssetErrorKind::AssetStateInvalid);
         assert_eq!(error.to_string(), "asset byte counter overflow");
+    }
+
+    #[test]
+    fn combined_observer_offsets_runtime_and_complete_counters_exactly() {
+        let runtime_events = [
+            SyncEvent::Transfer {
+                component: crate::SyncComponent::Runtime,
+                asset_name: "model.onnx".to_owned(),
+                attempt: 2,
+                max_attempts: 4,
+                mode: crate::SyncTransferMode::Resume,
+                member_bytes: 80,
+                member_total: 100,
+                invocation_downloaded_bytes: 20,
+                invocation_resumed_bytes: 10,
+            },
+            SyncEvent::Phase {
+                component: crate::SyncComponent::Runtime,
+                phase: crate::SyncPhase::Ready,
+            },
+        ];
+        let mut observed = runtime_events
+            .into_iter()
+            .map(|event| offset_event(event, 30, 7).expect("checked runtime offset"))
+            .collect::<Vec<_>>();
+        observed.push(SyncEvent::Complete {
+            downloaded_bytes: 50,
+            resumed_bytes: 17,
+        });
+        assert_eq!(
+            observed,
+            vec![
+                SyncEvent::Transfer {
+                    component: crate::SyncComponent::Runtime,
+                    asset_name: "model.onnx".to_owned(),
+                    attempt: 2,
+                    max_attempts: 4,
+                    mode: crate::SyncTransferMode::Resume,
+                    member_bytes: 80,
+                    member_total: 100,
+                    invocation_downloaded_bytes: 50,
+                    invocation_resumed_bytes: 17,
+                },
+                SyncEvent::Phase {
+                    component: crate::SyncComponent::Runtime,
+                    phase: crate::SyncPhase::Ready,
+                },
+                SyncEvent::Complete {
+                    downloaded_bytes: 50,
+                    resumed_bytes: 17,
+                },
+            ]
+        );
+        assert_eq!(
+            offset_event(
+                SyncEvent::Complete {
+                    downloaded_bytes: 1,
+                    resumed_bytes: 0,
+                },
+                u64::MAX,
+                0,
+            )
+            .expect_err("overflow is fatal")
+            .kind(),
+            AssetErrorKind::AssetStateInvalid
+        );
     }
 
     #[test]

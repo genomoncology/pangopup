@@ -307,7 +307,7 @@ The shipped local command accepts an already available transport:
 
 ```text
 pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]
-pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
+pangopup sync [--offline] [--progress | --quiet] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
 pangopup status [--data-dir <ABSOLUTE_PATH>]
 ```
 
@@ -338,7 +338,10 @@ installer. Remote sync:
 2. holds a separate nonblocking cache lock before the installation lock;
 3. reuses a complete compatible local bundle without network access;
 4. otherwise stream missing members sequentially to private cache state,
-   resuming only on an exact strong-ETag ranged response;
+   resuming only on an exact strong-ETag ranged response; transient transport,
+   timeout, premature-EOF, and selected HTTP failures receive four visible
+   attempts with 1/2/4-second backoff, while trust and local-state failures are
+   fatal;
 5. pass the exact local transport directory to the shipped installer.
 
 Cache traversal and mutation stay behind held Linux directory descriptors:
@@ -356,6 +359,15 @@ hosts over HTTPS and follows at most five explicit redirects. Offline mode
 forbids network access and names every incomplete member. Callers can still
 supply an already available transport. Future containers can bake the same
 verified bundle into an image or mount it read-only.
+
+The synchronous observer reports only typed components, phases, member names,
+attempts, transfer modes, counters, and retry reasons—never URLs or paths.
+Downloads remain sequential with one 128-KiB buffer. Invocation download
+counters include every received byte, including failed or duplicate attempts;
+resume credit is committed only after a pre-existing prefix participates in a
+verified ranged completion. The CLI renders these events to stderr for a
+terminal, under `--progress`, or not at all under `--quiet`; stdout retains its
+single machine-readable result.
 
 Current managed storage follows Linux XDG application-data conventions rather
 than Pangolin's Python-package layout. macOS and Windows behavior remains

@@ -38,6 +38,8 @@ const COMPLETE_FILE_MODE: u32 = 0o444;
 const MAX_RESUME_BYTES: u64 = 8 * 1024;
 const BUFFER_SIZE: usize = 128 * 1024;
 const MAX_REDIRECTS: usize = 5;
+const MAX_ATTEMPTS: u8 = 4;
+const PROGRESS_INTERVAL: u64 = 64 * 1024 * 1024;
 static CACHE_NONCE: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(test)]
@@ -50,6 +52,7 @@ mod sync_audit {
         SidecarSync,
         PartialCreate,
         PartialWrite,
+        PartialWriteError,
         PartialSync,
         MemberRename,
         MemberDirSync,
@@ -226,6 +229,71 @@ pub struct RuntimeSyncOutcome {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SyncComponent {
+    Snv,
+    Runtime,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SyncPhase {
+    Checking,
+    Downloading,
+    Installing,
+    Reused,
+    Ready,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SyncTransferMode {
+    Cached,
+    Fresh,
+    Resume,
+    Restart,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SyncRetryReason {
+    Timeout,
+    Connect,
+    Request,
+    BodyRead,
+    PrematureEof,
+    HttpStatus(u16),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SyncEvent {
+    Phase {
+        component: SyncComponent,
+        phase: SyncPhase,
+    },
+    Transfer {
+        component: SyncComponent,
+        asset_name: String,
+        attempt: u8,
+        max_attempts: u8,
+        mode: SyncTransferMode,
+        member_bytes: u64,
+        member_total: u64,
+        invocation_downloaded_bytes: u64,
+        invocation_resumed_bytes: u64,
+    },
+    Retry {
+        component: SyncComponent,
+        asset_name: String,
+        failed_attempt: u8,
+        next_attempt: u8,
+        max_attempts: u8,
+        reason: SyncRetryReason,
+        delay_seconds: u64,
+    },
+    Complete {
+        downloaded_bytes: u64,
+        resumed_bytes: u64,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeCacheInspection {
     Complete,
 }
@@ -248,22 +316,176 @@ struct Response {
 }
 
 trait TransportClient {
-    fn execute(&self, request: &Request) -> Result<Response, AssetError>;
+    fn execute(&self, request: &Request) -> Result<Response, AttemptFailure>;
 }
 
+#[derive(Debug)]
+struct AttemptFailure {
+    error: AssetError,
+    retry: Option<SyncRetryReason>,
+    received: u64,
+}
+
+trait RetrySleeper {
+    fn sleep(&self, seconds: u64);
+}
+
+#[cfg(not(test))]
+struct ThreadSleeper;
+
+#[cfg(not(test))]
+impl RetrySleeper for ThreadSleeper {
+    fn sleep(&self, seconds: u64) {
+        std::thread::sleep(Duration::from_secs(seconds));
+    }
+}
+
+#[cfg(test)]
+struct NoopSleeper;
+
+#[cfg(test)]
+impl RetrySleeper for NoopSleeper {
+    fn sleep(&self, _seconds: u64) {}
+}
+
+impl AttemptFailure {
+    fn fatal(error: AssetError) -> Self {
+        Self {
+            error,
+            retry: None,
+            received: 0,
+        }
+    }
+
+    fn retry(error: AssetError, retry: SyncRetryReason) -> Self {
+        Self {
+            error,
+            retry: Some(retry),
+            received: 0,
+        }
+    }
+
+    fn fatal_received(error: AssetError, received: u64) -> Self {
+        Self {
+            error,
+            retry: None,
+            received,
+        }
+    }
+
+    #[cfg(test)]
+    fn kind(&self) -> AssetErrorKind {
+        self.error.kind()
+    }
+}
+
+#[cfg(test)]
+impl std::fmt::Display for AttemptFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(formatter)
+    }
+}
+
+impl From<AssetError> for AttemptFailure {
+    fn from(error: AssetError) -> Self {
+        Self::fatal(error)
+    }
+}
+
+struct ReqwestClient {
+    client: reqwest::blocking::Client,
+}
+
+impl ReqwestClient {
+    fn production() -> Self {
+        Self::with_timeouts(Duration::from_secs(30), Duration::from_secs(120))
+    }
+
+    fn with_timeouts(connect: Duration, operation: Duration) -> Self {
+        Self {
+            client: reqwest::blocking::Client::builder()
+                .connect_timeout(connect)
+                .timeout(operation)
+                .redirect(reqwest::redirect::Policy::none())
+                .no_proxy()
+                .no_gzip()
+                .no_brotli()
+                .no_deflate()
+                .build()
+                .expect("fixed reqwest client configuration is valid"),
+        }
+    }
+}
+
+impl TransportClient for ReqwestClient {
+    fn execute(&self, request: &Request) -> Result<Response, AttemptFailure> {
+        let mut builder = self
+            .client
+            .get(&request.url)
+            .header(reqwest::header::ACCEPT_ENCODING, "identity");
+        if let Some(offset) = request.range {
+            builder = builder.header(reqwest::header::RANGE, format!("bytes={offset}-"));
+        }
+        if let Some(etag) = &request.if_range {
+            builder = builder.header(reqwest::header::IF_RANGE, etag);
+        }
+        let response = builder.send().map_err(map_reqwest_error)?;
+        let status = response.status().as_u16();
+        let headers = response.headers();
+        let header = |name: &str| {
+            headers
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(ToOwned::to_owned)
+        };
+        let content_length = header("content-length")
+            .map(|value| value.parse::<u64>())
+            .transpose()
+            .map_err(|_| {
+                AttemptFailure::fatal(download_error("response has invalid Content-Length"))
+            })?;
+        let location = header("location");
+        let etag = header("etag");
+        let content_range = header("content-range");
+        let content_encoding = header("content-encoding");
+        Ok(Response {
+            status,
+            location,
+            etag,
+            content_length,
+            content_range,
+            content_encoding,
+            body: Box::new(response),
+        })
+    }
+}
+
+fn map_reqwest_error(error: reqwest::Error) -> AttemptFailure {
+    if error.is_timeout() {
+        AttemptFailure::retry(
+            AssetError::new(AssetErrorKind::AssetTimeout, "asset transfer timed out"),
+            SyncRetryReason::Timeout,
+        )
+    } else if error.is_connect() {
+        AttemptFailure::retry(
+            AssetError::new(AssetErrorKind::AssetDownload, "asset transfer failed"),
+            SyncRetryReason::Connect,
+        )
+    } else {
+        AttemptFailure::retry(
+            AssetError::new(AssetErrorKind::AssetDownload, "asset transfer failed"),
+            SyncRetryReason::Request,
+        )
+    }
+}
+
+#[cfg(test)]
 struct UreqClient {
     agent: ureq::Agent,
 }
 
+#[cfg(test)]
 impl UreqClient {
-    fn production() -> Self {
-        Self::with_timeouts(
-            Duration::from_secs(30),
-            Duration::from_secs(30),
-            Duration::from_secs(120),
-        )
-    }
-
     fn with_timeouts(connect: Duration, headers: Duration, body_idle: Duration) -> Self {
         let config = ureq::Agent::config_builder()
             .proxy(None)
@@ -280,8 +502,9 @@ impl UreqClient {
     }
 }
 
+#[cfg(test)]
 impl TransportClient for UreqClient {
-    fn execute(&self, request: &Request) -> Result<Response, AssetError> {
+    fn execute(&self, request: &Request) -> Result<Response, AttemptFailure> {
         let mut builder = self
             .agent
             .get(&request.url)
@@ -304,12 +527,13 @@ impl TransportClient for UreqClient {
         let content_length = header("content-length")
             .map(|value| value.parse::<u64>())
             .transpose()
-            .map_err(|_| download_error("response has invalid Content-Length"))?;
+            .map_err(|_| {
+                AttemptFailure::fatal(download_error("response has invalid Content-Length"))
+            })?;
         let location = header("location");
         let etag = header("etag");
         let content_range = header("content-range");
         let content_encoding = header("content-encoding");
-        let body = response.into_body().into_reader();
         Ok(Response {
             status,
             location,
@@ -317,17 +541,22 @@ impl TransportClient for UreqClient {
             content_length,
             content_range,
             content_encoding,
-            body: Box::new(body),
+            body: Box::new(response.into_body().into_reader()),
         })
     }
 }
 
-fn map_http_error(error: ureq::Error) -> AssetError {
-    let text = error.to_string().to_ascii_lowercase();
-    if text.contains("timed out") || text.contains("timeout") {
-        AssetError::new(AssetErrorKind::AssetTimeout, "asset transfer timed out")
-    } else {
-        AssetError::new(AssetErrorKind::AssetDownload, "asset transfer failed")
+#[cfg(test)]
+fn map_http_error(error: ureq::Error) -> AttemptFailure {
+    match error {
+        ureq::Error::Timeout(_) => AttemptFailure::retry(
+            AssetError::new(AssetErrorKind::AssetTimeout, "asset transfer timed out"),
+            SyncRetryReason::Timeout,
+        ),
+        _ => AttemptFailure::retry(
+            AssetError::new(AssetErrorKind::AssetDownload, "asset transfer failed"),
+            SyncRetryReason::Request,
+        ),
     }
 }
 
@@ -345,12 +574,18 @@ pub fn sync_assets(
     cache_root: Option<&Path>,
     offline: bool,
 ) -> Result<SyncOutcome, AssetError> {
+    sync_assets_observed(data_root, cache_root, offline, &mut |_| {})
+}
+
+pub fn sync_assets_observed(
+    data_root: &Path,
+    cache_root: Option<&Path>,
+    offline: bool,
+    observer: &mut dyn FnMut(SyncEvent),
+) -> Result<SyncOutcome, AssetError> {
     let (_, digest, profile) = super::release::production_profile()?;
-    if let Some(outcome) = active_fast_path(data_root, &profile)? {
-        return Ok(outcome);
-    }
-    let client = UreqClient::production();
-    sync_with(
+    let client = ReqwestClient::production();
+    sync_snv_observed_with(
         data_root,
         cache_root,
         offline,
@@ -361,6 +596,30 @@ pub fn sync_assets(
             require_https: true,
         },
         &client,
+        observer,
+    )
+}
+
+fn sync_snv_observed_with(
+    data_root: &Path,
+    cache_root: Option<&Path>,
+    offline: bool,
+    contract: SyncContract<'_>,
+    client: &dyn TransportClient,
+    observer: &mut dyn FnMut(SyncEvent),
+) -> Result<SyncOutcome, AssetError> {
+    observer(SyncEvent::Phase {
+        component: SyncComponent::Snv,
+        phase: SyncPhase::Checking,
+    });
+    sync_with_observer(
+        data_root,
+        cache_root,
+        offline,
+        contract,
+        client,
+        SyncComponent::Snv,
+        observer,
     )
 }
 
@@ -369,6 +628,15 @@ pub fn sync_runtime_assets(
     data_root: &Path,
     cache_root: Option<&Path>,
     offline: bool,
+) -> Result<RuntimeSyncOutcome, AssetError> {
+    sync_runtime_assets_observed(data_root, cache_root, offline, &mut |_| {})
+}
+
+pub fn sync_runtime_assets_observed(
+    data_root: &Path,
+    cache_root: Option<&Path>,
+    offline: bool,
+    observer: &mut dyn FnMut(SyncEvent),
 ) -> Result<RuntimeSyncOutcome, AssetError> {
     let (digest, release) = super::runtime_release::production_runtime_release_profile()?;
     let members = release
@@ -383,7 +651,53 @@ pub fn sync_runtime_assets(
             url: member.url.clone(),
         })
         .collect::<Vec<_>>();
-    if let Some(outcome) = runtime_active_fast_path(data_root, &release)? {
+    let (_, _, snv_profile) = super::release::production_profile()?;
+    let contract = SyncContract {
+        profile: &snv_profile,
+        profile_digest: digest,
+        allowed_hosts: &["github.com", "release-assets.githubusercontent.com"],
+        require_https: true,
+    };
+    sync_runtime_assets_observed_with(
+        data_root,
+        cache_root,
+        offline,
+        digest,
+        &release,
+        &members,
+        contract,
+        &ReqwestClient::production(),
+        &super::runtime_transport::install_cached_runtime_transport,
+        observer,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sync_runtime_assets_observed_with(
+    data_root: &Path,
+    cache_root: Option<&Path>,
+    offline: bool,
+    digest: &str,
+    release: &RuntimeReleaseProfile,
+    members: &[ProfileMember],
+    contract: SyncContract<'_>,
+    client: &dyn TransportClient,
+    installer: &dyn Fn(&Path, &Path) -> Result<super::RuntimeInstallOutcome, AssetError>,
+    observer: &mut dyn FnMut(SyncEvent),
+) -> Result<RuntimeSyncOutcome, AssetError> {
+    observer(SyncEvent::Phase {
+        component: SyncComponent::Runtime,
+        phase: SyncPhase::Checking,
+    });
+    if let Some(outcome) = runtime_active_fast_path(data_root, release)? {
+        observer(SyncEvent::Phase {
+            component: SyncComponent::Runtime,
+            phase: SyncPhase::Reused,
+        });
+        observer(SyncEvent::Phase {
+            component: SyncComponent::Runtime,
+            phase: SyncPhase::Ready,
+        });
         return Ok(outcome);
     }
     let cache_root = cache_root.ok_or_else(|| {
@@ -393,22 +707,19 @@ pub fn sync_runtime_assets(
         )
     })?;
     let cache = Cache::open(cache_root, digest)?;
-    let (_, _, snv_profile) = super::release::production_profile()?;
-    let contract = SyncContract {
-        profile: &snv_profile,
-        profile_digest: digest,
-        allowed_hosts: &["github.com", "release-assets.githubusercontent.com"],
-        require_https: true,
-    };
     with_runtime_cache_lock(&cache, |cache| {
-        sync_runtime_cached(
-            data_root,
+        sync_runtime_cached_with_installer(
             offline,
-            cache,
-            &release,
-            &members,
-            contract,
-            &UreqClient::production(),
+            RuntimeSyncContext {
+                data_root,
+                cache,
+                release,
+                members,
+                contract,
+                client,
+                installer,
+            },
+            Some(observer),
         )
     })
 }
@@ -467,6 +778,7 @@ fn with_runtime_cache_lock<T>(
     operation(cache)
 }
 
+#[cfg(test)]
 fn sync_with(
     data_root: &Path,
     cache_root: Option<&Path>,
@@ -474,7 +786,35 @@ fn sync_with(
     contract: SyncContract<'_>,
     client: &dyn TransportClient,
 ) -> Result<SyncOutcome, AssetError> {
+    sync_with_observer(
+        data_root,
+        cache_root,
+        offline,
+        contract,
+        client,
+        SyncComponent::Snv,
+        &mut |_| {},
+    )
+}
+
+fn sync_with_observer(
+    data_root: &Path,
+    cache_root: Option<&Path>,
+    offline: bool,
+    contract: SyncContract<'_>,
+    client: &dyn TransportClient,
+    component: SyncComponent,
+    observer: &mut dyn FnMut(SyncEvent),
+) -> Result<SyncOutcome, AssetError> {
     if let Some(outcome) = active_fast_path(data_root, contract.profile)? {
+        observer(SyncEvent::Phase {
+            component,
+            phase: SyncPhase::Reused,
+        });
+        observer(SyncEvent::Phase {
+            component,
+            phase: SyncPhase::Ready,
+        });
         return Ok(outcome);
     }
     let cache_root = cache_root.ok_or_else(|| {
@@ -488,20 +828,63 @@ fn sync_with(
     cache.initialize_working_directories()?;
 
     if let Some(transport) = cache.published_transport(contract.profile)? {
-        return install_cached(&cache, &transport, data_root, contract.profile, 0, 0);
+        observer(SyncEvent::Phase {
+            component,
+            phase: SyncPhase::Downloading,
+        });
+        emit_cached_members(
+            contract.profile.transport.members.iter(),
+            component,
+            observer,
+        );
+        observer(SyncEvent::Phase {
+            component,
+            phase: SyncPhase::Installing,
+        });
+        let outcome = install_cached(&cache, &transport, data_root, contract.profile, 0, 0)?;
+        observer(SyncEvent::Phase {
+            component,
+            phase: SyncPhase::Ready,
+        });
+        return Ok(outcome);
     }
     if closed_transport(cache.members_dir()?, contract.profile)? {
+        observer(SyncEvent::Phase {
+            component,
+            phase: SyncPhase::Downloading,
+        });
         let transport = cache.publish_transport(contract.profile)?;
-        return install_cached(&cache, &transport, data_root, contract.profile, 0, 0);
+        emit_cached_members(
+            contract.profile.transport.members.iter(),
+            component,
+            observer,
+        );
+        observer(SyncEvent::Phase {
+            component,
+            phase: SyncPhase::Installing,
+        });
+        let outcome = install_cached(&cache, &transport, data_root, contract.profile, 0, 0)?;
+        observer(SyncEvent::Phase {
+            component,
+            phase: SyncPhase::Ready,
+        });
+        return Ok(outcome);
     }
     if offline {
         return Err(missing_error(&cache, contract.profile));
     }
 
+    observer(SyncEvent::Phase {
+        component,
+        phase: SyncPhase::Downloading,
+    });
+
     let mut downloaded = 0_u64;
     let mut resumed = 0_u64;
     for member in &contract.profile.transport.members {
-        let result = cache.obtain_member(member, contract, client)?;
+        let result = cache.obtain_member_observed(
+            member, contract, client, component, downloaded, resumed, observer,
+        )?;
         downloaded = downloaded
             .checked_add(result.downloaded)
             .ok_or_else(|| download_error("download byte counter overflow"))?;
@@ -510,37 +893,23 @@ fn sync_with(
             .ok_or_else(|| download_error("resume byte counter overflow"))?;
     }
     let transport = cache.publish_transport(contract.profile)?;
-    install_cached(
+    observer(SyncEvent::Phase {
+        component,
+        phase: SyncPhase::Installing,
+    });
+    let outcome = install_cached(
         &cache,
         &transport,
         data_root,
         contract.profile,
         downloaded,
         resumed,
-    )
-}
-
-fn sync_runtime_cached(
-    data_root: &Path,
-    offline: bool,
-    cache: &Cache,
-    release: &RuntimeReleaseProfile,
-    members: &[ProfileMember],
-    contract: SyncContract<'_>,
-    client: &dyn TransportClient,
-) -> Result<RuntimeSyncOutcome, AssetError> {
-    sync_runtime_cached_with_installer(
-        offline,
-        RuntimeSyncContext {
-            data_root,
-            cache,
-            release,
-            members,
-            contract,
-            client,
-            installer: &super::runtime_transport::install_cached_runtime_transport,
-        },
-    )
+    )?;
+    observer(SyncEvent::Phase {
+        component,
+        phase: SyncPhase::Ready,
+    });
+    Ok(outcome)
 }
 
 struct RuntimeSyncContext<'a> {
@@ -556,6 +925,7 @@ struct RuntimeSyncContext<'a> {
 fn sync_runtime_cached_with_installer(
     offline: bool,
     context: RuntimeSyncContext<'_>,
+    mut observer: Option<&mut dyn FnMut(SyncEvent)>,
 ) -> Result<RuntimeSyncOutcome, AssetError> {
     let RuntimeSyncContext {
         data_root,
@@ -567,19 +937,75 @@ fn sync_runtime_cached_with_installer(
         installer,
     } = context;
     if let Some(transport) = cache.published_transport_members(members)? {
-        return install_cached_runtime(cache, &transport, data_root, release, 0, 0, installer);
+        if let Some(observer) = observer.as_deref_mut() {
+            observer(SyncEvent::Phase {
+                component: SyncComponent::Runtime,
+                phase: SyncPhase::Downloading,
+            });
+            emit_cached_members(members.iter(), SyncComponent::Runtime, observer);
+            observer(SyncEvent::Phase {
+                component: SyncComponent::Runtime,
+                phase: SyncPhase::Installing,
+            });
+        }
+        let outcome =
+            install_cached_runtime(cache, &transport, data_root, release, 0, 0, installer)?;
+        if let Some(observer) = observer.as_deref_mut() {
+            observer(SyncEvent::Phase {
+                component: SyncComponent::Runtime,
+                phase: SyncPhase::Ready,
+            });
+        }
+        return Ok(outcome);
     }
     if closed_members(cache.members_dir()?, members)? {
         let transport = cache.publish_transport_members(members, &release.profile)?;
-        return install_cached_runtime(cache, &transport, data_root, release, 0, 0, installer);
+        if let Some(observer) = observer.as_deref_mut() {
+            observer(SyncEvent::Phase {
+                component: SyncComponent::Runtime,
+                phase: SyncPhase::Downloading,
+            });
+            emit_cached_members(members.iter(), SyncComponent::Runtime, observer);
+            observer(SyncEvent::Phase {
+                component: SyncComponent::Runtime,
+                phase: SyncPhase::Installing,
+            });
+        }
+        let outcome =
+            install_cached_runtime(cache, &transport, data_root, release, 0, 0, installer)?;
+        if let Some(observer) = observer.as_deref_mut() {
+            observer(SyncEvent::Phase {
+                component: SyncComponent::Runtime,
+                phase: SyncPhase::Ready,
+            });
+        }
+        return Ok(outcome);
     }
     if offline {
         return Err(missing_members_error(cache, &release.profile, members));
     }
+    if let Some(observer) = observer.as_deref_mut() {
+        observer(SyncEvent::Phase {
+            component: SyncComponent::Runtime,
+            phase: SyncPhase::Downloading,
+        });
+    }
     let mut downloaded = 0_u64;
     let mut resumed = 0_u64;
     for member in members {
-        let result = cache.obtain_member(member, contract, client)?;
+        let result = if let Some(observer) = observer.as_deref_mut() {
+            cache.obtain_member_observed(
+                member,
+                contract,
+                client,
+                SyncComponent::Runtime,
+                downloaded,
+                resumed,
+                observer,
+            )?
+        } else {
+            cache.obtain_member(member, contract, client)?
+        };
         downloaded = downloaded
             .checked_add(result.downloaded)
             .ok_or_else(|| download_error("download byte counter overflow"))?;
@@ -588,9 +1014,22 @@ fn sync_runtime_cached_with_installer(
             .ok_or_else(|| download_error("resume byte counter overflow"))?;
     }
     let transport = cache.publish_transport_members(members, &release.profile)?;
-    install_cached_runtime(
+    if let Some(observer) = observer.as_deref_mut() {
+        observer(SyncEvent::Phase {
+            component: SyncComponent::Runtime,
+            phase: SyncPhase::Installing,
+        });
+    }
+    let outcome = install_cached_runtime(
         cache, &transport, data_root, release, downloaded, resumed, installer,
-    )
+    )?;
+    if let Some(observer) = observer {
+        observer(SyncEvent::Phase {
+            component: SyncComponent::Runtime,
+            phase: SyncPhase::Ready,
+        });
+    }
+    Ok(outcome)
 }
 
 fn runtime_active_fast_path(
@@ -1024,10 +1463,193 @@ impl Cache {
         contract: SyncContract<'_>,
         client: &dyn TransportClient,
     ) -> Result<MemberTransfer, AssetError> {
+        self.obtain_member_observed(
+            member,
+            contract,
+            client,
+            SyncComponent::Snv,
+            0,
+            0,
+            &mut |_| {},
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn obtain_member_observed(
+        &self,
+        member: &ProfileMember,
+        contract: SyncContract<'_>,
+        client: &dyn TransportClient,
+        component: SyncComponent,
+        invocation_downloaded: u64,
+        invocation_resumed: u64,
+        observer: &mut dyn FnMut(SyncEvent),
+    ) -> Result<MemberTransfer, AssetError> {
+        #[cfg(test)]
+        let sleeper = NoopSleeper;
+        #[cfg(not(test))]
+        let sleeper = ThreadSleeper;
+        self.obtain_member_observed_with_sleeper(
+            member,
+            contract,
+            client,
+            component,
+            invocation_downloaded,
+            invocation_resumed,
+            observer,
+            &sleeper,
+            PROGRESS_INTERVAL,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn obtain_member_observed_with_sleeper(
+        &self,
+        member: &ProfileMember,
+        contract: SyncContract<'_>,
+        client: &dyn TransportClient,
+        component: SyncComponent,
+        invocation_downloaded: u64,
+        invocation_resumed: u64,
+        observer: &mut dyn FnMut(SyncEvent),
+        sleeper: &dyn RetrySleeper,
+        progress_interval: u64,
+    ) -> Result<MemberTransfer, AssetError> {
+        validate_component(&member.asset_name)?;
+        if complete_member_size(self.members_dir()?, &member.asset_name)? == Some(member.size) {
+            observer(SyncEvent::Transfer {
+                component,
+                asset_name: member.asset_name.clone(),
+                attempt: 0,
+                max_attempts: MAX_ATTEMPTS,
+                mode: SyncTransferMode::Cached,
+                member_bytes: member.size,
+                member_total: member.size,
+                invocation_downloaded_bytes: invocation_downloaded,
+                invocation_resumed_bytes: invocation_resumed,
+            });
+            return Ok(MemberTransfer {
+                downloaded: 0,
+                resumed: 0,
+                mode: SyncTransferMode::Cached,
+            });
+        }
+        let partial = format!("{}.partial", member.asset_name);
+        let sidecar = format!("{}.resume.json", member.asset_name);
+        let invocation_prefix = load_resume(
+            self.partial_dir()?,
+            &partial,
+            &sidecar,
+            member,
+            contract.profile_digest,
+        )?
+        .map_or(0, |state| state.length);
+        let mut downloaded = 0_u64;
+        let mut next_progress = progress_interval;
+        let mut member_high_water = invocation_prefix;
+        for attempt in 1..=MAX_ATTEMPTS {
+            let downloaded_before = downloaded;
+            let mut progress = |mode: SyncTransferMode, member_bytes: u64, received: u64| {
+                let member_downloaded =
+                    downloaded_before.checked_add(received).ok_or_else(|| {
+                        AttemptFailure::fatal(download_error("download byte counter overflow"))
+                    })?;
+                if member_downloaded >= next_progress {
+                    let total_downloaded = invocation_downloaded
+                        .checked_add(downloaded_before)
+                        .and_then(|value| value.checked_add(received))
+                        .ok_or_else(|| {
+                            AttemptFailure::fatal(download_error("download byte counter overflow"))
+                        })?;
+                    member_high_water = member_high_water.max(member_bytes.min(member.size));
+                    observer(SyncEvent::Transfer {
+                        component,
+                        asset_name: member.asset_name.clone(),
+                        attempt,
+                        max_attempts: MAX_ATTEMPTS,
+                        mode,
+                        member_bytes: member_high_water,
+                        member_total: member.size,
+                        invocation_downloaded_bytes: total_downloaded,
+                        invocation_resumed_bytes: invocation_resumed,
+                    });
+                    while member_downloaded >= next_progress {
+                        next_progress = next_progress.saturating_add(progress_interval);
+                    }
+                }
+                Ok(())
+            };
+            match self.obtain_member_once(member, contract, client, &mut progress) {
+                Ok(mut transfer) => {
+                    let resumed = if transfer.mode == SyncTransferMode::Resume {
+                        invocation_prefix
+                    } else {
+                        0
+                    };
+                    transfer.downloaded = transfer
+                        .downloaded
+                        .checked_add(downloaded)
+                        .ok_or_else(|| download_error("download byte counter overflow"))?;
+                    transfer.resumed = resumed;
+                    observer(SyncEvent::Transfer {
+                        component,
+                        asset_name: member.asset_name.clone(),
+                        attempt,
+                        max_attempts: MAX_ATTEMPTS,
+                        mode: transfer.mode,
+                        member_bytes: member.size,
+                        member_total: member.size,
+                        invocation_downloaded_bytes: invocation_downloaded
+                            .checked_add(transfer.downloaded)
+                            .ok_or_else(|| download_error("download byte counter overflow"))?,
+                        invocation_resumed_bytes: invocation_resumed
+                            .checked_add(resumed)
+                            .ok_or_else(|| download_error("resume byte counter overflow"))?,
+                    });
+                    return Ok(transfer);
+                }
+                Err(failure) => {
+                    downloaded = downloaded
+                        .checked_add(failure.received)
+                        .ok_or_else(|| download_error("download byte counter overflow"))?;
+                    let Some(reason) = failure.retry else {
+                        return Err(failure.error);
+                    };
+                    if attempt == MAX_ATTEMPTS {
+                        return Err(failure.error);
+                    }
+                    let delay_seconds = 1_u64 << (attempt - 1);
+                    observer(SyncEvent::Retry {
+                        component,
+                        asset_name: member.asset_name.clone(),
+                        failed_attempt: attempt,
+                        next_attempt: attempt + 1,
+                        max_attempts: MAX_ATTEMPTS,
+                        reason,
+                        delay_seconds,
+                    });
+                    sleeper.sleep(delay_seconds);
+                }
+            }
+        }
+        unreachable!("four-attempt loop always returns")
+    }
+
+    fn obtain_member_once(
+        &self,
+        member: &ProfileMember,
+        contract: SyncContract<'_>,
+        client: &dyn TransportClient,
+        progress: &mut dyn FnMut(SyncTransferMode, u64, u64) -> Result<(), AttemptFailure>,
+    ) -> Result<MemberTransfer, AttemptFailure> {
         validate_component(&member.asset_name)?;
         let completed = member.asset_name.as_str();
         if complete_member_size(self.members_dir()?, completed)? == Some(member.size) {
-            return Ok(MemberTransfer::default());
+            return Ok(MemberTransfer {
+                downloaded: 0,
+                resumed: 0,
+                mode: SyncTransferMode::Cached,
+            });
         }
         if entry_exists(self.members_dir()?, completed)? {
             remove_regular_file(self.members_dir()?, completed)?;
@@ -1048,22 +1670,28 @@ impl Cache {
             resume.as_ref().map(|state| state.record.etag.as_str()),
             contract,
         )?;
+        validate_common_response(&response)?;
+        if retryable_status(response.status) {
+            return Err(AttemptFailure::retry(
+                download_error("asset server returned a transient status"),
+                SyncRetryReason::HttpStatus(response.status),
+            ));
+        }
         match (resume, response.status) {
             (Some(state), 206) => {
-                validate_common_response(&response)?;
                 if response.etag.as_deref().filter(|value| strong_etag(value))
                     != Some(state.record.etag.as_str())
                 {
-                    return Err(download_error("resumed response ETag changed"));
+                    return Err(download_error("resumed response ETag changed").into());
                 }
                 let expected_range =
                     format!("bytes {}-{}/{}", state.length, member.size - 1, member.size);
                 if response.content_range.as_deref() != Some(expected_range.as_str()) {
-                    return Err(download_error("resumed response Content-Range is invalid"));
+                    return Err(download_error("resumed response Content-Range is invalid").into());
                 }
                 let suffix = member.size - state.length;
                 if response.content_length.is_some_and(|value| value != suffix) {
-                    return Err(download_error("resumed response length is invalid"));
+                    return Err(download_error("resumed response length is invalid").into());
                 }
                 let mut file = open_partial_append(self.partial_dir()?, &partial)?;
                 let mut hasher = hash_prefix(&mut file, state.length)?;
@@ -1075,6 +1703,9 @@ impl Cache {
                     &mut hasher,
                     suffix,
                     "resumed asset",
+                    &mut |received| {
+                        progress(SyncTransferMode::Resume, state.length + received, received)
+                    },
                 )?;
                 finish_member(
                     file,
@@ -1091,9 +1722,10 @@ impl Cache {
                 Ok(MemberTransfer {
                     downloaded: received,
                     resumed: state.length,
+                    mode: SyncTransferMode::Resume,
                 })
             }
-            (Some(_), 200) => self.stream_fresh_response(
+            (Some(state), 200) => self.stream_fresh_response(
                 member,
                 contract.profile_digest,
                 response,
@@ -1102,7 +1734,9 @@ impl Cache {
                     partial: partial.as_str(),
                     sidecar: sidecar.as_str(),
                     preserve: true,
+                    retained: state.length,
                 },
+                progress,
             ),
             (None, 200) => self.stream_fresh_response(
                 member,
@@ -1113,11 +1747,13 @@ impl Cache {
                     partial: partial.as_str(),
                     sidecar: sidecar.as_str(),
                     preserve: false,
+                    retained: 0,
                 },
+                progress,
             ),
-            (_, 416) => Err(download_error("asset server rejected resume range")),
-            (_, 206) => Err(download_error("unexpected partial asset response")),
-            _ => Err(download_error("asset server returned an unexpected status")),
+            (_, 416) => Err(download_error("asset server rejected resume range").into()),
+            (_, 206) => Err(download_error("unexpected partial asset response").into()),
+            _ => Err(download_error("asset server returned an unexpected status").into()),
         }
     }
 
@@ -1128,7 +1764,8 @@ impl Cache {
         mut response: Response,
         completed: &str,
         existing: ExistingPartial<'_>,
-    ) -> Result<MemberTransfer, AssetError> {
+        progress: &mut dyn FnMut(SyncTransferMode, u64, u64) -> Result<(), AttemptFailure>,
+    ) -> Result<MemberTransfer, AttemptFailure> {
         validate_common_response(&response)?;
         let etag = response
             .etag
@@ -1139,7 +1776,7 @@ impl Cache {
             .content_length
             .is_some_and(|value| value != member.size)
         {
-            return Err(download_error("fresh response length is invalid"));
+            return Err(download_error("fresh response length is invalid").into());
         }
         let fresh = if existing.preserve {
             format!("{}.fresh", member.asset_name)
@@ -1172,6 +1809,17 @@ impl Cache {
             &mut hasher,
             member.size,
             "fresh asset",
+            &mut |received| {
+                progress(
+                    if existing.preserve {
+                        SyncTransferMode::Restart
+                    } else {
+                        SyncTransferMode::Fresh
+                    },
+                    existing.retained.max(received),
+                    received,
+                )
+            },
         )?;
         finish_member(
             file,
@@ -1192,6 +1840,11 @@ impl Cache {
         Ok(MemberTransfer {
             downloaded: received,
             resumed: 0,
+            mode: if existing.preserve {
+                SyncTransferMode::Restart
+            } else {
+                SyncTransferMode::Fresh
+            },
         })
     }
 
@@ -1275,10 +1928,31 @@ impl Cache {
     }
 }
 
-#[derive(Debug, Default)]
+fn emit_cached_members<'a>(
+    members: impl Iterator<Item = &'a ProfileMember>,
+    component: SyncComponent,
+    observer: &mut dyn FnMut(SyncEvent),
+) {
+    for member in members {
+        observer(SyncEvent::Transfer {
+            component,
+            asset_name: member.asset_name.clone(),
+            attempt: 0,
+            max_attempts: MAX_ATTEMPTS,
+            mode: SyncTransferMode::Cached,
+            member_bytes: member.size,
+            member_total: member.size,
+            invocation_downloaded_bytes: 0,
+            invocation_resumed_bytes: 0,
+        });
+    }
+}
+
+#[derive(Debug)]
 struct MemberTransfer {
     downloaded: u64,
     resumed: u64,
+    mode: SyncTransferMode,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1303,6 +1977,7 @@ struct ExistingPartial<'a> {
     partial: &'a str,
     sidecar: &'a str,
     preserve: bool,
+    retained: u64,
 }
 
 fn load_resume(
@@ -1383,8 +2058,8 @@ fn follow_redirects(
     range: Option<u64>,
     if_range: Option<&str>,
     contract: SyncContract<'_>,
-) -> Result<Response, AssetError> {
-    validate_url(original, contract)?;
+) -> Result<Response, AttemptFailure> {
+    validate_url(original, contract).map_err(AttemptFailure::fatal)?;
     let mut current = original.to_owned();
     for redirects in 0..=MAX_REDIRECTS {
         let response = client.execute(&Request {
@@ -1392,26 +2067,29 @@ fn follow_redirects(
             range,
             if_range: if_range.map(ToOwned::to_owned),
         })?;
+        validate_common_response(&response).map_err(AttemptFailure::fatal)?;
         if matches!(response.status, 301 | 302 | 303 | 307 | 308) {
             if redirects == MAX_REDIRECTS {
-                return Err(download_error("asset redirect limit exceeded"));
+                return Err(AttemptFailure::fatal(download_error(
+                    "asset redirect limit exceeded",
+                )));
             }
-            let location = response
-                .location
-                .as_deref()
-                .ok_or_else(|| download_error("asset redirect is missing Location"))?;
-            validate_url(location, contract)?;
+            let location = response.location.as_deref().ok_or_else(|| {
+                AttemptFailure::fatal(download_error("asset redirect is missing Location"))
+            })?;
+            validate_url(location, contract).map_err(AttemptFailure::fatal)?;
             current = location.to_owned();
             continue;
         }
         return Ok(response);
     }
-    Err(download_error("asset redirect limit exceeded"))
+    Err(AttemptFailure::fatal(download_error(
+        "asset redirect limit exceeded",
+    )))
 }
 
 fn validate_url(url: &str, contract: SyncContract<'_>) -> Result<(), AssetError> {
-    let parsed =
-        ureq::http::Uri::try_from(url).map_err(|_| download_error("asset URL is invalid"))?;
+    let parsed = http::Uri::try_from(url).map_err(|_| download_error("asset URL is invalid"))?;
     let scheme = parsed
         .scheme_str()
         .ok_or_else(|| download_error("asset URL has no scheme"))?;
@@ -1468,48 +2146,85 @@ fn strong_etag(value: &str) -> bool {
 
 fn stream_exact(
     input: &mut dyn Read,
-    output: &mut File,
+    output: &mut dyn Write,
     hasher: &mut Sha256,
     expected: u64,
     label: &str,
-) -> Result<u64, AssetError> {
+    progress: &mut dyn FnMut(u64) -> Result<(), AttemptFailure>,
+) -> Result<u64, AttemptFailure> {
     let mut remaining = expected;
+    let mut received = 0_u64;
     let mut buffer = [0_u8; BUFFER_SIZE];
     while remaining > 0 {
         let limit = usize::try_from(remaining.min(BUFFER_SIZE as u64))
-            .map_err(|_| download_error("asset size is unsupported"))?;
+            .map_err(|_| AttemptFailure::fatal(download_error("asset size is unsupported")))?;
         let count = input
             .read(&mut buffer[..limit])
-            .map_err(|error| body_read_error(error, label))?;
+            .map_err(|error| body_read_error(error, label, received))?;
         if count == 0 {
-            return Err(download_error(format!("{label} body is short")));
+            return Err(AttemptFailure {
+                error: download_error(format!("{label} body is short")),
+                retry: Some(SyncRetryReason::PrematureEof),
+                received,
+            });
         }
-        output
-            .write_all(&buffer[..count])
-            .map_err(|_| asset_io("write partial asset"))?;
+        let next_received = received.checked_add(count as u64).ok_or_else(|| {
+            AttemptFailure::fatal(download_error("download byte counter overflow"))
+        })?;
+        if fail_at!(PartialWriteError) {
+            return Err(AttemptFailure::fatal_received(
+                asset_io("write partial asset"),
+                next_received,
+            ));
+        }
+        output.write_all(&buffer[..count]).map_err(|_| {
+            AttemptFailure::fatal_received(asset_io("write partial asset"), next_received)
+        })?;
         crash_at!(PartialWrite);
         hasher.update(&buffer[..count]);
         remaining -= count as u64;
+        received = next_received;
+        progress(received)?;
     }
     let mut extra = [0_u8; 1];
-    if input
+    let extra_count = input
         .read(&mut extra)
-        .map_err(|error| body_read_error(error, label))?
-        != 0
-    {
-        return Err(download_error(format!("{label} body is long")));
+        .map_err(|error| body_read_error(error, label, received))?;
+    if extra_count != 0 {
+        let received = received.checked_add(extra_count as u64).ok_or_else(|| {
+            AttemptFailure::fatal(download_error("download byte counter overflow"))
+        })?;
+        return Err(AttemptFailure::fatal_received(
+            download_error(format!("{label} body is long")),
+            received,
+        ));
     }
     Ok(expected)
 }
 
-fn body_read_error(error: io::Error, label: &str) -> AssetError {
-    if error.kind() == io::ErrorKind::TimedOut
-        || error.to_string().to_ascii_lowercase().contains("timeout")
-    {
-        AssetError::new(AssetErrorKind::AssetTimeout, "asset body read timed out")
+fn body_read_error(error: io::Error, label: &str, received: u64) -> AttemptFailure {
+    let timed_out = error.kind() == io::ErrorKind::TimedOut
+        || error
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<reqwest::Error>())
+            .is_some_and(reqwest::Error::is_timeout);
+    if timed_out {
+        AttemptFailure {
+            error: AssetError::new(AssetErrorKind::AssetTimeout, "asset body read timed out"),
+            retry: Some(SyncRetryReason::Timeout),
+            received,
+        }
     } else {
-        download_error(format!("{label} body read failed"))
+        AttemptFailure {
+            error: download_error(format!("{label} body read failed")),
+            retry: Some(SyncRetryReason::BodyRead),
+            received,
+        }
     }
+}
+
+fn retryable_status(status: u16) -> bool {
+    matches!(status, 408 | 429 | 500 | 502 | 503 | 504)
 }
 
 fn hash_prefix(file: &mut File, length: u64) -> Result<Sha256, AssetError> {
@@ -2381,9 +3096,44 @@ mod tests {
         requests: RefCell<Vec<Request>>,
     }
 
+    struct AttemptScriptClient {
+        attempts: RefCell<VecDeque<Result<Response, AttemptFailure>>>,
+        requests: RefCell<Vec<Request>>,
+    }
+
+    impl TransportClient for AttemptScriptClient {
+        fn execute(&self, request: &Request) -> Result<Response, AttemptFailure> {
+            self.requests.borrow_mut().push(request.clone());
+            self.attempts
+                .borrow_mut()
+                .pop_front()
+                .unwrap_or_else(|| Err(AttemptFailure::fatal(download_error("unexpected request"))))
+        }
+    }
+
+    struct FailingBodyReader;
+
+    impl Read for FailingBodyReader {
+        fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("injected body read failure"))
+        }
+    }
+
     struct CountRead {
         inner: io::Cursor<Vec<u8>>,
         bytes: Arc<AtomicU64>,
+    }
+
+    struct ChunkedReader {
+        inner: io::Cursor<Vec<u8>>,
+        max: usize,
+    }
+
+    impl Read for ChunkedReader {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            let limit = buffer.len().min(self.max);
+            self.inner.read(&mut buffer[..limit])
+        }
     }
 
     impl Read for CountRead {
@@ -2404,22 +3154,22 @@ mod tests {
     }
 
     impl TransportClient for ScriptClient {
-        fn execute(&self, request: &Request) -> Result<Response, AssetError> {
+        fn execute(&self, request: &Request) -> Result<Response, AttemptFailure> {
             self.requests.borrow_mut().push(request.clone());
             self.responses
                 .borrow_mut()
                 .pop_front()
-                .ok_or_else(|| download_error("unexpected request"))
+                .ok_or_else(|| AttemptFailure::fatal(download_error("unexpected request")))
         }
     }
 
     struct TimeoutClient;
 
     impl TransportClient for TimeoutClient {
-        fn execute(&self, _request: &Request) -> Result<Response, AssetError> {
-            Err(AssetError::new(
-                AssetErrorKind::AssetTimeout,
-                "injected asset timeout",
+        fn execute(&self, _request: &Request) -> Result<Response, AttemptFailure> {
+            Err(AttemptFailure::retry(
+                AssetError::new(AssetErrorKind::AssetTimeout, "injected asset timeout"),
+                SyncRetryReason::Timeout,
             ))
         }
     }
@@ -2435,7 +3185,7 @@ mod tests {
     }
 
     impl TransportClient for BlockingClient {
-        fn execute(&self, request: &Request) -> Result<Response, AssetError> {
+        fn execute(&self, request: &Request) -> Result<Response, AttemptFailure> {
             if self.inner.requests.borrow().is_empty() {
                 let (state, ready) = &*self.gate;
                 let mut blocked = state.lock().expect("gate lock");
@@ -2469,17 +3219,20 @@ mod tests {
     }
 
     impl TransportClient for DynamicClient {
-        fn execute(&self, request: &Request) -> Result<Response, AssetError> {
+        fn execute(&self, request: &Request) -> Result<Response, AttemptFailure> {
             self.requests.borrow_mut().push(request.clone());
             let bytes = self
                 .assets
                 .iter()
                 .find(|(url, _)| url == &request.url)
                 .map(|(_, bytes)| bytes)
-                .ok_or_else(|| download_error("unexpected dynamic request"))?;
+                .ok_or_else(|| {
+                    AttemptFailure::fatal(download_error("unexpected dynamic request"))
+                })?;
             if let Some(offset) = request.range {
-                let start = usize::try_from(offset)
-                    .map_err(|_| download_error("range offset is invalid"))?;
+                let start = usize::try_from(offset).map_err(|_| {
+                    AttemptFailure::fatal(download_error("range offset is invalid"))
+                })?;
                 let mut response = response(206, bytes[start..].to_vec(), Some("\"dynamic\""));
                 response.content_range = Some(format!(
                     "bytes {offset}-{}/{}",
@@ -2722,6 +3475,162 @@ mod tests {
     }
 
     #[test]
+    fn fresh_snv_install_observer_matrix_is_exact() {
+        let temp = Temp::new();
+        let transport = fixture(&temp.0);
+        let profile = miniature_profile(&transport, "http://fixture.test");
+        let responses = profile
+            .transport
+            .members
+            .iter()
+            .map(|member| {
+                response(
+                    200,
+                    fs::read(transport.join(&member.asset_name)).expect("member bytes"),
+                    Some("\"fresh-matrix\""),
+                )
+            })
+            .collect();
+        let client = ScriptClient::new(responses);
+        let digest = format!("sha256:{}", "ba".repeat(32));
+        let mut events = Vec::new();
+        let outcome = sync_snv_observed_with(
+            &temp.0.join("data"),
+            Some(&temp.0.join("cache")),
+            false,
+            SyncContract {
+                profile: &profile,
+                profile_digest: &digest,
+                allowed_hosts: &["fixture.test"],
+                require_https: false,
+            },
+            &client,
+            &mut |event| events.push(event),
+        )
+        .expect("fresh install");
+        let total = profile
+            .transport
+            .members
+            .iter()
+            .map(|member| member.size)
+            .sum::<u64>();
+        assert_eq!(
+            (outcome.downloaded_bytes, outcome.resumed_bytes),
+            (total, 0)
+        );
+
+        let mut expected = vec![
+            SyncEvent::Phase {
+                component: SyncComponent::Snv,
+                phase: SyncPhase::Checking,
+            },
+            SyncEvent::Phase {
+                component: SyncComponent::Snv,
+                phase: SyncPhase::Downloading,
+            },
+        ];
+        let mut downloaded = 0;
+        for member in &profile.transport.members {
+            downloaded += member.size;
+            expected.push(SyncEvent::Transfer {
+                component: SyncComponent::Snv,
+                asset_name: member.asset_name.clone(),
+                attempt: 1,
+                max_attempts: 4,
+                mode: SyncTransferMode::Fresh,
+                member_bytes: member.size,
+                member_total: member.size,
+                invocation_downloaded_bytes: downloaded,
+                invocation_resumed_bytes: 0,
+            });
+        }
+        expected.extend([
+            SyncEvent::Phase {
+                component: SyncComponent::Snv,
+                phase: SyncPhase::Installing,
+            },
+            SyncEvent::Phase {
+                component: SyncComponent::Snv,
+                phase: SyncPhase::Ready,
+            },
+        ]);
+        assert_eq!(events, expected);
+    }
+
+    #[test]
+    fn snv_observer_offline_and_active_reuse_sequences_are_exact() {
+        let temp = Temp::new();
+        let transport = fixture(&temp.0);
+        let profile = miniature_profile(&transport, "http://fixture.test");
+        let digest = format!("sha256:{}", "bb".repeat(32));
+        let contract = SyncContract {
+            profile: &profile,
+            profile_digest: &digest,
+            allowed_hosts: &["fixture.test"],
+            require_https: false,
+        };
+        let mut offline_events = Vec::new();
+        let error = sync_snv_observed_with(
+            &temp.0.join("missing-data"),
+            Some(&temp.0.join("missing-cache")),
+            true,
+            contract,
+            &ScriptClient::new(vec![]),
+            &mut |event| offline_events.push(event),
+        )
+        .expect_err("offline cache is missing");
+        assert_eq!(error.kind(), AssetErrorKind::AssetsMissing);
+        assert_eq!(
+            offline_events,
+            vec![SyncEvent::Phase {
+                component: SyncComponent::Snv,
+                phase: SyncPhase::Checking,
+            }]
+        );
+
+        let data = temp.0.join("installed-data");
+        let cache = temp.0.join("installed-cache");
+        sync_with(
+            &data,
+            Some(&cache),
+            false,
+            contract,
+            &DynamicClient::new(&profile, &transport),
+        )
+        .expect("seed active installation");
+        let no_network = ScriptClient::new(vec![]);
+        let mut reuse_events = Vec::new();
+        let reused = sync_snv_observed_with(
+            &data,
+            Some(&cache),
+            true,
+            contract,
+            &no_network,
+            &mut |event| reuse_events.push(event),
+        )
+        .expect("active reuse");
+        assert_eq!(reused.status, "reused");
+        assert!(no_network.requests.borrow().is_empty());
+        assert_eq!(
+            reuse_events,
+            vec![
+                SyncEvent::Phase {
+                    component: SyncComponent::Snv,
+                    phase: SyncPhase::Checking,
+                },
+                SyncEvent::Phase {
+                    component: SyncComponent::Snv,
+                    phase: SyncPhase::Reused,
+                },
+                SyncEvent::Phase {
+                    component: SyncComponent::Snv,
+                    phase: SyncPhase::Ready,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn runtime_sync_downloads_ten_members_installs_and_reuses_cache_offline() {
         let temp = Temp::new();
         let snv_transport = fixture(&temp.0);
@@ -2777,30 +3686,26 @@ mod tests {
             .collect();
         let client = ScriptClient::new(responses);
         let cache_root = temp.0.join("runtime-cache");
-        let cache = Cache::open(
-            &cache_root,
-            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        )
-        .expect("cache");
-        let _lock = lock_and_initialize(&cache);
+        let digest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         let (_, _, snv_profile) = crate::release::production_profile().expect("SNV authority");
         let contract = SyncContract {
             profile: &snv_profile,
-            profile_digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            profile_digest: digest,
             allowed_hosts: &["runtime.test"],
             require_https: false,
         };
-        let installed = sync_runtime_cached_with_installer(
+        let mut install_events = Vec::new();
+        let installed = sync_runtime_assets_observed_with(
+            &data,
+            Some(&cache_root),
             false,
-            RuntimeSyncContext {
-                data_root: &data,
-                cache: &cache,
-                release: &release,
-                members: &members,
-                contract,
-                client: &client,
-                installer: &crate::runtime_transport::install_cached_runtime_transport_for_test,
-            },
+            digest,
+            &release,
+            &members,
+            contract,
+            &client,
+            &crate::runtime_transport::install_cached_runtime_transport_for_test,
+            &mut |event| install_events.push(event),
         )
         .expect("runtime sync");
         assert_eq!(installed.status, "installed");
@@ -2809,13 +3714,44 @@ mod tests {
             installed.downloaded_bytes,
             members.iter().map(|member| member.size).sum::<u64>()
         );
-        drop(_lock);
+        let mut expected_events = vec![
+            SyncEvent::Phase {
+                component: SyncComponent::Runtime,
+                phase: SyncPhase::Checking,
+            },
+            SyncEvent::Phase {
+                component: SyncComponent::Runtime,
+                phase: SyncPhase::Downloading,
+            },
+        ];
+        let mut downloaded = 0_u64;
+        for member in &members {
+            downloaded += member.size;
+            expected_events.push(SyncEvent::Transfer {
+                component: SyncComponent::Runtime,
+                asset_name: member.asset_name.clone(),
+                attempt: 1,
+                max_attempts: 4,
+                mode: SyncTransferMode::Fresh,
+                member_bytes: member.size,
+                member_total: member.size,
+                invocation_downloaded_bytes: downloaded,
+                invocation_resumed_bytes: 0,
+            });
+        }
+        expected_events.extend([
+            SyncEvent::Phase {
+                component: SyncComponent::Runtime,
+                phase: SyncPhase::Installing,
+            },
+            SyncEvent::Phase {
+                component: SyncComponent::Runtime,
+                phase: SyncPhase::Ready,
+            },
+        ]);
+        assert_eq!(install_events, expected_events);
 
-        let cache = Cache::open(
-            &cache_root,
-            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        )
-        .expect("cache");
+        let cache = Cache::open(&cache_root, digest).expect("cache");
         let _lock = lock_and_initialize(&cache);
         let offline_client = ScriptClient::new(vec![]);
         let reused = sync_runtime_cached_with_installer(
@@ -2829,6 +3765,7 @@ mod tests {
                 client: &offline_client,
                 installer: &crate::runtime_transport::install_cached_runtime_transport_for_test,
             },
+            None,
         )
         .expect("offline reuse");
         assert_eq!(reused.status, "reused");
@@ -2860,6 +3797,7 @@ mod tests {
                 client: &offline_client,
                 installer: &crate::runtime_transport::install_cached_runtime_transport_for_test,
             },
+            None,
         )
         .expect_err("corrupt cached member");
         assert_eq!(error.kind(), AssetErrorKind::TransportHashMismatch);
@@ -2886,6 +3824,7 @@ mod tests {
                 client: &retry_client,
                 installer: &crate::runtime_transport::install_cached_runtime_transport_for_test,
             },
+            None,
         )
         .expect("single-member retry");
         assert_eq!(retry.status, "installed");
@@ -3157,11 +4096,7 @@ mod tests {
                 server_served.fetch_add(1, Ordering::Relaxed);
             }
         });
-        let client = UreqClient::with_timeouts(
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-        );
+        let client = ReqwestClient::with_timeouts(Duration::from_secs(1), Duration::from_secs(1));
         let outcome = sync_with(
             &temp.0.join("data"),
             Some(&temp.0.join("cache")),
@@ -3181,6 +4116,492 @@ mod tests {
         assert_eq!(served.load(Ordering::Relaxed), 4);
         let (_, opened) = open_active_bundle(&temp.0.join("data")).expect("active fixture");
         assert_eq!(opened.bundle_id(), profile.bundle.bundle_id);
+    }
+
+    #[test]
+    fn observed_transient_status_retries_then_reports_exact_committed_counters() {
+        let temp = Temp::new();
+        let transport = fixture(&temp.0);
+        let mut profile = miniature_profile(&transport, "http://fixture.test");
+        profile.transport.members.truncate(1);
+        let member = &profile.transport.members[0];
+        let bytes = fs::read(transport.join(&member.asset_name)).expect("member bytes");
+        let client = ScriptClient::new(vec![
+            response(503, Vec::new(), None),
+            response(200, bytes.clone(), Some("\"retry\"")),
+        ]);
+        let mut events = Vec::new();
+        let digest = "sha256:abababababababababababababababababababababababababababababababab";
+        let cache = Cache::open(&temp.0.join("cache"), digest).expect("cache");
+        let _lock = lock_and_initialize(&cache);
+        let outcome = cache
+            .obtain_member_observed(
+                member,
+                SyncContract {
+                    profile: &profile,
+                    profile_digest: digest,
+                    allowed_hosts: &["fixture.test"],
+                    require_https: false,
+                },
+                &client,
+                SyncComponent::Snv,
+                0,
+                0,
+                &mut |event| events.push(event),
+            )
+            .expect("retry succeeds");
+        assert_eq!(outcome.downloaded, member.size);
+        assert_eq!(outcome.resumed, 0);
+        assert_eq!(client.requests.borrow().len(), 2);
+        assert_eq!(
+            events,
+            vec![
+                SyncEvent::Retry {
+                    component: SyncComponent::Snv,
+                    asset_name: member.asset_name.clone(),
+                    failed_attempt: 1,
+                    next_attempt: 2,
+                    max_attempts: 4,
+                    reason: SyncRetryReason::HttpStatus(503),
+                    delay_seconds: 1,
+                },
+                SyncEvent::Transfer {
+                    component: SyncComponent::Snv,
+                    asset_name: member.asset_name.clone(),
+                    attempt: 2,
+                    max_attempts: 4,
+                    mode: SyncTransferMode::Fresh,
+                    member_bytes: member.size,
+                    member_total: member.size,
+                    invocation_downloaded_bytes: member.size,
+                    invocation_resumed_bytes: 0,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn connect_request_and_body_read_retry_classification_is_exact() {
+        for (ordinal, reason) in [
+            SyncRetryReason::Connect,
+            SyncRetryReason::Request,
+            SyncRetryReason::BodyRead,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let temp = Temp::new();
+            let transport = fixture(&temp.0);
+            let mut profile = miniature_profile(&transport, "http://fixture.test");
+            profile.transport.members.truncate(1);
+            let member = &profile.transport.members[0];
+            let bytes = fs::read(transport.join(&member.asset_name)).expect("member bytes");
+            let first = if reason == SyncRetryReason::BodyRead {
+                Ok(Response {
+                    status: 200,
+                    location: None,
+                    etag: Some("\"body-read\"".to_owned()),
+                    content_length: Some(member.size),
+                    content_range: None,
+                    content_encoding: None,
+                    body: Box::new(FailingBodyReader),
+                })
+            } else {
+                Err(AttemptFailure::retry(
+                    download_error("injected request failure"),
+                    reason,
+                ))
+            };
+            let client = AttemptScriptClient {
+                attempts: RefCell::new(
+                    vec![first, Ok(response(200, bytes, Some("\"retry-success\"")))].into(),
+                ),
+                requests: RefCell::new(Vec::new()),
+            };
+            let digest = format!("sha256:{:064x}", 0xc0 + ordinal);
+            let cache = Cache::open(&temp.0.join("cache"), &digest).expect("cache");
+            let _lock = lock_and_initialize(&cache);
+            let mut events = Vec::new();
+            let transfer = cache
+                .obtain_member_observed(
+                    member,
+                    SyncContract {
+                        profile: &profile,
+                        profile_digest: &digest,
+                        allowed_hosts: &["fixture.test"],
+                        require_https: false,
+                    },
+                    &client,
+                    SyncComponent::Snv,
+                    0,
+                    0,
+                    &mut |event| events.push(event),
+                )
+                .expect("retry succeeds");
+            assert_eq!(client.requests.borrow().len(), 2);
+            assert_eq!(transfer.mode, SyncTransferMode::Fresh);
+            assert_eq!(
+                events,
+                vec![
+                    SyncEvent::Retry {
+                        component: SyncComponent::Snv,
+                        asset_name: member.asset_name.clone(),
+                        failed_attempt: 1,
+                        next_attempt: 2,
+                        max_attempts: 4,
+                        reason,
+                        delay_seconds: 1,
+                    },
+                    SyncEvent::Transfer {
+                        component: SyncComponent::Snv,
+                        asset_name: member.asset_name.clone(),
+                        attempt: 2,
+                        max_attempts: 4,
+                        mode: SyncTransferMode::Fresh,
+                        member_bytes: member.size,
+                        member_total: member.size,
+                        invocation_downloaded_bytes: member.size,
+                        invocation_resumed_bytes: 0,
+                    },
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_invocation_prefix_is_not_credited_when_retry_resumes_new_bytes() {
+        let temp = Temp::new();
+        let transport = fixture(&temp.0);
+        let mut profile = miniature_profile(&transport, "http://fixture.test");
+        profile.transport.members.truncate(1);
+        let member = &profile.transport.members[0];
+        let bytes = fs::read(transport.join(&member.asset_name)).expect("member bytes");
+        let split = bytes.len() / 3;
+        let digest = format!("sha256:{}", "ad".repeat(32));
+        let cache = Cache::open(&temp.0.join("cache"), &digest).expect("cache");
+        let _lock = lock_and_initialize(&cache);
+        write_private(
+            &cache.partial.join(format!("{}.partial", member.asset_name)),
+            b"untrusted-prefix-without-sidecar",
+        );
+
+        let mut short = response(200, bytes[..split].to_vec(), Some("\"stable\""));
+        short.content_length = None;
+        let mut resumed = response(206, bytes[split..].to_vec(), Some("\"stable\""));
+        resumed.content_range = Some(format!("bytes {split}-{}/{}", member.size - 1, member.size));
+        let client = ScriptClient::new(vec![short, resumed]);
+        let mut events = Vec::new();
+        let outcome = cache
+            .obtain_member_observed(
+                member,
+                SyncContract {
+                    profile: &profile,
+                    profile_digest: &digest,
+                    allowed_hosts: &["fixture.test"],
+                    require_https: false,
+                },
+                &client,
+                SyncComponent::Snv,
+                0,
+                0,
+                &mut |event| events.push(event),
+            )
+            .expect("retry resumes bytes created by this invocation");
+
+        assert_eq!(outcome.downloaded, member.size);
+        assert_eq!(outcome.resumed, 0);
+        assert_eq!(outcome.mode, SyncTransferMode::Resume);
+        assert_eq!(client.requests.borrow()[0].range, None);
+        assert_eq!(client.requests.borrow()[1].range, Some(split as u64));
+        assert_eq!(
+            events,
+            vec![
+                SyncEvent::Retry {
+                    component: SyncComponent::Snv,
+                    asset_name: member.asset_name.clone(),
+                    failed_attempt: 1,
+                    next_attempt: 2,
+                    max_attempts: 4,
+                    reason: SyncRetryReason::PrematureEof,
+                    delay_seconds: 1,
+                },
+                SyncEvent::Transfer {
+                    component: SyncComponent::Snv,
+                    asset_name: member.asset_name.clone(),
+                    attempt: 2,
+                    max_attempts: 4,
+                    mode: SyncTransferMode::Resume,
+                    member_bytes: member.size,
+                    member_total: member.size,
+                    invocation_downloaded_bytes: member.size,
+                    invocation_resumed_bytes: 0,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn restart_progress_never_falls_below_the_valid_invocation_prefix() {
+        let temp = Temp::new();
+        let transport = fixture(&temp.0);
+        let mut profile = miniature_profile(&transport, "http://fixture.test");
+        profile.transport.members.truncate(1);
+        let member = &profile.transport.members[0];
+        let bytes = fs::read(transport.join(&member.asset_name)).expect("member bytes");
+        let offset = bytes.len() * 3 / 4;
+        let digest = format!("sha256:{}", "ae".repeat(32));
+        let cache = Cache::open(&temp.0.join("cache"), &digest).expect("cache");
+        let _lock = lock_and_initialize(&cache);
+        seed_resume(&cache, member, &digest, &bytes, offset, "\"old\"");
+        let client = ScriptClient::new(vec![Response {
+            status: 200,
+            location: None,
+            etag: Some("\"replacement\"".to_owned()),
+            content_length: Some(member.size),
+            content_range: None,
+            content_encoding: None,
+            body: Box::new(ChunkedReader {
+                inner: io::Cursor::new(bytes.clone()),
+                max: 1,
+            }),
+        }]);
+        let mut events = Vec::new();
+        let outcome = cache
+            .obtain_member_observed_with_sleeper(
+                member,
+                SyncContract {
+                    profile: &profile,
+                    profile_digest: &digest,
+                    allowed_hosts: &["fixture.test"],
+                    require_https: false,
+                },
+                &client,
+                SyncComponent::Snv,
+                0,
+                0,
+                &mut |event| events.push(event),
+                &NoopSleeper,
+                1,
+            )
+            .expect("server-forced restart");
+
+        assert_eq!(outcome.mode, SyncTransferMode::Restart);
+        assert_eq!((outcome.downloaded, outcome.resumed), (member.size, 0));
+        let mut expected = (1..=member.size)
+            .map(|received| SyncEvent::Transfer {
+                component: SyncComponent::Snv,
+                asset_name: member.asset_name.clone(),
+                attempt: 1,
+                max_attempts: 4,
+                mode: SyncTransferMode::Restart,
+                member_bytes: (offset as u64).max(received),
+                member_total: member.size,
+                invocation_downloaded_bytes: received,
+                invocation_resumed_bytes: 0,
+            })
+            .collect::<Vec<_>>();
+        expected.push(SyncEvent::Transfer {
+            component: SyncComponent::Snv,
+            asset_name: member.asset_name.clone(),
+            attempt: 1,
+            max_attempts: 4,
+            mode: SyncTransferMode::Restart,
+            member_bytes: member.size,
+            member_total: member.size,
+            invocation_downloaded_bytes: member.size,
+            invocation_resumed_bytes: 0,
+        });
+        assert_eq!(events, expected);
+    }
+
+    #[test]
+    fn encoded_transient_status_is_fatal_without_retry() {
+        let temp = Temp::new();
+        let transport = fixture(&temp.0);
+        let mut profile = miniature_profile(&transport, "http://fixture.test");
+        profile.transport.members.truncate(1);
+        let member = &profile.transport.members[0];
+        let digest = format!("sha256:{}", "af".repeat(32));
+        let cache = Cache::open(&temp.0.join("cache"), &digest).expect("cache");
+        let _lock = lock_and_initialize(&cache);
+        let mut encoded = response(503, Vec::new(), None);
+        encoded.content_encoding = Some("gzip".to_owned());
+        let client = ScriptClient::new(vec![encoded]);
+        let error = cache
+            .obtain_member(
+                member,
+                SyncContract {
+                    profile: &profile,
+                    profile_digest: &digest,
+                    allowed_hosts: &["fixture.test"],
+                    require_https: false,
+                },
+                &client,
+            )
+            .expect_err("encoded response is a fatal protocol violation");
+        assert_eq!(error.kind(), AssetErrorKind::AssetDownload);
+        assert_eq!(client.requests.borrow().len(), 1);
+    }
+
+    #[test]
+    fn every_selected_transient_http_status_retries() {
+        for status in [408, 429, 500, 502, 503, 504] {
+            let temp = Temp::new();
+            let transport = fixture(&temp.0);
+            let mut profile = miniature_profile(&transport, "http://fixture.test");
+            profile.transport.members.truncate(1);
+            let member = &profile.transport.members[0];
+            let bytes = fs::read(transport.join(&member.asset_name)).expect("member bytes");
+            let digest = format!("sha256:{status:064x}");
+            let cache = Cache::open(&temp.0.join("cache"), &digest).expect("cache");
+            let _lock = lock_and_initialize(&cache);
+            let client = ScriptClient::new(vec![
+                response(status, Vec::new(), None),
+                response(200, bytes, Some("\"retry\"")),
+            ]);
+            cache
+                .obtain_member(
+                    member,
+                    SyncContract {
+                        profile: &profile,
+                        profile_digest: &digest,
+                        allowed_hosts: &["fixture.test"],
+                        require_https: false,
+                    },
+                    &client,
+                )
+                .expect("selected status retries");
+            assert_eq!(client.requests.borrow().len(), 2, "status {status}");
+        }
+    }
+
+    #[test]
+    fn stream_accounting_includes_overlong_and_failed_write_bytes() {
+        struct FailingWriter;
+        impl Write for FailingWriter {
+            fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+                Err(io::Error::other("injected write failure"))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut long_input = io::Cursor::new(b"abc".to_vec());
+        let mut output = Vec::new();
+        let long = stream_exact(
+            &mut long_input,
+            &mut output,
+            &mut Sha256::new(),
+            2,
+            "test",
+            &mut |_| Ok(()),
+        )
+        .expect_err("overlong body");
+        assert_eq!(long.received, 3);
+
+        let mut input = io::Cursor::new(b"abc".to_vec());
+        let failed = stream_exact(
+            &mut input,
+            &mut FailingWriter,
+            &mut Sha256::new(),
+            3,
+            "test",
+            &mut |_| Ok(()),
+        )
+        .expect_err("disk write failure");
+        assert_eq!(failed.received, 3);
+        assert_eq!(failed.kind(), AssetErrorKind::AssetIo);
+    }
+
+    #[test]
+    fn local_write_failure_is_fatal_after_exactly_one_request() {
+        let temp = Temp::new();
+        let transport = fixture(&temp.0);
+        let mut profile = miniature_profile(&transport, "http://fixture.test");
+        profile.transport.members.truncate(1);
+        let member = &profile.transport.members[0];
+        let bytes = fs::read(transport.join(&member.asset_name)).expect("member bytes");
+        let digest = format!("sha256:{}", "cf".repeat(32));
+        let cache = Cache::open(&temp.0.join("cache"), &digest).expect("cache");
+        let _lock = lock_and_initialize(&cache);
+        let client = ScriptClient::new(vec![response(200, bytes, Some("\"write\""))]);
+        let mut events = Vec::new();
+        sync_audit::set(sync_audit::FaultPoint::PartialWriteError);
+        let error = cache
+            .obtain_member_observed(
+                member,
+                SyncContract {
+                    profile: &profile,
+                    profile_digest: &digest,
+                    allowed_hosts: &["fixture.test"],
+                    require_https: false,
+                },
+                &client,
+                SyncComponent::Snv,
+                0,
+                0,
+                &mut |event| events.push(event),
+            )
+            .expect_err("injected write failure");
+        assert_eq!(error.kind(), AssetErrorKind::AssetIo);
+        assert_eq!(client.requests.borrow().len(), 1);
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn retry_exhaustion_uses_injected_one_two_four_second_schedule() {
+        struct RecordingSleeper(RefCell<Vec<u64>>);
+        impl RetrySleeper for RecordingSleeper {
+            fn sleep(&self, seconds: u64) {
+                self.0.borrow_mut().push(seconds);
+            }
+        }
+
+        let temp = Temp::new();
+        let transport = fixture(&temp.0);
+        let mut profile = miniature_profile(&transport, "http://fixture.test");
+        profile.transport.members.truncate(1);
+        let member = &profile.transport.members[0];
+        let digest = format!("sha256:{}", "ac".repeat(32));
+        let cache = Cache::open(&temp.0.join("cache"), &digest).expect("cache");
+        let _lock = lock_and_initialize(&cache);
+        let sleeper = RecordingSleeper(RefCell::new(Vec::new()));
+        let mut events = Vec::new();
+        let error = cache
+            .obtain_member_observed_with_sleeper(
+                member,
+                SyncContract {
+                    profile: &profile,
+                    profile_digest: &digest,
+                    allowed_hosts: &["fixture.test"],
+                    require_https: false,
+                },
+                &TimeoutClient,
+                SyncComponent::Snv,
+                0,
+                0,
+                &mut |event| events.push(event),
+                &sleeper,
+                PROGRESS_INTERVAL,
+            )
+            .expect_err("four timeouts exhaust");
+        assert_eq!(error.kind(), AssetErrorKind::AssetTimeout);
+        assert_eq!(*sleeper.0.borrow(), vec![1, 2, 4]);
+        assert_eq!(
+            events,
+            (1_u8..=3)
+                .map(|failed_attempt| SyncEvent::Retry {
+                    component: SyncComponent::Snv,
+                    asset_name: member.asset_name.clone(),
+                    failed_attempt,
+                    next_attempt: failed_attempt + 1,
+                    max_attempts: 4,
+                    reason: SyncRetryReason::Timeout,
+                    delay_seconds: 1_u64 << (failed_attempt - 1),
+                })
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -3237,8 +4658,17 @@ mod tests {
             allowed_hosts: &["fixture.test"],
             require_https: false,
         };
+        let mut resume_events = Vec::new();
         let transferred = cache
-            .obtain_member(member, contract, &client)
+            .obtain_member_observed(
+                member,
+                contract,
+                &client,
+                SyncComponent::Snv,
+                11,
+                5,
+                &mut |event| resume_events.push(event),
+            )
             .expect("resume");
         assert_eq!(transferred.resumed, offset);
         assert_eq!(transferred.downloaded, member.size - offset);
@@ -3248,6 +4678,50 @@ mod tests {
         assert_eq!(
             fs::read(cache.members.join(&member.asset_name)).expect("complete"),
             bytes
+        );
+        assert_eq!(
+            resume_events,
+            vec![SyncEvent::Transfer {
+                component: SyncComponent::Snv,
+                asset_name: member.asset_name.clone(),
+                attempt: 1,
+                max_attempts: 4,
+                mode: SyncTransferMode::Resume,
+                member_bytes: member.size,
+                member_total: member.size,
+                invocation_downloaded_bytes: 11 + member.size - offset,
+                invocation_resumed_bytes: 5 + offset,
+            }]
+        );
+        let no_network = ScriptClient::new(vec![]);
+        let mut cached_events = Vec::new();
+        let cached = cache
+            .obtain_member_observed(
+                member,
+                contract,
+                &no_network,
+                SyncComponent::Snv,
+                9,
+                7,
+                &mut |event| cached_events.push(event),
+            )
+            .expect("already complete member");
+        assert_eq!((cached.downloaded, cached.resumed), (0, 0));
+        assert_eq!(cached.mode, SyncTransferMode::Cached);
+        assert!(no_network.requests.borrow().is_empty());
+        assert_eq!(
+            cached_events,
+            vec![SyncEvent::Transfer {
+                component: SyncComponent::Snv,
+                asset_name: member.asset_name.clone(),
+                attempt: 0,
+                max_attempts: 4,
+                mode: SyncTransferMode::Cached,
+                member_bytes: member.size,
+                member_total: member.size,
+                invocation_downloaded_bytes: 9,
+                invocation_resumed_bytes: 7,
+            }]
         );
     }
 
@@ -3403,6 +4877,11 @@ mod tests {
                 require_https: false,
             };
             assert!(cache.obtain_member(member, contract, &client).is_err());
+            assert_eq!(
+                client.requests.borrow().len(),
+                if ordinal == 2 { 2 } else { 1 },
+                "wire case {ordinal}"
+            );
             assert!(!cache.members.join(&member.asset_name).exists());
         }
 
@@ -3430,6 +4909,7 @@ mod tests {
                 .kind(),
             AssetErrorKind::AssetDownload
         );
+        assert_eq!(client.requests.borrow().len(), 1);
         assert!(!cache.members.join(&member.asset_name).exists());
     }
 
@@ -3453,10 +4933,12 @@ mod tests {
         let _fresh_lock = lock_and_initialize(&fresh_cache);
         let mut fresh = response(200, bytes.clone(), Some("\"length\""));
         fresh.content_length = Some(member.size - 1);
+        let fresh_client = ScriptClient::new(vec![fresh]);
         let fresh_error = fresh_cache
-            .obtain_member(member, contract, &ScriptClient::new(vec![fresh]))
+            .obtain_member(member, contract, &fresh_client)
             .expect_err("wrong fresh Content-Length");
         assert_eq!(fresh_error.kind(), AssetErrorKind::AssetDownload);
+        assert_eq!(fresh_client.requests.borrow().len(), 1);
         assert!(!fresh_cache.members.join(&member.asset_name).exists());
         assert!(
             !fresh_cache
@@ -3484,10 +4966,12 @@ mod tests {
             member.size - 1,
             member.size
         ));
+        let resumed_client = ScriptClient::new(vec![resumed]);
         let resume_error = resumed_cache
-            .obtain_member(member, contract, &ScriptClient::new(vec![resumed]))
+            .obtain_member(member, contract, &resumed_client)
             .expect_err("wrong resumed Content-Length");
         assert_eq!(resume_error.kind(), AssetErrorKind::AssetDownload);
+        assert_eq!(resumed_client.requests.borrow().len(), 1);
         assert_eq!(
             fs::read(
                 resumed_cache
@@ -3710,6 +5194,11 @@ mod tests {
                 error.kind(),
                 AssetErrorKind::AssetDownload,
                 "case {ordinal}"
+            );
+            assert_eq!(
+                client.requests.borrow().len(),
+                1,
+                "non-retryable resume case {ordinal}"
             );
             assert_eq!(
                 fs::read(cache.partial.join(format!("{}.partial", member.asset_name)))
@@ -3974,15 +5463,11 @@ mod tests {
             allowed_hosts: &["fixture.test"],
             require_https: false,
         };
-        let cache_error = sync_with(
-            &data,
-            Some(&bad_cache),
-            true,
-            contract,
-            &ScriptClient::new(vec![]),
-        )
-        .expect_err("nonmatching active must exercise cache failure");
+        let cache_client = ScriptClient::new(vec![]);
+        let cache_error = sync_with(&data, Some(&bad_cache), true, contract, &cache_client)
+            .expect_err("nonmatching active must exercise cache failure");
         assert_eq!(cache_error.kind(), AssetErrorKind::AssetStateInvalid);
+        assert!(cache_client.requests.borrow().is_empty());
         let (after_cache_error, _) = open_active_bundle(&data).expect("active after cache error");
         assert_eq!(after_cache_error, before);
 
@@ -4009,21 +5494,46 @@ mod tests {
         let outside = temp.0.join("outside-install-lock");
         write_private(&outside, b"outside");
         std::os::unix::fs::symlink(&outside, &install_lock).expect("hostile install lock");
-        let data_error = sync_with(
-            &data,
-            Some(&cache_root),
-            true,
-            contract,
-            &ScriptClient::new(vec![]),
-        )
-        .expect_err("same-root install-lock failure");
+        let install_client = ScriptClient::new(vec![]);
+        let data_error = sync_with(&data, Some(&cache_root), true, contract, &install_client)
+            .expect_err("same-root install-lock failure");
         assert_eq!(data_error.kind(), AssetErrorKind::AssetStateInvalid);
+        assert!(install_client.requests.borrow().is_empty());
         let (after_data_error, _) = open_active_bundle(&data).expect("active after data error");
         assert_eq!(after_data_error, before);
         assert_eq!(
             fs::read(&outside).expect("outside lock unchanged"),
             b"outside"
         );
+
+        let online_data = temp.0.join("online-install-failure");
+        install_transport(&alternate, &online_data).expect("online prior install");
+        let online_lock = online_data.join(".install.lock");
+        fs::remove_file(&online_lock).expect("remove online install lock");
+        std::os::unix::fs::symlink(&outside, &online_lock).expect("hostile online install lock");
+        let online_client = DynamicClient::new(&profile, &transport);
+        let online_error = sync_with(
+            &online_data,
+            Some(&temp.0.join("online-cache")),
+            false,
+            contract,
+            &online_client,
+        )
+        .expect_err("install failure after one download per member");
+        assert_eq!(online_error.kind(), AssetErrorKind::AssetStateInvalid);
+        let requests = online_client.requests.borrow();
+        assert_eq!(requests.len(), profile.transport.members.len());
+        for member in &profile.transport.members {
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|request| request.url == member.url)
+                    .count(),
+                1,
+                "{} downloaded once before install failure",
+                member.asset_name
+            );
+        }
     }
 
     #[test]
@@ -4195,6 +5705,80 @@ mod tests {
     }
 
     #[test]
+    fn invalid_urls_make_zero_requests_and_invalid_redirects_make_one() {
+        let temp = Temp::new();
+        let transport = fixture(&temp.0);
+        for (ordinal, url) in [
+            "ftp://fixture.test/member",
+            "http://evil.test/member",
+            "http://user@fixture.test/member",
+            "http://fixture.test/member#fragment",
+            "/relative",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut profile = miniature_profile(&transport, "http://fixture.test");
+            profile.transport.members.truncate(1);
+            profile.transport.members[0].url = url.to_owned();
+            let member = &profile.transport.members[0];
+            let digest = format!("sha256:{:064x}", 0xd0 + ordinal);
+            let cache =
+                Cache::open(&temp.0.join(format!("url-{ordinal}")), &digest).expect("cache");
+            let _lock = lock_and_initialize(&cache);
+            let client = ScriptClient::new(vec![]);
+            cache
+                .obtain_member(
+                    member,
+                    SyncContract {
+                        profile: &profile,
+                        profile_digest: &digest,
+                        allowed_hosts: &["fixture.test"],
+                        require_https: false,
+                    },
+                    &client,
+                )
+                .expect_err("invalid URL");
+            assert!(client.requests.borrow().is_empty(), "URL case {ordinal}");
+        }
+
+        for (ordinal, location) in [None, Some("http://evil.test/member")]
+            .into_iter()
+            .enumerate()
+        {
+            let mut profile = miniature_profile(&transport, "http://fixture.test");
+            profile.transport.members.truncate(1);
+            let member = &profile.transport.members[0];
+            let digest = format!("sha256:{:064x}", 0xe0 + ordinal);
+            let cache =
+                Cache::open(&temp.0.join(format!("redirect-{ordinal}")), &digest).expect("cache");
+            let _lock = lock_and_initialize(&cache);
+            let client = ScriptClient::new(vec![Response {
+                status: 302,
+                location: location.map(ToOwned::to_owned),
+                etag: None,
+                content_length: Some(0),
+                content_range: None,
+                content_encoding: None,
+                body: Box::new(io::empty()),
+            }]);
+            cache
+                .obtain_member(
+                    member,
+                    SyncContract {
+                        profile: &profile,
+                        profile_digest: &digest,
+                        allowed_hosts: &["fixture.test"],
+                        require_https: false,
+                    },
+                    &client,
+                )
+                .expect_err("invalid redirect");
+            assert_eq!(client.requests.borrow().len(), 1, "redirect {ordinal}");
+        }
+    }
+
+    #[test]
     fn hostile_cache_shapes_and_oversized_resume_metadata_fail_or_discard_safely() {
         let temp = Temp::new();
         let target = temp.0.join("target");
@@ -4267,6 +5851,59 @@ mod tests {
     }
 
     #[test]
+    fn replacement_resets_read_guard_while_legacy_header_timer_carries_forward() {
+        fn server(listener: TcpListener) -> thread::JoinHandle<()> {
+            thread::spawn(move || {
+                for _ in 0..2 {
+                    let (mut stream, _) = listener.accept().expect("accept streaming request");
+                    let mut request = [0_u8; 1024];
+                    let _ = stream.read(&mut request).expect("read request");
+                    stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nETag: \"slow\"\r\nConnection: close\r\n\r\n").expect("headers");
+                    for byte in b"data" {
+                        if stream.write_all(&[*byte]).is_err() || stream.flush().is_err() {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                }
+            })
+        }
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind streaming server");
+        let address = listener.local_addr().expect("streaming address");
+        let server = server(listener);
+        let request = Request {
+            url: format!("http://{address}/asset"),
+            range: None,
+            if_range: None,
+        };
+
+        let legacy = UreqClient::with_timeouts(
+            Duration::from_millis(25),
+            Duration::from_millis(25),
+            Duration::from_millis(100),
+        );
+        let mut legacy_response = legacy.execute(&request).expect("legacy headers");
+        let mut legacy_bytes = Vec::new();
+        let legacy_error = legacy_response
+            .body
+            .read_to_end(&mut legacy_bytes)
+            .expect_err("legacy timer carries into body");
+        assert!(legacy_error.kind() == io::ErrorKind::TimedOut || legacy_error.get_ref().is_some());
+
+        let replacement =
+            ReqwestClient::with_timeouts(Duration::from_millis(25), Duration::from_millis(25));
+        let mut replacement_response = replacement.execute(&request).expect("replacement headers");
+        let mut replacement_bytes = Vec::new();
+        replacement_response
+            .body
+            .read_to_end(&mut replacement_bytes)
+            .expect("progress resets read guard");
+        assert_eq!(replacement_bytes, b"data");
+        server.join().expect("streaming server");
+    }
+
+    #[test]
     fn real_client_bounds_header_and_body_stalls() {
         let header_listener = TcpListener::bind("127.0.0.1:0").expect("bind header server");
         let header_address = header_listener.local_addr().expect("header address");
@@ -4274,11 +5911,8 @@ mod tests {
             let (_stream, _) = header_listener.accept().expect("accept header");
             thread::sleep(Duration::from_millis(80));
         });
-        let client = UreqClient::with_timeouts(
-            Duration::from_millis(25),
-            Duration::from_millis(25),
-            Duration::from_millis(25),
-        );
+        let client =
+            ReqwestClient::with_timeouts(Duration::from_millis(25), Duration::from_millis(25));
         let error = match client.execute(&Request {
             url: format!("http://{header_address}/asset"),
             range: None,
@@ -4312,8 +5946,15 @@ mod tests {
         let output_path = temp_path("body-stall");
         let mut output = File::create(&output_path).expect("output");
         let mut hasher = Sha256::new();
-        let error = stream_exact(&mut response.body, &mut output, &mut hasher, 2, "stalled")
-            .expect_err("body timeout");
+        let error = stream_exact(
+            &mut response.body,
+            &mut output,
+            &mut hasher,
+            2,
+            "stalled",
+            &mut |_| Ok(()),
+        )
+        .expect_err("body timeout");
         assert_eq!(error.kind(), AssetErrorKind::AssetTimeout);
         body_server.join().expect("body server");
         drop(output);

@@ -1,7 +1,7 @@
 Pangopup: exact Pangolin score lookup
 
 Usage:
-  pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
+  pangopup sync [--offline] [--progress | --quiet] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
   pangopup status [--data-dir <ABSOLUTE_PATH>]
   pangopup serve [--listen <ADDRESS>] [--data-dir <ABSOLUTE_PATH>] [--model-workers <1..8>] [--model-threads <1..8>] [--model-queue-capacity <1..1024>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]
   pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]

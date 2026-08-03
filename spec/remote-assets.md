@@ -37,3 +37,29 @@ pangopup sync --offline --offline
 ```text expect=remote-assets-duplicate-offline contains
 {"status":"error","code":"CLI_USAGE","message":"--offline may be supplied once"
 ```
+
+Progress can be forced for captured logs. Offline failure emits the checking
+phase before the unchanged typed error and performs no network work.
+
+```bash run id=remote-assets-forced-progress exit=1 stream=stderr
+data=$(cd .. && pwd)/target/spec/remote-assets/progress-data
+cache=$(cd .. && pwd)/target/spec/remote-assets/progress-cache
+rm -rf "$data" "$cache"
+pangopup sync --progress --offline --data-dir "$data" --cache-dir "$cache"
+```
+
+```text expect=remote-assets-forced-progress contains
+sync: checking snv assets
+{"status":"error","code":"ASSET_SYNC_INCOMPLETE"
+```
+
+The two display controls are flags, are each accepted once, and cannot be
+combined. These usage failures happen before path resolution or networking.
+
+```bash run id=remote-assets-progress-quiet exit=2 stream=stderr
+PANGOPUP_DATA_DIR=relative pangopup sync --progress --quiet
+```
+
+```text expect=remote-assets-progress-quiet contains
+{"status":"error","code":"CLI_USAGE","message":"--progress and --quiet cannot be combined"
+```

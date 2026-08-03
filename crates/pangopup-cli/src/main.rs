@@ -25,7 +25,7 @@ use pangopup_model::{CpuPolicy, ModelAdmission, ModelKernel, inspect_model_admis
 use serde::Serialize;
 use std::{
     ffi::OsString,
-    io::Write,
+    io::{IsTerminal, Write},
     path::{Path, PathBuf},
     process::ExitCode,
     str::FromStr,
@@ -43,7 +43,7 @@ struct HelpEntry {
 const HELP_CATALOG: &[HelpEntry] = &[
     HelpEntry {
         path: &["sync"],
-        synopsis: "sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]",
+        synopsis: "sync [--offline] [--progress | --quiet] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]",
         summary: "Synchronize the pinned SNV lookup and model-side runtime assets.",
     },
     HelpEntry {
@@ -227,6 +227,8 @@ enum Command {
     },
     Sync {
         offline: bool,
+        progress: bool,
+        quiet: bool,
         data_dir: Option<OsString>,
         cache_dir: Option<OsString>,
     },
@@ -264,6 +266,13 @@ struct Failure {
 
 type SyncRunner<'a> =
     dyn Fn(&Path, Option<&Path>, bool) -> Result<CombinedSyncResult, AssetError> + 'a;
+type ObservedSyncRunner<'a> = dyn Fn(
+        &Path,
+        Option<&Path>,
+        bool,
+        &mut dyn FnMut(pangopup_assets::SyncEvent),
+    ) -> Result<CombinedSyncResult, AssetError>
+    + 'a;
 type StatusRunner<'a> = dyn Fn(&Path) -> Result<CombinedStatusResult, AssetError> + 'a;
 type RuntimeOpener<'a> = dyn Fn(&Path, Option<&str>) -> Result<FallbackAdmission, Failure> + 'a;
 
@@ -337,7 +346,9 @@ fn main() -> ExitCode {
     if raw.first().is_some_and(|value| value == "serve") {
         return service::run(&raw[1..]);
     }
-    match run(&raw) {
+    let terminal = std::io::stderr().is_terminal();
+    let mut stderr = std::io::stderr().lock();
+    match run_cli(&raw, terminal, &mut stderr) {
         Ok(bytes) => match std::io::stdout().lock().write_all(&bytes) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => fail(&Failure {
@@ -355,6 +366,174 @@ fn run(raw: &[OsString]) -> Result<Vec<u8>, Failure> {
     run_with_sync(raw, &|data, cache, offline| {
         sync_all_assets(data, cache, offline)
     })
+}
+
+fn run_cli(raw: &[OsString], terminal: bool, stderr: &mut dyn Write) -> Result<Vec<u8>, Failure> {
+    run_cli_with_sync(raw, terminal, stderr, &|data, cache, offline, observer| {
+        pangopup_assets::sync_all_assets_observed(data, cache, offline, observer)
+    })
+}
+
+fn run_cli_with_sync(
+    raw: &[OsString],
+    terminal: bool,
+    stderr: &mut dyn Write,
+    syncer: &ObservedSyncRunner<'_>,
+) -> Result<Vec<u8>, Failure> {
+    let command = parse_command(raw)?;
+    let Command::Sync {
+        offline,
+        progress,
+        quiet,
+        data_dir,
+        cache_dir,
+    } = command
+    else {
+        return run(raw);
+    };
+    let enabled = progress_enabled(progress, quiet, terminal);
+    let cache = resolve_cache_root(&CachePathInputs::from_environment(cache_dir))
+        .map_err(map_path_error)?;
+    let root = data_root(data_dir)?;
+    let mut output_error = None;
+    let mut observer = |event: pangopup_assets::SyncEvent| {
+        if enabled
+            && output_error.is_none()
+            && let Err(error) = render_sync_event(stderr, &event)
+        {
+            output_error = Some(error.to_string());
+        }
+    };
+    let result = syncer(&root, cache.as_deref(), offline, &mut observer).map_err(map_sync_error)?;
+    if let Some(message) = output_error {
+        return Err(Failure {
+            code: "OUTPUT_IO",
+            message,
+            exit: 1,
+            details: None,
+        });
+    }
+    match result {
+        CombinedSyncResult::Ready(result) => json_line(&result),
+        CombinedSyncResult::Incomplete(incomplete) => Err(Failure {
+            code: "ASSET_SYNC_INCOMPLETE",
+            message: "asset synchronization did not complete".to_owned(),
+            exit: 1,
+            details: Some(serde_json::to_vec(&incomplete).expect("sync outcome is serializable")),
+        }),
+    }
+}
+
+fn progress_enabled(progress: bool, quiet: bool, terminal: bool) -> bool {
+    !quiet && (progress || terminal)
+}
+
+fn render_sync_event(
+    writer: &mut dyn Write,
+    event: &pangopup_assets::SyncEvent,
+) -> std::io::Result<()> {
+    use pangopup_assets::{SyncEvent, SyncPhase};
+    match event {
+        SyncEvent::Phase { component, phase } => match phase {
+            SyncPhase::Checking => writeln!(
+                writer,
+                "sync: checking {} assets",
+                sync_component(*component)
+            ),
+            SyncPhase::Downloading => writeln!(
+                writer,
+                "sync: downloading {} assets",
+                sync_component(*component)
+            ),
+            SyncPhase::Installing => writeln!(
+                writer,
+                "sync: installing {} assets",
+                sync_component(*component)
+            ),
+            SyncPhase::Reused => writeln!(
+                writer,
+                "sync: reusing installed {} assets",
+                sync_component(*component)
+            ),
+            SyncPhase::Ready => {
+                writeln!(writer, "sync: {} assets ready", sync_component(*component))
+            }
+        },
+        SyncEvent::Transfer {
+            component,
+            asset_name,
+            attempt,
+            max_attempts,
+            mode,
+            member_bytes,
+            member_total,
+            invocation_downloaded_bytes,
+            invocation_resumed_bytes,
+        } => writeln!(
+            writer,
+            "sync: {} {} {} attempt {}/{} {}/{} bytes ({} downloaded, {} resumed)",
+            sync_component(*component),
+            asset_name,
+            sync_mode(*mode),
+            attempt,
+            max_attempts,
+            member_bytes,
+            member_total,
+            invocation_downloaded_bytes,
+            invocation_resumed_bytes
+        ),
+        SyncEvent::Retry {
+            component,
+            asset_name,
+            next_attempt,
+            max_attempts,
+            reason,
+            ..
+        } => writeln!(
+            writer,
+            "sync: {} {} retry {}/{} after {}",
+            sync_component(*component),
+            asset_name,
+            next_attempt,
+            max_attempts,
+            sync_reason(*reason)
+        ),
+        SyncEvent::Complete {
+            downloaded_bytes,
+            resumed_bytes,
+        } => writeln!(
+            writer,
+            "sync: ready ({} downloaded, {} resumed)",
+            downloaded_bytes, resumed_bytes
+        ),
+    }
+}
+
+fn sync_component(component: pangopup_assets::SyncComponent) -> &'static str {
+    match component {
+        pangopup_assets::SyncComponent::Snv => "snv",
+        pangopup_assets::SyncComponent::Runtime => "runtime",
+    }
+}
+
+fn sync_mode(mode: pangopup_assets::SyncTransferMode) -> &'static str {
+    match mode {
+        pangopup_assets::SyncTransferMode::Cached => "cached",
+        pangopup_assets::SyncTransferMode::Fresh => "fresh",
+        pangopup_assets::SyncTransferMode::Resume => "resume",
+        pangopup_assets::SyncTransferMode::Restart => "restart",
+    }
+}
+
+fn sync_reason(reason: pangopup_assets::SyncRetryReason) -> String {
+    match reason {
+        pangopup_assets::SyncRetryReason::Timeout => "timeout".to_owned(),
+        pangopup_assets::SyncRetryReason::Connect => "connect".to_owned(),
+        pangopup_assets::SyncRetryReason::Request => "request".to_owned(),
+        pangopup_assets::SyncRetryReason::BodyRead => "body-read".to_owned(),
+        pangopup_assets::SyncRetryReason::PrematureEof => "premature-eof".to_owned(),
+        pangopup_assets::SyncRetryReason::HttpStatus(status) => format!("http-status-{status}"),
+    }
 }
 
 fn run_with_sync(raw: &[OsString], syncer: &SyncRunner<'_>) -> Result<Vec<u8>, Failure> {
@@ -403,6 +582,8 @@ fn run_with_adapters(
         }
         Command::Sync {
             offline,
+            progress: _,
+            quiet: _,
             data_dir,
             cache_dir,
         } => {
@@ -969,6 +1150,8 @@ fn parse_sync(raw: &[OsString]) -> Result<Command, Failure> {
     let mut data_dir = None;
     let mut cache_dir = None;
     let mut offline = false;
+    let mut progress = false;
+    let mut quiet = false;
     let mut index = 1;
     while index < raw.len() {
         let option = utf8_argument(&raw[index])?;
@@ -978,6 +1161,18 @@ fn parse_sync(raw: &[OsString]) -> Result<Command, Failure> {
                 return Err(Failure::usage("--offline may be supplied once"));
             }
             offline = true;
+            continue;
+        }
+        if option == "--progress" || option == "--quiet" {
+            let slot = if option == "--progress" {
+                &mut progress
+            } else {
+                &mut quiet
+            };
+            if *slot {
+                return Err(Failure::usage(format!("{option} may be supplied once")));
+            }
+            *slot = true;
             continue;
         }
         let value = raw
@@ -993,8 +1188,13 @@ fn parse_sync(raw: &[OsString]) -> Result<Command, Failure> {
         }
         index += 1;
     }
+    if progress && quiet {
+        return Err(Failure::usage("--progress and --quiet cannot be combined"));
+    }
     Ok(Command::Sync {
         offline,
+        progress,
+        quiet,
         data_dir,
         cache_dir,
     })
@@ -1765,6 +1965,95 @@ mod tests {
         );
     }
 
+    fn observed_ready() -> CombinedSyncResult {
+        CombinedSyncResult::Ready(pangopup_assets::CombinedSyncOutcome {
+            status: "ready",
+            snv: pangopup_assets::SyncOutcome {
+                status: "reused",
+                profile: "snv-grch38-v1".to_owned(),
+                bundle_id: "sha256:bundle".to_owned(),
+                transport_id: "sha256:transport".to_owned(),
+                path: PathBuf::from("/data/snv"),
+                downloaded_bytes: 0,
+                resumed_bytes: 0,
+            },
+            runtime: pangopup_assets::RuntimeSyncOutcome {
+                status: "reused",
+                transport_id: "sha256:runtime-transport".to_owned(),
+                profile_id: "sha256:profile".to_owned(),
+                snv_bundle_id: "sha256:bundle".to_owned(),
+                model_bundle_id: "sha256:model".to_owned(),
+                reference_bundle_id: "sha256:reference".to_owned(),
+                mask_sha256: "sha256:mask".to_owned(),
+                path: PathBuf::from("/data/runtime"),
+                downloaded_bytes: 0,
+                resumed_bytes: 0,
+            },
+            downloaded_bytes: 0,
+            resumed_bytes: 0,
+        })
+    }
+
+    #[test]
+    fn sync_cli_terminal_forced_quiet_and_noninteractive_progress_contracts_are_exact() {
+        let cases = [
+            (vec!["sync"], true, true),
+            (vec!["sync", "--progress"], false, true),
+            (vec!["sync", "--quiet"], true, false),
+            (vec!["sync"], false, false),
+        ];
+        for (arguments, terminal, expect_progress) in cases {
+            let raw = arguments
+                .into_iter()
+                .map(OsString::from)
+                .collect::<Vec<_>>();
+            let mut stderr = Vec::new();
+            let stdout = run_cli_with_sync(&raw, terminal, &mut stderr, &|_, _, _, observer| {
+                observer(pangopup_assets::SyncEvent::Phase {
+                    component: pangopup_assets::SyncComponent::Snv,
+                    phase: pangopup_assets::SyncPhase::Checking,
+                });
+                observer(pangopup_assets::SyncEvent::Complete {
+                    downloaded_bytes: 0,
+                    resumed_bytes: 0,
+                });
+                Ok(observed_ready())
+            })
+            .expect("injected sync");
+            assert!(stdout.starts_with(b"{\"status\":\"ready\""));
+            if expect_progress {
+                assert_eq!(
+                    stderr,
+                    b"sync: checking snv assets\nsync: ready (0 downloaded, 0 resumed)\n"
+                );
+            } else {
+                assert!(stderr.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn active_progress_precedes_the_final_typed_error() {
+        let raw = [OsString::from("sync"), OsString::from("--progress")];
+        let mut stderr = Vec::new();
+        let failure = run_cli_with_sync(&raw, false, &mut stderr, &|_, _, _, observer| {
+            observer(pangopup_assets::SyncEvent::Phase {
+                component: pangopup_assets::SyncComponent::Snv,
+                phase: pangopup_assets::SyncPhase::Checking,
+            });
+            Err(AssetError::new(
+                AssetErrorKind::AssetTimeout,
+                "asset transfer timed out",
+            ))
+        })
+        .expect_err("injected timeout");
+        stderr.extend_from_slice(&failure_json(&failure));
+        assert_eq!(
+            stderr,
+            b"sync: checking snv assets\n{\"status\":\"error\",\"code\":\"ASSET_TIMEOUT\",\"message\":\"asset transfer timed out\",\"details\":null}\n"
+        );
+    }
+
     #[test]
     fn injected_partial_sync_is_one_exact_stderr_envelope() {
         let args = [
@@ -2099,12 +2388,57 @@ mod tests {
     fn sync_grammar_rejects_duplicates_and_values_for_flags() {
         for args in [
             vec!["sync", "--offline", "--offline"],
+            vec!["sync", "--progress", "--progress"],
+            vec!["sync", "--quiet", "--quiet"],
+            vec!["sync", "--progress", "--quiet"],
             vec!["sync", "--cache-dir", "/tmp/a", "--cache-dir", "/tmp/b"],
             vec!["status", "--offline"],
         ] {
             let raw: Vec<OsString> = args.into_iter().map(OsString::from).collect();
             assert!(parse_command(&raw).is_err());
         }
+        assert!(!progress_enabled(false, false, false));
+        assert!(progress_enabled(false, false, true));
+        assert!(progress_enabled(true, false, false));
+        assert!(!progress_enabled(true, true, true));
+    }
+
+    #[test]
+    fn sync_progress_lines_are_exact_and_lowercase() {
+        let mut output = Vec::new();
+        for event in [
+            pangopup_assets::SyncEvent::Phase {
+                component: pangopup_assets::SyncComponent::Snv,
+                phase: pangopup_assets::SyncPhase::Checking,
+            },
+            pangopup_assets::SyncEvent::Transfer {
+                component: pangopup_assets::SyncComponent::Snv,
+                asset_name: "scores.part0000".to_owned(),
+                attempt: 2,
+                max_attempts: 4,
+                mode: pangopup_assets::SyncTransferMode::Resume,
+                member_bytes: 100,
+                member_total: 200,
+                invocation_downloaded_bytes: 50,
+                invocation_resumed_bytes: 25,
+            },
+            pangopup_assets::SyncEvent::Retry {
+                component: pangopup_assets::SyncComponent::Runtime,
+                asset_name: "model.onnx".to_owned(),
+                failed_attempt: 1,
+                next_attempt: 2,
+                max_attempts: 4,
+                reason: pangopup_assets::SyncRetryReason::HttpStatus(503),
+                delay_seconds: 1,
+            },
+            pangopup_assets::SyncEvent::Complete {
+                downloaded_bytes: 75,
+                resumed_bytes: 25,
+            },
+        ] {
+            render_sync_event(&mut output, &event).expect("progress output");
+        }
+        assert_eq!(output, b"sync: checking snv assets\nsync: snv scores.part0000 resume attempt 2/4 100/200 bytes (50 downloaded, 25 resumed)\nsync: runtime model.onnx retry 2/4 after http-status-503\nsync: ready (75 downloaded, 25 resumed)\n");
     }
 
     #[test]

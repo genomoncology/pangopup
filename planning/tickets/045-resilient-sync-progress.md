@@ -1,6 +1,6 @@
 # 045 — Resilient asset sync with live progress
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -272,11 +272,109 @@ resource/size procedures and exclusions are decision-complete.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Hegel the 2nd
+
+- Replaced the production `ureq` adapter with the exact pinned blocking
+  `reqwest`/webpki client while retaining the old adapter only as a scaled test
+  control. Direct `http 1.4.2` URL parsing preserves the established policy.
+- Added typed attempt failures, four-attempt transient retry, exact ETag/range
+  re-entry, committed invocation accounting, typed synchronous events, and
+  bounded 64-MiB progress without changing the 128-KiB sequential body path.
+- Added terminal-auto `--progress`/`--quiet` CLI behavior, exact stderr grammar,
+  help/spec fixtures, Docker first-sync guidance, and delivery/frontier docs.
+- Focused controls prove the old 25-ms response timer fails a healthy stream
+  lasting longer than 25 ms while the replacement succeeds when every chunk
+  arrives inside 25 ms. Header/body stalls remain bounded, and typed 503 retry
+  succeeds on attempt two with exact events and committed counters.
+- Adversarial regressions now prove that an invalid invocation-start partial is
+  discarded before credit is snapshotted; a later in-invocation range resume
+  reports `Resume` but credits zero old bytes; and a server-forced fresh restart
+  never decreases member high-water. An encoded 503 is fatal before retry
+  classification, while all six selected plain HTTP statuses retry.
+- Exact whole-vector tests cover public fresh SNV installation, all ten runtime
+  download/install members, validated resume, cached members, retry success and
+  exhaustion, invalid-prefix retry-resume, byte-by-byte safe restart high-water,
+  offline/reuse, combined completion, CLI terminal-auto/forced/quiet output,
+  and progress-before-final-error ordering. Connect, Request, and non-timeout
+  BodyRead each traverse the real retry loop with exact reason, delay, attempt,
+  mode, and counter fields.
+- URL failures prove zero requests. Invalid redirects and every non-retryable
+  ETag/range/status/length/encoding/checksum response prove one request only.
+  Injected local-write failure proves one request and no Retry event; online
+  installation failure proves every member was requested exactly once.
+  Existing matrices continue covering cache and installation atomicity,
+  recovery, and bounded timeout behavior.
+- Body accounting tests prove the fatal overlong byte and bytes read before a
+  disk-write failure are retained in the attempt counter.
+- `make lint`, `make test`, and `make spec` passed after remediation; the asset
+  crate has 110 unit tests, the runtime CLI has 42, and the executable spec
+  reported 259 passed and 7 skipped.
+- The earlier dirty-working-tree size comparison was nonqualifying and is not
+  release evidence. After code review accepts the exact candidate, the
+  coordinator should create an immutable local candidate commit/ref, build
+  detached parent `2a6d393` and candidate worktrees with `--pull`, version
+  `0.1.0`, and each exact revision argument, verify both images are `amd64`, and
+  record raw stripped executable and image bytes. Before applying that result
+  to the final ticket commit, compare every Docker build input (`Dockerfile`,
+  workspace manifests/lockfile, license/notice inputs, release profiles,
+  assets, and crates) byte-for-byte with the qualified candidate; rerun if any
+  input differs. Remove the temporary ref, worktrees, containers, images, and
+  extracted binaries afterward. The candidate image still must remain within
+  10,485,760 bytes of the parent.
+
+- Coordinator qualification used immutable parent `2a6d393` and candidate
+  `56a7a9f3b398fff89d6dc8b7b106aaba90b8ff67`. Both digest-pinned Docker builds
+  used `--pull`, native `linux/amd64`, version `0.1.0`, and their exact revision
+  arguments. The stripped executable grew from 28,001,008 to 28,799,328 bytes;
+  the image grew from 55,576,347 to 56,374,667 bytes. Both deltas are 798,320
+  bytes, below the 10,485,760-byte gate. Temporary containers, images,
+  extracted binaries, and detached worktrees were removed.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Confucius the 2nd
+
+Initial verdict: REJECT. The reviewer found that invocation resume credit was
+derived from an unvalidated partial-file size, successful retry mode was not
+the actual attempt mode, and restart high-water could decrease. A retryable
+status was also classified before rejecting unexpected content encoding.
+Fatal overlong-body and disk-write paths omitted bytes already read. Finally,
+the acceptance matrix did not yet prove every event/routing/fatal path, and the
+size evidence incorrectly described a dirty working tree as the reviewed
+ticket commit.
+
+Developer disposition: fixed all findings. Resume credit now derives only from
+validated invocation-start state, final transfer mode comes from the successful
+attempt, and progress retains a per-member high-water across every attempt.
+Common response validation precedes redirect and transient-status handling.
+Fatal stream paths preserve bytes already read. Added the adversarial transfer,
+status, event, runtime, and CLI matrices described above, removed the misleading
+dirty-tree qualification claim, and reran all gates. Returned to the same
+reviewer.
+
+Second verdict: REJECT. The implementation fixes were accepted, but the
+reviewer found a remaining proof gap: several tests used `contains`,
+`first`/`last`, or counts instead of complete ordered event vectors; some fatal
+protocol matrices did not explicitly prove that a second request was absent;
+and Connect, Request, and BodyRead were not exercised through the real retry
+loop.
+
+Developer disposition: fixed the proof gap. Replaced partial event assertions
+with exact whole vectors across every required mode, phase, attempt, retry,
+counter, offline, runtime, and combined-completion path. Added explicit request
+cardinality to all fatal matrices and exact real-loop classification tests for
+Connect, Request, and BodyRead. Added injected local-write and online-install
+failure coverage so local failures cannot silently trigger another request.
+Reran focused suites and all repository gates. Returned to the same reviewer.
+
+Final verdict: ACCEPT. The reviewer confirmed that the corrected accounting,
+mode, high-water, validation order, and fatal-byte behavior remains sound; the
+complete ordered vectors now cover every required sync path; fatal URL,
+protocol, local-write, and installation cases pin zero or one request as
+appropriate; and Connect, Request, and BodyRead traverse the real retry loop.
+No material production scope creep was found. The reviewer also confirmed that
+the immutable-candidate size procedure is feasible, with `.dockerignore`
+included in the final Docker-input comparison.
 
 ## External Effect Evidence
 
@@ -284,4 +382,13 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex
+
+- Independently reran `make lint`, `make test`, and `make spec`; all passed,
+  with 110 asset tests, 42 runtime CLI tests, and 259 executable specs passing
+  with 7 intentional skips.
+- Confirmed `git diff --check` was clean before creating the immutable
+  candidate and confirmed the final documentation-only ticket update changes
+  no Docker build input, including `.dockerignore`.
+- Confirmed the completed implementation remains limited to the accepted
+  Ticket 045 code, tests, help fixture, dependency lock, and named documents.

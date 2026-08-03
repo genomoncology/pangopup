@@ -12,7 +12,10 @@ explicit fixed-v1 bundle or the active Linux user-data installation. Speed
 leads memory and download size. Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
 established. Immutable publication and pinned resumable remote sync are also
-complete. The strict upstream Pangolin compatibility corpus is established.
+complete. Sync now uses progress-reset blocking reads, typed four-attempt
+transient retry, exact committed byte accounting, and terminal/forced bounded
+progress without changing final JSON output. The strict upstream Pangolin
+compatibility corpus is established.
 Retained GENCODE-mask qualification evidence authenticates the exact upstream
 semantics and records the selection of constant-membership domains from three
 mmap candidates in one full-source comparison. The one-time candidate and
@@ -210,7 +213,9 @@ sequentially streams their reviewed URLs into private XDG cache, verifies size a
 SHA-256, resumes only through an exact strong-ETag range response, atomically
 publishes a closed cache transport, and feeds the shipped installer. It never
 selects “latest.” Exact active reuse and `--offline` perform no network work;
-lookup remains network-free.
+lookup remains network-free. Healthy long streams are no longer capped by the
+completed response-header timer; transient failures retry visibly, and CLI
+progress is terminal-auto with explicit `--progress` and `--quiet` controls.
 
 ## Established — upstream compatibility corpus
 

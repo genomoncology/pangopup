@@ -465,7 +465,7 @@ The current CLI synchronizes the complete compatible splice runtime or can
 install an already available SNV transport without networking:
 
 ```text
-pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
+pangopup sync [--offline] [--progress | --quiet] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
 pangopup status [--data-dir <ABSOLUTE_PATH>]
 pangopup assets install --transport <TRANSPORT_DIR> [--data-dir <ABSOLUTE_PATH>]
 ```
@@ -475,7 +475,11 @@ pangopup assets install --transport <TRANSPORT_DIR> [--data-dir <ABSOLUTE_PATH>]
 sizes, and SHA-256 digests. It downloads sequentially through a bounded buffer, follows only a short
 allowlisted HTTPS redirect chain, and resumes an interrupted member only when
 a strong ETag and exact byte range agree. `--offline` forbids network access
-and can install a previously completed cached transport.
+and can install a previously completed cached transport. Transient connection,
+timeout, truncated-body, and selected server failures receive up to four total
+attempts with 1-, 2-, and 4-second pauses; every retry re-enters the same
+ETag/range admission path. Invalid metadata, checksums, URLs, local state, and
+installation failures are not retried.
 
 The `pangopup-assets` library separately pins the exact ten-file
 `runtime-grch38-v1` download set. `sync_runtime_assets` uses the same bounded
@@ -528,8 +532,11 @@ state. Status opens the existing installation authority read-only and holds a
 nonblocking shared lock across both component observations; it neither creates
 nor repairs installed state. An active installer returns promptly as
 `installing: true`, with best-effort component details rather than a coherent
-cross-component snapshot. Exact byte progress remains future work. Later starts use the
-already installed bundle without contacting the network. A failed download or
+cross-component snapshot. During an interactive run, sync writes phase, retry,
+and bounded 64-MiB byte updates to stderr while keeping the single final JSON
+record on stdout. `--progress` forces those lines for Docker or captured logs
+and `--quiet` suppresses them. Later starts use the already installed bundle
+without contacting the network. A failed download or
 checksum will never replace an older complete bundle or start with partial
 data.
 
@@ -947,7 +954,7 @@ the network:
 docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
   -v pangopup-data:/var/lib/pangopup \
   -v pangopup-cache:/var/cache/pangopup \
-  pangopup:local sync
+  pangopup:local sync --progress
 ```
 
 Then inspect, query, or run the foreground service without downloading:

@@ -42,6 +42,7 @@ pub use provisioning::{
     CombinedSyncOutcome, CombinedSyncResult, ComponentError, ComponentState, RuntimeNotAttempted,
     RuntimeReadyStatus, RuntimeStatusObservation, RuntimeSyncObservation, SnvReadyStatus,
     SnvStatusObservation, SnvSyncObservation, combined_local_status, sync_all_assets,
+    sync_all_assets_observed,
 };
 pub use release::{
     PrepareReleaseOutcome, ProofReceipt, ReleaseProfile, parse_proof_receipt,
@@ -78,8 +79,10 @@ pub use runtime_transport::{
 };
 pub use snv::{BundleCertification, MAX_FIXED11_BYTES, NOTICE, NOTICE_SHA256, certify_bundle};
 pub use sync::{
-    CachePathInputs, RuntimeCacheInspection, RuntimeSyncOutcome, SyncOutcome,
-    inspect_runtime_cache, resolve_cache_root, sync_assets, sync_runtime_assets,
+    CachePathInputs, RuntimeCacheInspection, RuntimeSyncOutcome, SyncComponent, SyncEvent,
+    SyncOutcome, SyncPhase, SyncRetryReason, SyncTransferMode, inspect_runtime_cache,
+    resolve_cache_root, sync_assets, sync_assets_observed, sync_runtime_assets,
+    sync_runtime_assets_observed,
 };
 
 #[cfg(test)]
