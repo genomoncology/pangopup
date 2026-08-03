@@ -81,6 +81,13 @@ Go-template rendering of the indexed empty value. A deliberate local revision
 mismatch proved the actionable diagnostic, while a fresh no-cache image passed
 the complete native AMD64 qualification.
 
+The corrected read-only workflow run
+[`30827959840`](https://github.com/genomoncology/pangopup/actions/runs/30827959840)
+then passed the complete final-image smoke natively on both
+`ubuntu-24.04` (AMD64) and `ubuntu-24.04-arm` (ARM64). The manual production
+matrix was correctly skipped on the ordinary push; no image or asset was
+published.
+
 The ordinary native smoke copies `model-results.sqlite3` from the named volume
 after the first and second calls, checks the SQLite header, and requires the two
 database files and two public outputs to be byte-identical. The production

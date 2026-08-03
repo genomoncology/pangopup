@@ -301,7 +301,7 @@ qualification now mounts the authenticated tuple explicitly, mounts its cache
 volume at the image-prepared `/var/cache/pangopup`, and makes no runtime-install
 claim. Focused oracle/static/shell/native-container checks and
 the complete `make lint`, `make test`, and `make spec` gate pass. Re-review is
-pending.
+accepted after the remediation described below.
 
 The remaining cache-mount finding is also remediated: production qualification
 uses the image-prepared `/var/cache/pangopup` volume and its configured default
@@ -313,8 +313,10 @@ The first pushed native smoke then failed at a shared early silent assertion on
 both architectures. The helper now emits actionable stage/check/expected/
 observed diagnostics for image metadata, and validates exposed ports through
 canonical JSON rather than implementation-specific empty-value rendering. A
-fresh no-cache AMD64 build passes the complete local qualification; re-running
-the two native jobs is the remaining external evidence.
+fresh no-cache AMD64 build passed the complete local qualification. Read-only
+workflow run `30827959840` then passed the complete final-image smoke natively
+on both AMD64 and ARM64; its production matrix was correctly skipped and it
+published nothing.
 
 Independent re-review accepted the canonical whole-object port check and
 actionable diagnostics: all metadata constraints remain exact, cleanup remains
@@ -336,6 +338,7 @@ Coordinator: Codex
 
 Reviewed the final worktree and reran `make lint`, `make test`, and `make spec`.
 All passed; mustmatch reported 246 passed and 7 intentionally skipped. The
-native AMD64 final-image qualification remains green at 55,564,827 bytes. The
+native AMD64 final-image qualification remains green at 55,564,827 bytes, and
+workflow run `30827959840` passed the native AMD64 and ARM64 smoke jobs. The
 manual native AMD64/ARM64 production-runtime matrix remains deliberately
 dispatch-only and performs no publication. Ticket 042 is complete.
