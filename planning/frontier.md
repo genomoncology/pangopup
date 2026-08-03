@@ -575,8 +575,31 @@ server-side inference timeout.
 
 ## Later outcome — deployment
 
-The minimal non-root Docker image is shipped. Add a documented systemd example
-only if native process-manager deployment remains a product need.
+The minimal non-root Docker image is shipped and Apple Silicon qualification
+proved native Linux/ARM64 build, resumable provisioning, offline reuse, lookup,
+model fallback, persistent SQLite reuse, HTTP service operation, and named-
+volume persistence. It also exposed one deterministic deployment-contract bug:
+combined `pangopup status` requests write access to `.install.lock`, so the
+documented read-only data-volume command fails even though lookup and service
+operation work with the same mount.
+
+Ticket 043 is the one active outcome: make installed-state observation
+genuinely read-only while retaining a coherent SNV/runtime snapshot and the
+installer's exclusive lock. The literal non-root, network-disabled final-image
+command with `/var/lib/pangopup:ro` is its acceptance boundary.
+
+After that outcome, retain these ordered slots rather than drafting a backlog:
+
+1. focused successful help for each runtime subcommand;
+2. resilient resumable synchronization with useful phase/byte progress;
+3. first-use Docker and Apple Silicon documentation, HTTP examples, and an
+   image update/restart playbook;
+4. an ARM CPU thread-policy experiment before changing the qualified default;
+5. a documented systemd example only if native process-manager deployment
+   remains a product need;
+6. executable-release follow-up and, separately, reviewed multi-architecture
+   container publication and clean-machine acceptance.
+
 Docker, systemd, Kubernetes, or another external manager owns
 start/stop/restart; Pangopup does not become its own process supervisor.
 
@@ -609,9 +632,10 @@ replacement while preserving an existing binary on failure, and does not
 download data or mutate `PATH`. The read-only exact-commit workflow qualifies a
 private artifact against pinned Ubuntu 24.04 and GLIBC 2.39. Ticket 038's
 public installer qualification passed through clean production sync, exact SNV
-and model oracles, public verification, and a tagged non-root install. HTTP,
-Docker, other platforms, and package managers remain later roadmap slots; the
-next bounded ticket has not yet been selected.
+and model oracles, public verification, and a tagged non-root install. HTTP and
+the native AMD64/ARM64 Docker image are shipped. Other package managers remain
+later roadmap slots; Ticket 043 is the selected bounded read-only-status
+correction.
 
 Ticket 038's completed publication includes a credential-free operation/evidence
 record, exact reviewed release notes, an independently
@@ -628,8 +652,6 @@ immutable public `runtime-grch38-v1` release, separately from the immutable
 `snv-grch38-v1` release.
 
 - whether MPS, CUDA, quantization, or another runtime adds material value;
-- the service queue capacity, backpressure, cache/coalescing, and dispatch
-  shape around the selected host-qualified model partition;
 - production resource limits derived from complete-request measurements.
 
 These are intentional roadmap slots, not tickets. Do not select or implement
