@@ -44,9 +44,10 @@ find "$runtime" -type f -exec chmod 0444 {} +
 args=(lookup --model-only --format jsonl
   --model-bundle /runtime/model --reference-bundle /runtime/reference
   --mask /runtime/mask/domains.pgm)
+oracle="$source_tree/tests/fixtures/container-qualification/production-model-oracle.json"
 while IFS= read -r variant; do args+=(--variant "$variant"); done < <(
   jq -r '.results[] | "GRCh38:\(.contig):\(.position):\(.ref):\(.alt)"' \
-    "$source_tree/tests/fixtures/container-qualification/production-model-oracle.json"
+    "$oracle"
 )
 
 cache="pangopup-production-q-$PPID-$$-cache"
@@ -57,7 +58,7 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64
   -v "$runtime:/runtime:ro" -v "$cache:/var/cache/pangopup" \
   "$image" "${args[@]}" >"$output"
 [[ "$(wc -l <"$output")" == 14 ]]
-jq -e --slurpfile expected \
+jq -e --slurpfile expected "$oracle" \
   'length == 14 and
    all(.[]; .provenance == $expected[0].provenance) and
    map(del(.provenance)) == $expected[0].results' \

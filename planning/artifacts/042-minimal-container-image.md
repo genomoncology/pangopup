@@ -88,6 +88,24 @@ then passed the complete final-image smoke natively on both
 matrix was correctly skipped on the ordinary push; no image or asset was
 published.
 
+Manual workflow run
+[`30828329814`](https://github.com/genomoncology/pangopup/actions/runs/30828329814)
+subsequently passed that ordinary smoke again on both architectures. Its two
+production jobs downloaded and authenticated the runtime transport and
+completed all 14 inference cases inside the native final images. Neither job
+qualified the result: the host helper called `jq -e --slurpfile expected`
+without the required oracle filename, so jq treated the filter as that
+filename and exited before executing the exact comparison.
+
+The reviewed correction binds the checked oracle path once and passes it both
+to request construction and explicitly as `--slurpfile expected "$oracle"`.
+The static container-delivery contract now checks that invocation, and a
+focused local jq exercise compared a synthesized 14-line stream against the
+real oracle successfully. This is correction evidence only. Production
+qualification remains pending until the corrected exact commit passes the
+native AMD64 and ARM64 manual matrix; run `30828329814` must not be cited as a
+production-compatible result.
+
 The ordinary native smoke copies `model-results.sqlite3` from the named volume
 after the first and second calls, checks the SQLite header, and requires the two
 database files and two public outputs to be byte-identical. The production

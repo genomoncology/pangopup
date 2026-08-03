@@ -1,6 +1,6 @@
 # 042 — Minimal qualified Docker image
 
-Status: complete
+Status: pending production qualification
 
 ## Why
 
@@ -268,8 +268,12 @@ expected `linux/amd64`, `65532:65532`, entrypoint, command, stop signal,
 environment, port, and labels. The helper proved fresh named-volume writes via
 real SNV transport installation and SQLite model-cache creation/reuse under a
 read-only root. No image, workflow artifact, registry object, or release was
-published. Native ARM64 and the 691,874,664-byte runtime-only 14-case production
-run remain the deliberately manual read-only workflow evidence.
+published. Native ARM64 miniature smoke is qualified. The deliberately manual,
+read-only 691,874,664-byte runtime-only production matrix was attempted in
+workflow run `30828329814`, but does not yet provide production qualification
+evidence: both architectures completed all 14 inference cases, then the
+host-side comparison command failed before comparing the output because its
+`jq --slurpfile expected` invocation omitted the required oracle filename.
 
 The complete offline gate passed: `make lint`, `make test`, and `make spec`
 (246 passed, 7 skipped). The production helper authenticates and unpacks the
@@ -327,6 +331,20 @@ loss sentinel, decoded runtime permissions, all-result provenance comparison,
 byte-stable SQLite reuse, correct non-root cache mount, scope, and
 documentation. No material correctness or security findings remain.
 
+Post-run correction: manual workflow run
+[`30828329814`](https://github.com/genomoncology/pangopup/actions/runs/30828329814)
+passed the ordinary smoke on both architectures and completed the 14-case
+production inference call on both architectures, but both production jobs
+failed before their result comparison executed. The helper passed the jq
+filter where `--slurpfile expected` requires a filename. Independent review
+rejected the stale `complete` state and any production-qualification claim,
+while accepting the bounded code correction: bind the checked oracle path
+once, use it to construct the requests, and pass that same path explicitly to
+`--slurpfile expected`. A static delivery check and a focused jq exercise over
+all 14 checked oracle records cover the corrected invocation. Production
+qualification remains pending until this correction passes an exact-commit
+native AMD64/ARM64 rerun.
+
 ## External Effect Evidence
 
 Coordinator: not applicable — this ticket must not publish a container image
@@ -341,4 +359,9 @@ All passed; mustmatch reported 246 passed and 7 intentionally skipped. The
 native AMD64 final-image qualification remains green at 55,564,827 bytes, and
 workflow run `30827959840` passed the native AMD64 and ARM64 smoke jobs. The
 manual native AMD64/ARM64 production-runtime matrix remains deliberately
-dispatch-only and performs no publication. Ticket 042 is complete.
+dispatch-only and performs no publication. Run `30828329814` proved that all
+14 production inference cases execute on both architectures, but its broken
+host-side jq invocation never performed the required exact output comparison.
+The reviewed correction is present and locally checked; the coordinator final
+production check and Ticket 042 completion remain pending an exact-commit
+native matrix rerun.
