@@ -34,6 +34,14 @@ grep -Fq 'cmp "$work/cache-before.sqlite3" "$work/cache-after.sqlite3"' scripts/
 grep -Fq 'container qualification failed: stage=%s check=%s' scripts/qualify-container.sh
 grep -Fq "expect_equal exposed-ports '{\"8080/tcp\":{}}'" scripts/qualify-container.sh
 grep -Fq 'stage=read-only-installed-status' scripts/qualify-container.sh
+grep -Fq 'stage=focused-help-no-assets' scripts/qualify-container.sh
+grep -Fq 'check_focused_help assets-runtime-install' scripts/qualify-container.sh
+grep -Fq 'help_run=(docker run --rm --network none --read-only' scripts/qualify-container.sh
+if sed -n '/stage=focused-help-no-assets/,/stage=filesystem-inventory/p' scripts/qualify-container.sh \
+  | grep -Fq -- '-v '; then
+  printf 'container help qualification must not mount assets or caches\n' >&2
+  exit 1
+fi
 grep -Fq -- '-v "$data_volume:/var/lib/pangopup:ro"' scripts/qualify-container.sh
 grep -Fq '"runtime":{"status":"missing"}' scripts/qualify-container.sh
 [[ "$(jq '.results | length' tests/fixtures/container-qualification/production-model-oracle.json)" == 14 ]]

@@ -635,7 +635,8 @@ Implemented today:
 - a least-privilege, full-SHA-pinned CI workflow whose downloaded maintenance
   tools are authenticated by exact size and SHA-256, plus a checked Rust
   advisory/license/source policy in the ordinary lint gate;
-- runtime `pangopup` CLI help/version behavior with two executable smoke specs;
+- runtime `pangopup` root help/version plus focused help for six leaves and two
+  namespaces, covered by executable and final-image qualification;
 - GPL-3.0 source licensing, upstream Pangolin attribution, and CC BY 4.0
   dataset attribution;
 - a retained Rust analyzer that scanned the complete downloaded score corpus;
@@ -919,6 +920,25 @@ docker build -t pangopup:local .
 docker volume create pangopup-data
 docker volume create pangopup-cache
 ```
+
+Every runtime command has focused help, including the two asset namespaces.
+Help performs no path resolution, download, asset inspection, model startup,
+cache access, or service bind, so it also works in the thin image before the
+volumes have been provisioned:
+
+```bash skip
+pangopup sync --help
+pangopup status --help
+pangopup serve --help
+pangopup assets --help
+pangopup assets install --help
+pangopup assets runtime --help
+pangopup assets runtime install --help
+pangopup lookup --help
+```
+
+Each path also accepts `-h`. Only an exact trailing help flag is informational;
+mixing help with operational arguments remains a typed usage error.
 
 Provision the pinned assets once. This is the only container command that uses
 the network:

@@ -53,6 +53,13 @@ SQLite result cache remain outside the image at `/var/lib/pangopup` and
 `/var/cache/pangopup`. The Dockerfile intentionally declares no `VOLUME`, so a
 missing mount does not create an anonymous multi-gigabyte volume.
 
+Runtime discovery is asset-independent. Root, `sync`, `status`, `serve`,
+`lookup`, both asset-install leaves, and the `assets`/`assets runtime`
+namespaces render from one checked help catalog before operational dispatch.
+Exact trailing `-h` or `--help` therefore succeeds in the read-only non-root
+final image with networking disabled and no mounted data or cache volumes;
+malformed mixed forms continue through the unchanged operational parsers.
+
 Normal native AMD64 and ARM64 CI builds use miniature lookup/model fixtures.
 Manual production qualification downloads only the ten authenticated
 `runtime-grch38-v1` transport members and runs the complete ordered 14-case

@@ -5,7 +5,9 @@ model capacity. Invalid capacity fails before opening assets or binding a
 listener.
 
 ```bash
-pangopup --help | rg -F 'pangopup serve [--listen <ADDRESS>]' | mustmatch like '  pangopup serve [--listen <ADDRESS>] [--data-dir <ABSOLUTE_PATH>] [--model-workers <1..8>] [--model-threads <1..8>] [--model-queue-capacity <1..1024>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]'
+pangopup serve --help | mustmatch like 'Usage: pangopup serve [--listen <ADDRESS>] [--data-dir <ABSOLUTE_PATH>] [--model-workers <1..8>] [--model-threads <1..8>] [--model-queue-capacity <1..1024>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]
+
+Run the foreground HTTP scoring service.'
 ```
 
 ```bash run id=serve-invalid-workers exit=2 stream=stderr

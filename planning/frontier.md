@@ -590,17 +590,23 @@ state, and fixture-only combined readiness. The literal non-root,
 network-disabled final-image command with `/var/lib/pangopup:ro` passed as its
 acceptance proof.
 
+Focused runtime help is now established. The six public leaves and both asset
+namespaces accept exact trailing `-h`/`--help`, render from one checked catalog,
+and dispatch before paths, assets, model/cache initialization, or service
+startup. Root help remains byte-compatible with the pre-ticket executable, and
+the stripped non-root final image proves the full matrix without networking or
+mounted assets.
+
 Following that completed outcome, retain these ordered slots rather than
 drafting a backlog:
 
-1. focused successful help for each runtime subcommand;
-2. resilient resumable synchronization with useful phase/byte progress;
-3. first-use Docker and Apple Silicon documentation, HTTP examples, and an
+1. resilient resumable synchronization with useful phase/byte progress;
+2. first-use Docker and Apple Silicon documentation, HTTP examples, and an
    image update/restart playbook;
-4. an ARM CPU thread-policy experiment before changing the qualified default;
-5. a documented systemd example only if native process-manager deployment
+3. an ARM CPU thread-policy experiment before changing the qualified default;
+4. a documented systemd example only if native process-manager deployment
    remains a product need;
-6. executable-release follow-up and, separately, reviewed multi-architecture
+5. executable-release follow-up and, separately, reviewed multi-architecture
    container publication and clean-machine acceptance.
 
 Docker, systemd, Kubernetes, or another external manager owns
@@ -637,8 +643,8 @@ private artifact against pinned Ubuntu 24.04 and GLIBC 2.39. Ticket 038's
 public installer qualification passed through clean production sync, exact SNV
 and model oracles, public verification, and a tagged non-root install. HTTP and
 the native AMD64/ARM64 Docker image are shipped. Other package managers remain
-later roadmap slots; Ticket 043 is the selected bounded read-only-status
-correction.
+later roadmap slots; focused runtime CLI help is complete and resilient
+resumable synchronization feedback is the next undrafted outcome.
 
 Ticket 038's completed publication includes a credential-free operation/evidence
 record, exact reviewed release notes, an independently

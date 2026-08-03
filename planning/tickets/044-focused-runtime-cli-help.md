@@ -1,6 +1,6 @@
 # 044 — Focused runtime CLI help
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -208,19 +208,50 @@ are decision-complete and feasible. No material finding remains.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: `ticket044_implementation` (independent implementation sub-agent)
 
-Record focused tests, final-image evidence, documentation changes, and any
-scope-relevant deviation, then set status to `review`. The developer does not
-commit or push.
+- Replaced the duplicated runtime help constant/special case with one six-leaf
+  help catalog; valid namespaces are derived as its proper path prefixes.
+  Exact help is resolved before `serve` dispatch and before the unchanged
+  operational parsers; lookup version behavior remains intact.
+- Added the literal 1,020-byte shipped root-help oracle at
+  `tests/fixtures/runtime-cli/root-help.txt`. Unit tests pin root, leaf, and
+  namespace bytes; catalog cardinality/order/uniqueness; both help flags; and
+  misplaced, mixed, extended, attached, and unknown forms.
+- Added executable CLI and HTTP regressions, including invalid environment
+  values, all eight non-root paths with both flags, and byte-for-byte root help
+  for no arguments, `-h`, and `--help`.
+- Extended the stripped-image helper to run all sixteen non-root help forms as
+  numeric non-root with networking disabled, a read-only root filesystem, no
+  mounted data/cache assets, exact first-line checks, and no PangoPup JSON
+  error. The AMD64 final image qualified successfully at 55,576,379 bytes.
+- Updated the README, delivery architecture, container-delivery structural
+  checks, and frontier. Resumable synchronization progress is now the next
+  undrafted outcome.
+- Focused CLI unit tests passed (`39 passed` after the complete diff), the
+  executable specification passed (`255 passed, 7 skipped`), and the full
+  workspace test gate passed. One first final `make spec` attempt exposed a
+  fixture path relative to the spec working directory; the fixture reference
+  was corrected and the final spec gate passed.
+- No CLI framework, help subcommand, operational error change, scoring/service
+  refactor, ONNX warning suppression, asset behavior, or external publication
+  was introduced. No scope deviation remains.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `ticket044_code_review` (independent read-only sub-agent)
 
-Record findings and disposition before completion. The reviewer is read-only
-and distinct from the ticket reviewer and developer. Material fixes return to
-the same developer and then this reviewer.
+The first review rejected two bounded findings. A separate
+`HELP_NAMESPACES` list contradicted the accepted single-source catalog and
+could drift, so namespace recognition/rendering now derives every proper
+prefix directly from `HELP_CATALOG` and the tests derive/assert exactly the two
+public namespaces. `spec/container-image.md` also omitted the new final-image
+matrix, so it now records all eight paths, both flags, and the complete
+network/read-only/non-root/no-mount/error boundary.
+
+Re-review: accepted. The reviewer found both findings fully resolved with no
+new scope drift. Independent focused help tests passed, `make spec` passed 255
+with 7 intentionally skipped, and `git diff --check` was clean.
 
 ## External Effect Evidence
 
@@ -230,8 +261,18 @@ This ticket performs no public or irreversible external effect.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex
 
-Record final `make lint`, `make test`, and `make spec`, the focused final-image
-qualification, and a shipped/future documentation scan before committing and
-pushing the completed outcome.
+The complete final gate passed: `make lint`, `make test`, and `make spec` (255
+passed, 7 intentionally skipped). The workspace test includes 39 runtime-binary
+tests and the delivery scripts. The stripped AMD64 image independently passed
+all sixteen help forms with networking disabled, a read-only root, numeric
+non-root execution, and no mounted assets; its measured local size was
+55,576,379 bytes.
+
+The first stale-claim scan found one old README bullet describing only two help
+smoke specs. The same developer corrected that sentence, and the same code
+reviewer accepted the remediation. A final scan across the README, delivery
+architecture, CLI/HTTP/container specs, and frontier found no remaining
+shipped-versus-future contradiction. `git diff --check` passes; no external
+effect was performed.

@@ -33,7 +33,103 @@ use std::{
 
 mod service;
 
-const HELP: &str = "Pangopup: exact Pangolin score lookup\n\nUsage:\n  pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]\n  pangopup status [--data-dir <ABSOLUTE_PATH>]\n  pangopup serve [--listen <ADDRESS>] [--data-dir <ABSOLUTE_PATH>] [--model-workers <1..8>] [--model-threads <1..8>] [--model-queue-capacity <1..1024>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]\n  pangopup --help\n  pangopup --version";
+#[derive(Debug, Eq, PartialEq)]
+struct HelpEntry {
+    path: &'static [&'static str],
+    synopsis: &'static str,
+    summary: &'static str,
+}
+
+const HELP_CATALOG: &[HelpEntry] = &[
+    HelpEntry {
+        path: &["sync"],
+        synopsis: "sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]",
+        summary: "Synchronize the pinned SNV lookup and model-side runtime assets.",
+    },
+    HelpEntry {
+        path: &["status"],
+        synopsis: "status [--data-dir <ABSOLUTE_PATH>]",
+        summary: "Report the combined installed SNV and model-side runtime state.",
+    },
+    HelpEntry {
+        path: &["serve"],
+        synopsis: "serve [--listen <ADDRESS>] [--data-dir <ABSOLUTE_PATH>] [--model-workers <1..8>] [--model-threads <1..8>] [--model-queue-capacity <1..1024>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]",
+        summary: "Run the foreground HTTP scoring service.",
+    },
+    HelpEntry {
+        path: &["assets", "install"],
+        synopsis: "assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]",
+        summary: "Install a caller-supplied SNV transport into the local asset store.",
+    },
+    HelpEntry {
+        path: &["assets", "runtime", "install"],
+        synopsis: "assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]",
+        summary: "Install a caller-supplied compatible model-side runtime profile.",
+    },
+    HelpEntry {
+        path: &["lookup"],
+        synopsis: "lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]",
+        summary: "Score one or more GRCh38 variants with lookup-first model fallback.",
+    },
+];
+
+fn root_help() -> String {
+    let mut output = String::from("Pangopup: exact Pangolin score lookup\n\nUsage:\n");
+    for entry in HELP_CATALOG {
+        output.push_str("  pangopup ");
+        output.push_str(entry.synopsis);
+        output.push('\n');
+    }
+    output.push_str("  pangopup --help\n  pangopup --version\n");
+    output
+}
+
+fn focused_help(raw: &[OsString]) -> Option<String> {
+    let (flag, path) = raw.split_last()?;
+    if flag != "-h" && flag != "--help" {
+        return None;
+    }
+    if path.is_empty() {
+        return Some(root_help());
+    }
+    if let Some(entry) = HELP_CATALOG
+        .iter()
+        .find(|entry| path_matches(path, entry.path))
+    {
+        return Some(format!(
+            "Usage: pangopup {}\n\n{}\n",
+            entry.synopsis, entry.summary
+        ));
+    }
+    HELP_CATALOG
+        .iter()
+        .find(|entry| {
+            entry.path.len() > path.len() && path_matches(path, &entry.path[..path.len()])
+        })
+        .map(|entry| namespace_help(&entry.path[..path.len()]))
+}
+
+fn path_matches(actual: &[OsString], expected: &[&str]) -> bool {
+    actual.len() == expected.len()
+        && actual
+            .iter()
+            .zip(expected)
+            .all(|(actual, expected)| actual == expected)
+}
+
+fn namespace_help(namespace: &[&str]) -> String {
+    let name = namespace.join(" ");
+    let mut output = format!("Usage: pangopup {name} <ACTION>\n\nActions:\n");
+    for entry in HELP_CATALOG
+        .iter()
+        .filter(|entry| entry.path.starts_with(namespace))
+    {
+        output.push_str("  pangopup ");
+        output.push_str(entry.synopsis);
+        output.push('\n');
+    }
+    output
+}
 
 struct Arguments {
     bundle: Option<PathBuf>,
@@ -219,21 +315,17 @@ impl Failure {
 
 fn main() -> ExitCode {
     let raw: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if raw.is_empty() {
+        print!("{}", root_help());
+        return ExitCode::SUCCESS;
+    }
+    if let Some(help) = focused_help(&raw) {
+        print!("{help}");
+        return ExitCode::SUCCESS;
+    }
     match raw.as_slice() {
-        [] => {
-            println!("{HELP}");
-            return ExitCode::SUCCESS;
-        }
-        [value] if value == "-h" || value == "--help" => {
-            println!("{HELP}");
-            return ExitCode::SUCCESS;
-        }
         [value] if value == "-V" || value == "--version" => {
             println!("pangopup {}", env!("CARGO_PKG_VERSION"));
-            return ExitCode::SUCCESS;
-        }
-        [command, value] if command == "lookup" && (value == "-h" || value == "--help") => {
-            println!("{HELP}");
             return ExitCode::SUCCESS;
         }
         [command, value] if command == "lookup" && (value == "-V" || value == "--version") => {
@@ -867,7 +959,9 @@ fn parse_command(raw: &[OsString]) -> Result<Command, Failure> {
         Some("sync") => parse_sync(raw),
         Some("status") => parse_status(raw),
         Some("assets") => parse_assets(raw),
-        _ => Err(Failure::usage(HELP)),
+        _ => Err(Failure::usage(
+            root_help().trim_end_matches('\n').to_owned(),
+        )),
     }
 }
 
@@ -1425,8 +1519,134 @@ fn failure_json(error: &Failure) -> Vec<u8> {
 mod tests {
     use super::*;
     use std::cell::Cell;
+    use std::collections::BTreeSet;
     use std::fs;
     use std::rc::Rc;
+
+    const SHIPPED_ROOT_HELP: &str =
+        include_str!("../../../tests/fixtures/runtime-cli/root-help.txt");
+
+    fn os_args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn root_help_remains_byte_identical_to_the_shipped_oracle() {
+        assert_eq!(root_help().as_bytes(), SHIPPED_ROOT_HELP.as_bytes());
+        assert_eq!(
+            focused_help(&os_args(&["-h"])).as_deref(),
+            Some(SHIPPED_ROOT_HELP)
+        );
+        assert_eq!(
+            focused_help(&os_args(&["--help"])).as_deref(),
+            Some(SHIPPED_ROOT_HELP)
+        );
+    }
+
+    #[test]
+    fn namespace_help_bytes_are_exact_and_descendant_only() {
+        assert_eq!(
+            focused_help(&os_args(&["assets", "--help"])).as_deref(),
+            Some(
+                "Usage: pangopup assets <ACTION>\n\nActions:\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n"
+            )
+        );
+        assert_eq!(
+            focused_help(&os_args(&["assets", "runtime", "--help"])).as_deref(),
+            Some(
+                "Usage: pangopup assets runtime <ACTION>\n\nActions:\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n"
+            )
+        );
+    }
+
+    #[test]
+    fn help_catalog_is_closed_unique_ordered_and_focused() {
+        let expected = [
+            (
+                "sync",
+                "Synchronize the pinned SNV lookup and model-side runtime assets.",
+            ),
+            (
+                "status",
+                "Report the combined installed SNV and model-side runtime state.",
+            ),
+            ("serve", "Run the foreground HTTP scoring service."),
+            (
+                "assets install",
+                "Install a caller-supplied SNV transport into the local asset store.",
+            ),
+            (
+                "assets runtime install",
+                "Install a caller-supplied compatible model-side runtime profile.",
+            ),
+            (
+                "lookup",
+                "Score one or more GRCh38 variants with lookup-first model fallback.",
+            ),
+        ];
+        assert_eq!(HELP_CATALOG.len(), expected.len());
+        for (index, entry) in HELP_CATALOG.iter().enumerate() {
+            assert_eq!(entry.path.join(" "), expected[index].0);
+            assert_eq!(entry.summary, expected[index].1);
+            assert!(!entry.synopsis.is_empty());
+            assert_eq!(
+                HELP_CATALOG
+                    .iter()
+                    .filter(|other| other.path == entry.path)
+                    .count(),
+                1
+            );
+
+            let mut raw: Vec<OsString> = entry.path.iter().map(OsString::from).collect();
+            raw.push(OsString::from("--help"));
+            assert_eq!(
+                focused_help(&raw),
+                Some(format!(
+                    "Usage: pangopup {}\n\n{}\n",
+                    entry.synopsis, entry.summary
+                ))
+            );
+        }
+        let namespaces: BTreeSet<Vec<&str>> = HELP_CATALOG
+            .iter()
+            .flat_map(|entry| (1..entry.path.len()).map(|length| entry.path[..length].to_vec()))
+            .collect();
+        assert_eq!(
+            namespaces,
+            BTreeSet::from([vec!["assets"], vec!["assets", "runtime"],])
+        );
+    }
+
+    #[test]
+    fn focused_help_accepts_only_exact_trailing_information_forms() {
+        for path in [
+            vec!["sync"],
+            vec!["status"],
+            vec!["serve"],
+            vec!["assets"],
+            vec!["assets", "install"],
+            vec!["assets", "runtime"],
+            vec!["assets", "runtime", "install"],
+            vec!["lookup"],
+        ] {
+            for flag in ["-h", "--help"] {
+                let mut raw = os_args(&path);
+                raw.push(OsString::from(flag));
+                assert!(focused_help(&raw).is_some(), "{path:?} {flag}");
+            }
+        }
+        for invalid in [
+            vec!["--help", "sync"],
+            vec!["sync", "--help", "extra"],
+            vec!["sync", "--offline", "--help"],
+            vec!["lookup", "--variant", "x", "--help"],
+            vec!["unknown", "--help"],
+            vec!["assets", "unknown", "--help"],
+            vec!["sync", "--help=yes"],
+        ] {
+            assert!(focused_help(&os_args(&invalid)).is_none(), "{invalid:?}");
+        }
+    }
 
     fn repository_path(relative: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))

@@ -67,6 +67,26 @@ read_only_data_run=(docker run --rm --network none --read-only
   --tmpfs /tmp:rw,noexec,nosuid,size=64m
   -v "$data_volume:/var/lib/pangopup:ro"
   -v "$cache_volume:/var/cache/pangopup")
+help_run=(docker run --rm --network none --read-only
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m)
+
+check_focused_help() {
+  local name=$1 expected=$2
+  shift 2
+  local flag suffix
+  for flag in -h --help; do
+    suffix=${flag#-}
+    "${help_run[@]}" "$image" "$@" "$flag" \
+      >"$work/help-$name-$suffix.out" 2>"$work/help-$name-$suffix.err"
+    expect_equal "$name-$suffix-first-line" "$expected" \
+      "$(head -1 "$work/help-$name-$suffix.out")"
+    if grep -Fq '"status":"error"' "$work/help-$name-$suffix.err"; then
+      printf 'container qualification failed: stage=%s check=%s emitted PangoPup JSON error\n' \
+        "$stage" "$name-$suffix" >&2
+      exit 1
+    fi
+  done
+}
 
 copy_cache_database() {
   local destination=$1
@@ -104,6 +124,16 @@ size=$(docker image inspect --format '{{.Size}}' "$image")
     "$stage" 78643200 "$size" >&2
   exit 1
 }
+
+stage=focused-help-no-assets
+check_focused_help sync 'Usage: pangopup sync [--offline] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]' sync
+check_focused_help status 'Usage: pangopup status [--data-dir <ABSOLUTE_PATH>]' status
+check_focused_help serve 'Usage: pangopup serve [--listen <ADDRESS>] [--data-dir <ABSOLUTE_PATH>] [--model-workers <1..8>] [--model-threads <1..8>] [--model-queue-capacity <1..1024>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]' serve
+check_focused_help assets 'Usage: pangopup assets <ACTION>' assets
+check_focused_help assets-install 'Usage: pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]' assets install
+check_focused_help assets-runtime 'Usage: pangopup assets runtime <ACTION>' assets runtime
+check_focused_help assets-runtime-install 'Usage: pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]' assets runtime install
+check_focused_help lookup 'Usage: pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]' lookup
 
 stage=filesystem-inventory
 docker create --name "$container" "$image" >/dev/null
