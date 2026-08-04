@@ -615,9 +615,9 @@ induce a within-process retry. The retained Apple friction is ONNX Runtime
 Following that completed outcome, retain these ordered slots rather than
 drafting a backlog:
 
-1. replace the pinned ONNX Runtime with a version that handles Apple Silicon
-   without warning while preserving exact model outputs and qualified CPU
-   behavior;
+1. decide the Apple warning's disposition from the retained rc.13 rejection:
+   wait for an upstream fix, accept and document the harmless warning, or take
+   on a separately qualified custom native runtime; do not silently filter it;
 2. compact the README around first use, Docker and Apple Silicon behavior,
    complete HTTP examples, update/restart, and safe manual uninstall;
 3. publish the next qualified executable release;
@@ -660,10 +660,12 @@ and model oracles, public verification, and a tagged non-root install. HTTP and
 the native AMD64/ARM64 Docker image are shipped. Other package managers remain
 later roadmap slots. Read-only status, focused runtime help, resilient
 resumable synchronization feedback, and the exact-commit Apple Silicon retest
-are complete. The next bounded outcome is removing the Apple ONNX Runtime
-warning without changing model results; compact user documentation, the next
-executable release, and reviewed multi-architecture container publication
-follow in that order.
+are complete. Ticket 047 proved that `ort` rc.13 / ONNX Runtime 1.28.0 still
+emits the same Apple Docker unknown-vendor warning, so `main` remains on the
+qualified 1.24.2 runtime. The next decision is whether to wait upstream, accept
+and document the harmless warning, or qualify a custom native runtime; compact
+user documentation, the next executable release, and reviewed
+multi-architecture container publication follow.
 
 Ticket 038's completed publication includes a credential-free operation/evidence
 record, exact reviewed release notes, an independently

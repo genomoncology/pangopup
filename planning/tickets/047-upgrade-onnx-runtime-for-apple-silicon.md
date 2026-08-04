@@ -1,6 +1,6 @@
 # 047 — Upgrade ONNX Runtime without changing scores
 
-Status: ready
+Status: complete (candidate rejected at fail-fast probe)
 
 ## Why
 
@@ -170,16 +170,48 @@ runtime redesign.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex sub-agent (Ticket 047 implementation)
+
+The dependency-only candidate was reviewed and committed as
+`12ea6aa1e486ef5cfd17fc01e522fad5eab37748` on temporary branch
+`qualification/ticket-047-ort-probe`. Its native Linux/ARM64 image was
+24,284,560 bytes and carried the exact revision label. On the Apple M5 Max,
+`--version` exited zero with the expected `pangopup 0.1.0` stdout, but stderr
+still contained exactly the 76-byte `Unknown CPU vendor` warning. The tester
+therefore stopped before the later qualification matrix, as the ticket
+required.
+
+The retained
+[probe artifact](../artifacts/047-onnx-runtime-1.28-apple-probe.md) records the
+exact output, honest supplied-evidence boundary, corrected tester wrapper, and
+branch cleanup. The coordinator deleted the temporary remote and local
+branches. `main` remains on exact rc.12 / ONNX Runtime 1.24.2; no candidate
+Cargo, source, specification, ADR, runtime asset, cache, or frontier change is
+present in this closeout diff.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Lorentz the 4th
+
+Verdict: ACCEPT after the interim exact-commit remediation and final rejection
+review. The reviewer authenticated the candidate archives and minimal diff,
+then confirmed the retained closeout's exact 15-byte stdout and 76-byte stderr,
+honest supplied-evidence boundary, corrected tester wrapper, stopped scope,
+branch deletion, and unchanged rc.12 implementation on `main`.
 
 ## External Qualification
 
-Coordinator: pending
+Coordinator: Codex
+
+The exact Apple ARM64 probe rejected candidate
+`12ea6aa1e486ef5cfd17fc01e522fad5eab37748`. The remote and local temporary
+branches were deleted. No candidate commit, artifact, tag, release, package,
+or runtime asset was published from `main`.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex
+
+The final closeout diff contains only this ticket and the retained rejection
+artifact. `main` remains on `ort`/`ort-sys` rc.12, ONNX Runtime 1.24.2, and
+`api-24`. Final repository gates are recorded before the closeout commit.
