@@ -144,6 +144,20 @@ installs under `${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}`. It never uses sudo,
 changes shell configuration, or downloads runtime assets; `pangopup sync`
 remains explicit.
 
+The direct Linux executable also owns a conservative `pangopup uninstall`
+boundary. It resolves the running executable and the same XDG data/cache roots
+used at runtime, admits only the known managed layouts, and presents either
+code-only or complete removal. `--full` selects complete removal and `--yes`
+suppresses confirmation; they are the only flags. Complete removal holds the
+nonblocking synchronization and installation authorities, revalidates the
+tree, then atomically exchanges each public root with a regular tombstone
+before descriptor-relative no-follow traversal. Data lock names remain present
+and held until every other detached entry is gone. The validated regular
+blocker remains at the public data path across cache destruction—even when the
+data root was initially absent—and is identity-checked immediately before
+final removal. The executable is unlinked last. Docker images
+and volumes remain host-managed and are never removed from inside a container.
+
 The immutable `v0.2.0` executable release retains exactly six members: the direct
 binary, checksum, CycloneDX SBOM, canonical manifest, `LICENSE`, and `NOTICE`.
 The read-only exact-commit workflow compares untouched SBOMs from two fresh

@@ -96,16 +96,17 @@ rg -F 'authenticated TLS reverse proxy' ../README.md >/dev/null
 printf 'platform and security boundaries are present\n' | mustmatch like 'platform and security boundaries are present'
 ```
 
-Update and manual, separately selectable uninstall guidance remains visible;
+Update and safe CLI uninstall guidance remains visible;
 the spec only matches these commands and never executes them:
 
 ```bash
 rg -F '## Update' ../README.md >/dev/null
 rg -F '## Uninstall' ../README.md >/dev/null
-rg -F 'There is deliberately no automated uninstaller.' ../README.md >/dev/null
-rg -F 'rm -- "$HOME/.local/bin/pangopup"' ../README.md >/dev/null
-rg -F 'rm -rf -- "${XDG_DATA_HOME:-$HOME/.local/share}/pangopup"' ../README.md >/dev/null
-rg -F 'rm -rf -- "${XDG_CACHE_HOME:-$HOME/.cache}/pangopup"' ../README.md >/dev/null
+rg -F 'pangopup uninstall' ../README.md >/dev/null
+rg -F 'pangopup uninstall --full' ../README.md >/dev/null
+rg -F 'pangopup uninstall --yes' ../README.md >/dev/null
+rg -F 'pangopup uninstall --full --yes' ../README.md >/dev/null
+rg -F '`PANGOPUP_MODEL_CACHE` outside that root is not discoverable and is not' ../README.md >/dev/null
 printf 'update and removal guidance is present\n' | mustmatch like 'update and removal guidance is present'
 ```
 

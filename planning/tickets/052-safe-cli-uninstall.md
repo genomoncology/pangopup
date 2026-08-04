@@ -1,6 +1,6 @@
 # 052 — Safely uninstall code or the complete local installation
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -153,7 +153,7 @@ two-flag interaction.
 
 ## Independent Ticket Review
 
-Reviewer: Huygens. Initial verdict: REJECT. The draft allowed an explicit
+Reviewer: `ticket052_design_review`. Initial verdict: REJECT. The draft allowed an explicit
 environment root such as `$HOME` to pass ownership checks, omitted alias and
 ancestry rejection, checked only stderr terminal state, did not hold existing
 sync/install authorities, underspecified JSON/errors, and overstated direct
@@ -169,11 +169,57 @@ confirmed the full contract is safely bounded and implementable.
 
 ## Implementation Evidence
 
-Developer: pending.
+Developer: `ticket052_implementation`. Added the exact `uninstall [--full] [--yes]`
+grammar and focused help, terminal choice/confirmation flow, stable JSON and
+typed failures, runtime-precedence path resolution, closed managed-root
+admission, nonblocking sync/install authorities, and Linux descriptor-relative
+no-follow removal with executable-last ordering. After adversarial review, the
+data authority now retains and validates the admitted root descriptor before
+opening lock names, every removal root compares the opened descriptor's exact
+device/inode/mode/owner identity, and an atomic same-parent exchange places a
+regular tombstone at the public root while detached traversal runs. Lock names
+remain present and locked until all other data entries are gone, are removed
+last from the detached root, and the retained/validated public data blocker
+stays in place across cache destruction. Initially absent data receives the
+same regular blocker after confirmation, preventing a concurrent sync from
+creating a fresh root; blocker identity is checked immediately before final
+unlink. The blocker also performs identity-checked owned-name cleanup on every
+early error and drop path, while refusing to unlink any replacement at that
+name. Twenty-three isolated unit tests
+cover both scopes, both interactive forms, cancellation/no metadata mutation,
+absent roots, option closure, nonterminal refusal, busy locks, aliases,
+unknown/special/hard-linked entries, nested symlink containment, parent
+permissions, deterministic authority/root swaps, concurrent replacement-lock
+refusal during detached traversal, an injected later-phase failure proving the
+executable remains available, present-data and absent-data cache-removal gap
+coverage, blocker-replacement refusal, absent-data blocker cleanup after a
+post-confirmation cache replacement, and a 32 GiB sparse metadata-only fixture.
+Executable specs use
+only copied binaries and isolated roots to exercise code-only, full,
+interactive, cancel, stream, JSON, and usage behavior. README and delivery
+architecture now distinguish direct uninstall from host-side Docker cleanup.
+Focused evidence after remediation: `cargo clippy --locked -p pangopup-cli
+--all-targets -- -D warnings`; `cargo test --locked -p pangopup-cli
+--no-fail-fast` (all passed; one retained production-assets test ignored); and
+`mustmatch test spec/cli.md spec/readme-first-use.md` (`33 passed`). `git diff
+--check` passed.
 
 ## Adversarial Code Review
 
-Reviewer: pending.
+Reviewer: `ticket052_code_review`. Initial verdict: REJECT. Review found that pathnames were
+reopened without proving the same inode, lock filenames could disappear before
+long deletion finished, and tests missed deterministic replacement/concurrency
+windows. The developer retained and checked opened root descriptors, detached
+roots behind a same-parent blocker, and kept authority names effective through
+data traversal. Re-review then found that protection ended before cache
+destruction and the blocker name was not identity-protected; remediation held
+one descriptor-identified public data blocker across both roots, including
+initially absent data. Final re-review found one early-error leak of that
+temporary blocker. The final implementation added identity-checked Drop
+cleanup which removes only the still-owned name and preserves replacements,
+plus deterministic regression coverage for every finding. Final verdict:
+ACCEPT. All twenty-three focused uninstall tests and `git diff --check` passed;
+no actionable findings remain.
 
 ## External Effect Evidence
 
@@ -181,4 +227,15 @@ Coordinator: not applicable.
 
 ## Coordinator Final Check
 
-Coordinator: pending.
+Coordinator: Codex. Reviewed the complete diff and confirmed only the accepted
+CLI, dependency, tests/specs, help fixture, README, delivery architecture, and
+ticket files changed. `make lint`, `make test`, and `make spec` passed; the
+Mustmatch layer reported `275 passed, 7 skipped`. `git diff --check` passed.
+An extra focused Mustmatch invocation initially omitted `target/debug` from
+`PATH` and therefore found no executable; the corrected repository-form
+invocation passed all `33` focused specs.
+The stale-claim scan found no remaining manual-uninstaller or future-uninstall
+claim in the changed user and architecture documentation. The separately
+reported pre-existing container-publication wording in `AGENTS.md`,
+`planning/faq.md`, and an old planning issue remains outside this ticket and is
+the next documentation-reconciliation outcome.

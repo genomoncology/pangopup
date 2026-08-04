@@ -342,30 +342,40 @@ otherwise `sync --offline` confirms reuse without downloading again.
 
 ## Uninstall
 
-There is deliberately no automated uninstaller. Remove each layer separately
-so uninstalling or upgrading the executable cannot accidentally erase large,
-reusable assets.
-
-Remove only the default user-installed executable:
+For a direct Linux installation, PangoPup checks and displays the executable,
+data, and cache paths before it removes anything:
 
 ```bash
-rm -- "$HOME/.local/bin/pangopup"
+pangopup uninstall
 ```
 
-Optionally remove installed assets (about 14.8 GB in the retained Mac run):
+Choose code only, code plus all managed data, or cancel. Code-only removal
+preserves the large installed scoring assets, resumable downloads, and SQLite
+model-result cache for a later reinstall. `--full` selects code plus all
+managed data but still asks for confirmation:
 
 ```bash
-rm -rf -- "${XDG_DATA_HOME:-$HOME/.local/share}/pangopup"
+pangopup uninstall --full
 ```
 
-Optionally remove resumable downloads and cached model results (about 2.4 GB
-after that first sync):
+For scripts, `--yes` skips the prompt. It removes code only unless combined
+with `--full`:
 
 ```bash
-rm -rf -- "${XDG_CACHE_HOME:-$HOME/.cache}/pangopup"
+pangopup uninstall --yes
+pangopup uninstall --full --yes
 ```
 
-For Docker, remove the local image separately from the two volumes:
+Full removal includes installed assets (about 14.8 GB in the retained Mac
+run), resumable downloads, and the default SQLite cache inside the resolved
+cache root (about 2.4 GB after first sync). A separately configured
+`PANGOPUP_MODEL_CACHE` outside that root is not discoverable and is not
+removed. Stop a foreground PangoPup service first; PangoPup deliberately has
+no process registry or supervisor. The command refuses unsafe, aliased,
+foreign-owned, busy, or unexpected paths and removes the executable last.
+
+Containers cannot remove host images or volumes. For Docker, remove those on
+the host:
 
 ```bash
 docker image rm ghcr.io/genomoncology/pangopup:0.2.0
@@ -373,9 +383,10 @@ docker volume rm pangopup-cache       # removes downloads and model-result cache
 docker volume rm pangopup-data        # removes the large installed assets
 ```
 
-Inspect paths and Docker volumes before running removal commands, especially
-if you set `PANGOPUP_INSTALL_DIR`, `PANGOPUP_DATA_DIR`,
-`PANGOPUP_CACHE_DIR`, or `PANGOPUP_MODEL_CACHE`.
+The command resolves data and cache through `PANGOPUP_DATA_DIR`,
+`PANGOPUP_CACHE_DIR`, XDG, and `HOME`. The current executable is resolved by
+the operating system; `PANGOPUP_INSTALL_DIR` is an installer setting, not an
+uninstall path override.
 
 ## Source, licenses, and attribution
 

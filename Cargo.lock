@@ -876,6 +876,7 @@ dependencies = [
  "pangopup-index",
  "pangopup-model",
  "rusqlite",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",

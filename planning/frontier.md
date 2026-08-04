@@ -645,6 +645,16 @@ already Public, so no owner visibility mutation was needed. Tags `0.2.0`,
 Docker, systemd, Kubernetes, or another external manager owns
 start/stop/restart; Pangopup does not become its own process supervisor.
 
+Direct Linux installations now have a checked `pangopup uninstall` workflow.
+It displays the resolved executable, data, and cache paths before mutation and
+offers code-only, complete removal, or cancellation. `--full` selects complete
+managed-data removal and `--yes` makes either scope noninteractive. Admission
+rejects arbitrary, aliased, foreign-owned, busy, or unexpected roots;
+descriptor-relative removal does not follow links, holds synchronization
+authority across data and cache destruction, cleans only its own temporary
+blockers on failure, and removes the executable last. Docker images and volumes
+remain explicit host-side lifecycle operations.
+
 ## Later outcome — production and release hardening
 
 Measure concurrency, startup, resident memory, page faults, and tail latency.

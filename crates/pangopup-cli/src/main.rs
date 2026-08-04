@@ -32,6 +32,7 @@ use std::{
 };
 
 mod service;
+mod uninstall;
 
 #[derive(Debug, Eq, PartialEq)]
 struct HelpEntry {
@@ -41,6 +42,11 @@ struct HelpEntry {
 }
 
 const HELP_CATALOG: &[HelpEntry] = &[
+    HelpEntry {
+        path: &["uninstall"],
+        synopsis: "uninstall [--full] [--yes]",
+        summary: "Remove this executable, optionally with managed data and cache.",
+    },
     HelpEntry {
         path: &["sync"],
         synopsis: "sync [--offline] [--progress | --quiet] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]",
@@ -345,6 +351,25 @@ fn main() -> ExitCode {
     }
     if raw.first().is_some_and(|value| value == "serve") {
         return service::run(&raw[1..]);
+    }
+    if raw.first().is_some_and(|value| value == "uninstall") {
+        return match uninstall::run(&raw[1..]) {
+            Ok(bytes) => match std::io::stdout().lock().write_all(&bytes) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => fail(&Failure {
+                    code: "OUTPUT_IO",
+                    message: error.to_string(),
+                    exit: 1,
+                    details: None,
+                }),
+            },
+            Err(error) => fail(&Failure {
+                code: error.code,
+                message: error.message,
+                exit: error.exit,
+                details: None,
+            }),
+        };
     }
     let terminal = std::io::stderr().is_terminal();
     let mut stderr = std::io::stderr().lock();
@@ -1763,6 +1788,10 @@ mod tests {
     fn help_catalog_is_closed_unique_ordered_and_focused() {
         let expected = [
             (
+                "uninstall",
+                "Remove this executable, optionally with managed data and cache.",
+            ),
+            (
                 "sync",
                 "Synchronize the pinned SNV lookup and model-side runtime assets.",
             ),
@@ -1820,6 +1849,7 @@ mod tests {
     #[test]
     fn focused_help_accepts_only_exact_trailing_information_forms() {
         for path in [
+            vec!["uninstall"],
             vec!["sync"],
             vec!["status"],
             vec!["serve"],
