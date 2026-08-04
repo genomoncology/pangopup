@@ -1,6 +1,6 @@
 # 048 — Probe ONNX Runtime 1.28 with Apple-aware cpuinfo
 
-Status: review
+Status: complete
 
 ## Why
 
@@ -343,6 +343,9 @@ Mac recipe. The source checker, all 16 mutation tests, shell syntax, Ruff,
 Docker's ARM64 static validation, `git diff --check`, and the production-file
 boundary check pass. Native workspace compilation is Linux-only and therefore
 is not a meaningful macOS host gate; the Linux lint gate passed in a disposable
-AMD64 container. The exact pushed commit remains subject to the repository's
-GitHub Linux and native-container workflows before this qualification result is
-integrated into `main`.
+AMD64 container. Exact commit
+`1c6b913520046516bf0c0e78edd328b9c0d2e634` passed the repository's Linux CI
+gate and both native AMD64/ARM64 container jobs in GitHub Actions runs
+`30907533765` and `30907533497`. The retained result is therefore complete and
+ready for integration into `main` followed by deletion of the disposable probe
+harness, live ticket, and temporary qualification branch.
