@@ -15,3 +15,6 @@
 !release-profiles/runtime-release-profile.json
 !release-profiles/runtime-transport.json
 !release-profiles/snv-grch38-v1.json
+!maintainers/
+!maintainers/ticket-048/
+!maintainers/ticket-048/**

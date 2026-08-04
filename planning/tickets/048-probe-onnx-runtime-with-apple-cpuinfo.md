@@ -1,6 +1,6 @@
 # 048 — Probe ONNX Runtime 1.28 with Apple-aware cpuinfo
 
-Status: ready
+Status: publication-ready
 
 ## Why
 
@@ -168,11 +168,77 @@ reread the complete ticket and accepted it with no remaining finding.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: `/root/ticket048_implementation`, 2026-08-03.
+
+Implemented a disposable maintainer-only probe under
+`maintainers/ticket-048/`; neither the production `Dockerfile` nor the accepted
+rc.12/API-24 Cargo dependency changed. The native ARM64 recipe resolves the
+live official ONNX Runtime tag to the expected commit, authenticates that tag
+archive and both cpuinfo archives, constructs and compares baseline/patched
+source trees, uses the SHA-256-authenticated cpuinfo extraction as the actual
+CMake FetchContent source, and builds both CPU-only static runtimes,
+removes `download-binaries` only inside the candidate build context, and proves
+the custom `libcpuinfo.a` and ONNX Runtime archives entered the executable via
+the linker map and retained symbol. It preserves applicable licenses and emits
+ONNX Runtime's complete third-party notices, plus the exact source, toolchain,
+and static-library identities for the Mac runner to copy into external
+evidence.
+
+The runner refetches the live branch from the public HTTPS repository and
+requires its commit to equal the clean checkout and fresh `FETCH_HEAD`. It
+records that revision before any outcome, then authenticates native Docker
+architecture, exact image revision/variant/source labels, extracted cpuinfo
+source identity, differing baseline/patched cpuinfo libraries, exit codes,
+stdout, and stderr. It builds the patched candidate only after the source-built
+baseline reproduces Ticket 047 exactly and records `inconclusive`, `rejected`,
+or `confirmed` without running later qualification.
+
+Focused evidence:
+
+- `maintainers/ticket-048/check_probe.py` — pass.
+- `maintainers/ticket-048/test_check_probe.py` — 9 mutation tests passed.
+- `sh -n maintainers/ticket-048/run-mac-probe.sh` — pass.
+- `ruff check` over both Python files — pass.
+- `docker build --check --platform linux/arm64` for the probe Dockerfile — pass
+  with no warnings; no ONNX Runtime build or download was performed.
+- `git diff --check` — pass.
+
+Upstream identities independently resolved while preparing the recipe:
+
+- ONNX Runtime `v1.28.0` ->
+  `da9b5e364c465de65c49d91e696cd6485270757f`; tag archive SHA-256
+  `9616cbdbbfcb1420b3261cd280a047d74ab0a249825e577b0e2dd310e22f6b83`.
+- cpuinfo baseline zip SHA-1/SHA-256:
+  `e58d4b47c16a982111c897e669ae4f1821a393d7` /
+  `2ed3ebc6c2656cc0aafc7af319e5cb0f97cc9b415eae180f566def84f1ca6a29`.
+- cpuinfo patched zip SHA-1/SHA-256:
+  `44419f8b0fda75bb0d2fbe3dd0629493c98ad905` /
+  `d40ed2e6134c6b8103ac7916de080a67964f48a8f61c5e72ecca18e9c492f884`.
+
+The decisive source builds and two `--version` probes remain intentionally
+unrun pending independent code review and coordinator publication of the exact
+temporary branch.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `/root/ticket048_code_review`, 2026-08-03.
+
+The first review found four material authentication gaps: the declared ONNX
+Runtime tag commit was not mechanically verified; CMake could refetch cpuinfo
+instead of consuming the independently SHA-256-authenticated bytes; the Mac
+runner trusted a stale local remote-tracking ref and did not fully authenticate
+image labels; and the statically linked runtime's third-party notices were
+missing. The same developer fixed all four, added mutation coverage, and
+returned the complete diff to the same reviewer.
+
+The reviewer reran the source checker, all nine mutation tests, shell syntax,
+Ruff, `git diff --check`, and Docker's native-ARM64 static validation. It
+verified the live ORT ref and archive identities, actual authenticated cpuinfo
+FetchContent source, CMake/static/link-map/symbol evidence, A/B library
+inequality check, fresh public qualification-ref authentication, exact
+fail-fast order, source/variant labels, and complete notices. It accepted the
+diff for the temporary qualification branch only, with no remaining finding.
+This is not approval to adopt or publish the custom runtime.
 
 ## External Effect Evidence
 
