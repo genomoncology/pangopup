@@ -49,8 +49,17 @@ git fetch origin \
 git switch -C qualification/ticket-048-cpuinfo-probe \
   origin/qualification/ticket-048-cpuinfo-probe
 maintainers/ticket-048/run-mac-probe.sh \
-  "$HOME/Desktop/pangopup-mac-evidence-ticket048"
+  "$HOME/Desktop/pangopup-mac-evidence-ticket048-rerun1"
 ```
+
+The first preflight at
+`/Users/ian/Desktop/pangopup-mac-evidence-ticket048` stopped before either
+image build because BSD `wc` pads its numeric output. That run authenticated
+the clean checkout and live ref at the same commit, then failed before reaching
+`check_probe.py`; the tester subsequently reran only that read-only checker
+independently and it passed. No image, build log, or outcome was created.
+Preserve the original directory as evidence; the corrected run must use the
+fresh `-rerun1` directory above.
 
 The runner stops before building the patched image unless the matched
 source-built baseline reproduces Ticket 047's exact warning. It stops with a

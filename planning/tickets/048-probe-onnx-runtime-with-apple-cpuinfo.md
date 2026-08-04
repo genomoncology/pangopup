@@ -196,7 +196,9 @@ or `confirmed` without running later qualification.
 Focused evidence:
 
 - `maintainers/ticket-048/check_probe.py` — pass.
-- `maintainers/ticket-048/test_check_probe.py` — 9 mutation tests passed.
+- `maintainers/ticket-048/test_check_probe.py` — 10 mutation tests passed.
+- Direct AWK smoke check accepted one record and rejected two records without
+  parsing formatted numeric output.
 - `sh -n maintainers/ticket-048/run-mac-probe.sh` — pass.
 - `ruff check` over both Python files — pass.
 - `docker build --check --platform linux/arm64` for the probe Dockerfile — pass
@@ -219,6 +221,18 @@ The decisive source builds and two `--version` probes remain intentionally
 unrun pending independent code review and coordinator publication of the exact
 temporary branch.
 
+The first Apple preflight authenticated the clean checkout and live public ref
+at commit `86d98e5fd3a91281680f00c12ec2cb0b34145e92`, then stopped before
+reaching `check_probe.py` or either build because BSD `wc` renders the one-line
+count with leading padding. The tester subsequently reran only the read-only
+checker independently and it passed. No image, build log, or outcome was
+created. The runner now uses output-free AWK
+record-count validation, and a mutation test forbids restoring `wc -l` parsing.
+The original evidence remains at
+`/Users/ian/Desktop/pangopup-mac-evidence-ticket048`; the corrected probe must
+use the fresh
+`/Users/ian/Desktop/pangopup-mac-evidence-ticket048-rerun1` directory.
+
 ## Adversarial Code Review
 
 Reviewer: `/root/ticket048_code_review`, 2026-08-03.
@@ -231,7 +245,7 @@ image labels; and the statically linked runtime's third-party notices were
 missing. The same developer fixed all four, added mutation coverage, and
 returned the complete diff to the same reviewer.
 
-The reviewer reran the source checker, all nine mutation tests, shell syntax,
+The reviewer reran the source checker, all ten mutation tests, shell syntax,
 Ruff, `git diff --check`, and Docker's native-ARM64 static validation. It
 verified the live ORT ref and archive identities, actual authenticated cpuinfo
 FetchContent source, CMake/static/link-map/symbol evidence, A/B library

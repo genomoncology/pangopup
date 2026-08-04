@@ -98,6 +98,18 @@ class ProbeCheckerTests(unittest.TestCase):
         path.write_text(path.read_text().replace("invalid-identical-cpuinfo-libraries", "ignored-identical-libraries"), encoding="utf-8")
         self.assertNotEqual(self.run_checker(root).returncode, 0)
 
+    def test_runner_cannot_restore_bsd_padded_wc_parsing(self) -> None:
+        root = self.fixture()
+        path = root / "maintainers/ticket-048/run-mac-probe.sh"
+        path.write_text(
+            path.read_text().replace(
+                "awk 'END { exit NR == 1 ? 0 : 1 }' \"${evidence_dir}/live-remote-ref.txt\"",
+                "test \"$(wc -l < \"${evidence_dir}/live-remote-ref.txt\")\" = 1",
+            ),
+            encoding="utf-8",
+        )
+        self.assertNotEqual(self.run_checker(root).returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,7 +24,7 @@ revision=$(git rev-parse HEAD)
 printf '%s\n' "$revision" | grep -Eq '^[0-9a-f]{40}$'
 printf '%s\n' "$revision" >"${evidence_dir}/revision.txt"
 git ls-remote "$public_repository" "refs/heads/${expected_branch}" >"${evidence_dir}/live-remote-ref.txt"
-test "$(wc -l < "${evidence_dir}/live-remote-ref.txt")" = 1
+awk 'END { exit NR == 1 ? 0 : 1 }' "${evidence_dir}/live-remote-ref.txt"
 read -r live_revision live_ref <"${evidence_dir}/live-remote-ref.txt"
 test "$live_ref" = "refs/heads/${expected_branch}"
 git fetch --no-tags "$public_repository" "refs/heads/${expected_branch}"

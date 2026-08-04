@@ -36,6 +36,7 @@ REQUIRED_RUNNER_TEXT = (
     "https://github.com/genomoncology/pangopup.git",
     'git ls-remote "$public_repository" "refs/heads/${expected_branch}"',
     'git fetch --no-tags "$public_repository" "refs/heads/${expected_branch}"',
+    "awk 'END { exit NR == 1 ? 0 : 1 }'",
     'printf \'%s\\n\' "$revision" >"${evidence_dir}/revision.txt"',
     'org.pangopup.probe.cpuinfo-variant',
     'org.pangopup.probe.onnxruntime-commit',
@@ -46,6 +47,8 @@ REQUIRED_RUNNER_TEXT = (
     'patched-cpuinfo-library.sha256',
     'invalid-identical-cpuinfo-libraries',
 )
+
+FORBIDDEN_RUNNER_TEXT = ("wc -l",)
 
 FORBIDDEN_DOCKER_TEXT = (
     "2>/dev/null",
@@ -85,6 +88,9 @@ def check(root: Path) -> list[str]:
     for expected in REQUIRED_RUNNER_TEXT:
         if expected not in runner_text:
             errors.append(f"Mac runner lost required authentication/evidence: {expected}")
+    for forbidden in FORBIDDEN_RUNNER_TEXT:
+        if forbidden in runner_text:
+            errors.append(f"Mac runner uses nonportable structural parsing: {forbidden}")
 
     removed = "-pytorch_cpuinfo;https://github.com/pytorch/cpuinfo/archive/4628dc060ce4e82345dc166bbac875609db4ff69.zip;e58d4b47c16a982111c897e669ae4f1821a393d7"
     added = "+pytorch_cpuinfo;https://github.com/pytorch/cpuinfo/archive/0c0ab15cb0a8bafbbf71c2ae6f84128a4c2a8da6.zip;44419f8b0fda75bb0d2fbe3dd0629493c98ad905"
