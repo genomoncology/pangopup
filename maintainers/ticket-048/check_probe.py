@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-
 REQUIRED_DOCKER_TEXT = (
     "da9b5e364c465de65c49d91e696cd6485270757f",
     "9616cbdbbfcb1420b3261cd280a047d74ab0a249825e577b0e2dd310e22f6b83",
@@ -24,10 +23,13 @@ REQUIRED_DOCKER_TEXT = (
     "git ls-remote https://github.com/microsoft/onnxruntime.git refs/tags/v1.28.0",
     "FETCHCONTENT_SOURCE_DIR_PYTORCH_CPUINFO=/opt/cpuinfo",
     ".pangopup-source-identity",
-    "ORT_LIB_LOCATION=/opt/onnxruntime/build/Linux",
+    "&& ./build.sh \\\n        --allow_running_as_root \\",
+    "ORT_LIB_LOCATION=/opt/onnxruntime/build/Linux/Release \\",
+    "RUSTFLAGS='-C link-arg=-Wl,-Map=/tmp/pangopup.link.map -C link-arg=/opt/onnxruntime/build/Linux/Release/model_package/libmodel_package.a' \\",
     "! grep -F 'download-binaries' /tmp/ort-features.txt",
     "pytorch_cpuinfo-build/libcpuinfo.a",
-    "grep -F 'cpuinfo_initialize'",
+    "&& nm target/release/pangopup | grep -F 'cpuinfo_initialize' \\",
+    "&& ! readelf -d target/release/pangopup | grep -F 'onnxruntime' \\",
     "/opt/onnxruntime/ThirdPartyNotices.txt",
     "org.opencontainers.image.revision=\"${PANGOPUP_REVISION}\"",
 )
@@ -56,6 +58,8 @@ FORBIDDEN_DOCKER_TEXT = (
     "ORT_LOG",
     "cpuinfo_vendor value",
     "CPU implementer",
+    "grep -F '/opt/onnxruntime/build/Linux/Release/_deps/pytorch_cpuinfo-build/libcpuinfo.a' /tmp/pangopup.link.map",
+    "grep -F '/opt/onnxruntime/build/Linux/Release/libonnxruntime_common.a' /tmp/pangopup.link.map",
 )
 
 

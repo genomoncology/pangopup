@@ -1,6 +1,6 @@
 # 048 — Probe ONNX Runtime 1.28 with Apple-aware cpuinfo
 
-Status: publication-ready
+Status: review
 
 ## Why
 
@@ -176,10 +176,13 @@ rc.12/API-24 Cargo dependency changed. The native ARM64 recipe resolves the
 live official ONNX Runtime tag to the expected commit, authenticates that tag
 archive and both cpuinfo archives, constructs and compares baseline/patched
 source trees, uses the SHA-256-authenticated cpuinfo extraction as the actual
-CMake FetchContent source, and builds both CPU-only static runtimes,
-removes `download-binaries` only inside the candidate build context, and proves
-the custom `libcpuinfo.a` and ONNX Runtime archives entered the executable via
-the linker map and retained symbol. It preserves applicable licenses and emits
+CMake FetchContent source, and builds both CPU-only static runtimes. It removes
+`download-binaries` only inside the candidate build context and included
+then-intended linker-map checks plus final executable symbol/dynamic-section
+checks. The Mac run later invalidated the shared link-map greps as proof; the
+authenticated identities, retained `cpuinfo_initialize` symbol, and absence of
+a dynamic ONNX Runtime dependency remain valid evidence. It preserves
+applicable licenses and emits
 ONNX Runtime's complete third-party notices, plus the exact source, toolchain,
 and static-library identities for the Mac runner to copy into external
 evidence.
@@ -217,10 +220,6 @@ Upstream identities independently resolved while preparing the recipe:
   `44419f8b0fda75bb0d2fbe3dd0629493c98ad905` /
   `d40ed2e6134c6b8103ac7916de080a67964f48a8f61c5e72ecca18e9c492f884`.
 
-The decisive source builds and two `--version` probes remain intentionally
-unrun pending independent code review and coordinator publication of the exact
-temporary branch.
-
 The first Apple preflight authenticated the clean checkout and live public ref
 at commit `86d98e5fd3a91281680f00c12ec2cb0b34145e92`, then stopped before
 reaching `check_probe.py` or either build because BSD `wc` renders the one-line
@@ -232,6 +231,34 @@ The original evidence remains at
 `/Users/ian/Desktop/pangopup-mac-evidence-ticket048`; the corrected probe must
 use the fresh
 `/Users/ian/Desktop/pangopup-mac-evidence-ticket048-rerun1` directory.
+
+The corrected runner then reached the baseline Docker build but stopped before
+compilation because ONNX Runtime refuses to run its build script as root unless
+the caller passes `--allow_running_as_root`. That was another harness failure,
+not a model or cpuinfo result. Its raw evidence remains outside git in the
+fresh `-rerun1` directory.
+
+An independent Mac investigation used source revision
+`c3ca22c4187127c8e1d8646d24f8eb07c788d739` and generated a Docker input recipe
+without editing the checkout. It added the required root opt-in, pointed
+`ORT_LIB_LOCATION` at the actual `build/Linux/Release` directory, explicitly
+linked ONNX Runtime 1.28's `model_package/libmodel_package.a` omitted by
+`ort-sys` rc.13, and removed two link-map greps whose shared map is racy across
+concurrent Rust link targets. The stronger executable evidence remained:
+`nm` found `cpuinfo_initialize`, and `readelf` found no dynamic ONNX Runtime
+dependency.
+
+That matched A/B experiment was **confirmed**. Both images were native
+`linux/arm64`, both `--version` calls exited zero, and their 15-byte stdout was
+byte-identical. Baseline stderr was the exact expected 76-byte warning;
+Apple-aware stderr was empty. The baseline and patched image IDs were,
+respectively,
+`sha256:7f152b61e3faf636964d9701ab12d5c014bcf131ba0f21fa0430896c11786fe8`
+and
+`sha256:047246f47d305a294650fc8795a97136c6085215c3ab54848a5b7b1bee3b64f1`.
+Neither image was published. The retained effective recipe is incorporated
+byte-for-byte by the implementation amendment below; the tested PangoPup
+source revision remains `c3ca22c4`, not the eventual amendment commit.
 
 ## Adversarial Code Review
 
@@ -248,25 +275,74 @@ returned the complete diff to the same reviewer.
 The reviewer reran the source checker, all ten mutation tests, shell syntax,
 Ruff, `git diff --check`, and Docker's native-ARM64 static validation. It
 verified the live ORT ref and archive identities, actual authenticated cpuinfo
-FetchContent source, CMake/static/link-map/symbol evidence, A/B library
-inequality check, fresh public qualification-ref authentication, exact
-fail-fast order, source/variant labels, and complete notices. It accepted the
-diff for the temporary qualification branch only, with no remaining finding.
-This is not approval to adopt or publish the custom runtime.
+FetchContent source, CMake/static/symbol evidence, A/B library inequality
+check, fresh public qualification-ref authentication, exact fail-fast order,
+source/variant labels, and complete notices. It also accepted the then-intended
+link-map greps, which the later Mac build exposed as racy and unreliable. It
+accepted the diff for the temporary qualification branch only, with no
+remaining finding. This is not approval to adopt or publish the custom runtime.
+
+## Harness Amendment Implementation Evidence
+
+Developer: `/root/ticket048_fix_implementation`, 2026-08-04.
+
+Made the checked-in probe Dockerfile byte-identical to the independently
+retained and successfully tested `effective-Dockerfile-v4`. Strengthened the
+cheap checker to require the exact root opt-in, Release library root, explicit
+`libmodel_package.a`, final executable `cpuinfo_initialize` symbol, and absence
+of a dynamic ONNX Runtime dependency. It now rejects either unreliable
+link-map grep. Mutation coverage removes or changes each required correction
+and final-binary check, and independently reintroduces each forbidden map gate.
+
+Updated the maintainer instructions, compact retained artifact, ticket history,
+and rolling frontier without importing any raw Mac evidence. Production
+Docker, dependency manifests and lockfile, runtime assets, scoring, and model
+behavior remain unchanged.
+
+Focused evidence:
+
+- checked-in Dockerfile equals retained `effective-Dockerfile-v4`: pass;
+- `maintainers/ticket-048/check_probe.py`: pass;
+- `maintainers/ticket-048/test_check_probe.py`: 16 mutation/checker tests pass;
+- `sh -n maintainers/ticket-048/run-mac-probe.sh`: pass;
+- Ruff over both Python files: pass;
+- Docker ARM64 static validation: pass with no warnings;
+- `git diff --check`: pass.
+
+## Harness Amendment Code Review
+
+Reviewer: `/root/ticket048_fix_code_review`, 2026-08-04.
+
+The first amendment review rejected one documentation contradiction that still
+described the removed shared link-map checks as proof. The same developer
+corrected that history, and the same reviewer reread the complete amendment,
+reran the focused checker and all 16 mutation tests, and accepted it with no
+remaining findings. The review confirmed that the checked-in probe matches the
+successful retained recipe, that the final-executable symbol and dynamic-link
+checks replace the unreliable map greps, and that no production runtime,
+dependency, Dockerfile, asset, or scoring path changed.
 
 ## External Effect Evidence
 
-Coordinator: pending
+Coordinator: `/root`, 2026-08-03 through 2026-08-04.
 
-The only external effect is a temporary qualification branch used to let the
-Apple ARM64 tester authenticate and build the exact reviewed A/B candidates.
-Code review advances the ticket to `publication-ready`; the coordinator runs
-all gates, commits and pushes the exact preparation, and confirms the remote
-branch before the Mac probe. After an inconclusive, rejected, or confirmed
-result is recorded as a compact artifact on `main`, the coordinator deletes
-the local and remote branch. No probe source, release asset, package, or image
-is retained or published.
+The coordinator published only the temporary qualification branch. The Apple
+tester authenticated exact source revision `c3ca22c4`. The first two attempts
+were inconclusive harness failures; the independent effective-recipe run then
+confirmed the A/B result described above. No probe image, release asset, or
+package was published. Raw evidence remains outside git on the Mac. Branch
+deletion waits for amendment code review, final gates, and the coherent
+retained result on `main`.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: `/root`, 2026-08-04.
+
+The checked-in probe Dockerfile is byte-identical to the successful retained
+Mac recipe. The source checker, all 16 mutation tests, shell syntax, Ruff,
+Docker's ARM64 static validation, `git diff --check`, and the production-file
+boundary check pass. Native workspace compilation is Linux-only and therefore
+is not a meaningful macOS host gate; the Linux lint gate passed in a disposable
+AMD64 container. The exact pushed commit remains subject to the repository's
+GitHub Linux and native-container workflows before this qualification result is
+integrated into `main`.

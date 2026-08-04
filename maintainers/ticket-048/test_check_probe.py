@@ -12,7 +12,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 CHECKER = ROOT / "maintainers/ticket-048/check_probe.py"
 FILES = (
@@ -53,11 +52,58 @@ class ProbeCheckerTests(unittest.TestCase):
         path.write_text(path.read_text() + "-extra\n+change\n", encoding="utf-8")
         self.assertNotEqual(self.run_checker(root).returncode, 0)
 
-    def test_missing_link_proof_fails(self) -> None:
+    def mutate_probe(self, old: str, new: str) -> subprocess.CompletedProcess[str]:
         root = self.fixture()
         path = root / "maintainers/ticket-048/Dockerfile"
-        path.write_text(path.read_text().replace("grep -F 'cpuinfo_initialize'", "grep -F 'not-the-symbol'"), encoding="utf-8")
-        self.assertNotEqual(self.run_checker(root).returncode, 0)
+        original = path.read_text(encoding="utf-8")
+        self.assertIn(old, original)
+        path.write_text(original.replace(old, new, 1), encoding="utf-8")
+        return self.run_checker(root)
+
+    def test_missing_allow_running_as_root_fails(self) -> None:
+        result = self.mutate_probe("        --allow_running_as_root \\\n", "")
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_wrong_ort_library_location_fails(self) -> None:
+        result = self.mutate_probe(
+            "ORT_LIB_LOCATION=/opt/onnxruntime/build/Linux/Release",
+            "ORT_LIB_LOCATION=/opt/onnxruntime/build/Linux",
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_missing_model_package_archive_fails(self) -> None:
+        result = self.mutate_probe(
+            " -C link-arg=/opt/onnxruntime/build/Linux/Release/model_package/libmodel_package.a",
+            "",
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_missing_cpuinfo_symbol_proof_fails(self) -> None:
+        result = self.mutate_probe(
+            "&& nm target/release/pangopup | grep -F 'cpuinfo_initialize'",
+            "&& nm target/release/pangopup | grep -F 'not-the-symbol'",
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_missing_no_dynamic_onnxruntime_proof_fails(self) -> None:
+        result = self.mutate_probe("grep -F 'onnxruntime'", "grep -F 'not-onnxruntime'")
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_cpuinfo_link_map_gate_fails(self) -> None:
+        result = self.mutate_probe(
+            "    && nm target/release/pangopup | grep -F 'cpuinfo_initialize' \\",
+            "    && grep -F '/opt/onnxruntime/build/Linux/Release/_deps/pytorch_cpuinfo-build/libcpuinfo.a' /tmp/pangopup.link.map \\\n"
+            "    && nm target/release/pangopup | grep -F 'cpuinfo_initialize' \\",
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_onnxruntime_link_map_gate_fails(self) -> None:
+        result = self.mutate_probe(
+            "    && nm target/release/pangopup | grep -F 'cpuinfo_initialize' \\",
+            "    && grep -F '/opt/onnxruntime/build/Linux/Release/libonnxruntime_common.a' /tmp/pangopup.link.map \\\n"
+            "    && nm target/release/pangopup | grep -F 'cpuinfo_initialize' \\",
+        )
+        self.assertNotEqual(result.returncode, 0)
 
     def test_production_dependency_leak_fails(self) -> None:
         root = self.fixture()

@@ -65,6 +65,7 @@ RUN case "${CPUINFO_VARIANT}" in baseline|patched) ;; *) exit 64 ;; esac \
 
 RUN cd /opt/onnxruntime \
     && ./build.sh \
+        --allow_running_as_root \
         --build --update --config Release --parallel \
         --cmake_generator Ninja \
         --compile_no_warning_as_error \
@@ -96,11 +97,9 @@ RUN sed -i 's/=2.0.0-rc.12/=2.0.0-rc.13/' crates/pangopup-model/Cargo.toml \
     && cargo tree --locked -e features -i ort-sys > /tmp/ort-features.txt \
     && grep -F 'ort-sys v2.0.0-rc.13' /tmp/ort-features.txt \
     && ! grep -F 'download-binaries' /tmp/ort-features.txt \
-    && ORT_LIB_LOCATION=/opt/onnxruntime/build/Linux \
-       RUSTFLAGS='-C link-arg=-Wl,-Map=/tmp/pangopup.link.map' \
+    && ORT_LIB_LOCATION=/opt/onnxruntime/build/Linux/Release \
+       RUSTFLAGS='-C link-arg=-Wl,-Map=/tmp/pangopup.link.map -C link-arg=/opt/onnxruntime/build/Linux/Release/model_package/libmodel_package.a' \
        cargo build --locked --release --package pangopup-cli \
-    && grep -F '/opt/onnxruntime/build/Linux/Release/_deps/pytorch_cpuinfo-build/libcpuinfo.a' /tmp/pangopup.link.map \
-    && grep -F '/opt/onnxruntime/build/Linux/Release/libonnxruntime_common.a' /tmp/pangopup.link.map \
     && nm target/release/pangopup | grep -F 'cpuinfo_initialize' \
     && ! readelf -d target/release/pangopup | grep -F 'onnxruntime' \
     && find /opt/onnxruntime/build/Linux/Release -type f -name '*.a' -print0 \
