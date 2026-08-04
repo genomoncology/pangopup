@@ -13,11 +13,17 @@ asset-volume, and cache behavior.
 
 ## Scope
 
-- Add one manually dispatched, exact-commit GitHub workflow that builds the
-  existing Dockerfile natively on `ubuntu-24.04` and `ubuntu-24.04-arm`, pushes
-  exactly one unattested leaf image per architecture by digest, qualifies both
-  anonymously, and creates one multi-architecture manifest at
-  `ghcr.io/genomoncology/pangopup` only after both native jobs pass.
+- Add one manually dispatched, exact-commit GitHub workflow with two explicit
+  modes. `stage` builds the existing Dockerfile natively on `ubuntu-24.04` and
+  `ubuntu-24.04-arm`, pushes exactly one unattested private leaf image per
+  architecture by digest, qualifies both with the repository `GITHUB_TOKEN`,
+  uploads one canonical digest artifact per native job, and creates one
+  canonical combined two-leaf receipt only after both qualifications pass,
+  without creating user-facing tags. `finalize` accepts the exact stage run ID,
+  authenticates and downloads that run's combined receipt through the Actions
+  API, derives the held digests from it, anonymously requalifies them on their
+  native runners after the package is public, then creates the two-platform
+  manifest and tags.
 - Publish version tags `0.2.0` and `v0.2.0` plus the ordinary moving `latest`
   tag. Treat the manifest digest, not any tag, as the immutable deployment
   identity. The reviewed workflow refuses an observed pre-existing version tag,
@@ -32,10 +38,14 @@ asset-volume, and cache behavior.
   `planning/artifacts/051-public-container.md`. It must authenticate that
   `origin/main`, the dispatch ref, the executing workflow revision, and the
   checked-out source all equal the exact reviewed commit; authenticate green
-  CI/container gates; dispatch once; capture the manifest and child digests;
-  require inherited public visibility; and verify anonymous pulls by digest and
-  version tag. There is no private-package visibility fallback: inability to
-  pull either digest anonymously is a hard stop before version tags exist.
+  CI/container gates; capture the staged child digests; and stop at a named
+  visibility checkpoint. GitHub creates a new GHCR package as private and
+  exposes no supported REST or GraphQL visibility mutation. The coordinator
+  must give the organization owner the exact package-settings URL and wait for
+  that one manual, irreversible public-visibility confirmation. Only then may
+  the coordinator verify anonymous leaf access and dispatch `finalize` with the
+  exact held stage run ID. Finalization verifies anonymous pulls by digest and
+  version tag. A private or inaccessible package is a hard stop before tags.
 - Extend the miniature container helper to authenticate an expected registry
   child digest from the pulled image while retaining its existing metadata,
   CLI, lookup, model, cache, and 75 MiB checks. Invoke it after logging out of
@@ -60,15 +70,24 @@ asset-volume, and cache behavior.
 
 ## Success Checklist
 
-- Static tests prove the publication workflow is manual, requires a lowercase
+- Static tests prove both workflow modes are manual, require a lowercase
   40-character commit exactly equal to `GITHUB_SHA`, `github.workflow_sha`, the
   checkout, and current `main`; uses a fixed concurrency group; gives only leaf
-  build and manifest jobs package-write permission; builds both architectures
-  natively; pins every action by full commit; disables provenance/SBOM for this
-  deferred-attestation ticket; exchanges uniquely named artifacts containing
-  exactly one valid SHA-256 digest; registry-inspects distinct AMD64/ARM64 leaf
-  manifests and exact labels; and checks version-tag absence both before builds
-  and immediately before assembly.
+  stage-build and finalize-manifest jobs package-write permission; gives native
+  anonymous-finalize qualification jobs no package permission; builds both
+  architectures natively; pins every action by full commit; disables
+  provenance/SBOM for this deferred-attestation ticket; exchanges uniquely
+  named artifacts containing exactly one valid SHA-256 digest; requires the
+  stage aggregation job to emit exactly one canonical two-leaf receipt only
+  after both native qualifications pass; requires `finalize` to authenticate
+  through the Actions API that the supplied stage run ID is a successful run of
+  this exact workflow in `stage` mode at the same commit/workflow SHA;
+  downloads exactly that retained receipt with job-scoped `actions: read`;
+  rejects missing, expired, duplicate, noncanonical, or mismatched artifacts
+  without rebuilding or selecting a latest run; derives finalization digests
+  only from that receipt;
+  registry-inspects distinct AMD64/ARM64 leaves and exact labels; and checks
+  version-tag absence both before staging and immediately before assembly.
 - The ordinary push/PR container workflow remains read-only and continues to
   pass native AMD64 and ARM64 miniature smoke tests without publication power.
 - Before the external effect, the exact publication-ready commit passes `make
@@ -104,9 +123,11 @@ asset-volume, and cache behavior.
    AMD64 and ARM64 GitHub runners. This avoids QEMU inference ambiguity and
    extends the qualification path already proven by the read-only workflow.
 3. **Publication trigger:** every push/tag versus reviewed manual dispatch. Use
-   an exact-commit manual workflow whose own workflow revision must be that same
-   commit. Container publication is an irreversible public effect and must not
-   happen on ordinary CI or merely because a tag is pushed.
+   a two-mode exact-commit manual workflow whose own workflow revision must be
+   that same commit. Staging creates only private digest-addressed leaves;
+   finalization is a separate coordinator dispatch after the required manual
+   visibility checkpoint. Container publication must not happen on ordinary CI
+   or merely because a tag is pushed.
 4. **Tags:** only mutable `latest` versus version plus digest. Publish `0.2.0`,
    `v0.2.0`, and `latest`, document version tags for humans and the OCI digest
    for immutable deployment. Serialize the reviewed workflow and fail closed on
@@ -131,11 +152,14 @@ asset-volume, and cache behavior.
 
 ## Notes
 
-- Only the coordinator may dispatch the publish workflow or create public
-  tags/manifests. Development and review
-  stop at `publication-ready`. The workflow-created package must inherit public
-  visibility from this public repository; the coordinator does not rely on an
-  unproved package-admin token to repair a private package.
+- Only the coordinator may dispatch either workflow mode or create public
+  tags/manifests. Development and review stop at `publication-ready`. After the
+  private stage succeeds, the coordinator must pause and ask the organization
+  owner to change exactly `genomoncology/pangopup` to public in GitHub's package
+  settings. This is the sole required user action: the current coordinator PAT
+  lacks package scopes, and GitHub documents only the package-settings UI for
+  visibility. Finalization remains blocked until credential-free anonymous
+  access proves that exact change.
 - Package publication must target `genomoncology/pangopup`; avoid similarly
   named personal namespaces.
 - A public failure after a manifest is visible is recorded honestly and stops
@@ -143,6 +167,9 @@ asset-volume, and cache behavior.
   qualification.
 - The harmless Apple Docker ONNX CPU-vendor warning is accepted. The image is
   native Linux ARM64 CPU inference; it does not use macOS MPS/Metal.
+- The visibility checkpoint records the exact stage run ID and combined receipt
+  artifact identity. Finalization never trusts hand-copied digests and never
+  searches for the latest successful stage.
 
 ## Coordinator Authorship
 
@@ -168,7 +195,21 @@ miniature fixture or runtime-only transport: it correctly requires a matching
 qualification to exact pulled digest/layout/miniature lookup/model/cache,
 retains HTTP proof in service specs and completed full-volume Apple evidence,
 and explicitly leaves two-architecture full-asset HTTP to separate large-runner
-infrastructure. The reviewer accepted the final bounded design.
+infrastructure. The reviewer accepted that design, but implementation then
+disproved its remaining visibility assumption: official GHCR-specific guidance
+says first publication is private and linked packages inherit access but not
+visibility. No package exists yet, the coordinator PAT has no package scopes,
+and GitHub exposes visibility through package settings rather than a supported
+API. The coordinator therefore revised the ticket to a two-mode stage/manual
+visibility/finalize lifecycle and returned it to this reviewer.
+
+The reviewer then required a run-authenticated handoff rather than trusting
+copied digest strings. The accepted revision makes stage create one canonical
+combined receipt after both native qualifications, makes finalization
+authenticate the exact successful stage run/workflow/mode/commit and unique
+retained artifact through the Actions API, and derives both digests only from
+that receipt. The final two-phase design is accepted with no remaining material
+findings.
 
 ## Implementation Evidence
 
