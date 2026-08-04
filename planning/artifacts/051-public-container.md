@@ -1,7 +1,8 @@
 # Ticket 051 public container record
 
-State: **PREPARED FOR STAGE RETRY — no GHCR package, leaf, tag, or manifest has
-been published by this ticket yet.**
+State: **PREPARED FOR A NEW EXACT-COMMIT STAGE — the old stage and failed
+finalize are superseded. Two native leaves are public but untagged; no
+user-facing tag or multi-platform manifest has been published.**
 
 The first stage attempt, GitHub Actions run `30928210091`, failed in both native
 leaf jobs before any registry push. GitHub's default Buildx `docker` driver does
@@ -10,6 +11,32 @@ creates and explicitly selects the pinned official Docker-container Buildx
 builder and an immutable multi-architecture BuildKit image. The workflow also
 boots the selected builder and verifies its driver before beginning either
 native build.
+
+The repaired staging run `30929323700` succeeded at commit
+`c4dae255a8766a21ec8e56339a0cb6afd69a8d53` and created the two digest-only
+native leaves. During finalize run `30931154337`, both anonymous native
+qualification jobs passed. The manifest job then failed on its first
+child-label inspection: the single-quoted Docker Go template contained escaped
+double quotes, so Docker
+received literal backslashes and rejected the template. This happened before
+the final tag-absence checks and before `imagetools create`; consequently no
+`0.2.0`, `v0.2.0`, or `latest` tag and no multi-platform index was created. The
+workflow now sends the two label templates without backslashes and has an exact
+static regression for both commands.
+
+Stage run `30929323700` and finalize run `30931154337` are now abandoned
+evidence, not recovery inputs. The stage receipt binds its commit and
+`workflow_sha` to the old commit, so it must not be reused after the quoting
+fix is committed. Recovery requires the remediation commit to be pushed, its
+CI and native-container gates to pass, and then a new exact-commit `stage` run.
+Only the new stage run ID and its receipt may be supplied to `finalize`; the
+workflow's existing commit and receipt checks must not be weakened.
+
+The two old untagged leaves do not collide with the absent human tags or the
+future index. They are retained as failed-publication evidence for now. This
+recovery does not add broad package deletion authority or risk deleting a leaf
+referenced by an in-flight or future manifest; any cleanup can be a separate,
+bounded operation after successful publication.
 
 The reviewed target is one thin public OCI index at
 `ghcr.io/genomoncology/pangopup`. It has exactly two native leaves,
@@ -31,7 +58,7 @@ The runbooks below contain no credential. They use the operator's existing
 authenticated `gh` session only for GitHub reads and reviewed workflow
 dispatches. Public verification uses a fresh empty Docker configuration.
 
-## Stage runbook — stop at visibility checkpoint
+## Stage runbook — create a new commit-bound receipt
 
 ```bash
 set -euo pipefail
@@ -128,16 +155,19 @@ jq -e --arg commit "$COMMIT" --argjson run_id "$STAGE_RUN_ID" \
   (.arm64 | test("^sha256:[0-9a-f]{64}$")) and .amd64 != .arm64' "$RECEIPT" >/dev/null
 
 printf 'STOP: stage run %s is authenticated.\n' "$STAGE_RUN_ID"
-printf '%s\n' 'Ask the organization owner to make exactly this GHCR package public:'
+test "$(gh api "/orgs/genomoncology/packages/container/pangopup" --jq .visibility)" = public
+printf '%s\n' 'The existing GHCR package is public; no visibility mutation is required.'
+printf '%s\n' 'Package settings reference:'
 printf '%s\n' 'https://github.com/orgs/genomoncology/packages/container/pangopup/settings'
-printf '%s\n' 'Do not dispatch finalize until the owner confirms and anonymous pulls pass.'
+printf '%s\n' 'Do not dispatch finalize until anonymous pulls of this new receipt pass.'
 ```
 
 The coordinator records the printed stage run ID outside the disposable shell
-directory. The organization owner changes only this package's visibility to
-Public and confirms the warning that public visibility cannot be reversed.
+directory. For this recovery, the package is already public. The new stage ID
+must replace, never reuse, superseded stage ID `30929323700` in the finalize
+runbook.
 
-## Finalize runbook — only after owner confirmation
+## Finalize runbook — only with the newly authenticated stage ID
 
 ```bash
 set -euo pipefail
@@ -259,7 +289,8 @@ printf 'Ticket 051 publication passed: stage_run_id=%s finalize_run_id=%s index=
 ## External effect evidence
 
 Coordinator: pending. Record only the exact reviewed commit, green gate run
-IDs, stage and finalize run IDs, package URL and public visibility, the OCI
-index digest, the two child digests, tag resolution, and anonymous
-qualification results. Do not record tokens, authorization headers, signed
-artifact URLs, environment dumps, registry configuration, or private paths.
+IDs, the new stage and finalize run IDs, package URL and public visibility, the
+OCI index digest, the two new child digests, tag resolution, and anonymous
+qualification results. Superseded stage `30929323700` must not be used. Do not
+record tokens, authorization headers, signed artifact URLs, environment dumps,
+registry configuration, or private paths.

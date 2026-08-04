@@ -77,6 +77,14 @@ grep -Fq 'test "$artifact_digest" = "sha256:$(sha256sum "$RUNNER_TEMP/receipt.zi
 grep -Fq 'keys == ["amd64","arm64","commit","mode","run_id","schema","workflow_sha"]' scripts/admit-container-stage-receipt.sh
 grep -Fq 'docker logout ghcr.io >/dev/null 2>&1 || true' "$publish_workflow"
 grep -Fq 'scripts/qualify-container.sh "$IMAGE@$digest"' "$publish_workflow"
+revision_inspect='            test "$(docker image inspect --format '\''{{index .Config.Labels "org.opencontainers.image.revision"}}'\'' "$IMAGE@$digest")" = "$EXACT_COMMIT"'
+version_inspect='            test "$(docker image inspect --format '\''{{index .Config.Labels "org.opencontainers.image.version"}}'\'' "$IMAGE@$digest")" = "$VERSION"'
+grep -Fxq "$revision_inspect" "$publish_workflow"
+grep -Fxq "$version_inspect" "$publish_workflow"
+if grep -Fq '{{index .Config.Labels \"' "$publish_workflow"; then
+  printf 'Docker label inspection templates must not pass literal backslashes\n' >&2
+  exit 1
+fi
 grep -Fq 'docker buildx imagetools create' "$publish_workflow"
 grep -Fq -- '--metadata-file "$RUNNER_TEMP/index-metadata.json"' "$publish_workflow"
 grep -Fq 'application/vnd.oci.image.index.v1+json' "$publish_workflow"
@@ -122,6 +130,10 @@ grep -Fq 'https://github.com/orgs/genomoncology/packages/container/pangopup/sett
 grep -Fq 'readonly STAGE_RUN_ID=REPLACE_WITH_EXACT_SUCCESSFUL_STAGE_RUN_ID' "$publication_record"
 grep -Fq 'actions/runs/$STAGE_RUN_ID/artifacts?per_page=100' "$publication_record"
 grep -Fq 'pangopup-container-stage-v1' "$publication_record"
+grep -Fq 'Stage run `30929323700` and finalize run `30931154337` are now abandoned' "$publication_record"
+grep -Fq 'it must not be reused after the quoting' "$publication_record"
+grep -Fq 'Recovery requires the remediation commit to be pushed' "$publication_record"
+grep -Fq 'Superseded stage `30929323700` must not be used.' "$publication_record"
 [[ "$(grep -Fc 'ARTIFACT_DIGEST" = "sha256:$(sha256sum' "$publication_record")" == 2 ]]
 [[ "$(grep -Fc 'admit-container-stage-receipt.sh" archive' "$publication_record")" == 2 ]]
 grep -Fq 'DOCKER_CONFIG="$PUBLIC_DOCKER" docker buildx imagetools inspect' "$publication_record"

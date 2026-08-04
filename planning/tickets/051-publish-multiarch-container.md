@@ -253,8 +253,9 @@ Developer: independent implementation agent `ticket051_implementation`.
   static test, and both extracted coordinator runbooks; `mustmatch test
   spec/container-image.md spec/readme-first-use.md` (`9 passed, 1 skipped`, the
   Docker-dependent scenario); and `git diff --check`.
-- No workflow was dispatched; no GHCR login, push, package visibility change,
-  tag, manifest, commit, or other external/public effect occurred.
+- At this implementation checkpoint, no workflow had been dispatched and no
+  GHCR login, push, package visibility change, tag, manifest, commit, or other
+  external/public effect had occurred. Later effects are recorded below.
 - Code-review remediation removed persistent staging tags by switching the
   native exporter to `push-by-digest=true`; both collision gates now use an
   authenticated GHCR manifest request and accept only HTTP 404 with the exact
@@ -294,11 +295,12 @@ accepted the complete diff and focused evidence with no remaining findings.
 
 Coordinator: pending. The first private stage attempt, run `30928210091`,
 failed in both native jobs before any registry mutation: the default Buildx
-`docker` driver rejected `push-by-digest`. No leaf, tag, or manifest was pushed.
-The remediation pins the official Buildx setup action and a multi-architecture
-BuildKit image, explicitly passes that action's builder to the build, and
-authenticates that its driver is `docker-container` before building. A new
-exact-commit stage run remains required before the visibility checkpoint.
+`docker` driver rejected `push-by-digest`. The remediation pinned the official
+Buildx setup action and a multi-architecture BuildKit image, explicitly passed
+that action's builder to the build, and authenticated its `docker-container`
+driver before building. Repaired stage `30929323700`, at commit
+`c4dae255a8766a21ec8e56339a0cb6afd69a8d53`, subsequently published both held
+digest-only leaves and produced its commit-bound receipt.
 The action is pinned at
 `e468171a9de216ec08956ac3ada2f0791b6bd435`; BuildKit is pinned at
 `moby/buildkit@sha256:87afb62ed6a762bb65b85d53819f3b341fb74a36d1fc0a1153a64f367637bfda`.
@@ -308,13 +310,39 @@ focused Mustmatch (`9 passed, 1 skipped`); `git diff --check`; and the complete
 `make lint`, `make test`, and `make spec` gate (`268 passed, 7 skipped` in the
 spec layer).
 
+Finalize run `30931154337` authenticated the stage receipt and both anonymous
+native qualification jobs passed. `finalize-manifest` then failed before its
+tag checks and before manifest creation because escaped quotes inside a
+single-quoted Docker Go template reached Docker as literal backslashes. No
+human tag or multi-platform index was created. The two templates now contain
+unescaped quotes; the static delivery test asserts both exact rendered commands
+and rejects the escaped form. A new exact-commit stage and finalize lifecycle
+remains required.
+The corrected templates returned the exact revision and version from an
+existing local PangoPup image. Post-fix evidence passed actionlint 1.7.7,
+container delivery, both extracted runbooks under `bash -n`, focused Mustmatch
+(`9 passed, 1 skipped`), `git diff --check`, and the complete `make lint`,
+`make test`, and `make spec` gate (`268 passed, 7 skipped` in the spec layer).
+
+Recovery correction: stage `30929323700` and failed finalize `30931154337` are
+superseded and must not be reused. The old receipt binds both `commit` and
+`workflow_sha` to the old commit; preserving that trust boundary requires the
+committed quoting remediation and its green remote gates to be followed by a
+new exact-commit stage. Only that new stage ID may be finalized. The two public
+old leaves remain untagged, and no `0.2.0`, `v0.2.0`, `latest`, or index object
+was created. They are retained rather than granting this recovery broad GHCR
+deletion authority; optional cleanup is separable after successful publication.
+Recovery-documentation evidence passed container delivery, actionlint 1.7.7,
+both extracted runbooks under `bash -n`, focused Mustmatch (`9 passed, 1
+skipped`), `git diff --check`, and the complete `make lint`, `make test`, and
+`make spec` gate (`268 passed, 7 skipped` in the spec layer).
+
 ## Coordinator Final Check
 
 Coordinator: Codex. Final `make lint`, `make test`, and `make spec` passed
-(`268 passed, 7 skipped`), as did `git diff --check`. The stale-claim scan found
-no remaining statement that the registry image is absent or that users must
-build locally; the publication-ready README intentionally describes the
-eventual exact image so the source used for public container labels and help is
-not permanently stale after finalization. The accepted preparation is ready to
-commit and push. No stage, package, tag, manifest, or visibility effect has yet
-occurred.
+(`268 passed, 7 skipped`), as did `git diff --check`. Public effects to date are
+the now-public GHCR package and two untagged digest leaves created by superseded
+stage `30929323700`. No human tag or multi-platform index exists. The quoting
+remediation must be committed and pushed, its remote gates must pass, and a new
+exact-commit stage and finalize lifecycle must complete before this ticket can
+close.

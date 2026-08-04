@@ -422,8 +422,8 @@ jobs:
             digest=${pair#*:}
             docker pull "$IMAGE@$digest"
             test "$(docker image inspect --format '{{.Architecture}}' "$IMAGE@$digest")" = "$architecture"
-            test "$(docker image inspect --format '{{index .Config.Labels \"org.opencontainers.image.revision\"}}' "$IMAGE@$digest")" = "$EXACT_COMMIT"
-            test "$(docker image inspect --format '{{index .Config.Labels \"org.opencontainers.image.version\"}}' "$IMAGE@$digest")" = "$VERSION"
+            test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE@$digest")" = "$EXACT_COMMIT"
+            test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$IMAGE@$digest")" = "$VERSION"
           done
           for tag in "$VERSION" "v$VERSION"; do
             assert_tag_absent "$tag"

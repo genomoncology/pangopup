@@ -21,6 +21,13 @@ digest, and leaves no staging tag. Receipt admission hashes the downloaded
 Actions archive against its API digest before extraction, and tag collision
 checks accept only an authenticated `MANIFEST_UNKNOWN` response.
 
+A stage receipt is usable only with the exact source commit and workflow SHA
+that created it. If publication code changes after staging, recovery starts
+with a new exact-commit stage and a new stage run ID; an earlier receipt is
+abandoned rather than rebound or admitted under weaker checks. Digest-only
+leaves from an abandoned attempt may remain untagged, but they are not the
+versioned image and cannot substitute for a qualified two-platform index.
+
 Before touching any volume, the bounded final-image qualification runs all
 eight non-root runtime help paths with both `-h` and `--help`. Every invocation
 runs with `--network none`, a read-only root filesystem, the image's numeric
