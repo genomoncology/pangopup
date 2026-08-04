@@ -20,8 +20,8 @@ expect_equal() {
   fi
 }
 
-[[ $# == 4 ]] || {
-  printf 'usage: qualify-container.sh <IMAGE> <SOURCE_TREE> <PANGOPUP_BUILD> <WORK_DIR>\n' >&2
+[[ $# == 4 || $# == 5 ]] || {
+  printf 'usage: qualify-container.sh <IMAGE> <SOURCE_TREE> <PANGOPUP_BUILD> <WORK_DIR> [EXPECTED_REGISTRY_DIGEST]\n' >&2
   exit 2
 }
 
@@ -29,6 +29,7 @@ image=$1
 source_tree=$(realpath "$2")
 pangopup_build=$(realpath "$3")
 work=$(realpath -m "$4")
+expected_registry_digest=${5:-}
 [[ -d "$source_tree" && -x "$pangopup_build" && ! -e "$work" ]] || {
   printf 'container qualification inputs are invalid\n' >&2
   exit 2
@@ -98,6 +99,21 @@ copy_cache_database() {
 }
 
 stage=image-metadata
+if [[ -n "$expected_registry_digest" ]]; then
+  [[ "$expected_registry_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+    printf 'container qualification expected registry digest is invalid\n' >&2
+    exit 2
+  }
+  repository=${image%@*}
+  expect_equal held-image-reference "$repository@$expected_registry_digest" "$image"
+  repo_digests=$(docker image inspect --format '{{json .RepoDigests}}' "$image")
+  jq -e --arg held "$repository@$expected_registry_digest" \
+    'length == 1 and .[0] == $held' <<<"$repo_digests" >/dev/null || {
+    printf 'container qualification failed: stage=%s check=held-registry-digest expected=%q observed=%q\n' \
+      "$stage" "$repository@$expected_registry_digest" "$repo_digests" >&2
+    exit 1
+  }
+fi
 expect_equal architecture "$expected_arch" "$(docker image inspect --format '{{.Architecture}}' "$image")"
 expect_equal user '65532:65532' "$(docker image inspect --format '{{.Config.User}}' "$image")"
 expect_equal entrypoint '["/usr/local/bin/pangopup"]' "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")"

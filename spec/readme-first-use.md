@@ -17,7 +17,7 @@ v0.1.0 release:
 rg -F '**`v0.2.0` is the ordinary Linux release.**' ../README.md >/dev/null
 rg -F 'Immutable `v0.1.0` remains' ../README.md >/dev/null
 rg -F 'raw.githubusercontent.com/genomoncology/pangopup/v0.2.0/install.sh' ../README.md >/dev/null
-rg -F 'No container image is published to a registry yet.' ../README.md >/dev/null
+rg -F '`ghcr.io/genomoncology/pangopup:0.2.0`' ../README.md >/dev/null
 printf 'delivery tracks are explicit\n' | mustmatch like 'delivery tracks are explicit'
 ```
 
@@ -70,8 +70,13 @@ qualified read-only data mount:
 ```bash
 rg -F 'docker volume create pangopup-data' ../README.md >/dev/null
 rg -F 'docker volume create pangopup-cache' ../README.md >/dev/null
+rg -F 'docker pull "$PANGOPUP_IMAGE"' ../README.md >/dev/null
+rg -F 'docker buildx imagetools inspect "$PANGOPUP_IMAGE"' ../README.md >/dev/null
+rg -F 'ghcr.io/genomoncology/pangopup@sha256:<INDEX_DIGEST>' ../README.md >/dev/null
 rg -F 'pangopup-data:/var/lib/pangopup:ro' ../README.md >/dev/null
 rg -F 'pangopup-cache:/var/cache/pangopup' ../README.md >/dev/null
+rg -F 'http://127.0.0.1:8080/v1/score' ../README.md >/dev/null
+rg -F 'docker image rm ghcr.io/genomoncology/pangopup:0.2.0' ../README.md >/dev/null
 rg -F 'docker volume rm pangopup-cache' ../README.md >/dev/null
 rg -F 'docker volume rm pangopup-data' ../README.md >/dev/null
 printf 'Docker volume lifecycle is present\n' | mustmatch like 'Docker volume lifecycle is present'

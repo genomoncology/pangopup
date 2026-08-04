@@ -632,8 +632,12 @@ Docker, large downloads, or destructive removal.
 The compact public `v0.2.0` executable release is now immutable and Latest.
 Its exact-commit package, anonymous release files, tagged curl installer,
 lookup/model/cache behavior, focused help, sync output, and foreground HTTP
-surface passed the clean production qualification. The next bounded outcome is
-reviewed multi-architecture container publication and clean-machine acceptance.
+surface passed the clean production qualification. Native multi-architecture
+container delivery now retains the same thin image behind one two-leaf GHCR
+index. Its two-mode manual lifecycle stages private digest-addressed leaves,
+stops for the one required owner visibility change, authenticates the exact
+successful stage-run receipt, anonymously repeats native qualification, and
+only then creates version and moving tags.
 
 Docker, systemd, Kubernetes, or another external manager owns
 start/stop/restart; Pangopup does not become its own process supervisor.
@@ -667,9 +671,9 @@ replacement while preserving an existing binary on failure, and does not
 download data or mutate `PATH`. The read-only exact-commit workflow qualifies a
 private artifact against pinned Ubuntu 24.04 and GLIBC 2.39. Ticket 038's
 public installer qualification passed through clean production sync, exact SNV
-and model oracles, public verification, and a tagged non-root install. HTTP and
-the native AMD64/ARM64 Dockerfile are shipped; a registry image is not yet
-published. Other package managers remain later roadmap slots. Read-only status, focused runtime help, resilient
+and model oracles, public verification, and a tagged non-root install. HTTP,
+the native AMD64/ARM64 Dockerfile, and its two-platform GHCR index are shipped.
+Other package managers remain later roadmap slots. Read-only status, focused runtime help, resilient
 resumable synchronization feedback, and the exact-commit Apple Silicon retest
 are complete. Ticket 047 proved that stock `ort` rc.13 / ONNX Runtime 1.28.0
 still emits the same Apple Docker warning. Ticket 048's matched source-built
@@ -677,8 +681,9 @@ A/B probe then confirmed that advancing only cpuinfo to its first Apple
 Linux-aware revision removes the warning on that Mac. `main` remains on the
 qualified 1.24.2 runtime, and the accepted maintenance decision is to wait for
 an upstream release rather than carry a custom runtime for warning suppression.
-The compact first-use README and immutable `v0.2.0` executable release are
-established. Reviewed multi-architecture container publication follows.
+The compact first-use README, immutable `v0.2.0` executable release, and thin
+native two-platform container delivery are established. The OCI index digest,
+not its human or moving tags, is the exact deployment identity.
 
 Ticket 038's completed publication includes a credential-free operation/evidence
 record, exact reviewed release notes, an independently

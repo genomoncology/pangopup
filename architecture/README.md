@@ -23,8 +23,9 @@ four-asset compatibility profile and offline Linux/XDG installer are
 established, and installed runtime consumption is shipped. Deterministic local
 model-side packaging, immutable publication, and pinned typed sync are
 shipped. Combined CLI provisioning/status, the foreground HTTP adapter, and a
-thin native AMD64/ARM64 Docker image are shipped. Registry and process-manager
-packaging remain future.
+thin native AMD64/ARM64 Docker image are shipped. The reviewed public container
+delivery uses native digest-addressed leaves and one two-platform GHCR index;
+process-manager packaging remains future.
 
 The closed three-codec reference comparison selected `acgt2-rle-v1`; its
 candidate modules, miniature, benchmark executable, and CLI have been removed
@@ -102,7 +103,7 @@ ADR 0012 defines that descriptive provenance boundary.
   foreground lifecycle.
 - [`decisions/0026-minimal-container-image.md`](decisions/0026-minimal-container-image.md)
   — pinned distroless image, explicit persistent volumes, and native final-image
-  qualification without registry publication.
+  qualification; later GHCR publication preserves this image boundary.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)

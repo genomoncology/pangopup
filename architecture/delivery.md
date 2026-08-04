@@ -40,8 +40,9 @@ This security baseline itself published no runtime asset. Release-specific
 attribution, stable derived bytes, GPL preferred source, controlled upload,
 remote digest comparison, and immutable finalization are now complete for
 `runtime-grch38-v1`. Pinned runtime sync and clean-machine CLI inference are
-also shipped. Foreground HTTP serving and a locally buildable, qualified thin
-container are shipped; registry publication remains future work.
+also shipped. Foreground HTTP serving and a qualified thin container are
+shipped. Its public GHCR delivery preserves the same executable-only image and
+separately managed asset volumes.
 
 ## Thin container delivery
 
@@ -66,6 +67,20 @@ Manual production qualification downloads only the ten authenticated
 public-output oracle through the final image. The workflow has read-only
 repository permission and cannot publish an image or release asset. See
 [ADR 0026](decisions/0026-minimal-container-image.md).
+
+Public container delivery is a separate two-mode manual workflow. `stage`
+builds and qualifies one native, unattested leaf per architecture, records the
+two distinct registry digests in one canonical run receipt, and creates no
+user-facing tag. GitHub creates a new GHCR package as private, so publication
+stops while the organization owner makes exactly that package public. The
+coordinator verifies anonymous access before dispatching `finalize` with the
+exact successful stage run ID. Finalization authenticates that run and its
+unique retained receipt through the Actions API, anonymously repeats native
+miniature qualification, and then creates the `0.2.0`, `v0.2.0`, and `latest`
+two-platform index. Version tags are convenient names; the OCI index digest is
+the immutable deployment identity. GHCR cannot atomically create an absent tag,
+so the serialized workflow checks version-tag absence twice but does not claim
+protection from an unrelated out-of-band writer.
 
 ## GitHub Releases
 
@@ -444,6 +459,7 @@ only when automation or a retained run proves, from a clean supported machine:
 The immutable converted-model, GRCh38 sequence-index, and mask publication,
 pinned model-side sync, coherent XDG activation, offline reuse, and
 clean-machine CLI inference are complete. The foreground HTTP service and
-locally qualified thin Dockerfile are also shipped. Registry image publication,
-image SBOM/provenance/signing, orchestration, and broader rollback policy remain
-later release-hardening outcomes, not shipped claims.
+qualified thin Dockerfile are also shipped. Its native two-leaf public GHCR
+index deliberately carries no image SBOM, provenance attestation, or signing;
+those, orchestration, and broader rollback policy remain later
+release-hardening outcomes.

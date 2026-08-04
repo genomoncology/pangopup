@@ -26,8 +26,9 @@ lookup-first and explicit model-only CLI scoring, resilient download progress,
 focused help, and the foreground HTTP service. Immutable `v0.1.0` remains
 available as the older CLI-only release.
 
-No container image is published to a registry yet. The Docker instructions
-below build the image locally from an exact checkout.
+The matching thin AMD64/ARM64 container is
+`ghcr.io/genomoncology/pangopup:0.2.0`. It contains the executable and notices,
+not the separately synchronized scoring assets.
 
 ## Install the Linux executable
 
@@ -216,13 +217,11 @@ and request limits.
 
 ## Docker on AMD64 and Apple Silicon
 
-Build the current checkout natively for Linux AMD64 or ARM64:
+Pull the versioned image. Docker selects the native Linux AMD64 or ARM64 child:
 
 ```bash
-docker build \
-  --build-arg PANGOPUP_REVISION="$(git rev-parse HEAD)" \
-  --build-arg PANGOPUP_VERSION="$(git describe --always --dirty)" \
-  -t pangopup:local .
+export PANGOPUP_IMAGE=ghcr.io/genomoncology/pangopup:0.2.0
+docker pull "$PANGOPUP_IMAGE"
 docker volume create pangopup-data
 docker volume create pangopup-cache
 ```
@@ -233,7 +232,7 @@ Download assets once into the named volumes:
 docker run --rm \
   -v pangopup-data:/var/lib/pangopup \
   -v pangopup-cache:/var/cache/pangopup \
-  pangopup:local sync --progress
+  "$PANGOPUP_IMAGE" sync --progress
 ```
 
 Check status without giving the process write access to installed assets:
@@ -242,7 +241,7 @@ Check status without giving the process write access to installed assets:
 docker run --rm --network none \
   -v pangopup-data:/var/lib/pangopup:ro \
   -v pangopup-cache:/var/cache/pangopup \
-  pangopup:local status
+  "$PANGOPUP_IMAGE" status
 ```
 
 Run a CLI lookup without networking:
@@ -251,7 +250,7 @@ Run a CLI lookup without networking:
 docker run --rm --network none \
   -v pangopup-data:/var/lib/pangopup:ro \
   -v pangopup-cache:/var/cache/pangopup \
-  pangopup:local lookup --variant GRCh38:chr12:6801301:G:A
+  "$PANGOPUP_IMAGE" lookup --variant GRCh38:chr12:6801301:G:A
 ```
 
 Run the foreground service:
@@ -260,7 +259,16 @@ Run the foreground service:
 docker run --rm --name pangopup -p 127.0.0.1:8080:8080 \
   -v pangopup-data:/var/lib/pangopup:ro \
   -v pangopup-cache:/var/cache/pangopup \
-  pangopup:local
+  "$PANGOPUP_IMAGE"
+```
+
+From another terminal, check the running service:
+
+```bash
+curl -fsS http://127.0.0.1:8080/livez
+curl -fsS -H 'content-type: application/json' \
+  -d '{"variants":["GRCh38:chr12:6801301:G:A"],"model_only":false}' \
+  http://127.0.0.1:8080/v1/score
 ```
 
 The image runs as non-root UID/GID 65532 and contains no scoring assets. Named
@@ -284,6 +292,25 @@ runtime solely to hide the message.
 Docker, systemd, Kubernetes, or another process manager owns start, stop, and
 restart. PangoPup intentionally has no daemon-management commands.
 
+For an immutable deployment, inspect the versioned OCI index and copy its
+top-level `Digest` value:
+
+```bash
+docker buildx imagetools inspect "$PANGOPUP_IMAGE"
+export PANGOPUP_IMAGE=ghcr.io/genomoncology/pangopup@sha256:<INDEX_DIGEST>
+docker pull "$PANGOPUP_IMAGE"
+```
+
+The version tag is convenient for people; the digest identifies exact bytes.
+To build instead, clone and check out the intended commit, then run:
+
+```bash
+docker build \
+  --build-arg PANGOPUP_REVISION="$(git rev-parse HEAD)" \
+  --build-arg PANGOPUP_VERSION="$(git describe --always --dirty)" \
+  -t pangopup:local .
+```
+
 ## Update
 
 Updating the executable does not require downloading the assets again.
@@ -297,10 +324,21 @@ pangopup sync --offline
 pangopup status
 ```
 
-For a locally built Docker image, fetch and check out the intended commit,
-rebuild the tag, replace the container, and reuse the same two named volumes.
-Run `pangopup sync` if the new executable declares a different pinned asset
-profile; otherwise `pangopup sync --offline` confirms reuse.
+For Docker, pull the intended new version or digest, stop and replace the
+foreground container, and reuse the same two named volumes:
+
+```bash
+export PANGOPUP_IMAGE=ghcr.io/genomoncology/pangopup:0.2.0
+docker pull "$PANGOPUP_IMAGE"
+docker stop pangopup
+docker run --rm --name pangopup -p 127.0.0.1:8080:8080 \
+  -v pangopup-data:/var/lib/pangopup:ro \
+  -v pangopup-cache:/var/cache/pangopup \
+  "$PANGOPUP_IMAGE"
+```
+
+Run `sync` if a later image declares a different pinned asset profile;
+otherwise `sync --offline` confirms reuse without downloading again.
 
 ## Uninstall
 
@@ -330,7 +368,7 @@ rm -rf -- "${XDG_CACHE_HOME:-$HOME/.cache}/pangopup"
 For Docker, remove the local image separately from the two volumes:
 
 ```bash
-docker image rm pangopup:local
+docker image rm ghcr.io/genomoncology/pangopup:0.2.0
 docker volume rm pangopup-cache       # removes downloads and model-result cache
 docker volume rm pangopup-data        # removes the large installed assets
 ```

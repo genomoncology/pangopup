@@ -15,6 +15,114 @@ if grep -Eq 'packages:[[:space:]]*write|docker/(login|build-push)-action|docker 
   printf 'container workflow must not have publication authority\n' >&2
   exit 1
 fi
+
+publish_workflow=.github/workflows/publish-container.yml
+[[ -f "$publish_workflow" ]]
+grep -Fxq '  workflow_dispatch:' "$publish_workflow"
+if grep -Eq '^  (push|pull_request|schedule):' "$publish_workflow"; then
+  printf 'container publication workflow must be manually dispatched only\n' >&2
+  exit 1
+fi
+grep -Fq '          - stage' "$publish_workflow"
+grep -Fq '          - finalize' "$publish_workflow"
+grep -Fq 'group: pangopup-container-publication' "$publish_workflow"
+grep -Fq 'cancel-in-progress: false' "$publish_workflow"
+[[ "$(grep -Fc 'packages: write' "$publish_workflow")" == 2 ]]
+grep -Fq 'packages: write' < <(sed -n '/^  stage-leaf:/,/^  aggregate-stage-receipt:/p' "$publish_workflow")
+grep -Fq 'packages: write' < <(sed -n '/^  finalize-manifest:/,$p' "$publish_workflow")
+if grep -Fq 'packages:' < <(sed -n '/^  qualify-public-leaf:/,/^  finalize-manifest:/p' "$publish_workflow"); then
+  printf 'anonymous native finalization qualification must have no package permission\n' >&2
+  exit 1
+fi
+grep -Fq 'ubuntu-24.04-arm' "$publish_workflow"
+grep -Fq 'native_machine: x86_64' "$publish_workflow"
+grep -Fq 'native_machine: aarch64' "$publish_workflow"
+grep -Fq 'docker buildx build --pull --provenance=false --sbom=false' "$publish_workflow"
+grep -Fq 'push-by-digest=true,name-canonical=true,push=true,oci-mediatypes=true' "$publish_workflow"
+if grep -Eq 'docker push|--tag .*stage-|\$IMAGE:stage-|ghcr[.]io/[^[:space:]]*:stage-' "$publish_workflow"; then
+  printf 'stage leaves must be pushed by digest without persistent staging tags\n' >&2
+  exit 1
+fi
+for action in $(sed -nE 's/^[[:space:]]*- uses: ([^ #]+).*/\1/p' "$publish_workflow"); do
+  [[ "$action" =~ @[0-9a-f]{40}$ ]] || {
+    printf 'publication workflow action is not pinned: %s\n' "$action" >&2
+    exit 1
+  }
+done
+[[ "$(grep -Fc 'test "$EVENT_SHA" = "$EXACT_COMMIT"' "$publish_workflow")" == 6 ]]
+[[ "$(grep -Fc 'test "$WORKFLOW_SHA" = "$EXACT_COMMIT"' "$publish_workflow")" == 6 ]]
+[[ "$(grep -Fc 'test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"' "$publish_workflow")" == 6 ]]
+[[ "$(grep -Fc 'test "$(git rev-parse origin/main)" = "$EXACT_COMMIT"' "$publish_workflow")" == 6 ]]
+[[ "$(grep -Ec '^[[:space:]]+for tag in "\$VERSION" "v\$VERSION"; do$' "$publish_workflow")" == 2 ]]
+grep -Fq 'pangopup-container-leaf-${{ matrix.architecture }}-${{ inputs.commit }}-${{ github.run_id }}' "$publish_workflow"
+grep -Fq 'test "${#files[@]}" = 2' "$publish_workflow"
+grep -Fq 'pangopup-container-stage-v1' "$publish_workflow"
+grep -Fq 'test "$(jq -cS . "$RUNNER_TEMP/stage-receipt.json")" = "$(cat "$RUNNER_TEMP/stage-receipt.json")"' "$publish_workflow"
+grep -Fq '"/repos/$GITHUB_REPOSITORY/actions/runs/$STAGE_RUN_ID"' "$publish_workflow"
+grep -Fq '"/repos/$GITHUB_REPOSITORY/actions/runs/$STAGE_RUN_ID/jobs?filter=latest&per_page=100"' "$publish_workflow"
+grep -Fq '.name == "aggregate-stage-receipt" and .conclusion == "success"' "$publish_workflow"
+grep -Fq '"/repos/$GITHUB_REPOSITORY/actions/runs/$STAGE_RUN_ID/artifacts?per_page=100"' "$publish_workflow"
+grep -Fq 'scripts/admit-container-stage-receipt.sh metadata' "$publish_workflow"
+grep -Fq 'scripts/admit-container-stage-receipt.sh archive' "$publish_workflow"
+grep -Fq 'test "$artifact_digest" = "sha256:$(sha256sum "$RUNNER_TEMP/receipt.zip" | cut -d'"'"' '"'"' -f1)"' "$publish_workflow"
+grep -Fq 'keys == ["amd64","arm64","commit","mode","run_id","schema","workflow_sha"]' scripts/admit-container-stage-receipt.sh
+grep -Fq 'docker logout ghcr.io >/dev/null 2>&1 || true' "$publish_workflow"
+grep -Fq 'scripts/qualify-container.sh "$IMAGE@$digest"' "$publish_workflow"
+grep -Fq 'docker buildx imagetools create' "$publish_workflow"
+grep -Fq -- '--metadata-file "$RUNNER_TEMP/index-metadata.json"' "$publish_workflow"
+grep -Fq 'application/vnd.oci.image.index.v1+json' "$publish_workflow"
+[[ "$(grep -Fc 'scripts/require-container-tag-absent.sh "$tag" "$code"' "$publish_workflow")" == 2 ]]
+[[ "$(grep -Fc 'Authorization: Bearer $registry_token' "$publish_workflow")" == 2 ]]
+collision_accept='Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
+[[ "$(grep -Fc "$collision_accept" "$publish_workflow")" == 2 ]]
+grep -Fq '.[0].code == "MANIFEST_UNKNOWN"' scripts/require-container-tag-absent.sh
+grep -Fq 'could not prove version tag %s absent: HTTP %s' scripts/require-container-tag-absent.sh
+second_absence_line=$(grep -nF '            assert_tag_absent "$tag"' "$publish_workflow" | tail -1 | cut -d: -f1)
+create_line=$(grep -nF '          docker buildx imagetools create \' "$publish_workflow" | cut -d: -f1)
+[[ "$create_line" == "$((second_absence_line + 2))" ]]
+grep -Fq 'test "$(jq '\''[.manifests[].platform | (.os + "/" + .architecture)] | sort == ["linux/amd64","linux/arm64"]'\'' <<<"$raw")" = true' "$publish_workflow"
+for annotation in source revision version licenses; do
+  grep -Fq ".annotations.\"org.opencontainers.image.$annotation\"" "$publish_workflow"
+done
+if grep -Eq 'cosign|--attest|provenance=true|sbom=true|docker/(login|build-push)-action' "$publish_workflow"; then
+  printf 'publication workflow introduced deferred supply-chain or mutable helper surface\n' >&2
+  exit 1
+fi
+
+grep -Fq '[EXPECTED_REGISTRY_DIGEST]' scripts/qualify-container.sh
+grep -Fq 'held-image-reference' scripts/qualify-container.sh
+grep -Fq 'check=held-registry-digest' scripts/qualify-container.sh
+grep -Fq 'length == 1 and .[0] == $held' scripts/qualify-container.sh
+invalid_digest_work="target/container-invalid-digest-$$"
+invalid_digest_error="target/container-invalid-digest-$$.err"
+if scripts/qualify-container.sh example.invalid/pangopup@sha256:bad . /bin/true \
+  "$invalid_digest_work" sha256:bad 2>"$invalid_digest_error"; then
+  printf 'container qualification accepted an invalid held digest\n' >&2
+  exit 1
+else
+  [[ $? == 2 ]]
+fi
+grep -Fq 'expected registry digest is invalid' "$invalid_digest_error"
+rm -f -- "$invalid_digest_error"
+bash tests/container-receipt-admission.sh
+bash tests/container-tag-absence.sh
+
+publication_record=planning/artifacts/051-public-container.md
+grep -Fq 'State: **PREPARED' "$publication_record"
+grep -Fq 'https://github.com/orgs/genomoncology/packages/container/pangopup/settings' "$publication_record"
+grep -Fq 'readonly STAGE_RUN_ID=REPLACE_WITH_EXACT_SUCCESSFUL_STAGE_RUN_ID' "$publication_record"
+grep -Fq 'actions/runs/$STAGE_RUN_ID/artifacts?per_page=100' "$publication_record"
+grep -Fq 'pangopup-container-stage-v1' "$publication_record"
+[[ "$(grep -Fc 'ARTIFACT_DIGEST" = "sha256:$(sha256sum' "$publication_record")" == 2 ]]
+[[ "$(grep -Fc 'admit-container-stage-receipt.sh" archive' "$publication_record")" == 2 ]]
+grep -Fq 'DOCKER_CONFIG="$PUBLIC_DOCKER" docker buildx imagetools inspect' "$publication_record"
+for annotation in source revision version licenses; do
+  grep -Fq ".annotations.\"org.opencontainers.image.$annotation\"" "$publication_record"
+done
+if grep -Eqi '(authorization:|bearer |ghp_|github_pat_|signed[_ -]?url)' "$publication_record"; then
+  printf 'public container record must not contain credential material\n' >&2
+  exit 1
+fi
 grep -Fq 'ubuntu-24.04-arm' .github/workflows/container.yml
 grep -Fq 'qualify-container-production.sh' .github/workflows/container.yml
 if grep -Fq 'assets runtime install' scripts/qualify-container-production.sh; then

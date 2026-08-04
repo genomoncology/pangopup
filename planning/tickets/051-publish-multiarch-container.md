@@ -1,6 +1,6 @@
 # 051 — Publish and qualify the multi-architecture container
 
-Status: ready
+Status: publication-ready
 
 ## Why
 
@@ -213,11 +213,82 @@ findings.
 
 ## Implementation Evidence
 
-Developer: pending.
+Developer: independent implementation agent `ticket051_implementation`.
+
+- Added `.github/workflows/publish-container.yml` as a manual, fixed-concurrency
+  two-mode workflow. `stage` authenticates the exact current-main source,
+  builds one native unattested leaf on each established runner, pushes and
+  qualifies the held private digests, and emits one canonical two-leaf receipt.
+  `finalize` authenticates the exact successful stage run, its successful stage
+  jobs, and its unique unexpired receipt through the Actions API; requalifies
+  both exact leaves anonymously on native runners with no package permission;
+  and only then creates and verifies the OCI index and three tags.
+- Extended `scripts/qualify-container.sh` with an optional exact registry
+  digest. The existing four-argument local/CI contract remains unchanged; the
+  fifth argument requires a digest-addressed image reference and the one held
+  `RepoDigests` identity before all existing metadata, inventory, CLI, lookup,
+  model, cache, and size checks run.
+- Added static workflow, permission, action-pin, receipt, tag-collision,
+  no-attestation, public-evidence, and held-digest checks to
+  `tests/container-delivery.sh`, including a runtime negative control for an
+  invalid expected digest. Updated the executable container and README specs.
+- Replaced the local-build-first README path with the public versioned pull,
+  named-volume sync/status/lookup/service/curl path, digest pinning, update,
+  selective removal, retained exact-source local-build fallback, and unchanged
+  Apple CPU-only boundary. Updated delivery/service architecture and the
+  rolling frontier without changing the Dockerfile or runtime behavior.
+- Added the credential-free, two-checkpoint coordinator record at
+  `planning/artifacts/051-public-container.md`. It authenticates green gates,
+  dispatches exactly one stage, stops at the explicit owner-only package
+  visibility URL, then independently reloads the exact stage receipt and uses
+  a fresh empty Docker configuration before a possible finalize dispatch.
+- A live read-only API probe found that GitHub currently returns `inputs: null`
+  for completed `workflow_dispatch` runs. The implementation does not rely on
+  that unavailable field: it authenticates the exact workflow path/head and
+  successful stage/finalize job sets through the Actions API, while the
+  canonical receipt binds `mode`, run ID, commit, workflow SHA, and both leaf
+  digests. No ticket assumption or security outcome changed.
+- Focused evidence passed: `bash tests/container-delivery.sh`; actionlint 1.7.7
+  on the new workflow; a PyYAML structural parse; `bash -n` for the helper,
+  static test, and both extracted coordinator runbooks; `mustmatch test
+  spec/container-image.md spec/readme-first-use.md` (`9 passed, 1 skipped`, the
+  Docker-dependent scenario); and `git diff --check`.
+- No workflow was dispatched; no GHCR login, push, package visibility change,
+  tag, manifest, commit, or other external/public effect occurred.
+- Code-review remediation removed persistent staging tags by switching the
+  native exporter to `push-by-digest=true`; both collision gates now use an
+  authenticated GHCR manifest request and accept only HTTP 404 with the exact
+  `MANIFEST_UNKNOWN` error, with the final invocation directly adjacent to
+  manifest creation. A shared helper authenticates the unique Actions artifact
+  ID and canonical API `sha256:` digest, hashes the downloaded ZIP before
+  extraction, rejects unsafe/noncanonical receipt archives, and is used by the
+  workflow and both coordinator runbooks. Anonymous final verification now
+  reads back all four index annotations. New negative tests cover missing,
+  duplicate, malformed, expired/corrupt artifact inputs and 200, 401, 500,
+  malformed-404, and disguised-denial tag responses; static tests reject any
+  staging tag or ordinary `docker push` path and enforce the final collision
+  gate's placement. Both authenticated collision requests advertise OCI image
+  index, Docker manifest list, OCI image manifest, and Docker schema-2 image
+  manifest media types, so an existing tag cannot hide behind its object kind.
 
 ## Adversarial Code Review
 
-Reviewer: pending.
+Reviewer: independent code reviewer `ticket051_code_review` — ACCEPT.
+
+Initial review rejected persistent staging tags, collision probes that treated
+all registry failures as absence, omission of GitHub's Actions-artifact digest
+from the cross-run trust bridge, and index annotations that were written but
+not read back. Remediation switched to true push-by-digest leaves, added a
+fail-closed authenticated tag-absence helper and adjacent final check, added a
+shared receipt-admission helper that verifies the API digest before extraction
+with malformed/corrupt/duplicate/expired negative tests, and anonymously
+verifies all four final index annotations.
+
+Re-review found that the collision request advertised only index media types,
+which could miss an existing single-platform image tag. Both probes now
+advertise OCI index, Docker manifest list, OCI image manifest, and Docker
+schema-2 image manifest, with an exact static regression. Final re-review
+accepted the complete diff and focused evidence with no remaining findings.
 
 ## External Effect Evidence
 
@@ -227,4 +298,11 @@ required remote gates are green.
 
 ## Coordinator Final Check
 
-Coordinator: pending.
+Coordinator: Codex. Final `make lint`, `make test`, and `make spec` passed
+(`268 passed, 7 skipped`), as did `git diff --check`. The stale-claim scan found
+no remaining statement that the registry image is absent or that users must
+build locally; the publication-ready README intentionally describes the
+eventual exact image so the source used for public container labels and help is
+not permanently stale after finalization. The accepted preparation is ready to
+commit and push. No stage, package, tag, manifest, or visibility effect has yet
+occurred.

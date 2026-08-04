@@ -1,7 +1,8 @@
 # Service Boundary
 
 Pangopup ships a foreground HTTP server, signal lifecycle, and thin non-root
-Docker image. It does not yet ship a systemd example, registry image, or metrics. The CLI interface remains
+Docker image through one native AMD64/ARM64 GHCR index. It does not yet ship a
+systemd example or metrics. The CLI interface remains
 `pangopup lookup`; its typed
 lookup-first/model route already returns stable JSON Lines or exact
 tab-separated output from an activated installed profile or complete explicit
@@ -86,19 +87,22 @@ and response envelope while reusing the same core result fields and provenance.
 
 The shipped minimal container:
 
-- run the foreground service as a non-root user;
+- runs the foreground service as a non-root user;
 - use a read-only runtime filesystem and no package manager/toolchain;
 - keeps installed assets in explicit named volumes and runs `sync` only when
   the operator requests it;
-- expose the readiness/liveness endpoints as its health contract;
+- exposes the readiness/liveness endpoints as its health contract;
 - preserve GPL and source-dataset notices; and
 - retains the existing bounded request and graceful shutdown behavior.
 
 The Dockerfile deliberately adds no Compose, restart policy, shell-based
-healthcheck, registry publication, TLS, or orchestration policy. The final
-image is checked natively on AMD64 and ARM64 with miniature assets; a manual
-read-only workflow checks all 14 retained production cases through each
-architecture's final stripped image.
+healthcheck, TLS, or orchestration policy. The public registry workflow changes
+delivery, not runtime behavior: its index contains exactly the two native thin
+leaves and no scoring assets. Each leaf is checked natively with miniature
+assets. A separate manual read-only workflow checks all 14 retained production
+cases through each architecture's final stripped image; ordinary hosted
+publication runners do not download the 15 GB production SNV installation, so
+the retained service specs and full-volume Apple run remain the HTTP evidence.
 
 A native systemd example may invoke the same foreground command and point at
 the same installed profile. Pangopup-specific `start`, `stop`, and `restart`
