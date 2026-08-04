@@ -78,8 +78,9 @@ history or Git LFS.
 
 Release families keep independently versioned concerns separate. The SNV
 lookup uses one shipped eight-file release asset set whose installable transport
-is the closed five-file subset. The executable is public as immutable
-[`v0.1.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.1.0).
+is the closed five-file subset. The ordinary executable release is immutable
+[`v0.2.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.2.0);
+immutable `v0.1.0` remains available as the prior CLI-only release.
 The converted model, compiled GRCh38 sequence index, and compiled mask form one
 qualified compatibility-bound public immutable `runtime-grch38-v1` release.
 Their model-side local transport is shipped:
@@ -127,29 +128,34 @@ installs under `${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}`. It never uses sudo,
 changes shell configuration, or downloads runtime assets; `pangopup sync`
 remains explicit.
 
-The immutable `v0.1.0` executable release has exactly six members: the direct
+The immutable `v0.2.0` executable release retains exactly six members: the direct
 binary, checksum, CycloneDX SBOM, canonical manifest, `LICENSE`, and `NOTICE`.
 The read-only exact-commit workflow compares untouched SBOMs from two fresh
 same-path source extractions and qualifies the final stripped binary on pinned
 Ubuntu 24.04 with maximum imported GLIBC 2.39. It cannot publish, attest, tag,
-or release. Ticket 038 performed the separately reviewed publication.
+or release. Ticket 050 uses the lifecycle first proven by Ticket 038 for the
+separately reviewed v0.2.0 publication.
 The baseline is intentional: the selected static ONNX Runtime 1.24.2 archive
 imports GLIBC 2.38 C23 conversion symbols and cannot link on Ubuntu 22.04's
 GLIBC 2.35. The correction retains the same static runtime, direct executable,
 five admitted dynamic system dependencies, and six-file release inventory.
 
-The published exact-six artifact was requalified locally and its executable
-was exercised in an isolated pinned
-Linux container. The checked runner performs online pinned sync, offline
-reuse, combined status, seven ordered batches covering the retained 1,000-SNV
-oracle, and exact M09 non-SNV inference. A separate checker canonicalizes only
+The exact-six artifact is qualified locally and its executable is exercised in
+an isolated pinned Linux container. The checked runner performs observable
+online sync, quiet and ordinary offline reuse, combined status, focused help,
+seven ordered batches covering the retained 1,000-SNV oracle, exact automatic
+M09 inference, explicit model-only scoring of an indexed SNV, and foreground
+HTTP health/status/SNV/model requests. A separate checker canonicalizes only
 the installed SNV `provenance.bundle_id`; every score, position, record,
 warning, order, source identity, mask/window value, and status remains in the
-comparison. M09 is compared byte-for-byte against an oracle independently
-derived from the frozen compatibility case and retained production evidence.
+comparison. M09 and the forced indexed SNV are compared byte-for-byte against
+oracles independently derived from the frozen compatibility case and retained
+production evidence.
 These helpers neither publish nor inspect the contents of production assets.
-The public release is immutable, targets
-`e0695f9acd7e3753afd95b7d58949a4e4a01747a`, and is GitHub's Latest release.
+The v0.2.0 publication record binds the public release to its exact reviewed
+target commit and records final immutable/Latest evidence. The older v0.1.0
+release remains immutable at
+`e0695f9acd7e3753afd95b7d58949a4e4a01747a`.
 
 The twelve runtime upload members contain only Pangopup's derived runtime
 members and metadata. The raw

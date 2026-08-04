@@ -1,6 +1,6 @@
 # 050 — Publish the current Linux executable as v0.2.0
 
-Status: ready
+Status: publication-ready
 
 ## Why
 
@@ -68,9 +68,11 @@ receive those outcomes through the documented installer.
 - Fresh prepublication production qualification reproduces the retained 1,000
   SNVs and exact M09 result after online sync and offline reuse. The exact
   packaged executable also proves all focused help leaves, visible monotonic
-  `sync --progress` with unchanged final JSON, silent `sync --quiet`, one exact
-  `--model-only` result, foreground service startup, `/livez`, `/readyz`,
-  `/v1/status`, a precomputed `/v1/score`, and a modeled or SQLite-reused
+  `sync --progress` with unchanged final JSON, silent `sync --quiet`, one
+  indexed SNV routed automatically to exact precomputed output and explicitly
+  through `--model-only` to an exact checked model result, foreground service
+  startup, `/livez`, `/readyz`, `/v1/status`, automatic and forced-model forms
+  of that same SNV, and an automatic non-SNV modeled or SQLite-reused
   `/v1/score`.
 - GitHub release `v0.2.0` targets the reviewed commit, has the exact reviewed
   body and six-member inventory, is public, immutable, non-prerelease, and
@@ -148,11 +150,69 @@ addition to the retained SNV/M09 oracles. Re-review accepted all findings.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: independent developer `ticket050_implementation`.
+
+- Advanced all eight workspace packages, `Cargo.lock`, CLI/spec identity, HTTP
+  status identity, and container qualification to `0.2.0` while retaining
+  historical `builder_version: 0.1.0` receipts, fixtures, causal source
+  fingerprints, and the unrelated `serde_jcs` dependency version.
+- Made the compact README and delivery architecture eventual-tag accurate for
+  v0.2.0, retained v0.1.0 as the older immutable release, and added exact
+  release notes plus a credential-free, fail-closed coordinator publication
+  record with a syntax-checked runbook.
+- Extended clean-package smoke and production/public-reuse qualification to
+  cover focused help, visible monotonic progress, quiet JSON compatibility,
+  explicit model-only scoring of an indexed SNV, and foreground HTTP
+  health/status/SNV/model scoring without weakening the retained 1,000-SNV and
+  automatic M09 oracles.
+- Focused evidence: `cargo test --locked -p pangopup-cli` passed 59 tests with
+  one retained-production test intentionally ignored; `bash
+  tests/executable-delivery.sh` passed; `bash
+  tests/production-release-qualification.sh` passed fresh and installed-reuse
+  paths plus fail-closed mutations; shell syntax, Python compilation, Rust
+  formatting, and coordinator-runbook syntax checks passed.
+- The complete local gate also passed after the historical-provenance repair:
+  `make lint`; `make test`; and `make spec` (268 passed, 7 skipped). The final
+  release-runbook hardening test and `git diff --check` passed after adding
+  exact ruleset/workflow/artifact authentication, held-descriptor upload
+  checks, and credential-free public downloads of all five small members.
+- Code-review remediation binds every release note, script, fixture, and
+  qualification step to a private exact `git archive` of the target commit;
+  adds an independently checked indexed-SNV model oracle and proves automatic
+  lookup versus forced model routing in CLI and HTTP; includes the one final
+  progress record in monotonic accounting; updates the FAQ for eventual
+  v0.2.0; and makes anonymous curl ignore user configuration while checking
+  release, tag, Latest, body, inventory, and member digests.
+- The exact-commit archive also refuses any configured `git replace` refs and
+  sets `GIT_NO_REPLACE_OBJECTS=1` for commit-object authentication and archive
+  materialization; static mutation coverage rejects a replacement-enabled
+  archive. Publication wording now distinguishes automatic M09 from forced
+  indexed-SNV model scoring, and the tagged FAQ names v0.2.0 directly.
+- The new indexed-SNV oracle is mechanically equal to the first frozen
+  production container-oracle result and was independently reproduced
+  byte-for-byte with the retained production runtime. After all five review
+  remediations, `make lint`, `make test`, `make spec` (268 passed, 7 skipped),
+  coordinator-runbook syntax, mutation tests, and `git diff --check` all pass.
+- No workflow was dispatched; no GitHub release, tag, asset, draft, commit, or
+  push was created.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: independent code reviewer `ticket050_code_review` — ACCEPT.
+
+Review rejected mutable-checkout publication authority, a non-SNV model-only
+check that could not prove lookup bypass, incomplete final-progress
+monotonicity, stale FAQ guidance, and curl calls that did not disable user
+configuration. Remediation moved all post-bind authority to a private exact
+commit archive, qualified one indexed SNV as precomputed versus exact forced
+model in CLI/HTTP, hardened completion accounting, updated the FAQ, and made
+public checks explicitly anonymous.
+
+Re-review then demonstrated that `git archive` can honor local replacement
+objects. The runbook now rejects replacement refs and sets
+`GIT_NO_REPLACE_OBJECTS=1` for object authentication and archive creation, with
+mutation coverage. Two final tagged-document wording defects were corrected.
+Final re-review accepted the complete diff with no remaining findings.
 
 ## External Effect Evidence
 
@@ -162,4 +222,11 @@ green, freshly audited, packaged, admitted, and production-qualified.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: final `make lint`, `make test`, and `make spec` passed (268 passed,
+7 skipped), but the stale-claim audit found `architecture/delivery.md` still
+describing the retired model-only M09 check instead of forced indexed-SNV
+scoring. That documentation finding returned to the same developer and code
+reviewer. The corrected automatic-M09/forced-indexed-SNV wording was accepted
+on re-review; the focused final stale scan and `git diff --check` pass. The
+reviewed preparation is ready to commit and push. No external effect has
+occurred.

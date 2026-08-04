@@ -156,6 +156,7 @@ fn v2_miniature_preserves_the_independent_current_v1_byte_oracle() {
     let mut v1: ReferenceManifest = serde_json::from_slice(&v2_bytes).expect("manifest JSON");
     assert_eq!(v1.builder.source_sha256, V2_SOURCE);
     v1.builder.source_sha256 = V1_SOURCE.to_owned();
+    v1.builder.version = "0.1.0".to_owned();
     let v1_bytes = canonical_reference_manifest_bytes(&v1).expect("canonical v1 oracle");
     assert_eq!(
         format!("{:x}", Sha256::digest(&v1_bytes)),
@@ -237,6 +238,7 @@ fn route_reference_rebuilds_byte_identically_and_covers_the_full_model_context()
         "sha256:09cd44449b77592e4b9948cc0756e736b01ecf5220b3d5312c52b12b6b6e9c65"
     );
     historical.builder.source_sha256 = current.builder.source_sha256.clone();
+    historical.builder.version = current.builder.version.clone();
     assert_eq!(current, historical, "only builder provenance changes");
 
     let opened = ReferenceBundleOpen::open(&checked).expect("open checked route bundle");

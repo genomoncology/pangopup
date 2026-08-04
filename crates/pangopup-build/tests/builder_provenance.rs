@@ -229,13 +229,14 @@ fn source_fingerprint_reference_members_and_legacy_reader_are_invariant() {
     v1_rebound["builder"]["source_sha256"] = Value::String(
         "sha256:4bc0e93b83b28e235a7d0f498976bfe1e97b39d13e4f8c940d4c03cfd3d641bf".to_owned(),
     );
+    v1_rebound["builder"]["version"] = Value::String("0.1.0".to_owned());
     let v1_bytes = serde_jcs::to_vec(&v1_rebound).expect("canonical v1 reference manifest");
     assert_eq!(
         sha256(&v1_bytes),
         migration["reference"]["migrated_manifest"]["sha256"]
             .as_str()
             .expect("v1 reference manifest hash"),
-        "v2 must differ from v1 only at builder.source_sha256"
+        "current output must rebound source identity and builder version to historical v1"
     );
 
     let snv_source = serde_json::from_slice::<Value>(

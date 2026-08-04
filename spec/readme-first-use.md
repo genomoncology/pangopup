@@ -10,13 +10,13 @@ test "$(wc -w < ../README.md)" -le 3000
 printf 'README size is bounded\n' | mustmatch like 'README size is bounded'
 ```
 
-It distinguishes the immutable public executable from current source instead
-of assigning unreleased commands to `v0.1.0`:
+It presents v0.2.0 as the ordinary release while retaining the older immutable
+v0.1.0 release:
 
 ```bash
-rg -F 'Published `v0.1.0`' ../README.md >/dev/null
-rg -F 'Current `main`' ../README.md >/dev/null
-rg -F 'It is not in published `v0.1.0`.' ../README.md >/dev/null
+rg -F '**`v0.2.0` is the ordinary Linux release.**' ../README.md >/dev/null
+rg -F 'Immutable `v0.1.0` remains' ../README.md >/dev/null
+rg -F 'raw.githubusercontent.com/genomoncology/pangopup/v0.2.0/install.sh' ../README.md >/dev/null
 rg -F 'No container image is published to a registry yet.' ../README.md >/dev/null
 printf 'delivery tracks are explicit\n' | mustmatch like 'delivery tracks are explicit'
 ```

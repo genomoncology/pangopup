@@ -369,22 +369,27 @@ The public Latest installer is:
 curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/main/install.sh | bash
 ```
 
-For reproducibility, use the tagged script with `--version 0.1.0`. The only
+For reproducibility, use the tagged script with `--version 0.2.0`. The only
 platform baseline is Linux x86_64 with GLIBC 2.39 or newer; prerequisites are Bash,
 curl or wget, and sha256sum, shasum, or openssl. It
 installs under `${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}`, prints PATH guidance
 when needed, and directs the user to `pangopup sync` and `pangopup status`. It
 does not use sudo, edit shell files, or download data automatically. The
-immutable release is
-[`v0.1.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.1.0).
+ordinary immutable release is
+[`v0.2.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.2.0);
+immutable v0.1.0 remains available as the prior CLI-only release.
 
 Before publication, the candidate passed a clean isolated Linux run using the
 real pinned data: online sync, offline reuse, combined ready status, all
-1,000 retained SNVs in seven batches, and one exact non-SNV model result. The
-SNV comparison ignores only the installation-specific bundle ID; it still
-checks every biological score and position plus all other provenance. This
-qualification passed, followed by unauthenticated public checks and a clean
-tagged-installer run as a non-root user.
+1,000 retained SNVs in seven batches, one exact non-SNV model result, and one
+indexed SNV scored automatically from the lookup and explicitly through the
+model. It also exercises focused help, progress/quiet synchronization, and the
+foreground HTTP health/status/SNV/model surface. The SNV comparison ignores
+only the installation-specific bundle ID; it still checks every biological
+score and position plus all other provenance. Publication then requires
+anonymous public metadata/member checks and the tagged installer repeating the
+non-download qualification as a non-root user against the already admitted
+assets.
 
 ### How are large artifacts delivered?
 

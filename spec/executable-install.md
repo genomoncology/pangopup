@@ -3,7 +3,7 @@
 The installer rejects malformed requests before attempting a download.
 
 ```bash run id=installer-version-invalid exit=1 stream=stderr
-../install.sh --version v0.1.0
+../install.sh --version v0.2.0
 ```
 
 ```text expect=installer-version-invalid exact

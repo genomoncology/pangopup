@@ -21,6 +21,9 @@ cache_parent=$4
 
 "$pangopup" --version
 "$pangopup" --help >/dev/null
+for command in sync status lookup serve; do
+  "$pangopup" "$command" --help >/dev/null
+done
 "$pangopup" status --data-dir "$data_dir" | grep -Fq '"status":"missing"'
 "$pangopup" lookup \
   --bundle "$source_tree/tests/fixtures/snv-regression/bundle" \
@@ -38,4 +41,11 @@ mkdir -m 0700 -- "$cache_parent"
   --mask "$source_tree/tests/fixtures/route-mask/domains.pgm" \
   --model-bundle "$source_tree/tests/fixtures/pangolin-model-kernel-mini/bundle" \
   --model-cache "$cache_parent/model.sqlite3" \
+  | grep -Fq '"kind":"model"'
+"$pangopup" lookup --model-only \
+  --variant GRCh38:chr1:5051:A:AC \
+  --reference-bundle "$source_tree/tests/fixtures/reference-route-test/bundle" \
+  --mask "$source_tree/tests/fixtures/route-mask/domains.pgm" \
+  --model-bundle "$source_tree/tests/fixtures/pangolin-model-kernel-mini/bundle" \
+  --model-cache "$cache_parent/model-only.sqlite3" \
   | grep -Fq '"kind":"model"'

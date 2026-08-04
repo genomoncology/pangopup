@@ -21,19 +21,15 @@ provide gene and disease knowledge.
 
 ## Choose a version
 
-There are currently two user paths:
-
-- **Published `v0.1.0`:** install a qualified Linux x86-64 executable. It
-  provides asset sync/status, lookup-first CLI scoring, and automatic model
-  fallback. It is immutable and predates recent usability work.
-- **Current `main`:** build from source for `sync --progress`, focused command
-  help, `--model-only`, the HTTP service, and the Docker image. A replacement
-  executable release is planned separately.
+**`v0.2.0` is the ordinary Linux release.** It includes asset sync/status,
+lookup-first and explicit model-only CLI scoring, resilient download progress,
+focused help, and the foreground HTTP service. Immutable `v0.1.0` remains
+available as the older CLI-only release.
 
 No container image is published to a registry yet. The Docker instructions
 below build the image locally from an exact checkout.
 
-## Install the published Linux executable
+## Install the Linux executable
 
 Prerequisites:
 
@@ -49,18 +45,18 @@ curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/main/install
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-For the immutable `v0.1.0` installer and executable:
+To pin the immutable `v0.2.0` installer and executable:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/v0.1.0/install.sh \
-  | bash -s -- --version 0.1.0
+curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/v0.2.0/install.sh \
+  | bash -s -- --version 0.2.0
 ```
 
 The installer verifies the executable's SHA-256 checksum, smoke-tests it, and
 atomically writes `${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}/pangopup`. It does
 not use `sudo`, edit `PATH`, or download the scoring assets.
 
-## Build current `main`
+## Build from source
 
 Current source requires Git, Rust 1.93, and a C/C++ build toolchain:
 
@@ -84,17 +80,8 @@ Silicon Docker observations after a completed sync were about 14.8 GB of
 installed data and 2.4 GB of cache; provisioning needs additional working
 space while compressed downloads are verified and installed.
 
-With a current-`main` build:
-
 ```bash
 pangopup sync --progress
-pangopup status
-```
-
-With published `v0.1.0`, use `pangopup sync` without `--progress`:
-
-```bash
-pangopup sync
 pangopup status
 ```
 
@@ -150,7 +137,7 @@ JSON Lines is the default. Add `--gene ENSG...` to retain only one stable
 Ensembl gene ID. Automatic routing uses the precomputed index when it contains
 the SNV and otherwise invokes the model.
 
-Current `main` can bypass the SNV index deliberately:
+Bypass the SNV index deliberately:
 
 ```bash
 pangopup lookup --model-only \
@@ -158,7 +145,7 @@ pangopup lookup --model-only \
 ```
 
 `--model-only` is useful for comparing the current model with a precomputed
-score. It is not in published `v0.1.0`.
+score.
 
 ### Reading a result
 
@@ -181,8 +168,7 @@ overlap.
 
 ## Run the HTTP service
 
-The service is available on current `main`, not published `v0.1.0`. It runs in
-the foreground and listens on loopback by default:
+The service runs in the foreground and listens on loopback by default:
 
 ```bash
 pangopup serve --listen 127.0.0.1:8080

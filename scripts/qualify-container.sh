@@ -148,7 +148,8 @@ docker volume create "$cache_volume" >/dev/null
 docker volume create "$empty_volume" >/dev/null
 
 stage=empty-volume-smoke
-"${run[@]}" "$image" --version | grep -Fxq 'pangopup 0.1.0'
+expected_version=$(sed -nE 's/^version = "([^"]+)"$/\1/p' "$source_tree/Cargo.toml" | head -1)
+"${run[@]}" "$image" --version | grep -Fxq "pangopup $expected_version"
 "${run[@]}" "$image" status | grep -Fq '"status":"missing"'
 
 if docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \

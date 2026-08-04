@@ -17,8 +17,8 @@ cat >"$smoke_bin/pangopup" <<'EOF'
 set -euo pipefail
 printf '%s\n' "$*" >>"$SMOKE_LOG"
 if [[ "${1:-}" == --version ]]; then
-  printf 'pangopup 0.1.0\n'
-elif [[ "${1:-}" == --help ]]; then
+  printf 'pangopup 0.2.0\n'
+elif [[ " $* " == *' --help '* ]]; then
   printf 'usage: pangopup\n'
 elif [[ "${1:-}" == status ]]; then
   printf '{"status":"missing"}\n'
@@ -52,8 +52,9 @@ SMOKE_LOG="$smoke_log" SMOKE_SCRIPT="$repo/scripts/smoke-linux-release.sh" \
     -v "$root:/release:ro" -v "$repo:/source:ro" smoke-image bash -ceu '
       "$SMOKE_SCRIPT" "$SMOKE_PANGOPUP" "$SMOKE_SOURCE" "$SMOKE_DATA" "$SMOKE_CACHE"
     '
-[[ "$(wc -l <"$smoke_log")" == 5 ]]
+[[ "$(wc -l <"$smoke_log")" == 10 ]]
 grep -Fq -- "--model-cache $fake_cache_parent/model.sqlite3" "$smoke_log"
+grep -Fq -- "--model-only" "$smoke_log"
 [[ "$(stat -c %u "$fake_cache_parent")" == "$(id -u)" ]]
 [[ "$(stat -c %a "$fake_cache_parent")" == 700 ]]
 
@@ -101,7 +102,9 @@ real_cache_parent="/tmp/pangopup-smoke-real-$PPID-$$"
 [[ "$(stat -c %a "$real_cache_parent")" == 700 ]]
 [[ -f "$real_cache_parent/model.sqlite3" && ! -L "$real_cache_parent/model.sqlite3" ]]
 rm -f "$real_cache_parent/model.sqlite3" \
-  "$real_cache_parent/model.sqlite3-shm" "$real_cache_parent/model.sqlite3-wal"
+  "$real_cache_parent/model.sqlite3-shm" "$real_cache_parent/model.sqlite3-wal" \
+  "$real_cache_parent/model-only.sqlite3" \
+  "$real_cache_parent/model-only.sqlite3-shm" "$real_cache_parent/model-only.sqlite3-wal"
 rmdir "$real_cache_parent"
 
 expect_installer_failure() {
