@@ -634,10 +634,13 @@ Its exact-commit package, anonymous release files, tagged curl installer,
 lookup/model/cache behavior, focused help, sync output, and foreground HTTP
 surface passed the clean production qualification. Native multi-architecture
 container delivery now retains the same thin image behind one two-leaf GHCR
-index. Its two-mode manual lifecycle stages private digest-addressed leaves,
-stops for the one required owner visibility change, authenticates the exact
-successful stage-run receipt, anonymously repeats native qualification, and
-only then creates version and moving tags.
+index. Its two-mode manual lifecycle stages digest-addressed leaves without
+user-facing tags, checks public visibility, authenticates the exact successful
+stage-run receipt, anonymously repeats native qualification, and only then
+creates version and moving tags. The first repository-linked package was
+already Public, so no owner visibility mutation was needed. Tags `0.2.0`,
+`v0.2.0`, and `latest` resolve to immutable index
+`sha256:ad1aa8c27cc61d107310f609cd63f8fcbaf591a4f9760db475384a0a71049de4`.
 
 Docker, systemd, Kubernetes, or another external manager owns
 start/stop/restart; Pangopup does not become its own process supervisor.

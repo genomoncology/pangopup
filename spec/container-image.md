@@ -2,8 +2,8 @@
 
 The checked container delivery contract keeps the ordinary Dockerfile and
 push/PR workflow read-only. A separate exact-commit, manually dispatched
-two-mode workflow stages native private leaves, stops for the one-time GHCR
-public-visibility checkpoint, anonymously requalifies the held child digests,
+two-mode workflow stages native digest-addressed leaves without user-facing
+tags, stops at a GHCR public-visibility checkpoint, anonymously requalifies the held child digests,
 and only then assembles the public two-platform index.
 
 ```bash

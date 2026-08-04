@@ -125,7 +125,10 @@ bash tests/container-receipt-admission.sh
 bash tests/container-tag-absence.sh
 
 publication_record=planning/artifacts/051-public-container.md
-grep -Fq 'State: **PREPARED' "$publication_record"
+grep -Fq 'State: **COMPLETE' "$publication_record"
+grep -Fq 'Exact publication commit: `e2d3c2c89813cbdf54d2c76887113e8d68e44b4a`.' "$publication_record"
+grep -Fq 'Successful finalize run: `30932912158`.' "$publication_record"
+grep -Fq 'OCI index: `sha256:ad1aa8c27cc61d107310f609cd63f8fcbaf591a4f9760db475384a0a71049de4`.' "$publication_record"
 grep -Fq 'https://github.com/orgs/genomoncology/packages/container/pangopup/settings' "$publication_record"
 grep -Fq 'readonly STAGE_RUN_ID=REPLACE_WITH_EXACT_SUCCESSFUL_STAGE_RUN_ID' "$publication_record"
 grep -Fq 'actions/runs/$STAGE_RUN_ID/artifacts?per_page=100' "$publication_record"

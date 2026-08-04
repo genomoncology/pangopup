@@ -71,10 +71,11 @@ repository permission and cannot publish an image or release asset. See
 Public container delivery is a separate two-mode manual workflow. `stage`
 builds and qualifies one native, unattested leaf per architecture, records the
 two distinct registry digests in one canonical run receipt, and creates no
-user-facing tag. GitHub creates a new GHCR package as private, so publication
-stops while the organization owner makes exactly that package public. The
-coordinator verifies anonymous access before dispatching `finalize` with the
-exact successful stage run ID. Finalization authenticates that run and its
+user-facing tag. Publication stops at a visibility checkpoint; if the package
+is private, its owner must make exactly that package public. The first
+repository-linked package was already Public and required no visibility
+mutation. The coordinator always verifies anonymous access before dispatching
+`finalize` with the exact successful stage run ID. Finalization authenticates that run and its
 unique retained receipt through the Actions API, anonymously repeats native
 miniature qualification, and then creates the `0.2.0`, `v0.2.0`, and `latest`
 two-platform index. Version tags are convenient names; the OCI index digest is

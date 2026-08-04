@@ -1,8 +1,7 @@
 # Ticket 051 public container record
 
-State: **PREPARED FOR A NEW EXACT-COMMIT STAGE — the old stage and failed
-finalize are superseded. Two native leaves are public but untagged; no
-user-facing tag or multi-platform manifest has been published.**
+State: **COMPLETE — the public `0.2.0`, `v0.2.0`, and `latest` tags resolve to
+one anonymously qualified native AMD64/ARM64 OCI index.**
 
 The first stage attempt, GitHub Actions run `30928210091`, failed in both native
 leaf jobs before any registry push. GitHub's default Buildx `docker` driver does
@@ -44,15 +43,13 @@ The reviewed target is one thin public OCI index at
 the moving tag `latest`. Scoring assets and SQLite data remain outside the
 image. The index digest, not a tag, is the immutable deployment identity.
 
-GitHub creates the first GHCR package as private and provides no supported API
-for changing its visibility. Publication therefore has two explicit manual
-workflow modes. The first run stages private leaves and emits one canonical
-receipt. The coordinator then stops and gives the organization owner the exact
-package-settings URL. Only after the owner confirms the irreversible public
-visibility change and anonymous digest access succeeds may the coordinator
-dispatch finalization with that exact stage run ID. Finalization authenticates
-the stage run and receipt itself; it never trusts hand-copied digests or chooses
-a latest run.
+Publication uses two explicit manual workflow modes. The first run stages
+digest-addressed leaves without user-facing tags and emits one canonical
+receipt. The workflow is prepared to stop for a package-visibility checkpoint,
+but this repository-linked package was already Public when the owner opened its
+settings; no visibility mutation was required. Anonymous digest access was
+still proved before finalization. Finalization authenticates the stage run and
+receipt itself; it never trusts hand-copied digests or chooses a latest run.
 
 The runbooks below contain no credential. They use the operator's existing
 authenticated `gh` session only for GitHub reads and reviewed workflow
@@ -288,9 +285,20 @@ printf 'Ticket 051 publication passed: stage_run_id=%s finalize_run_id=%s index=
 
 ## External effect evidence
 
-Coordinator: pending. Record only the exact reviewed commit, green gate run
-IDs, the new stage and finalize run IDs, package URL and public visibility, the
-OCI index digest, the two new child digests, tag resolution, and anonymous
-qualification results. Superseded stage `30929323700` must not be used. Do not
-record tokens, authorization headers, signed artifact URLs, environment dumps,
-registry configuration, or private paths.
+Coordinator: Codex.
+
+- Exact publication commit: `e2d3c2c89813cbdf54d2c76887113e8d68e44b4a`.
+- Green CI run: `30932187846`.
+- Green native-container run: `30932190203`.
+- Authenticated stage run: `30932555180`; receipt artifact: `8901846495`.
+- Successful finalize run: `30932912158`.
+- Public package: `https://github.com/orgs/genomoncology/packages/container/pangopup`.
+- OCI index: `sha256:ad1aa8c27cc61d107310f609cd63f8fcbaf591a4f9760db475384a0a71049de4`.
+- AMD64 leaf: `sha256:40c6da99893d0785dc19a390064b5891298d3328c99caf591e5dd049e83ca768`.
+- ARM64 leaf: `sha256:54b6f8e70368e6e686ee24eb4838f92bed32b386f4ee6c785abd5a917338f476`.
+- Anonymous native qualification passed for both leaves. Independent anonymous
+  registry reads confirmed the exact two-child index, annotations, and that
+  `0.2.0`, `v0.2.0`, and `latest` all resolve to the index digest above.
+
+Superseded stage `30929323700` and failed finalize `30931154337` were not reused.
+Their old untagged leaves remain separate from the published index.

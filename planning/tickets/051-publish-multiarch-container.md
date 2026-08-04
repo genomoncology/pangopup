@@ -1,6 +1,6 @@
 # 051 — Publish and qualify the multi-architecture container
 
-Status: publication-ready
+Status: complete
 
 ## Why
 
@@ -39,13 +39,14 @@ asset-volume, and cache behavior.
   `origin/main`, the dispatch ref, the executing workflow revision, and the
   checked-out source all equal the exact reviewed commit; authenticate green
   CI/container gates; capture the staged child digests; and stop at a named
-  visibility checkpoint. GitHub creates a new GHCR package as private and
-  exposes no supported REST or GraphQL visibility mutation. The coordinator
-  must give the organization owner the exact package-settings URL and wait for
-  that one manual, irreversible public-visibility confirmation. Only then may
-  the coordinator verify anonymous leaf access and dispatch `finalize` with the
-  exact held stage run ID. Finalization verifies anonymous pulls by digest and
-  version tag. A private or inaccessible package is a hard stop before tags.
+  visibility checkpoint. The coordinator must inspect the exact package state
+  and, if it is private, give the organization owner the exact package-settings
+  URL and wait for public-visibility confirmation. In this first publication,
+  the repository-linked package was already Public when inspected, so no
+  visibility mutation was required. Anonymous leaf access remains mandatory
+  before `finalize` with the exact held stage run ID. Finalization verifies
+  anonymous pulls by digest and version tag. A private or inaccessible package
+  is a hard stop before tags.
 - Extend the miniature container helper to authenticate an expected registry
   child digest from the pulled image while retaining its existing metadata,
   CLI, lookup, model, cache, and 75 MiB checks. Invoke it after logging out of
@@ -293,7 +294,7 @@ accepted the complete diff and focused evidence with no remaining findings.
 
 ## External Effect Evidence
 
-Coordinator: pending. The first private stage attempt, run `30928210091`,
+Coordinator: Codex. The first stage attempt, run `30928210091`,
 failed in both native jobs before any registry mutation: the default Buildx
 `docker` driver rejected `push-by-digest`. The remediation pinned the official
 Buildx setup action and a multi-architecture BuildKit image, explicitly passed
@@ -337,12 +338,30 @@ both extracted runbooks under `bash -n`, focused Mustmatch (`9 passed, 1
 skipped`), `git diff --check`, and the complete `make lint`, `make test`, and
 `make spec` gate (`268 passed, 7 skipped` in the spec layer).
 
+The corrected publication-ready commit is
+`e2d3c2c89813cbdf54d2c76887113e8d68e44b4a`. Its remote CI gate
+`30932187846` and native AMD64/ARM64 container gate `30932190203` both passed.
+Fresh stage `30932555180` succeeded and produced authenticated receipt artifact
+`8901846495`. Finalize `30932912158` authenticated that exact stage, anonymously
+qualified both native leaves, created the OCI index, and anonymously verified
+the index and all tags. Independent anonymous registry reads from a fresh
+Docker configuration confirmed:
+
+- index: `sha256:ad1aa8c27cc61d107310f609cd63f8fcbaf591a4f9760db475384a0a71049de4`;
+- `linux/amd64`: `sha256:40c6da99893d0785dc19a390064b5891298d3328c99caf591e5dd049e83ca768`;
+- `linux/arm64`: `sha256:54b6f8e70368e6e686ee24eb4838f92bed32b386f4ee6c785abd5a917338f476`;
+- `0.2.0`, `v0.2.0`, and `latest` all resolve to that index.
+
+The index contains exactly those two native platforms and the checked source,
+revision, version, and GPL license annotations. The superseded untagged leaves
+remain separately addressable evidence and are not referenced by the published
+index.
+
 ## Coordinator Final Check
 
 Coordinator: Codex. Final `make lint`, `make test`, and `make spec` passed
-(`268 passed, 7 skipped`), as did `git diff --check`. Public effects to date are
-the now-public GHCR package and two untagged digest leaves created by superseded
-stage `30929323700`. No human tag or multi-platform index exists. The quoting
-remediation must be committed and pushed, its remote gates must pass, and a new
-exact-commit stage and finalize lifecycle must complete before this ticket can
-close.
+(`268 passed, 7 skipped`), as did `git diff --check`. The exact corrected commit
+passed both required remote gates. Fresh stage and finalize runs completed, the
+receipt and registry objects were authenticated, and independent anonymous
+reads confirmed the exact two-platform index and all three tags above. Ticket
+051 is complete.
