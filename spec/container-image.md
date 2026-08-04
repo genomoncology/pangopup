@@ -15,10 +15,11 @@ SNV, model, reference, mask, or SQLite data. The human version tags are
 `0.2.0` and `v0.2.0`; the manifest digest is the immutable deployment identity,
 while `latest` is explicitly moving. The workflow's canonical stage receipt,
 not a hand-copied digest or a latest-run search, is the only handoff into
-finalization. Native staging uses registry push-by-digest and leaves no staging
-tag. Receipt admission hashes the downloaded Actions archive against its API
-digest before extraction, and tag collision checks accept only an authenticated
-`MANIFEST_UNKNOWN` response.
+finalization. Native staging uses an explicitly selected Docker-container
+Buildx builder with an immutable BuildKit image, exports each leaf by registry
+digest, and leaves no staging tag. Receipt admission hashes the downloaded
+Actions archive against its API digest before extraction, and tag collision
+checks accept only an authenticated `MANIFEST_UNKNOWN` response.
 
 Before touching any volume, the bounded final-image qualification runs all
 eight non-root runtime help paths with both `-h` and `--help`. Every invocation

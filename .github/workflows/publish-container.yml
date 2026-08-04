@@ -117,17 +117,31 @@ jobs:
           git diff --cached --quiet --
           test "$(uname -m)" = "${{ matrix.native_machine }}"
           test -z "${{ inputs.stage_run_id }}"
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+        id: buildx
+        with:
+          driver: docker-container
+          driver-opts: image=moby/buildkit@sha256:87afb62ed6a762bb65b85d53819f3b341fb74a36d1fc0a1153a64f367637bfda
+      - name: Authenticate digest-capable native builder
+        env:
+          BUILDER: ${{ steps.buildx.outputs.name }}
+        run: |
+          set -euo pipefail
+          test -n "$BUILDER"
+          docker buildx inspect "$BUILDER" --bootstrap >"$RUNNER_TEMP/buildx-inspect.txt"
+          grep -Eq '^Driver:[[:space:]]+docker-container$' "$RUNNER_TEMP/buildx-inspect.txt"
       - name: Build native helper
         run: cargo build --locked --package pangopup-build
       - name: Push and hold exact unattested native leaf by digest
         env:
           EXACT_COMMIT: ${{ inputs.commit }}
           ARCHITECTURE: ${{ matrix.architecture }}
+          BUILDER: ${{ steps.buildx.outputs.name }}
           GHCR_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          docker buildx build --pull --provenance=false --sbom=false \
+          docker buildx build --builder "$BUILDER" --pull --provenance=false --sbom=false \
             --platform "linux/$ARCHITECTURE" \
             --output "type=image,name=$IMAGE,push-by-digest=true,name-canonical=true,push=true,oci-mediatypes=true" \
             --metadata-file "$RUNNER_TEMP/leaf-metadata.json" \

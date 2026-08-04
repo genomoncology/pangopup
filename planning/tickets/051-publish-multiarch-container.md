@@ -292,9 +292,21 @@ accepted the complete diff and focused evidence with no remaining findings.
 
 ## External Effect Evidence
 
-Coordinator: pending. This ticket includes reviewed public GHCR publication and
-must stop at `publication-ready` until the exact commit is pushed and its
-required remote gates are green.
+Coordinator: pending. The first private stage attempt, run `30928210091`,
+failed in both native jobs before any registry mutation: the default Buildx
+`docker` driver rejected `push-by-digest`. No leaf, tag, or manifest was pushed.
+The remediation pins the official Buildx setup action and a multi-architecture
+BuildKit image, explicitly passes that action's builder to the build, and
+authenticates that its driver is `docker-container` before building. A new
+exact-commit stage run remains required before the visibility checkpoint.
+The action is pinned at
+`e468171a9de216ec08956ac3ada2f0791b6bd435`; BuildKit is pinned at
+`moby/buildkit@sha256:87afb62ed6a762bb65b85d53819f3b341fb74a36d1fc0a1153a64f367637bfda`.
+Post-remediation evidence passed: actionlint 1.7.7; receipt, tag-absence, and
+container-delivery shell tests; both extracted runbooks under `bash -n`;
+focused Mustmatch (`9 passed, 1 skipped`); `git diff --check`; and the complete
+`make lint`, `make test`, and `make spec` gate (`268 passed, 7 skipped` in the
+spec layer).
 
 ## Coordinator Final Check
 

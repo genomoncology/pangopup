@@ -1,7 +1,15 @@
 # Ticket 051 public container record
 
-State: **PREPARED — no GHCR package, leaf, tag, or manifest has been published
-by this ticket yet.**
+State: **PREPARED FOR STAGE RETRY — no GHCR package, leaf, tag, or manifest has
+been published by this ticket yet.**
+
+The first stage attempt, GitHub Actions run `30928210091`, failed in both native
+leaf jobs before any registry push. GitHub's default Buildx `docker` driver does
+not implement the required `push-by-digest` exporter. The retry workflow now
+creates and explicitly selects the pinned official Docker-container Buildx
+builder and an immutable multi-architecture BuildKit image. The workflow also
+boots the selected builder and verifies its driver before beginning either
+native build.
 
 The reviewed target is one thin public OCI index at
 `ghcr.io/genomoncology/pangopup`. It has exactly two native leaves,

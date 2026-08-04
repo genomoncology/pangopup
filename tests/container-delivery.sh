@@ -37,7 +37,16 @@ fi
 grep -Fq 'ubuntu-24.04-arm' "$publish_workflow"
 grep -Fq 'native_machine: x86_64' "$publish_workflow"
 grep -Fq 'native_machine: aarch64' "$publish_workflow"
-grep -Fq 'docker buildx build --pull --provenance=false --sbom=false' "$publish_workflow"
+setup_buildx='docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435'
+buildkit_image='moby/buildkit@sha256:87afb62ed6a762bb65b85d53819f3b341fb74a36d1fc0a1153a64f367637bfda'
+[[ "$(grep -Fc "$setup_buildx" "$publish_workflow")" == 1 ]]
+[[ "$(grep -Fc '          BUILDER: ${{ steps.buildx.outputs.name }}' "$publish_workflow")" == 2 ]]
+grep -Fq '        id: buildx' "$publish_workflow"
+grep -Fq '          driver: docker-container' "$publish_workflow"
+grep -Fq "          driver-opts: image=$buildkit_image" "$publish_workflow"
+grep -Fq 'docker buildx inspect "$BUILDER" --bootstrap' "$publish_workflow"
+grep -Fq "grep -Eq '^Driver:[[:space:]]+docker-container$'" "$publish_workflow"
+grep -Fq 'docker buildx build --builder "$BUILDER" --pull --provenance=false --sbom=false' "$publish_workflow"
 grep -Fq 'push-by-digest=true,name-canonical=true,push=true,oci-mediatypes=true' "$publish_workflow"
 if grep -Eq 'docker push|--tag .*stage-|\$IMAGE:stage-|ghcr[.]io/[^[:space:]]*:stage-' "$publish_workflow"; then
   printf 'stage leaves must be pushed by digest without persistent staging tags\n' >&2
