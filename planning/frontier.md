@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-08-03
+Updated: 2026-08-04
 
 ## Current boundary
 
@@ -617,20 +617,24 @@ Runtime 1.28 images on the Apple M5 Max Docker host. The baseline pinned
 cpuinfo reproduced the exact 76-byte warning, while the otherwise-identical
 first Apple-aware cpuinfo revision produced empty stderr and byte-identical
 version stdout. This confirms the dependency-pin hypothesis only. Production
-still uses the qualified 1.24.2 runtime; custom-runtime adoption requires a
-separate decision plus biological equivalence, cache reuse, performance,
-packaging, maintenance, and complete Mac qualification.
+still uses the qualified 1.24.2 runtime. The accepted decision is to wait for
+an upstream ONNX Runtime release carrying Apple-aware cpuinfo instead of
+maintaining a custom native runtime solely to suppress a harmless warning.
 
-Following that completed outcome, retain these ordered slots rather than
+The root README is now a bounded first-use guide rather than an engineering
+ledger. It separates immutable public `v0.1.0` behavior from current `main`,
+documents sync, CLI, HTTP, Docker/Apple Silicon, update, and independently
+selectable manual removal, and links detailed architecture and planning. A
+local static executable spec keeps its commands, endpoints, XDG paths, disk
+guidance, security boundary, and attribution present without networking,
+Docker, large downloads, or destructive removal.
+
+Following those completed outcomes, retain these ordered slots rather than
 drafting a backlog:
 
-1. decide whether to qualify the confirmed Apple-aware custom runtime for
-   production or wait for an upstream ONNX Runtime release carrying it; do not
-   silently filter the warning;
-2. compact the README around first use, Docker and Apple Silicon behavior,
-   complete HTTP examples, update/restart, and safe manual uninstall;
-3. publish the next qualified executable release;
-4. separately add reviewed multi-architecture container publication and
+1. publish the next qualified executable release and collapse the README's
+   temporary public-`v0.1.0` versus current-`main` split;
+2. separately add reviewed multi-architecture container publication and
    clean-machine acceptance.
 
 Docker, systemd, Kubernetes, or another external manager owns
@@ -673,11 +677,10 @@ are complete. Ticket 047 proved that stock `ort` rc.13 / ONNX Runtime 1.28.0
 still emits the same Apple Docker warning. Ticket 048's matched source-built
 A/B probe then confirmed that advancing only cpuinfo to its first Apple
 Linux-aware revision removes the warning on that Mac. `main` remains on the
-qualified 1.24.2 runtime because that causal result is not production
-qualification. The next decision is whether to qualify the custom native
-runtime or wait for an upstream release; compact user documentation, the next
-executable release, and reviewed multi-architecture container publication
-follow.
+qualified 1.24.2 runtime, and the accepted maintenance decision is to wait for
+an upstream release rather than carry a custom runtime for warning suppression.
+The compact first-use README is established. The next executable release and
+reviewed multi-architecture container publication follow.
 
 Ticket 038's completed publication includes a credential-free operation/evidence
 record, exact reviewed release notes, an independently

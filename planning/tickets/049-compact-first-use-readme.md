@@ -1,6 +1,6 @@
 # 049 — Compact first-use README
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -125,11 +125,51 @@ loopback/authenticated-proxy rule. Re-review accepted all findings as resolved.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: independent implementation agent `ticket049_implementation`.
+
+- Replaced the 1,019-line/6,786-word engineering-led README with a user-first
+  guide under the reviewed 450-line/3,000-word limits.
+- Verified current command grammar, HTTP input/output records, default listener,
+  XDG resolution precedence, installer behavior, Docker paths/user, public
+  `v0.1.0` grammar, and current model oracle directly from checked source,
+  fixtures, and the immutable tag before writing examples.
+- Added `spec/readme-first-use.md`, whose local/static assertions cover the two
+  delivery tracks, first-use commands, HTTP routes and JSON keys, provenance,
+  XDG/disk guidance, Docker volumes, Apple/runtime and security boundaries,
+  update/uninstall separation, attribution, and maintainer links. It executes
+  no network, Docker, synchronization, download, or removal operation.
+- Updated `planning/frontier.md` to record the accepted wait-upstream runtime
+  decision, the compact documentation boundary, and executable publication as
+  the next outcome.
+- Focused verification: `mustmatch test spec/readme-first-use.md` passed 9/9;
+  full `make spec` passed 268 with 7 intentionally skipped blocks;
+  `git diff --check` passed; README measured 383 lines and 1,628 words; all
+  relative Markdown links resolve. No network, Docker, asset, cache, runtime,
+  release, or destructive command was invoked.
+- Code-review remediation made the transport-download and SQLite caches
+  explicitly independent: `PANGOPUP_CACHE_DIR` affects only downloads, while
+  the documented model-result precedence is CLI flag, model-cache environment,
+  XDG cache, then home. It also names Git as a source prerequisite and makes
+  `git rev-parse HEAD` a separate visible commit-capture step. The strengthened
+  static contract passed 9/9 and full `make spec` again passed 268 with 7
+  intentionally skipped blocks; `git diff --check` passed.
+- Coordinator-gate remediation restored the checked, compact maintainer entry
+  point `pangopup-build --help` without reintroducing engineering history and
+  pinned it in the README spec. The exact previously failing
+  `pangopup-build` catalog test passed 1/1, the README spec passed 9/9, and
+  `git diff --check` passed. The final README remains bounded at 390 lines and
+  1,647 words.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: independent code reviewer `ticket049_code_review` — ACCEPT.
+
+Initial review rejected two documentation inaccuracies: the cache table implied
+that `PANGOPUP_CACHE_DIR` also moved SQLite results, and the source-build recipe
+said a commit ID was printed although command substitution consumed it. The
+developer split download and SQLite cache rules, documented exact model-cache
+precedence, added Git and a visible commit command, and strengthened the static
+spec. Re-review confirmed both findings resolved with no regressions.
 
 ## External Effect Evidence
 
@@ -137,4 +177,12 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: full `make lint` passed, then `make test` exposed a compact-README
+omission in the checked maintainer-help contract: the README no longer named
+`pangopup-build --help`. The finding returned to the same developer and code
+reviewer. The compact maintainer pointer and static assertion were accepted on
+re-review. Final `make lint`, `make test`, and `make spec` passed; spec reported
+268 passed and 7 intentionally skipped blocks. `git diff --check` passed,
+README remained bounded at 390 lines/1,647 words, and the final stale-claim scan
+found the next executable release—not documentation or a custom runtime—as the
+single next frontier outcome.
