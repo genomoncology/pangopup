@@ -629,13 +629,11 @@ local static executable spec keeps its commands, endpoints, XDG paths, disk
 guidance, security boundary, and attribution present without networking,
 Docker, large downloads, or destructive removal.
 
-Following those completed outcomes, retain these ordered slots rather than
-drafting a backlog:
-
-1. publish the next qualified executable release and collapse the README's
-   temporary public-`v0.1.0` versus current-`main` split;
-2. separately add reviewed multi-architecture container publication and
-   clean-machine acceptance.
+The compact public `v0.2.0` executable release is now immutable and Latest.
+Its exact-commit package, anonymous release files, tagged curl installer,
+lookup/model/cache behavior, focused help, sync output, and foreground HTTP
+surface passed the clean production qualification. The next bounded outcome is
+reviewed multi-architecture container publication and clean-machine acceptance.
 
 Docker, systemd, Kubernetes, or another external manager owns
 start/stop/restart; Pangopup does not become its own process supervisor.
@@ -663,15 +661,15 @@ must enter that catalog and its executable coverage.
 
 The Linux x86_64 direct-binary installer and deterministic six-file release
 are shipped as immutable
-[`v0.1.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.1.0).
+[`v0.2.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.2.0).
 The installer verifies and smoke-tests an atomic
 replacement while preserving an existing binary on failure, and does not
 download data or mutate `PATH`. The read-only exact-commit workflow qualifies a
 private artifact against pinned Ubuntu 24.04 and GLIBC 2.39. Ticket 038's
 public installer qualification passed through clean production sync, exact SNV
 and model oracles, public verification, and a tagged non-root install. HTTP and
-the native AMD64/ARM64 Docker image are shipped. Other package managers remain
-later roadmap slots. Read-only status, focused runtime help, resilient
+the native AMD64/ARM64 Dockerfile are shipped; a registry image is not yet
+published. Other package managers remain later roadmap slots. Read-only status, focused runtime help, resilient
 resumable synchronization feedback, and the exact-commit Apple Silicon retest
 are complete. Ticket 047 proved that stock `ort` rc.13 / ONNX Runtime 1.28.0
 still emits the same Apple Docker warning. Ticket 048's matched source-built
@@ -679,8 +677,8 @@ A/B probe then confirmed that advancing only cpuinfo to its first Apple
 Linux-aware revision removes the warning on that Mac. `main` remains on the
 qualified 1.24.2 runtime, and the accepted maintenance decision is to wait for
 an upstream release rather than carry a custom runtime for warning suppression.
-The compact first-use README is established. The next executable release and
-reviewed multi-architecture container publication follow.
+The compact first-use README and immutable `v0.2.0` executable release are
+established. Reviewed multi-architecture container publication follows.
 
 Ticket 038's completed publication includes a credential-free operation/evidence
 record, exact reviewed release notes, an independently

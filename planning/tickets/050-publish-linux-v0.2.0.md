@@ -1,6 +1,6 @@
 # 050 — Publish the current Linux executable as v0.2.0
 
-Status: publication-ready
+Status: complete
 
 ## Why
 
@@ -216,9 +216,22 @@ Final re-review accepted the complete diff with no remaining findings.
 
 ## External Effect Evidence
 
-Coordinator: pending. This ticket has a reviewed public irreversible effect and
-must stop at `publication-ready` until the exact commit is pushed, remotely
-green, freshly audited, packaged, admitted, and production-qualified.
+Coordinator: Codex.
+
+- Publication-ready commit: `c50dd1399b10b8e85e140305c7bd68fe849f77dd`.
+- Required CI gate: [run 30921327421](https://github.com/genomoncology/pangopup/actions/runs/30921327421), one successful `gate` job.
+- Native container regression: [run 30921328259](https://github.com/genomoncology/pangopup/actions/runs/30921328259), successful AMD64 and ARM64 smoke jobs.
+- Exact package workflow: [run 30921809944](https://github.com/genomoncology/pangopup/actions/runs/30921809944), one successful `package` job.
+- Admitted GitHub Actions artifact ID: `8897538272`.
+- Immutable public release ID `364960381`: [`v0.2.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.2.0), non-prerelease and Latest.
+- The reviewed prepublication clean-container qualification passed online sync,
+  offline reuse, ready status, the 1,000-SNV oracle, automatic M09 inference,
+  forced model scoring of an indexed SNV, focused help, progress/quiet output,
+  SQLite reuse, and foreground HTTP health/status/scoring.
+- Anonymous public metadata, tag, Latest, body, inventory, and all five small
+  member downloads matched the held local release. The tagged public installer
+  installed `0.2.0`, reused the qualified assets, and passed the same applicable
+  CLI/model/cache/HTTP qualification.
 
 ## Coordinator Final Check
 
@@ -228,5 +241,7 @@ describing the retired model-only M09 check instead of forced indexed-SNV
 scoring. That documentation finding returned to the same developer and code
 reviewer. The corrected automatic-M09/forced-indexed-SNV wording was accepted
 on re-review; the focused final stale scan and `git diff --check` pass. The
-reviewed preparation is ready to commit and push. No external effect has
-occurred.
+reviewed preparation was committed and pushed. Its exact remote gate, package
+workflow, local admission, clean production qualification, immutable GitHub
+publication, anonymous public verification, and tagged-installer reuse
+qualification all passed. Ticket 050 is complete.

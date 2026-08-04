@@ -1,7 +1,6 @@
 # Ticket 050 public Linux release record
 
-State: **PUBLICATION-READY — no GitHub release, tag, workflow dispatch, or
-upload has been performed by the developer.**
+State: **COMPLETE — immutable `v0.2.0` is public and qualified.**
 
 The reviewed target is one immutable `v0.2.0` Linux x86-64 release containing
 exactly `LICENSE`, `NOTICE`, `pangopup-linux-x86_64`,
@@ -307,7 +306,29 @@ printf 'Ticket 050 artifact admitted: artifact_id=%s\n' "$ARTIFACT_ID"
 
 ## External effect evidence
 
-Coordinator: pending. After publication, record the exact commit, CI/package
-run URLs, artifact ID, release ID/URL, six names/sizes/digests, public
-qualification result, and tagged installer result here without credentials,
-headers, signed URLs, environment dumps, or private paths.
+Coordinator: Codex. Published 2026-08-04.
+
+- Exact commit: `c50dd1399b10b8e85e140305c7bd68fe849f77dd`.
+- Required CI: [30921327421](https://github.com/genomoncology/pangopup/actions/runs/30921327421), successful `ci/gate`.
+- Native image regression: [30921328259](https://github.com/genomoncology/pangopup/actions/runs/30921328259), successful AMD64 and ARM64 smoke jobs.
+- Package workflow: [30921809944](https://github.com/genomoncology/pangopup/actions/runs/30921809944), successful exact-commit `package` job.
+- Admitted workflow artifact ID: `8897538272`.
+- Public immutable release ID `364960381`: [`v0.2.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.2.0). It targets the exact commit, is non-prerelease, and is Latest.
+
+Public six-member inventory:
+
+| Member | Bytes | SHA-256 |
+|---|---:|---|
+| `LICENSE` | 35,149 | `3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986` |
+| `NOTICE` | 1,899 | `19d4942d45f87794e304cf8a3d72a7c7a685fb4641a772f9a35acf8b701754c7` |
+| `pangopup-linux-x86_64` | 28,998,384 | `0212ab2683a3d7c301f25f14579cd474467abfdeb1a0a9470309c17c65b0de11` |
+| `pangopup-linux-x86_64.cdx.json` | 201,824 | `537f31c50f57f923cc9b74ea5aaac0adc004fc3eea74b3d0b7286256af71c5df` |
+| `pangopup-linux-x86_64.sha256` | 88 | `d196ead0a2093aaa6d6b015c2407a7acade01d1748e07805b5e98f8523e516dd` |
+| `release-manifest.json` | 950 | `7a304c99f62a65464a57c320adee3ef12a1e4c87f00ca042bd547bf61192046d` |
+
+The prepublication clean-container qualification passed the complete release
+contract. Anonymous public API and download checks then matched the exact held
+body, tag, Latest selection, names, sizes, and digests. Finally, the tagged
+public `install.sh --version 0.2.0` path installed the public executable and
+passed reuse qualification against the same installed assets, including CLI,
+forced/automatic model routing, SQLite reuse, and HTTP behavior.
