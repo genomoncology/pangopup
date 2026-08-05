@@ -76,6 +76,10 @@ input guidance and first-use success.
   for the new outline. Tests must check required commands/facts within their
   owning sections and explicitly reject removed internal-history phrases and
   root README links into `planning/` or `AGENTS.md`.
+- Update the existing `pangopup-build` documentation-catalog unit test so it
+  no longer requires the public README to advertise maintainer-only
+  `pangopup-build --help`. Keep the catalog's maintainer FAQ/frontier checks;
+  do not change build-CLI behavior.
 - Preserve `CITATION.cff`, `NOTICE`, runtime behavior, assets, releases, and
   detailed engineering evidence elsewhere. This ticket changes user-facing
   documentation and its static specification only.
@@ -157,10 +161,10 @@ and does not reintroduce internal history. No new material design issue remains.
 
 Developer: Codex subagent `/root/ticket059_readme_implementation`, 2026-08-05.
 
-- Replaced the 350-line internal-history-shaped README with a 215-line,
-  1,045-word first-use guide. The title now flows directly into two product
+- Replaced the 350-line internal-history-shaped README with a 220-line,
+  1,137-word first-use guide. The title now flows directly into two product
   paragraphs, followed by one direct CLI quick start and progressively deeper
-  CLI, HTTP, Docker, storage, platform, and citation guidance.
+  CLI, HTTP, Docker, storage/operations, and citation guidance.
 - Authenticated the retained user contract against the current parser, engine,
   renderer, HTTP admission code, installer command, and published container
   identity. In particular, the rewrite pins the literal allele grammar,
@@ -182,10 +186,38 @@ Developer: Codex subagent `/root/ticket059_readme_implementation`, 2026-08-05.
 - `git diff --check`: passed. `CITATION.cff`, `LICENSE`, `NOTICE`, and
   `assets/notices/` targets referenced by the README all exist. No runtime,
   asset, citation, release, or source-code file changed.
+- Code-review remediation now defines `found`, `not_found`,
+  `ambiguous_source_reference`, and `mixed`, including the distinction between
+  no record and a zero-effect prediction and the published source-`N`
+  ambiguity. It replaces the false pinned-installer update wording with
+  selected-release binary/container replacement that preserves assets and
+  volumes. The redundant platform section was removed and its unique lifecycle
+  fact moved to HTTP; existing Linux, architecture, CPU, assembly, and exposure
+  facts remain once in their owning sections.
+- Remediation checks: `mustmatch test -v spec/readme-first-use.md` passed 9/9;
+  `make spec` passed 275 with 7 skipped; `git diff --check` passed.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Initial reviewer: Codex subagent `/root/ticket059_readme_code_review`,
+2026-08-05. Verdict: REJECT. It found missing result-status meanings, false
+pinned-installer update wording, and a redundant platform section. Those
+findings caused the reviewed ticket revision and implementation remediation
+recorded above. The original reviewer then reached its agent thread limit.
+
+Independent remediation reviewer: Codex subagent
+`/root/ticket059_remediation_code_review`, 2026-08-05. Initial verdict: REJECT
+one precision phrase: `ambiguous_source_reference` called a source-associated
+gene “affected,” which implied an unsupported biological conclusion.
+
+Resolution: identify the source-associated gene, published alternate alleles,
+and omitted alternate exactly, and pin that wording in the bounded spec.
+
+Final verdict: ACCEPT. The reviewer verified the complete current diff,
+six-section outline, status meanings, update/reuse paths, scientific/parser/
+HTTP/Docker/storage/legal facts, compactness, and absence of internal history.
+Focused README specs passed 9/9 and `git diff --check` passed. No material
+finding remains.
 
 ## External Effect Evidence
 
@@ -194,3 +226,17 @@ Coordinator: not applicable
 ## Coordinator Final Check
 
 Coordinator: pending
+
+The first full `make test` final gate exposed a scope-causal stale unit
+assertion: `current_state_documents_point_to_the_checked_catalog` required the
+public README to contain `pangopup-build --help`, directly contradicting the
+reviewed removal of maintainer commands. The test failed after all preceding
+tests passed. Resolution requires removing only the README assertion while
+retaining the FAQ/frontier catalog checks. This scope clarification returns to
+the same ticket reviewer before implementation and code re-review; it is not a
+reason to restore maintainer trivia to the user guide.
+
+Final scope re-review verdict: ACCEPT. The ticket reviewer confirmed removing
+only the README assertion and unused include is the correct narrow fix while
+the FAQ/frontier assertions preserve maintainer discoverability. No build-CLI
+behavior change is authorized or needed.
