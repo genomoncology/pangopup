@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-08-04
+Updated: 2026-08-05
 
 ## Current boundary
 
@@ -655,10 +655,23 @@ authority across data and cache destruction, cleans only its own temporary
 blockers on failure, and removes the executable last. Docker images and volumes
 remain explicit host-side lifecycle operations.
 
+Current complete-product Linux resource evidence is now retained for the
+v0.3.0 documentation boundary. Five fresh-process rounds on the Ryzen 7 5825U
+host measured the eager-model foreground service at roughly 105 MiB PSS before
+requests, 1/10/100 warm SNV requests at about 0.8/0.5/1.1 ms median, uncached
+model inference at about 4.3 seconds median, and a fresh-service SQLite hit
+below 1 ms median. A one-SNV CLI process completed in about 5.9 ms median and
+peaked near 12 MiB RSS. The exact
+2,623,568,934-byte download installs 15,845,820,477 core mmap/model/reference/
+mask bytes. The retained report explains that the roughly 16 GiB virtual
+mapping is not resident-memory demand and that file-backed pages are
+reclaimable. These are warm-page-cache, single-host observations; future
+multi-host capacity and concurrency limits remain evidence work.
+
 ## Later outcome — production and release hardening
 
-Measure concurrency, startup, resident memory, page faults, and tail latency.
-Add structured logs, useful metrics, resource limits, read-only runtime posture,
+Measure multi-host concurrency, startup, and tail latency before selecting
+production capacity limits. Add structured logs, useful metrics, resource limits, read-only runtime posture,
 dependency/license inventory, SBOM and provenance, signing where practical,
 upgrade/rollback rules, and cleanup of superseded immutable assets. Re-run the
 complete clean-machine acceptance proof for releases.
@@ -713,7 +726,7 @@ immutable public `runtime-grch38-v1` release, separately from the immutable
 `snv-grch38-v1` release.
 
 - whether MPS, CUDA, quantization, or another runtime adds material value;
-- production resource limits derived from complete-request measurements.
+- production resource limits derived from multi-host complete-request measurements.
 
 These are intentional roadmap slots, not tickets. Do not select or implement
 one before its prerequisite evidence exists.

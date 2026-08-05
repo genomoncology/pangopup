@@ -1,6 +1,6 @@
 # 053 — Measure current runtime resource use
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -139,11 +139,59 @@ host-qualified README claims.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: `/root/ticket053_implementation_2`.
+
+- Added the bounded Linux `uv` observer and seven parser/aggregation contract
+  tests under `maintainers/ticket-053/` without changing a runtime crate.
+- A one-round complete smoke and the final five-round retained run passed
+  against the authenticated installed profile. The final run used a clean
+  detached worktree at commit `d4af71ac91e7d65ae6c7546fc3fc01aa481d3d3f`,
+  built `--release --locked`, and bound binary SHA-256
+  `db9dcd3d7346af1132290edc6b5ebd3ced26c0a685b0b8fd6b3e247ee6534e60`.
+- All 35 service checkpoints, five short CLI samples, metadata, and aggregate
+  summary are retained in the 42-line JSONL artifact. Every SNV retained
+  `precomputed` provenance. Each round created exactly one isolated SQLite
+  entry; uncached and cached model bytes matched, cached requests were more
+  than ten times faster, and database bytes did not change during each hit.
+- The retained data tree's path/size/mtime/mode metadata was identical before
+  and after collection. Per-round disposable caches were removed by the
+  harness.
+- The first code review rejected unsafe exceptional child lifecycles, copied
+  download-size constants, and an under-specified model workload. Remediation
+  added a bounded startup read, unconditional session cleanup, safe temporary-
+  file stderr capture, SIGTERM-to-SIGKILL wait escalation, and four explicit
+  fake-child lifecycle tests. It also authenticates both retained transport
+  manifests and every member before deriving download totals, and pins M09's
+  gene filter, exact record, provenance, and stable result digest.
+- Final authenticated transport identities were SNV manifest
+  `f9b7501087226fb35cbfa66fa9b903cc21eb8bbbacb067363b9eeef487ee9e9a`
+  and runtime manifest
+  `415860610ccc060ff3ed5678b450650265330d43f7e73bc533c4ff0125e300a3`.
+  All ten uncached/cached M09 samples retained result SHA-256
+  `8b92aa263001ac961541128e90aaee23ab36e3f7882e316860a1787934e8eeac`.
+- Focused gate: `uv run maintainers/ticket-053/test_measure.py` — 12 passed.
+- Reviewer cleanup gate: `uv run ruff check maintainers/ticket-053` and
+  `uv run ruff format --check maintainers/ticket-053` — passed after removing
+  one unused import and applying the formatter; retained artifacts unchanged.
+- Retained outputs:
+  `planning/artifacts/053-current-runtime-resources.md` and
+  `planning/artifacts/053-current-runtime-resources.jsonl`.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: `/root/ticket053_code_review` (independent, read-only).
+
+Initial verdict: REJECT. The reviewer found an unbounded startup read and
+exception paths that could leave a service alive, download totals copied from
+constants rather than authenticated retained transport, and an insufficiently
+pinned model workload. The developer added bounded and unconditional process
+cleanup with four lifecycle tests, authenticated both transport inventories
+and every compressed member, and pinned M09's exact gene/result/provenance
+identity before regenerating the evidence. Re-review verdict: ACCEPT. The
+reviewer independently reproduced all 12 focused tests and checked every raw
+count, aggregate, fault sequence, cache ratio, result digest, and report value.
+A final unused-import cleanup remained accepted after the same reviewer
+verified Ruff and focused tests again.
 
 ## External Effect Evidence
 
@@ -151,4 +199,18 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex (`/root`), 2026-08-05.
+
+- `uv run ruff check maintainers/ticket-053` — passed.
+- `uv run ruff format --check maintainers/ticket-053` — passed.
+- `uv run maintainers/ticket-053/test_measure.py` — 12 passed.
+- `make lint` — passed (format, Clippy, advisories, bans, licenses, sources).
+- `make test` — passed, including executable-delivery and production-release
+  qualification scripts; only declared retained-production measurements were
+  skipped.
+- `make spec` — 275 passed, 7 skipped.
+- `git diff --check` — passed.
+- Stale-claim scan confirmed the frontier now calls these results a current
+  single-host warm-cache baseline and keeps universal/multi-host capacity work
+  explicitly future. README/version/release claims remain intentionally
+  unchanged for Ticket 054.
