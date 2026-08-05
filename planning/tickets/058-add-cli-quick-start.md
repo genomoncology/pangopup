@@ -1,6 +1,6 @@
 # 058 — Explain the prediction and add a CLI-only quick start
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -128,11 +128,47 @@ and section-bounded tests. No material design finding remains.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex subagent `/root/ticket058_quickstart_implementation`, 2026-08-05.
+
+- Added the exact top-level sequence `Introduction` → `What it predicts` →
+  `Quick start: CLI` → `Storage and memory` without changing the detailed
+  installation, CLI, HTTP, Docker, lifecycle, or attribution sections.
+- Defined gain/loss direction, the genomic-offset convention (including
+  minus-strand genes), 50-bases-per-side scoring region and deletion-offset
+  extension, overlapping-gene records, and the clinical/output limitations of
+  the public result. The explanation paraphrases and directly links Zeng and
+  Li's Pangolin paper; it does not reproduce the supplied abstract or claim
+  tissue-specific public output.
+- Added one copyable immutable-v0.3.0 Linux CLI path covering installation,
+  `PATH`, synchronization, readiness, one precomputed SNV, and one automatic
+  model-backed insertion. It states the first-sync capacity, offline behavior,
+  JSON Lines default, and provenance routing.
+- Extended `spec/readme-first-use.md` to extract only the two new bounded
+  sections. The contract checks the exact heading order and required semantics
+  and rejects HTTP, Docker, source-build, custom-path, forced-model, table, and
+  uninstall commands in the quick start.
+- Focused evidence: `cargo fmt --all --check`; `cargo test --locked --package
+  pangopup-cli --test citation` (3 passed); `mustmatch test
+  spec/readme-first-use.md` (11 passed); `cargo clippy --locked --package
+  pangopup-cli --tests -- -D warnings`; `git diff --check`. The README remains
+  within its existing compactness gate at 350 lines and 1,823 words.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex subagent `/root/ticket058_quickstart_code_review`, 2026-08-05.
+
+Initial verdict: REJECT. “Inside the 50-nucleotide scoring window” misstated
+distance 50 and did not account for deletion spans extending positive offsets.
+
+Resolution: state that the configured region is 50 bases on either side of the
+variant and that a supported deletion's allele span can extend the reported
+positive offset; update the bounded specification. The reviewer accepted this
+scientific correction. A second low-severity rejection corrected stale README
+line/word evidence to 350/1,823.
+
+Final verdict: ACCEPT. The reviewer verified the corrected scoring semantics,
+bounded tests, CLI-only flow, ordering, limitations, paper attribution,
+compactness, and absence of unrelated changes. No material finding remains.
 
 ## External Effect Evidence
 
@@ -140,4 +176,14 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex (`/root`), 2026-08-05.
+
+- `make lint` — passed; existing duplicate-dependency advisories remain
+  nonfatal.
+- `make test` — passed, including citation and production-release
+  qualification tests.
+- `make spec` — 277 passed, 7 skipped.
+- `git diff --check` — passed.
+- Final documentation scan confirmed the exact section order, direct paper
+  link, CLI-only quick start, correct distance/deletion-offset semantics, and
+  no tissue-specific or clinical overclaim.

@@ -1,24 +1,45 @@
 # PangoPup
 
+## Introduction
+
 PangoPup is a fast, standalone, open-source service for
-[Pangolin](https://github.com/tkzeng/Pangolin)-compatible splice scores on
-GRCh38 variants. It has two paths:
+[Pangolin](https://github.com/tkzeng/Pangolin)-compatible splice scores on GRCh38 variants. It looks up single-nucleotide variants (SNVs) in a
+memory-mapped index and runs supported lookup misses and non-SNVs through the Pangolin model on the CPU. Repeated model results use a persistent SQLite cache.
 
-- A single-nucleotide variant (SNV) is looked up in a precomputed,
-  memory-mapped index.
-- A supported lookup miss, insertion, deletion, or multi-nucleotide variant
-  runs through the Pangolin model on the CPU.
+PangoPup does not interpret clinical significance, parse HGVS, project variants to transcripts or proteins, or provide gene/disease knowledge.
 
-Repeated model results are kept in a persistent SQLite cache. Results include
-splice gain/loss scores, relative positions, matching gene records, and
-provenance showing whether lookup or model produced them.
+These instructions describe the immutable **v0.3.0** application release. The large biological assets are versioned separately and are unchanged from v0.2.0.
 
-PangoPup does not interpret clinical significance, parse HGVS, project variants
-to transcripts or proteins, or provide gene/disease knowledge.
+## What it predicts
 
-These instructions describe the immutable **v0.3.0** application release. The
-large biological assets are versioned separately and are unchanged from
-v0.2.0.
+Pangolin predicts splice-site usage (also described as splice-site strength) from DNA sequence. PangoPup reports the predicted change caused by a variant:
+the strongest gain (increase) and signed loss (decrease), with their relative positions. PangoPup scores 50 bases on either side of the variant; a supported
+deletion's allele span can extend the reported positive offset. Overlapping genes can produce separate records. This behavior derives from Tony Zeng and
+Yang I. Li's [Pangolin paper](https://doi.org/10.1186/s13059-022-02664-4).
+
+A reported position is a genomic-coordinate offset from the submitted variant; positive means a higher genomic coordinate, even for a minus-strand gene. It is
+not a transcript-oriented distance to an exon boundary.
+
+These scores are not a pathogenicity classification, clinical diagnosis, or a prediction of the exact RNA transcript or protein consequence.
+PangoPup does not expose tissue-specific scores.
+
+## Quick start: CLI
+
+The executable requires Linux x86-64/amd64 with GLIBC 2.39 or newer. First sync downloads about 2.44 GiB, installs about 14.76 GiB, and needs at least 25 GB free.
+Install immutable v0.3.0, fetch the assets, and score both ordinary paths:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/v0.3.0/install.sh | bash -s -- --version 0.3.0
+export PATH="$HOME/.local/bin:$PATH"
+pangopup sync --progress
+pangopup status
+pangopup lookup --variant GRCh38:chr12:6801301:G:A
+pangopup lookup --variant GRCh38:chr12:6801303:G:GA
+```
+
+The SNV uses the precomputed lookup; the insertion automatically uses the model. Default output is JSON Lines. In each result, `provenance.kind` is
+`precomputed` or `model`, identifying the route. Scoring is network-free after sync. See [Install on Linux](#install-on-linux) and
+[Score from the CLI](#score-from-the-cli) for detailed options.
 
 ## Storage and memory
 

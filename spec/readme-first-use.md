@@ -20,6 +20,19 @@ rg -F 'ghcr.io/genomoncology/pangopup:0.3.0' ../README.md >/dev/null
 printf 'immutable delivery is explicit\n' | mustmatch like 'immutable delivery is explicit'
 ```
 
+The top of the guide explains the scientific result before a bounded,
+CLI-only first-use path:
+
+```bash
+what=$(awk '/^## What it predicts$/{on=1; next} /^## Quick start: CLI$/{on=0} on' ../README.md)
+quick=$(awk '/^## Quick start: CLI$/{on=1; next} /^## Storage and memory$/{on=0} on' ../README.md)
+test "$(rg -n '^## (Introduction|What it predicts|Quick start: CLI|Storage and memory)$' ../README.md | head -4 | cut -d: -f2-)" = "$(printf '%s\n' '## Introduction' '## What it predicts' '## Quick start: CLI' '## Storage and memory')"
+for text in 'splice-site usage' 'gain (increase)' 'signed loss (decrease)' '50 bases on either side of the variant' "deletion's allele span can extend the reported positive offset" 'Overlapping genes' 'separate records' 'genomic-coordinate offset' 'higher genomic coordinate' 'minus-strand gene' 'not a transcript-oriented distance' 'pathogenicity classification' 'clinical diagnosis' 'exact RNA transcript or protein consequence' 'does not expose tissue-specific scores' 'Tony Zeng' 'Yang I. Li' 'https://doi.org/10.1186/s13059-022-02664-4'; do printf '%s' "$what" | rg -F "$text" >/dev/null; done
+for text in 'Linux x86-64/amd64 with GLIBC 2.39 or newer' '2.44 GiB' '14.76 GiB' '25 GB' 'raw.githubusercontent.com/genomoncology/pangopup/v0.3.0/install.sh' 'bash -s -- --version 0.3.0' 'export PATH="$HOME/.local/bin:$PATH"' 'pangopup sync --progress' 'pangopup status' 'pangopup lookup --variant GRCh38:chr12:6801301:G:A' 'pangopup lookup --variant GRCh38:chr12:6801303:G:GA' 'JSON Lines' '`provenance.kind`' '`precomputed` or `model`' 'network-free after' '[Install on Linux](#install-on-linux)' '[Score from the CLI](#score-from-the-cli)'; do printf '%s' "$quick" | rg -F "$text" >/dev/null; done
+! printf '%s' "$quick" | rg -i '(^|[[:space:]])docker([[:space:]]|$)|pangopup serve|/v1/(score|status)|127\.0\.0\.1|git clone|cargo build|PANGOPUP_(DATA|CACHE)|--model-only|--format table|uninstall' >/dev/null
+printf 'prediction and CLI quick start are bounded\n' | mustmatch like 'prediction and CLI quick start are bounded'
+```
+
 The exact authenticated storage evidence and mmap explanation remain visible:
 
 ```bash
