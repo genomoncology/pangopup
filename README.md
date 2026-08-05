@@ -1,5 +1,11 @@
 # PangoPup
 
+<p align="center">
+  <img src="docs/images/pangopup.svg" alt="PangoPup pangolin logo" width="112">
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/images/genomoncology.png" alt="GenomOncology logo" width="306">
+</p>
+
 PangoPup provides fast, local [Pangolin](https://github.com/tkzeng/Pangolin)-compatible
 splice predictions for GRCh38 variants. It reports the strongest predicted splice-site
 gain and signed loss caused by a variant, together with each result's genomic-coordinate
@@ -10,6 +16,33 @@ published scores. A supported lookup miss or non-SNV runs through the Pangolin m
 the CPU, and modeled results are saved in SQLite for reuse. The reported search region is
 50 bases on either side of the variant; for a deletion, its allele span can extend the
 positive offset beyond 50.
+
+![PangoPup lookup-first performance overview showing mmap SNV lookup, CPU ONNX model fallback, SQLite reuse, and measured resource use](docs/images/pangopup-performance.png)
+
+<details>
+<summary><strong>Performance overview in text</strong></summary>
+
+PangoPup routes a covered SNV to the published-score index. A supported non-SNV,
+supported lookup miss, or explicit `--model-only` request runs through the Pangolin model
+with CPU ONNX Runtime. Exact modeled results are saved in SQLite, so the same request can
+be reused without another inference. The 15 GB SNV index is memory-mapped: Linux brings
+in only the file pages a query touches and may reclaim those pages, rather than PangoPup
+copying the whole index into application memory. Every score reports whether a
+precomputed lookup, the Pangolin model, or the SQLite cache answered it.
+
+Retained measurements are an already-open filtered SNV lookup p50 of **0.441 µs**; about
+**12 MiB** peak RSS for a one-SNV CLI call; **4.3 s → 0.7 ms** median for uncached model
+inference followed by a fresh-service SQLite hit; and a **2.44 GiB** asset download with
+about **14.76 GiB** installed. These are warm-page-cache observations on an AMD Ryzen 7
+5825U running Linux, not cross-host guarantees. See the retained
+[lookup benchmark](planning/artifacts/004-snv-lookup-performance.md) and
+[runtime measurements](planning/artifacts/053-current-runtime-resources.md).
+
+The two principal prior works are the [Pangolin model and software](https://github.com/tkzeng/Pangolin)
+by Zeng and Li and the [published Pangolin SNV scores](https://doi.org/10.5281/zenodo.15649338)
+by Wagner and Neverov.
+
+</details>
 
 ## Quick start
 

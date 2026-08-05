@@ -11,7 +11,10 @@ optional gene filter and returns all matching source records by default from an
 explicit fixed-v1 bundle or the active Linux user-data installation. Speed
 leads memory and download size. Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
-established. Immutable publication and pinned resumable remote sync are also
+established. The first-user README now carries reusable PangoPup and
+GenomOncology branding plus an accessible, release-neutral lookup-first
+performance overview with retained measurements and prior-art attribution.
+Immutable publication and pinned resumable remote sync are also
 complete. Sync now uses progress-reset blocking reads, typed four-attempt
 transient retry, exact committed byte accounting, and terminal/forced bounded
 progress without changing final JSON output. The strict upstream Pangolin

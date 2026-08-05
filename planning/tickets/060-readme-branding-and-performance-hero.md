@@ -1,6 +1,6 @@
 # 060 — README branding and performance overview
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -125,11 +125,79 @@ equivalent, provenance, objective asset gates, and release-neutral hero on
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex (`/root/ticket060_implementation`), 2026-08-05.
+
+- Added the public-domain PangoPup vector mark, the organization-owned
+  GenomOncology logo, and a corrected 2000×1125 performance overview under
+  `docs/images/`. The hero is 265,885 bytes; the logos are 14,843 and 9,244
+  bytes. All are within the reviewed limits.
+- Corrected the approved local HTML source before rendering: model fallback is
+  limited to supported non-SNVs, supported lookup misses, and explicit model
+  override; the exact `0.441 µs` value is shown; and the release number is
+  absent. A visual review of the final repository PNG found no clipped or
+  overlapping content.
+- Added the centered README brand lockup, hero, and adjacent collapsed text
+  equivalent before Quick start. The text records routing, mmap behavior, all
+  four measurements and their Ryzen/Linux/warm-cache scope, retained evidence,
+  and both principal prior works.
+- Added durable asset provenance and hashes in `docs/images/README.md`, with
+  the public-domain icon attribution also carried in `NOTICE`.
+- Added `scripts/check-readme-images.sh` and the gate-level
+  `tests/readme-branding.sh`. Red-first evidence: the focused test initially
+  failed on the absent `docs/images/pangopup.svg`. After implementation it
+  accepts the production assets and rejects deliberate missing-image,
+  byte-limit, dimension-limit, SVG script, event-handler, `foreignObject`,
+  external-reference, and data-reference mutations.
+- Focused checks passed:
+  `bash -n scripts/check-readme-images.sh tests/readme-branding.sh`,
+  `bash tests/readme-branding.sh`, direct
+  `scripts/check-readme-images.sh`, and `git diff --check`.
+- Code-review remediation extends README image discovery to single-quoted HTML
+  `src` attributes and rejects every SVG `href`, `xlink:href`, or `src`
+  attribute, plus every CSS `url(...)`, `@import`, document type, and entity
+  declarations, without rejecting normal namespace declarations. Exact
+  negative mutations cover the single-quoted missing link, external and
+  relative CSS URLs, CSS import, external entity, relative linked image, and
+  JavaScript link forms. The adjacent text equivalent now explicitly states
+  that every score identifies precomputed lookup, Pangolin model, or SQLite
+  cache provenance.
+- Per the repository lifecycle, final `make lint`, `make test`, and `make spec`
+  remain for the coordinator after independent code-review approval.
+- Final-gate remediation updates the executable README contract from 220 to a
+  tight 260-line ceiling while retaining the 1,700-word ceiling. The added
+  allowance is bound to checks that both logo paths, the hero path, and the
+  adjacent performance text/provenance statement all appear before Quick
+  start. The spec also permits exactly the two retained measurement-evidence
+  links and the required warm-page-cache scope while continuing to reject
+  other internal-maintainer links and trivia.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex (`/root/ticket060_code_review`), with final replacement
+verification by Codex (`/root/ticket060_final_code_review`), 2026-08-05.
+
+- Initial review rejected two bypasses: single-quoted README image links were
+  not discovered, and CSS-linked SVG resources were incompletely rejected. It
+  also required the accessible text to state lookup/model/cache provenance.
+- Re-review drove the SVG boundary to a simple fail-closed contract: reject all
+  SVG `href`, `xlink:href`, and `src` attributes; all CSS `url(...)` and
+  `@import`; script/event/`foreignObject`; and document type/entity forms.
+  Exact mutations now cover every discovered bypass while the production SVG
+  and ordinary namespace declarations remain accepted.
+- The original reviewer reached the agent thread's follow-up limit after
+  identifying the last relative CSS URL case. A fresh independent read-only
+  reviewer reproduced that exact case against the remediation, reran the
+  focused suite, reviewed the full diff and assets, and returned ACCEPT with no
+  material findings.
+- Final review confirmed visual integrity, release neutrality, metric accuracy
+  and scope, supported routing language, accessibility, attribution and hashes,
+  objective asset limits, test integration, and absence of unrelated changes.
+- The first full spec gate exposed the previous README's 220-line ceiling. The
+  developer replaced it with a tight 260-line/1,700-word contract that reserves
+  the additional space for both logos, hero, accessible performance text and
+  provenance; fixes heading order; and permits only the two retained
+  measurement links. The replacement independent reviewer accepted that
+  remediation after a 10/10 focused mustmatch run.
 
 ## External Effect Evidence
 
@@ -137,4 +205,17 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex (`/root`), 2026-08-05.
+
+- `make lint`: passed. Existing advisory-only duplicate dependency and
+  `zstd-sys` semver-metadata warnings remain unchanged; advisories, bans,
+  licenses, and sources are all accepted.
+- `make test`: passed, including the production README assets and every
+  deliberate image/SVG rejection mutation.
+- Initial `make spec`: 274 passed, 1 failed, 7 skipped because the pre-ticket
+  220-line README ceiling did not admit the reviewed branding/accessibility
+  block. That finding returned to the developer and independent reviewer.
+- Final `make spec`: 276 passed, 7 skipped.
+- `git diff --check` and the documentation stale-claim scan passed. The hero is
+  release-neutral, its metrics link to retained evidence, and the frontier now
+  records this outcome as established rather than future work.

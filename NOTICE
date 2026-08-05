@@ -46,3 +46,18 @@ fields for exact lookup. It does not change the source scores.
 Distributed index bundles must retain this notice, identify the exact source
 archive checksum, describe the transformation, and state whether further
 changes were made.
+
+PangoPup pangolin artwork
+-------------------------
+
+The PangoPup pangolin mark is based on the following public-domain artwork:
+
+  Title: Pangolin
+  Creator: AreYouPrepared
+  Source: https://openclipart.org/detail/355622/pangolin
+  Item: OpenClipart 355622
+  Terms: CC0 / public domain
+
+Pangopup redistributes the retained SVG and includes it in the rendered README
+performance overview. Asset-specific provenance and hashes are recorded in
+docs/images/README.md.

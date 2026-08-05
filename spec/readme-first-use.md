@@ -4,7 +4,7 @@ The root README is a compact user guide. These checks inspect text only; they
 do not use the network, synchronize assets, start a service, or remove files.
 
 ```bash
-test "$(wc -l < ../README.md)" -le 220
+test "$(wc -l < ../README.md)" -le 260
 test "$(wc -w < ../README.md)" -le 1700
 test "$(sed -n '1p' ../README.md)" = '# PangoPup'
 headings=$(rg '^## ' ../README.md)
@@ -16,6 +16,24 @@ test "$headings" = "$(printf '%s\n' \
   '## Storage and operations' \
   '## Citation and license')"
 printf 'README structure is compact and user-first\n' | mustmatch like 'README structure is compact and user-first'
+```
+
+The additional opening space is reserved for the two brand marks, the
+performance overview, and its adjacent text equivalent. All four must remain
+before Quick start rather than becoming general README growth.
+
+```bash
+before_quick=$(awk '/^## Quick start$/ { exit } { print }' ../README.md)
+for text in \
+  'docs/images/pangopup.svg' \
+  'docs/images/genomoncology.png' \
+  'docs/images/pangopup-performance.png' \
+  'Performance overview in text' \
+  'Every score reports whether a' \
+  'precomputed lookup, the Pangolin model, or the SQLite cache answered it.'; do
+  printf '%s' "$before_quick" | rg -F "$text" >/dev/null
+done
+printf 'branding and accessible performance overview precede Quick start\n' | mustmatch like 'branding and accessible performance overview precede Quick start'
 ```
 
 The title is followed directly by the product and scientific explanation.
@@ -218,7 +236,6 @@ for phrase in \
   '## Platform and service limits' \
   'fixed-width records' \
   'PSS/RSS' \
-  'warm-page-cache' \
   'git rev-parse' \
   'cpuinfo_vendor' \
   'Apple-aware' \
@@ -228,6 +245,10 @@ for phrase in \
   'make spec'; do
   ! rg -F "$phrase" ../README.md >/dev/null
 done
-! rg -n '\]\((planning/|AGENTS\.md)' ../README.md
+! rg -n '\]\(AGENTS\.md' ../README.md
+planning_links=$(rg -o '\]\(planning/[^)]+' ../README.md)
+test "$planning_links" = "$(printf '%s\n' \
+  '](planning/artifacts/004-snv-lookup-performance.md' \
+  '](planning/artifacts/053-current-runtime-resources.md')"
 printf 'internal trivia is absent\n' | mustmatch like 'internal trivia is absent'
 ```
