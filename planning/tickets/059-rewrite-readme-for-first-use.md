@@ -20,10 +20,8 @@ input guidance and first-use success.
   3. `Input and output` semantics and common CLI options;
   4. `HTTP service`;
   5. `Docker`;
-  6. compact `Storage and operations`;
-  7. compact `Platform and service limits` containing only actionable runtime
-     boundaries; and
-  8. `Citation and license`.
+  6. compact `Storage and operations`; and
+  7. `Citation and license`.
 - Do not add `Introduction` or `What it predicts` headings. Do not lead with a
   list of absent features. Explain the product positively and directly.
 - Remove user-irrelevant material from the root README:
@@ -54,14 +52,18 @@ input guidance and first-use success.
     trimming/alignment/normalization, anchored indel form, reference checking
     on model scoring, and model allele-length boundary;
   - JSON Lines default, table option, batch, gene filter, `--model-only`,
-    result status, multiple gene records, gain/signed-loss and genomic-offset
-    semantics, and `provenance.kind`;
+    result-status meanings, multiple gene records, gain/signed-loss and
+    genomic-offset semantics, and `provenance.kind`. Explain compactly that
+    `not_found` means no score record was produced—not a predicted zero effect—
+    and cover the precomputed ambiguity statuses without exposing internal
+    implementation history;
   - foreground HTTP command, readiness and one scoring example, batch/model
     admission limits, 429 behavior, and loopback/authentication/TLS warning;
   - one coherent Docker volume/sync/service path, one Docker CLI lookup, volume
     persistence, CPU-only inference, and Apple Silicon ARM64 support;
-  - terse XDG paths, offline reuse, update, code-only/full uninstall, and a
-    practical default-service memory starting point; and
+  - terse XDG paths, offline reuse, truthful direct-binary and Docker update
+    paths that preserve compatible assets/volumes, code-only/full uninstall,
+    and a practical default-service memory starting point; and
   - one nonduplicated citation/license section linking `CITATION.cff`, Pangolin
     software and paper, Zenodo dataset, GPL-3.0-only, CC BY 4.0, GENCODE v38,
     and `NOTICE`.
@@ -139,9 +141,47 @@ distance 50 as the reported search region rather than the model's full context,
 scope the 100-base limit to model scoring, and frame 256 MiB as a starting
 allocation. No material design finding remains.
 
+Code review later exposed three scope clarifications: status needed actual
+meanings, pinned-v0.3.0 reinstall wording was not an update path, and the
+separate platform section repeated facts already owned by Quick start, HTTP,
+and Docker. Resolution: require compact status meanings, truthful selected-
+release/Docker replacement guidance, and remove the redundant platform section
+from the exact outline. This material outline correction returns to the same
+ticket reviewer before implementation remediation.
+
+Re-review verdict: ACCEPT. The reviewer confirmed the revised ownership of
+platform facts, status semantics, and update guidance is coherent, user-facing,
+and does not reintroduce internal history. No new material design issue remains.
+
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex subagent `/root/ticket059_readme_implementation`, 2026-08-05.
+
+- Replaced the 350-line internal-history-shaped README with a 215-line,
+  1,045-word first-use guide. The title now flows directly into two product
+  paragraphs, followed by one direct CLI quick start and progressively deeper
+  CLI, HTTP, Docker, storage, platform, and citation guidance.
+- Authenticated the retained user contract against the current parser, engine,
+  renderer, HTTP admission code, installer command, and published container
+  identity. In particular, the rewrite pins the literal allele grammar,
+  anchored-indel shape, 100-base model boundary, signed genomic offsets,
+  100-request/10-model-miss HTTP limits, and 429 queue behavior.
+- Removed release history, absent-feature inventories, benchmark methodology,
+  exact-byte defenses, source-build qualification, cache precedence internals,
+  deployment digest advice, Apple warning history, maintainer commands, and
+  root links into planning or `AGENTS.md`.
+- Replaced `spec/readme-first-use.md` with nine section-bounded checks. They
+  enforce the new outline and owning-section facts while globally rejecting
+  stale release history, internal evidence vocabulary, maintainer commands,
+  and internal planning/contract links.
+- `mustmatch test -v spec/readme-first-use.md`: 9 passed.
+- `make spec`: 275 passed, 7 skipped.
+- `make lint`: passed (`cargo fmt`, Clippy with warnings denied, and dependency
+  policy); only the repository's already-allowed duplicate-dependency warnings
+  were reported by `cargo deny`.
+- `git diff --check`: passed. `CITATION.cff`, `LICENSE`, `NOTICE`, and
+  `assets/notices/` targets referenced by the README all exist. No runtime,
+  asset, citation, release, or source-code file changed.
 
 ## Adversarial Code Review
 
