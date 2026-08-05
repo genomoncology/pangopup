@@ -1,6 +1,6 @@
 # 057 — Add citation metadata and prior-art links
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -96,11 +96,40 @@ paper URL directly clickable. No material design finding remains.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex subagent `/root/ticket057_citation_implementation`, 2026-08-05.
+
+Implemented the bounded citation-only scope:
+
+- added root `CITATION.cff` for PangoPup v0.3.0 with Ian Maurer as the sole
+  software author, the immutable release and repository URLs, release date,
+  and GPL-3.0-only identity;
+- added a compact README prior-art section that directly attributes and links
+  Pangolin software, the 2022 Pangolin paper, and the separately licensed
+  Zenodo dataset without conflating their authorship with PangoPup;
+- added a test-only `serde_yaml_ng` dependency and an offline integration test
+  that parses real YAML, validates the stable citation identity, proves missing
+  release and drifted author metadata are rejected, and checks the README's
+  direct creator/source links; and
+- left `NOTICE`, runtime dependencies, production code, assets, benchmarking,
+  and published releases unchanged.
+
+Focused evidence:
+
+- `uvx --from cffconvert cffconvert --validate -i CITATION.cff` — valid
+  according to CFF schema 1.2.0;
+- `cargo clippy -p pangopup-cli --test citation -- -D warnings` — passed;
+- `cargo test -p pangopup-cli --test citation` — 3 passed; and
+- `git diff --check` — passed.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex subagent `/root/ticket057_citation_code_review`, 2026-08-05.
+
+Verdict: ACCEPT. The reviewer independently validated CFF 1.2.0, authenticated
+the v0.3.0 release identity and Ian Maurer's authorship, checked every upstream
+creator/license/link, confirmed the YAML parser is dev-only, ran the focused
+test and Clippy target, and found no runtime, asset, benchmark, or performance
+scope creep. No material finding remains.
 
 ## External Effect Evidence
 
@@ -108,4 +137,13 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex (`/root`), 2026-08-05.
+
+- `make lint` — passed; existing advisory duplicate warnings remain nonfatal.
+- `make test` — passed, including 3 citation tests and production release
+  qualification.
+- `make spec` — 276 passed, 7 skipped.
+- `git diff --check` — passed.
+- Documentation scan confirmed the new section distinguishes PangoPup from
+  Pangolin, its model, and the Zenodo dataset; no benchmark claim, runtime
+  change, asset mutation, or public external effect entered this outcome.

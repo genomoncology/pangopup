@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use PangoPup, please cite this software using the metadata below."
+title: PangoPup
+type: software
+authors:
+  - family-names: Maurer
+    given-names: Ian
+version: 0.3.0
+date-released: 2026-08-05
+repository-code: "https://github.com/genomoncology/pangopup"
+repository-artifact: "https://github.com/genomoncology/pangopup/releases/tag/v0.3.0"
+license: GPL-3.0-only

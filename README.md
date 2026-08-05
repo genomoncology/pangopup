@@ -305,6 +305,24 @@ at [Zenodo DOI 10.5281/zenodo.15649338](https://doi.org/10.5281/zenodo.15649338)
 The mask derives from GENCODE v38. See [`NOTICE`](NOTICE) and
 [`assets/notices/`](assets/notices/) for exact identities and attribution.
 
+## Citation and prior art
+
+To cite PangoPup, use [`CITATION.cff`](CITATION.cff). PangoPup builds on and
+preserves attribution for these independent works:
+
+- **Pangolin software** — Tony Zeng,
+  [GPL-3.0 source repository](https://github.com/tkzeng/Pangolin).
+- **Pangolin paper** — Tony Zeng and Yang I. Li, “Predicting RNA splicing from
+  DNA sequence using Pangolin,” *Genome Biology* 23, 103 (2022),
+  [DOI 10.1186/s13059-022-02664-4](https://doi.org/10.1186/s13059-022-02664-4).
+- **Pangolin precomputed scores** — Nils Wagner and Aleksandr Neverov,
+  CC BY 4.0 dataset,
+  [Zenodo DOI 10.5281/zenodo.15649338](https://doi.org/10.5281/zenodo.15649338).
+
+PangoPup did not author Pangolin, its trained model, or the precomputed-score
+dataset. It provides a Rust implementation, compatible model packaging, and a
+compact lookup representation of the separately published scores.
+
 Maintainers: [Architecture overview](architecture/README.md),
 [Current project frontier](planning/frontier.md), and
 [development contract](AGENTS.md). Run `pangopup-build --help` for authenticated
