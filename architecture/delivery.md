@@ -77,8 +77,11 @@ repository-linked package was already Public and required no visibility
 mutation. The coordinator always verifies anonymous access before dispatching
 `finalize` with the exact successful stage run ID. Finalization authenticates that run and its
 unique retained receipt through the Actions API, anonymously repeats native
-miniature qualification, and then creates the `0.2.0`, `v0.2.0`, and `latest`
-two-platform index. Version tags are convenient names; the OCI index digest is
+miniature qualification, and then creates version, `v`-prefixed version, and
+moving `latest` tags. The current public set is `0.2.0`/`v0.2.0`; the prepared
+v0.3.0 candidate updates the workflow version but creates no registry tags
+until its reviewed publication ticket. The resulting two-platform index's
+version tags are convenient names; the OCI index digest is
 the immutable deployment identity. GHCR cannot atomically create an absent tag,
 so the serialized workflow checks version-tag absence twice but does not claim
 protection from an unrelated out-of-band writer.

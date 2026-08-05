@@ -808,7 +808,7 @@ dependencies = [
 
 [[package]]
 name = "pangopup-assets"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "flate2",
  "http",
@@ -831,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "pangopup-build"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "flate2",
  "libc",
@@ -850,7 +850,7 @@ dependencies = [
 
 [[package]]
 name = "pangopup-cache"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libc",
  "pangopup-core",
@@ -864,7 +864,7 @@ dependencies = [
 
 [[package]]
 name = "pangopup-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "crossbeam-channel",
@@ -887,11 +887,11 @@ dependencies = [
 
 [[package]]
 name = "pangopup-core"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "pangopup-engine"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pangopup-core",
  "pangopup-index",
@@ -903,7 +903,7 @@ dependencies = [
 
 [[package]]
 name = "pangopup-index"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "memmap2",
  "pangopup-core",
@@ -916,7 +916,7 @@ dependencies = [
 
 [[package]]
 name = "pangopup-model"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ort",
  "serde",

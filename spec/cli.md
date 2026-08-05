@@ -5,7 +5,8 @@ benchmarked without a network layer. The walking skeleton identifies the exact
 binary under test:
 
 ```bash
-pangopup --version | mustmatch like "pangopup 0.2.0"
+pangopup --version | mustmatch like "pangopup 0.3.0"
+pangopup -V | mustmatch like "pangopup 0.3.0"
 ```
 
 Root help exposes the exact local-assets and lookup grammar, while every
@@ -23,7 +24,7 @@ pangopup --help | rg -F 'pangopup assets install --transport <DIR> [--data-dir <
 pangopup --help | rg -F 'pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON>' | mustmatch like '  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]'
 pangopup --help | rg -F 'pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>]' | mustmatch like '  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]'
 pangopup lookup --help | head -1 | mustmatch like 'Usage: pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]'
-pangopup lookup --version | mustmatch like "pangopup 0.2.0"
+pangopup lookup --version | mustmatch like "pangopup 0.3.0"
 ```
 
 The nine non-root leaf and namespace paths accept both conventional help

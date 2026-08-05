@@ -177,7 +177,8 @@ notices on a distroless runtime. Run `pangopup sync` once with named data and
 cache volumes, then reuse those volumes when the image is replaced. This keeps
 software upgrades small, preserves mmap behavior, and makes network access an
 explicit provisioning action. The repository builds and qualifies native
-AMD64 and ARM64 images but does not yet publish one to a registry.
+AMD64 and ARM64 images and publishes the thin two-platform index through GHCR.
+The public image still contains no scoring assets.
 
 ### Will asset sync download whatever release is latest?
 
@@ -369,7 +370,9 @@ The public Latest installer is:
 curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/main/install.sh | bash
 ```
 
-For reproducibility, use the tagged script with `--version 0.2.0`. The only
+For the current immutable public release, use the tagged script with
+`--version 0.2.0`. The prepared v0.3.0 candidate will replace that version only
+after its separately reviewed publication and public qualification. The only
 platform baseline is Linux x86_64 with GLIBC 2.39 or newer; prerequisites are Bash,
 curl or wget, and sha256sum, shasum, or openssl. It
 installs under `${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}`, prints PATH guidance

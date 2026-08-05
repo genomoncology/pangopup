@@ -641,7 +641,7 @@ async fn health_status_and_route_errors_are_exact_json_lines() {
         .expect("response");
     assert_eq!(
             body(response).await,
-            b"{\"version\":\"0.2.0\",\"readiness\":\"ready\",\"assets\":{\"snv_bundle_id\":\"snv\",\"model_bundle_id\":\"model\",\"reference_bundle_id\":\"reference\",\"mask_sha256\":\"mask\"},\"routes\":{\"lookup\":true,\"model\":true,\"model_only\":true},\"model\":{\"effective_cpu_policy\":\"sequential:1/1\",\"workers\":1,\"threads_per_worker\":1,\"running\":0,\"queued\":0,\"queue_capacity\":1}}\n"
+            b"{\"version\":\"0.3.0\",\"readiness\":\"ready\",\"assets\":{\"snv_bundle_id\":\"snv\",\"model_bundle_id\":\"model\",\"reference_bundle_id\":\"reference\",\"mask_sha256\":\"mask\"},\"routes\":{\"lookup\":true,\"model\":true,\"model_only\":true},\"model\":{\"effective_cpu_policy\":\"sequential:1/1\",\"workers\":1,\"threads_per_worker\":1,\"running\":0,\"queued\":0,\"queue_capacity\":1}}\n"
         );
     let response = router
         .clone()

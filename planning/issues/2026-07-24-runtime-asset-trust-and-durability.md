@@ -1,6 +1,6 @@
 # Runtime asset trust and durability
 
-Status: open
+Status: closed
 Found by: 2026-07-24 adversarial project review
 Priority: before compatible-profile activation and HTTP readiness
 
@@ -35,3 +35,17 @@ would force a needless rebuild and discard inspectable small receipts.
   or assembly report.
 - Define bounded provisioning cancellation and durable progress before service
   startup can automatically sync assets.
+
+## Resolution
+
+Closed 2026-08-05. Installed sequence and mask providers now open admitted
+members through held, descriptor-relative, no-follow boundaries. One atomic
+receipt binds the compatible SNV, model, compiled GRCh38 reference, and mask
+identities, so readers cannot activate a mixed profile. The derived SNV and
+runtime transports are durable immutable public releases; the raw Zenodo,
+NCBI, and GENCODE inputs are not mirrored. Synchronization has bounded retry,
+safe resumable downloads, durable progress, checksum admission, and atomic
+installation. It remains an explicit operator action: `pangopup serve` never
+syncs or performs network access during startup. These contracts are covered
+by the asset/provider tests, executable specs, public-release qualification,
+and the retained Apple volume qualification.

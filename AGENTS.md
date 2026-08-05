@@ -36,9 +36,9 @@ the typed pinned model-side sync/install primitive and combined top-level CLI
 provisioning/status are shipped. The immutable Linux x86_64 executable and its
 checksum-verifying tagged installer are shipped; the deterministic six-file
 release preparer and read-only exact-commit packaging workflow remain available.
-The thin non-root native AMD64/ARM64 Docker image is now shipped without
-embedded assets or registry publication; process-manager packaging remains
-future work. The
+The thin non-root native AMD64/ARM64 Docker image is shipped through one public
+GHCR index without embedded assets; process-manager packaging remains future
+work. The
 reference
 wire/writer and sole mmap reader are now separate; future reference builds use
 v2 byte-producing provenance and installed admission has one held-descriptor

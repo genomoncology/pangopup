@@ -622,7 +622,8 @@ an upstream ONNX Runtime release carrying Apple-aware cpuinfo instead of
 maintaining a custom native runtime solely to suppress a harmless warning.
 
 The root README is now a bounded first-use guide rather than an engineering
-ledger. It separates immutable public `v0.1.0` behavior from current `main`,
+ledger. It separates immutable public v0.2.0 history from the prepared v0.3.0
+candidate,
 documents sync, CLI, HTTP, Docker/Apple Silicon, update, and independently
 selectable manual removal, and links detailed architecture and planning. A
 local static executable spec keeps its commands, endpoints, XDG paths, disk
@@ -657,7 +658,7 @@ remain explicit host-side lifecycle operations.
 
 Current complete-product Linux resource evidence is now retained for the
 v0.3.0 documentation boundary. Five fresh-process rounds on the Ryzen 7 5825U
-host measured the eager-model foreground service at roughly 105 MiB PSS before
+host measured the eager-model foreground service at roughly 102.3 MiB PSS before
 requests, 1/10/100 warm SNV requests at about 0.8/0.5/1.1 ms median, uncached
 model inference at about 4.3 seconds median, and a fresh-service SQLite hit
 below 1 ms median. A one-SNV CLI process completed in about 5.9 ms median and
@@ -667,6 +668,18 @@ mask bytes. The retained report explains that the roughly 16 GiB virtual
 mapping is not resident-memory demand and that file-backed pages are
 reclaimable. These are warm-page-cache, single-host observations; future
 multi-host capacity and concurrency limits remain evidence work.
+
+## Next outcome — publish and qualify v0.3.0
+
+The v0.3.0 application candidate now has one version across active executable,
+HTTP, package, workflow, and container surfaces; a compact measured first-use
+guide; and release notes. The next bounded outcome is publication from that
+one exact reviewed commit: prepare and qualify the six-file Linux executable
+release, create immutable tag/release `v0.3.0`, publish the native AMD64/ARM64
+GHCR index as `0.3.0`, `v0.3.0`, and `latest`, then independently test the
+anonymous installer, both image leaves, offline asset reuse, scoring, caching,
+HTTP, and uninstall. The immutable biological asset releases are reused, not
+rebuilt or republished.
 
 ## Later outcome — production and release hardening
 

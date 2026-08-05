@@ -12,7 +12,7 @@ bash tests/container-delivery.sh
 
 The final image remains thin: neither a leaf nor the OCI index contains the
 SNV, model, reference, mask, or SQLite data. The human version tags are
-`0.2.0` and `v0.2.0`; the manifest digest is the immutable deployment identity,
+`0.3.0` and `v0.3.0`; the manifest digest is the immutable deployment identity,
 while `latest` is explicitly moving. The workflow's canonical stage receipt,
 not a hand-copied digest or a latest-run search, is the only handoff into
 finalization. Native staging uses an explicitly selected Docker-container

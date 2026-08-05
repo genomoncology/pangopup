@@ -17,7 +17,7 @@ cat >"$smoke_bin/pangopup" <<'EOF'
 set -euo pipefail
 printf '%s\n' "$*" >>"$SMOKE_LOG"
 if [[ "${1:-}" == --version ]]; then
-  printf 'pangopup 0.2.0\n'
+  printf 'pangopup 0.3.0\n'
 elif [[ " $* " == *' --help '* ]]; then
   printf 'usage: pangopup\n'
 elif [[ "${1:-}" == status ]]; then
