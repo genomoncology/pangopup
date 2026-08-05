@@ -53,10 +53,10 @@ readonly PREVIOUS_COMMIT=c50dd1399b10b8e85e140305c7bd68fe849f77dd
 readonly PREVIOUS_INDEX=sha256:ad1aa8c27cc61d107310f609cd63f8fcbaf591a4f9760db475384a0a71049de4
 ```
 
-Never put a token, authenticated or temporary download address, request header,
-or credential path in this file. `gh` and Docker use their existing local authentication;
-anonymous checks use a fresh temporary Docker configuration and explicitly
-unset GitHub token variables.
+Never put a token value, authenticated or temporary download address, request
+header, or credential path in this file. `gh` uses its existing local
+authentication. Registry checks use a short-lived anonymous pull token and a
+fresh Docker configuration with no registry credentials.
 
 ## 1. Local and remote preflight
 
@@ -78,7 +78,6 @@ gh auth status
 docker buildx version
 
 test "$(gh api "repos/$REPO" --jq .visibility)" = public
-test "$(gh api "orgs/genomoncology/packages/container/pangopup" --jq .visibility)" = public
 test "$(gh api "repos/$REPO/immutable-releases" --jq .enabled)" = true
 test "$(gh api "repos/$REPO/releases/latest" --jq .id)" = "$PREVIOUS_RELEASE_ID"
 test "$(gh api "repos/$REPO/releases/latest" --jq .tag_name)" = v0.2.0
@@ -87,10 +86,51 @@ test -z "$(gh api --paginate "repos/$REPO/releases" --jq '.[].tag_name' | grep -
 test "$(gh api "repos/$REPO/git/matching-refs/tags/$TAG" --jq length)" -eq 0
 ```
 
-Use a fresh anonymous Docker configuration to resolve `latest` and require the
-fixed predecessor digest. Also require `0.3.0` and `v0.3.0` to be absent using
-the checked `scripts/require-container-tag-absent.sh`; an authorization,
-protocol, malformed-response, or registry failure is not absence.
+Do not query the authenticated package-settings API: it requires a
+`read:packages` scope that publication does not otherwise need and proves less
+than a public pull. Instead, create a fresh Docker configuration, obtain an
+unauthenticated GHCR pull token, and require `latest` to return the fixed
+predecessor digest. Also require `0.3.0` and `v0.3.0` to be absent using the
+checked `scripts/require-container-tag-absent.sh`; an authorization, protocol,
+malformed-response, or registry failure is not absence.
+
+```bash
+PRIVATE=$(mktemp -d)
+PUBLIC_DOCKER=$(mktemp -d)
+readonly PRIVATE PUBLIC_DOCKER
+chmod 0700 "$PRIVATE" "$PUBLIC_DOCKER"
+DOCKER_CONFIG="$PUBLIC_DOCKER" docker logout ghcr.io >/dev/null 2>&1 || true
+if [[ -e "$PUBLIC_DOCKER/config.json" ]]; then
+  jq -e '((.auths // {}) | length) == 0' "$PUBLIC_DOCKER/config.json" >/dev/null
+fi
+anonymous_token=$(curl -q -fsS --get \
+  --data-urlencode service=ghcr.io \
+  --data-urlencode scope=repository:genomoncology/pangopup:pull \
+  https://ghcr.io/token | jq -er .token)
+test -n "$anonymous_token"
+
+anonymous_digest() {
+  local reference=$1 expected=$2 label=$3 code
+  code=$(curl -q -sS --oauth2-bearer "$anonymous_token" \
+    -D "$PRIVATE/$label.headers" -o "$PRIVATE/$label.json" -w '%{http_code}' \
+    -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+    "https://ghcr.io/v2/genomoncology/pangopup/manifests/$reference")
+  scripts/require-container-tag-digest.sh "$label" "$code" \
+    "$PRIVATE/$label.headers" "$expected"
+}
+anonymous_absent() {
+  local tag=$1 code
+  code=$(curl -q -sS --oauth2-bearer "$anonymous_token" \
+    -o "$PRIVATE/absent-$tag.json" -w '%{http_code}' \
+    -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+    "https://ghcr.io/v2/genomoncology/pangopup/manifests/$tag")
+  scripts/require-container-tag-absent.sh "$tag" "$code" \
+    "$PRIVATE/absent-$tag.json"
+}
+anonymous_digest latest "$PREVIOUS_INDEX" latest
+anonymous_absent 0.3.0
+anonymous_absent v0.3.0
+```
 
 Authenticate the exact green remote gates, not merely the newest runs:
 
@@ -108,9 +148,8 @@ jq -e --arg commit "$COMMIT" '.headSha == $commit and .name == "container" and
 
 Repeat the repository security/ruleset audit from the retained Ticket 050
 record. Stop for an open secret alert or changed Actions, Dependabot, secret
-scanning, ruleset, immutable-release, repository-visibility, or package-
-visibility state. This is an observation only; the release ticket does not
-change those settings.
+scanning, ruleset, immutable-release, or repository-visibility state. This is
+an observation only; the release ticket does not change those settings.
 
 ## 2. Stage the two container leaves
 
@@ -130,10 +169,23 @@ API:
   `scripts/admit-container-stage-receipt.sh metadata` and `archive`.
 
 The receipt must have only the schema, mode, run, commit, workflow commit, and
-two distinct leaf digests defined by `pangopup-container-stage-v1`. With a
-fresh anonymous Docker configuration, both digest-only leaves must be readable.
-Run `scripts/qualify-container.sh` natively for each architecture. There are no
-user-facing v0.3.0 tags at this stage.
+two distinct leaf digests defined by `pangopup-container-stage-v1`. Reuse the
+fresh anonymous token and credential-free Docker configuration from preflight;
+require each digest request to return HTTP 200 with
+`Docker-Content-Digest` exactly equal to the requested receipt digest:
+
+```bash
+amd64=$(jq -er .amd64 "$RECEIPT")
+arm64=$(jq -er .arm64 "$RECEIPT")
+anonymous_digest "$amd64" "$amd64" staged-amd64
+anonymous_digest "$arm64" "$arm64" staged-arm64
+DOCKER_CONFIG="$PUBLIC_DOCKER" docker buildx imagetools inspect "$IMAGE@$amd64" >/dev/null
+DOCKER_CONFIG="$PUBLIC_DOCKER" docker buildx imagetools inspect "$IMAGE@$arm64" >/dev/null
+```
+
+Run `scripts/qualify-container.sh` natively for each architecture using that
+same credential-free Docker configuration. There are no user-facing v0.3.0
+tags at this stage.
 
 If staging fails, keep any untagged leaves and stop. Do not reuse a failed or
 superseded stage run.

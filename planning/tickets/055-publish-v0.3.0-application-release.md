@@ -26,7 +26,8 @@ biological asset and does not republish upstream inputs.
 - Before any public effect, require:
   - clean local checkout with no Git replacements and `origin/main` at the
     exact commit;
-  - public repository and public existing GHCR package;
+  - public repository and anonymous exact-digest reads from the existing GHCR
+    package without relying on package-settings API scope;
   - absent Git tag/release `v0.3.0` and absent container tags `0.3.0` and
     `v0.3.0`;
   - GitHub's current Latest release is exactly the known immutable `v0.2.0`
@@ -45,8 +46,10 @@ biological asset and does not republish upstream inputs.
 - Dispatch `publish-container.yml` in `stage` mode for the same commit before
   creating user-facing container tags. Authenticate the unique successful
   stage run and canonical two-leaf receipt; prove both digest-only leaves are
-  anonymously readable and natively qualified. The existing package is public,
-  so no visibility mutation is expected or authorized.
+  anonymously readable at the exact requested digest and natively qualified.
+  The existing package is public, so no visibility mutation is expected or
+  authorized; anonymous registry reads, not the authenticated package-settings
+  API, prove that boundary.
 - Create a draft GitHub release `v0.3.0` targeting the exact commit, upload only
   the six admitted executable members, compare every remote name, size, and
   digest, then publish it as non-prerelease/Latest and verify its immutable
@@ -177,6 +180,15 @@ and executable-first public effects with an explicit stop boundary.
 
 Final verdict: ACCEPT.
 
+Post-approval amendment: the first coordinator preflight stopped safely before
+effects because the package-settings API required `read:packages`, which the
+otherwise sufficient release identity did not carry. The same reviewer
+accepted replacing that scope-dependent assertion with stronger anonymous
+registry evidence: a fresh credential-free Docker configuration and anonymous
+GHCR pull token must authenticate the exact v0.2.0 `latest` digest and both
+exact staged receipt digests. No visibility mutation or additional OAuth scope
+is introduced.
+
 ## Implementation Evidence
 
 Developer: Codex subagent `/root/ticket055_implementation`, 2026-08-05.
@@ -207,6 +219,11 @@ Developer: Codex subagent `/root/ticket055_implementation`, 2026-08-05.
 - After code review identified a tag-creation race, made tag-ref absence a
   second adjacent prepublication check between the final draft validation and
   publish request; the executable-delivery test pins that ordering.
+- After the first effect-free coordinator preflight exposed an unnecessary
+  `read:packages` dependency, removed the package-settings API assertion. The
+  runbook now uses a fresh Docker configuration with no registry credentials
+  plus an anonymous GHCR pull token, and requires exact HTTP/digest proof for
+  both the known v0.2.0 `latest` index and each staged receipt leaf.
 
 Focused evidence:
 
@@ -216,6 +233,8 @@ bash tests/container-delivery.sh                           PASS
 bash tests/executable-delivery.sh                          PASS
 PATH="$PWD/target/debug:$PATH" mustmatch test spec/readme-first-use.md
                                                            10 passed
+anonymous GHCR token + fresh Docker config `latest` probe  HTTP 200, exact
+                                                           v0.2.0 digest
 git diff --check                                           PASS
 ```
 
@@ -234,9 +253,15 @@ Resolution: the developer added a last-practical-point tag-ref absence check,
 followed by re-authentication of the draft target/body/inventory and the
 immediate publish request. Static qualification pins that order.
 
-Final verdict: ACCEPT. The reviewer also confirmed the GHCR predecessor guard
+Prior verdict: ACCEPT. The reviewer also confirmed the GHCR predecessor guard
 is fail-closed and immediately precedes index creation; all focused delivery
 tests passed.
+
+The later anonymous-registry amendment materially changed the reviewed
+preflight and staged-leaf qualification. The same reviewer inspected the
+complete amended diff and returned ACCEPT: the credential-free token/read
+boundary, exact digest checks, and static regression fully resolve the failed
+scope-dependent preflight.
 
 ## External Effect Evidence
 
@@ -244,10 +269,12 @@ Coordinator: pending
 
 ## Coordinator Final Check
 
-Coordinator: Codex (`/root`), 2026-08-05 — reviewed the complete preparation
-diff and confirmed it changes no scoring/model/index/asset bytes and performs
-no public effect. `make lint`, `make test`, and `make spec` passed; the spec
-gate reported 276 passed and 7 intentionally skipped. The accepted preparation
-is ready to commit and push as the exact publication candidate. Publication
-remains blocked until that exact commit's remote `ci/gate` and two native
-container jobs are green and every runbook preflight passes.
+Coordinator: Codex (`/root`), 2026-08-05 — the prior publication-ready
+conclusion was superseded when its package-settings preflight assumption failed
+safely before any effect. After independent amendment review, the coordinator
+inspected the complete diff and reran `make lint`, `make test`, and `make spec`;
+all passed, with 276 specifications passed and 7 intentionally skipped. The
+amended preparation changes only the credential-free publication proof and
+tests, performs no public effect, and is ready to become the new exact
+publication commit. Its own remote CI/native gates and complete preflight must
+pass before publication.
