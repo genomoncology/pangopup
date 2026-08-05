@@ -80,6 +80,10 @@ input guidance and first-use success.
   no longer requires the public README to advertise maintainer-only
   `pangopup-build --help`. Keep the catalog's maintainer FAQ/frontier checks;
   do not change build-CLI behavior.
+- Update the citation README-link test so the Pangolin paper may use either
+  its DOI resolver or the authoritative direct Springer article URL supplied
+  by the user. Keep creator and paper identity assertions unchanged; do not
+  weaken Pangolin-repository or Zenodo-link checks.
 - Preserve `CITATION.cff`, `NOTICE`, runtime behavior, assets, releases, and
   detailed engineering evidence elsewhere. This ticket changes user-facing
   documentation and its static specification only.
@@ -240,3 +244,34 @@ Final scope re-review verdict: ACCEPT. The ticket reviewer confirmed removing
 only the README assertion and unused include is the correct narrow fix while
 the FAQ/frontier assertions preserve maintainer discoverability. No build-CLI
 behavior change is authorized or needed.
+
+The second full `make test` final gate passed the repaired builder catalog test
+but exposed another scope-causal stale assertion: the Ticket 057 citation test
+accepted only the DOI-resolver spelling while this reviewed README uses the
+user-supplied direct Springer article URL for the same DOI. Resolution: accept
+either authoritative paper URL while preserving exact author, repository, and
+Zenodo assertions. This narrow test correction returns to ticket and code
+review; it is not a reason to replace the user's direct article link.
+
+Citation-test scope re-review verdict: ACCEPT. The reviewer confirmed an exact
+logical OR over the DOI resolver and direct Springer article URL preserves the
+paper identity and user-supplied link while all creator, repository, and
+Zenodo assertions remain unchanged.
+
+Gate-remediation developer: Codex subagent
+`/root/ticket059_gate_remediation`, 2026-08-05.
+
+- Removed only the stale public-README include and assertion from
+  `current_state_documents_point_to_the_checked_catalog`; the FAQ and frontier
+  assertions remain unchanged, and no CLI behavior changed.
+- Preserved the independently reviewed README and bounded first-use spec diff.
+- Focused `pangopup-build` catalog test passed 1/1; the bounded README spec
+  passed 9/9; `git diff --check` passed. The first exact-filter invocation
+  selected no tests because the unit test is compiled under the binary target;
+  rerunning with the unqualified name selected and passed the intended test.
+
+Final gate-remediation code review: ACCEPT by
+`/root/ticket059_remediation_code_review`. The reviewer confirmed the source
+diff removes only the obsolete README include/assertion, retains FAQ/frontier
+maintainer checks, changes no CLI behavior, and leaves the accepted README and
+spec facts intact. No material finding remains.
