@@ -9,14 +9,15 @@ test "$(wc -w < ../README.md)" -le 2200
 printf 'README size is bounded\n' | mustmatch like 'README size is bounded'
 ```
 
-The prepared version and pending-publication boundary are explicit:
+The immutable versioned delivery commands are explicit and the tagged guide is
+free of candidate or pending-publication language:
 
 ```bash
-rg -F '**v0.3.0 release candidate**' ../README.md >/dev/null
-rg -F 'public executable and container publication is still pending' ../README.md >/dev/null
+rg -F 'immutable **v0.3.0** application release' ../README.md >/dev/null
+! rg -i 'release candidate|publication is still pending|after publication' ../README.md
 rg -F 'raw.githubusercontent.com/genomoncology/pangopup/v0.3.0/install.sh' ../README.md >/dev/null
 rg -F 'ghcr.io/genomoncology/pangopup:0.3.0' ../README.md >/dev/null
-printf 'candidate delivery is explicit\n' | mustmatch like 'candidate delivery is explicit'
+printf 'immutable delivery is explicit\n' | mustmatch like 'immutable delivery is explicit'
 ```
 
 The exact authenticated storage evidence and mmap explanation remain visible:

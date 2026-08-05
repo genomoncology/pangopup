@@ -89,14 +89,19 @@ grep -Fq 'docker buildx imagetools create' "$publish_workflow"
 grep -Fq -- '--metadata-file "$RUNNER_TEMP/index-metadata.json"' "$publish_workflow"
 grep -Fq 'application/vnd.oci.image.index.v1+json' "$publish_workflow"
 [[ "$(grep -Fc 'scripts/require-container-tag-absent.sh "$tag" "$code"' "$publish_workflow")" == 2 ]]
-[[ "$(grep -Fc 'Authorization: Bearer $registry_token' "$publish_workflow")" == 2 ]]
+[[ "$(grep -Fc 'Authorization: Bearer $registry_token' "$publish_workflow")" == 3 ]]
 collision_accept='Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
 [[ "$(grep -Fc "$collision_accept" "$publish_workflow")" == 2 ]]
 grep -Fq '.[0].code == "MANIFEST_UNKNOWN"' scripts/require-container-tag-absent.sh
 grep -Fq 'could not prove version tag %s absent: HTTP %s' scripts/require-container-tag-absent.sh
+grep -Fq 'PREVIOUS_INDEX: sha256:ad1aa8c27cc61d107310f609cd63f8fcbaf591a4f9760db475384a0a71049de4' "$publish_workflow"
+grep -Fq 'scripts/require-container-tag-digest.sh latest "$latest_code"' "$publish_workflow"
+grep -Fq '"$RUNNER_TEMP/latest.headers" "$PREVIOUS_INDEX"' "$publish_workflow"
+grep -Fq 'container tag %s no longer resolves to its reviewed predecessor' scripts/require-container-tag-digest.sh
 second_absence_line=$(grep -nF '            assert_tag_absent "$tag"' "$publish_workflow" | tail -1 | cut -d: -f1)
 create_line=$(grep -nF '          docker buildx imagetools create \' "$publish_workflow" | cut -d: -f1)
-[[ "$create_line" == "$((second_absence_line + 2))" ]]
+predecessor_line=$(grep -nF '          scripts/require-container-tag-digest.sh latest "$latest_code" \' "$publish_workflow" | cut -d: -f1)
+[[ "$predecessor_line" -gt "$second_absence_line" && "$create_line" -gt "$predecessor_line" ]]
 grep -Fq 'test "$(jq '\''[.manifests[].platform | (.os + "/" + .architecture)] | sort == ["linux/amd64","linux/arm64"]'\'' <<<"$raw")" = true' "$publish_workflow"
 for annotation in source revision version licenses; do
   grep -Fq ".annotations.\"org.opencontainers.image.$annotation\"" "$publish_workflow"
@@ -123,6 +128,7 @@ grep -Fq 'expected registry digest is invalid' "$invalid_digest_error"
 rm -f -- "$invalid_digest_error"
 bash tests/container-receipt-admission.sh
 bash tests/container-tag-absence.sh
+bash tests/container-tag-digest.sh
 
 publication_record=planning/artifacts/051-public-container.md
 grep -Fq 'State: **COMPLETE' "$publication_record"
@@ -136,7 +142,7 @@ grep -Fq 'pangopup-container-stage-v1' "$publication_record"
 grep -Fq 'Stage run `30929323700` and finalize run `30931154337` are now abandoned' "$publication_record"
 grep -Fq 'it must not be reused after the quoting' "$publication_record"
 grep -Fq 'Recovery requires the remediation commit to be pushed' "$publication_record"
-grep -Fq 'Superseded stage `30929323700` must not be used.' "$publication_record"
+grep -Fq 'Superseded stage `30929323700` and failed finalize `30931154337` were not reused.' "$publication_record"
 [[ "$(grep -Fc 'ARTIFACT_DIGEST" = "sha256:$(sha256sum' "$publication_record")" == 2 ]]
 [[ "$(grep -Fc 'admit-container-stage-receipt.sh" archive' "$publication_record")" == 2 ]]
 grep -Fq 'DOCKER_CONFIG="$PUBLIC_DOCKER" docker buildx imagetools inspect' "$publication_record"

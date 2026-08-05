@@ -1,6 +1,6 @@
 # 055 — Publish the exact v0.3.0 application release
 
-Status: ready
+Status: publication-ready
 
 ## Why
 
@@ -179,11 +179,64 @@ Final verdict: ACCEPT.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex subagent `/root/ticket055_implementation`, 2026-08-05.
+
+- Added the credential-free, fail-closed coordinator runbook and empty effect
+  ledger at `planning/artifacts/055-public-v0.3.0.md`. It fixes the known
+  v0.2.0 GitHub Latest release and GHCR index identities, orders container
+  staging before executable publication and container finalization afterward,
+  authenticates exact runs/artifacts/digests, qualifies the public installer
+  against disposable copies of retained assets, and isolates both uninstall
+  scopes from those retained assets.
+- Made the tagged README and release body timeless v0.3.0 documents. The README
+  now gives immediately usable pinned executable/source/container commands;
+  the release notes contain an immutable installer command and container name
+  and no candidate or pending-publication boundary.
+- Added `scripts/require-container-tag-digest.sh` and integrated it immediately
+  before `imagetools create`. Finalization now fails unless GHCR `latest`
+  returns HTTP 200 with exactly one valid `Docker-Content-Digest` equal to the
+  reviewed v0.2.0 index. The parser treats header names case-insensitively
+  without relying on nonportable `awk` `IGNORECASE` behavior.
+- Added positive, lowercase-header, changed-predecessor, HTTP failure, missing,
+  duplicate, malformed, symlink, and invalid-expected-digest tests. Extended
+  static container and executable-delivery checks and updated the README spec
+  from candidate wording to immutable release wording.
+- Corrected one pre-existing stale static assertion so it checks the exact
+  retained Ticket 051 superseded-run sentence rather than a sentence that is
+  not present in that immutable record.
+- After code review identified a tag-creation race, made tag-ref absence a
+  second adjacent prepublication check between the final draft validation and
+  publish request; the executable-delivery test pins that ordering.
+
+Focused evidence:
+
+```text
+bash tests/container-tag-digest.sh                         PASS
+bash tests/container-delivery.sh                           PASS
+bash tests/executable-delivery.sh                          PASS
+PATH="$PWD/target/debug:$PATH" mustmatch test spec/readme-first-use.md
+                                                           10 passed
+git diff --check                                           PASS
+```
+
+No workflow was dispatched; no GitHub release, tag, package, image, registry
+alias, biological asset, or retained qualification directory was changed.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex subagent `/root/ticket055_code_review`, 2026-08-05.
+
+Initial verdict: REJECT. The publication runbook checked tag absence only in
+the initial preflight, leaving a race in which another actor could create
+`v0.3.0` before the draft became public.
+
+Resolution: the developer added a last-practical-point tag-ref absence check,
+followed by re-authentication of the draft target/body/inventory and the
+immediate publish request. Static qualification pins that order.
+
+Final verdict: ACCEPT. The reviewer also confirmed the GHCR predecessor guard
+is fail-closed and immediately precedes index creation; all focused delivery
+tests passed.
 
 ## External Effect Evidence
 
@@ -191,4 +244,10 @@ Coordinator: pending
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex (`/root`), 2026-08-05 — reviewed the complete preparation
+diff and confirmed it changes no scoring/model/index/asset bytes and performs
+no public effect. `make lint`, `make test`, and `make spec` passed; the spec
+gate reported 276 passed and 7 intentionally skipped. The accepted preparation
+is ready to commit and push as the exact publication candidate. Publication
+remains blocked until that exact commit's remote `ci/gate` and two native
+container jobs are green and every runbook preflight passes.

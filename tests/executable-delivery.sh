@@ -444,4 +444,26 @@ grep -Fxq "$smoke_invocation" "$repo/.github/workflows/package-linux.yml"
 ! grep -Eq 'Install gate prerequisites|mustmatch|cargo-deny|ripgrep' "$repo/.github/workflows/package-linux.yml"
 ! grep -Eq '^    runs-on: ubuntu-22[.]04$' "$repo/.github/workflows/package-linux.yml"
 ! grep -Fq '"$maximum" 2.35' "$repo/scripts/qualify-linux-release.sh"
+
+release_notes="$repo/planning/artifacts/054-release-notes.md"
+publication_record="$repo/planning/artifacts/055-public-v0.3.0.md"
+grep -Fq 'raw.githubusercontent.com/genomoncology/pangopup/v0.3.0/install.sh' "$release_notes"
+grep -Fq 'ghcr.io/genomoncology/pangopup:0.3.0' "$release_notes"
+if grep -Eqi 'prepared v0[.]3[.]0 candidate|publication (is )?pending' "$repo/README.md" "$release_notes"; then
+  fail 'tagged v0.3.0 documents retain candidate or pending-publication language'
+fi
+grep -Fq 'State: **PREPARED — no Ticket 055 public effect has run.**' "$publication_record"
+grep -Fq 'readonly PREVIOUS_RELEASE_ID=364960381' "$publication_record"
+grep -Fq 'readonly PREVIOUS_INDEX=sha256:ad1aa8c27cc61d107310f609cd63f8fcbaf591a4f9760db475384a0a71049de4' "$publication_record"
+grep -Fq 'planning/artifacts/054-release-notes.md' "$publication_record"
+grep -Fq 'scripts/qualify-linux-release.sh "$RELEASE_DIR" 0.3.0 "$COMMIT"' "$publication_record"
+grep -Fq 'uninstall --full --yes' "$publication_record"
+final_tag_check=$(grep -nF 'test "$(gh api "repos/$REPO/git/matching-refs/tags/$TAG" --jq length)" -eq 0' "$publication_record" | tail -1 | cut -d: -f1)
+final_draft_check=$(grep -nF 'gh api "repos/$REPO/releases/$RELEASE_ID" >"$PRIVATE/prepublish.json"' "$publication_record" | cut -d: -f1)
+publish_request=$(grep -nF 'gh api --method PATCH "repos/$REPO/releases/$RELEASE_ID" \' "$publication_record" | cut -d: -f1)
+[[ -n "$final_tag_check" && -n "$final_draft_check" && -n "$publish_request" ]]
+[[ "$final_tag_check" -lt "$final_draft_check" && "$final_draft_check" -lt "$publish_request" ]]
+if grep -Eqi '(authorization:[[:space:]]|bearer[[:space:]]+[a-z0-9]|ghp_[a-z0-9]|github_pat_[a-z0-9]|signed[_ -]?url)' "$publication_record"; then
+  fail 'v0.3.0 publication record contains credential material'
+fi
 printf 'executable delivery tests passed\n'

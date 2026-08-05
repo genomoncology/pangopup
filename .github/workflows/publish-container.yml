@@ -30,6 +30,7 @@ concurrency:
 env:
   IMAGE: ghcr.io/genomoncology/pangopup
   VERSION: 0.3.0
+  PREVIOUS_INDEX: sha256:ad1aa8c27cc61d107310f609cd63f8fcbaf591a4f9760db475384a0a71049de4
 
 jobs:
   preflight-stage:
@@ -428,6 +429,13 @@ jobs:
           for tag in "$VERSION" "v$VERSION"; do
             assert_tag_absent "$tag"
           done
+          latest_code=$(curl -sS -D "$RUNNER_TEMP/latest.headers" \
+            -o "$RUNNER_TEMP/latest.json" -w '%{http_code}' \
+            -H "Authorization: Bearer $registry_token" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+            "https://ghcr.io/v2/genomoncology/pangopup/manifests/latest")
+          scripts/require-container-tag-digest.sh latest "$latest_code" \
+            "$RUNNER_TEMP/latest.headers" "$PREVIOUS_INDEX"
           docker buildx imagetools create \
             --annotation "index:org.opencontainers.image.source=https://github.com/genomoncology/pangopup" \
             --annotation "index:org.opencontainers.image.revision=$EXACT_COMMIT" \

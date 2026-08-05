@@ -16,8 +16,9 @@ provenance showing whether lookup or model produced them.
 PangoPup does not interpret clinical significance, parse HGVS, project variants
 to transcripts or proteins, or provide gene/disease knowledge.
 
-This source tree is the **v0.3.0 release candidate**. Its public executable and container publication is still pending. The existing immutable public v0.2.0
-release remains available until v0.3.0 is published.
+These instructions describe the immutable **v0.3.0** application release. The
+large biological assets are versioned separately and are unchanged from
+v0.2.0.
 
 ## Storage and memory
 
@@ -60,7 +61,7 @@ page-cache limitation, and raw identity are in
 The direct executable supports Linux x86-64/amd64 with GLIBC 2.39 or newer.
 It needs Bash, `curl` or `wget`, and `sha256sum`, `shasum`, or `openssl`.
 
-After v0.3.0 publication, install its immutable executable with:
+Install the immutable v0.3.0 executable with:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/v0.3.0/install.sh \
@@ -72,11 +73,12 @@ The installer verifies the checksum, smoke-tests the executable, and writes
 `${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}/pangopup` atomically. It does not use
 `sudo`, edit `PATH`, or download scoring assets.
 
-To build the candidate from source, use Git, Rust 1.93, and a C/C++ toolchain:
+To build the exact release source, use Git, Rust 1.93, and a C/C++ toolchain:
 
 ```bash
 git clone https://github.com/genomoncology/pangopup.git
 cd pangopup
+git checkout --detach v0.3.0
 git rev-parse HEAD
 cargo build --locked --release --package pangopup-cli
 install -Dm755 target/release/pangopup "$HOME/.local/bin/pangopup"
@@ -182,7 +184,7 @@ restart; PangoPup does not daemonize itself.
 
 ## Docker on AMD64 and Apple Silicon
 
-After publication, Docker selects the native AMD64 or ARM64 image:
+Docker selects the native AMD64 or ARM64 image:
 
 ```bash
 export PANGOPUP_IMAGE=ghcr.io/genomoncology/pangopup:0.3.0
@@ -235,8 +237,8 @@ rather than maintain a custom runtime only to hide the warning.
 
 ## Update and uninstall
 
-Updating code does not redownload unchanged assets. For the v0.3.0 direct
-executable after publication:
+Updating code does not redownload unchanged assets. To install or restore the
+v0.3.0 direct executable:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/v0.3.0/install.sh \

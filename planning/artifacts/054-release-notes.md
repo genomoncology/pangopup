@@ -35,7 +35,7 @@ eager-model service at 102.3/102.5 MiB PSS, with 137.0/137.3 MiB high-water RSS.
 Those are single-host
 observations rather than universal minimums. Full method and limitations are
 retained in
-[`053-current-runtime-resources.md`](053-current-runtime-resources.md).
+[`053-current-runtime-resources.md`](https://github.com/genomoncology/pangopup/blob/v0.3.0/planning/artifacts/053-current-runtime-resources.md).
 
 ## Known limitation
 
@@ -47,9 +47,16 @@ CPU-identification dependency. PangoPup is waiting for an upstream release
 with Apple-aware identification rather than carrying a custom runtime solely
 to suppress the message.
 
-## Publication boundary
+## Installation
 
-This document describes the prepared v0.3.0 candidate. Creating the immutable
-tag and GitHub release, publishing the matching container index, moving
-`latest`, and independently qualifying the public bytes are separate reviewed
-release effects.
+The immutable Linux x86-64 executable installer is:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/v0.3.0/install.sh \
+  | bash -s -- --version 0.3.0
+```
+
+The thin native AMD64/ARM64 container is
+`ghcr.io/genomoncology/pangopup:0.3.0`. Both delivery forms identify the same
+source revision. Scoring assets remain separate and are installed by
+`pangopup sync`.
