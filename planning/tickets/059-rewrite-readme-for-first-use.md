@@ -1,0 +1,156 @@
+# 059 — Rewrite the README for first-time users
+
+Status: ready
+
+## Why
+
+The README is technically accurate but reads like an internal qualification
+record. It repeats disclaimers and attribution, leads with headings and release
+history instead of the product, and exposes implementation/security rationale
+that a new user does not need. A fresh independent read found that the useful
+content can be presented in roughly half the current document while improving
+input guidance and first-use success.
+
+## Scope
+
+- Rewrite `README.md` as a compact user guide with this order:
+  1. title followed immediately by two short paragraphs explaining what
+     PangoPup is, what it predicts, and its lookup-first/model-fallback value;
+  2. `Quick start` for the direct Linux CLI;
+  3. `Input and output` semantics and common CLI options;
+  4. `HTTP service`;
+  5. `Docker`;
+  6. compact `Storage and operations`;
+  7. compact `Platform and service limits` containing only actionable runtime
+     boundaries; and
+  8. `Citation and license`.
+- Do not add `Introduction` or `What it predicts` headings. Do not lead with a
+  list of absent features. Explain the product positively and directly.
+- Remove user-irrelevant material from the root README:
+  - v0.2.0 history and repeated “immutable” release-engineering language;
+  - HGVS/transcript/gene-knowledge and similar non-feature inventories;
+  - exact-byte storage defenses and mmap implementation rationale beyond one
+    useful sentence that the index is mapped rather than loaded wholly into
+    RAM;
+  - single-host benchmark methodology, PSS/RSS definitions, raw-evidence and
+    `planning/` links;
+  - source-build qualification commands and commit-recording instructions;
+  - cache-path precedence internals;
+  - digest-pinning deployment guidance;
+  - the Apple `cpuinfo` warning investigation/history;
+  - security implementation assurances for uninstall internals;
+  - duplicated license/attribution defenses; and
+  - maintainer links, build CLI, and repository gate instructions.
+- Keep the exact user facts needed for successful use:
+  - local GRCh38 Pangolin-compatible scoring;
+  - precomputed SNV lookup and CPU model fallback for lookup misses and
+    supported non-SNVs, with persistent reuse of model results;
+  - direct binary Linux x86-64/GLIBC 2.39 requirement and native AMD64/ARM64
+    Docker availability;
+  - about 2.44 GiB download, 14.76 GiB installed, and 25 GB free for sync;
+  - explicit sync and network-free scoring afterward;
+  - variant grammar `GRCh38:CONTIG:POS:REF:ALT`, 1-based genomic coordinates,
+    accepted contig forms, uppercase literal A/C/G/T alleles, no automatic
+    trimming/alignment/normalization, anchored indel form, reference checking
+    on model scoring, and model allele-length boundary;
+  - JSON Lines default, table option, batch, gene filter, `--model-only`,
+    result status, multiple gene records, gain/signed-loss and genomic-offset
+    semantics, and `provenance.kind`;
+  - foreground HTTP command, readiness and one scoring example, batch/model
+    admission limits, 429 behavior, and loopback/authentication/TLS warning;
+  - one coherent Docker volume/sync/service path, one Docker CLI lookup, volume
+    persistence, CPU-only inference, and Apple Silicon ARM64 support;
+  - terse XDG paths, offline reuse, update, code-only/full uninstall, and a
+    practical default-service memory starting point; and
+  - one nonduplicated citation/license section linking `CITATION.cff`, Pangolin
+    software and paper, Zenodo dataset, GPL-3.0-only, CC BY 4.0, GENCODE v38,
+    and `NOTICE`.
+- Keep the scientific explanation in prose near the title: PangoPup reports
+  the strongest predicted splice-site gain and signed loss and their genomic
+  offsets. Distance 50 means 50 bases on either side; a supported deletion's
+  allele span can extend the positive offset. Do not describe these as
+  tissue-specific or clinical/pathogenicity classifications.
+- Replace `spec/readme-first-use.md` with section-bounded user-contract checks
+  for the new outline. Tests must check required commands/facts within their
+  owning sections and explicitly reject removed internal-history phrases and
+  root README links into `planning/` or `AGENTS.md`.
+- Preserve `CITATION.cff`, `NOTICE`, runtime behavior, assets, releases, and
+  detailed engineering evidence elsewhere. This ticket changes user-facing
+  documentation and its static specification only.
+
+## Success Checklist
+
+- The title is followed directly by a plain-English product description, with
+  no `Introduction` or `What it predicts` heading and no general “does not”
+  inventory.
+- A technically competent new user can install, sync, score an SNV, understand
+  the result, and find model/HTTP/Docker usage in one linear read.
+- The README is at most 220 lines and 1,700 words without packing prose into
+  excessively long lines to satisfy the bound.
+- Every retained command matches v0.3.0 CLI behavior, and every scientific,
+  input, output, storage, service, and platform claim is exact.
+- Removed internal/release-history material is absent rather than relocated to
+  another root section.
+- Section-bounded offline tests prove the outline, essential commands/facts,
+  and absence of stale/internal material.
+- `make lint`, `make test`, and `make spec` pass.
+
+## Decisions
+
+1. **Rewrite rather than patch.** The problem is document hierarchy and
+   repetition, not one paragraph. Preserve facts, not the existing prose.
+2. **Positive product description.** Actionable constraints live beside the
+   relevant input, platform, or service instructions; an opening catalog of
+   unrelated missing features is removed.
+3. **One user path, then modalities.** Direct CLI is the shortest first result.
+   HTTP and Docker follow after readers understand the input/output contract.
+4. **Evidence stays outside onboarding.** Keep a few rounded capacity and
+   performance expectations useful to operators, but exclude methodology and
+   internal artifact links from the README.
+
+## Dependencies
+
+Public PangoPup v0.3.0, Ticket 057 citation metadata, and the fresh-eyes review
+by `/root/readme_fresh_eyes_review` on 2026-08-05.
+
+## Notes
+
+- Verify allele grammar and maximum length against the actual current parser
+  and engine tests before writing; the fresh review identified this as a
+  useful missing fact, not an already authenticated README claim.
+- Prefer `pangopup <command> --help` over reproducing advanced path/cache
+  precedence.
+- The existing detailed engineering and release evidence remains in
+  architecture/planning/history; do not copy or move it as part of this ticket.
+
+## Coordinator Authorship
+
+Coordinator: Codex (`/root`), 2026-08-05.
+
+## Independent Ticket Review
+
+Reviewer: Codex subagent `/root/ticket059_readme_design_review`, 2026-08-05.
+
+Verdict: ACCEPT. The reviewer authenticated the CLI/parser/engine/HTTP facts,
+confirmed that the proposed hierarchy and removal list directly address the
+user's complaint, and found the compactness and section-bounded tests adequate.
+Implementation should explain anchored indels in plain English, describe
+distance 50 as the reported search region rather than the model's full context,
+scope the 100-base limit to model scoring, and frame 256 MiB as a starting
+allocation. No material design finding remains.
+
+## Implementation Evidence
+
+Developer: pending
+
+## Adversarial Code Review
+
+Reviewer: pending
+
+## External Effect Evidence
+
+Coordinator: not applicable
+
+## Coordinator Final Check
+
+Coordinator: pending
