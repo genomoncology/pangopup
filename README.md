@@ -1,15 +1,10 @@
 # PangoPup
 
-<p align="center">
-  <img src="docs/images/pangopup.svg" alt="PangoPup pangolin logo" width="112">
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/images/genomoncology.png" alt="GenomOncology logo" width="306">
-</p>
-
-PangoPup provides fast, local [Pangolin](https://github.com/tkzeng/Pangolin)-compatible
-splice predictions for GRCh38 variants. It reports the strongest predicted splice-site
-gain and signed loss caused by a variant, together with each result's genomic-coordinate
-offset. The scores help identify variants that may alter RNA splicing.
+PangoPup is an open-source, GPL-licensed Rust service built on the
+[Pangolin](https://github.com/tkzeng/Pangolin) model. It provides fast, local splice
+predictions for GRCh38 variants. For each variant, it reports the strongest predicted splice-site
+gain and signed loss together with each result's genomic-coordinate offset.
+The scores help identify variants that may alter RNA splicing.
 
 For single-nucleotide variants (SNVs), PangoPup first checks a memory-mapped index of
 published scores. A supported lookup miss or non-SNV runs through the Pangolin model on
@@ -18,6 +13,9 @@ the CPU, and modeled results are saved in SQLite for reuse. The reported search 
 positive offset beyond 50.
 
 ![PangoPup lookup-first performance overview showing mmap SNV lookup, CPU ONNX model fallback, SQLite reuse, and measured resource use](docs/images/pangopup-performance.png)
+
+PangoPup was built by [GenomOncology](https://genomoncology.com/), which also makes
+[BioMCP](https://biomcp.org/).
 
 <details>
 <summary><strong>Performance overview in text</strong></summary>

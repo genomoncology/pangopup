@@ -1,6 +1,6 @@
 # 061 — Simplify README hero and organization attribution
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -115,11 +115,56 @@ coverage on 2026-08-05.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex (`/root/ticket061_implementation`), 2026-08-05.
+
+- Updated the approved editable HTML and re-rendered the 2000×1125 hero with
+  the exact title, concise GPL/open-source/Rust/Pangolin subtitle, blue `SNV`
+  and orange `non-SNV` labels, and the supported-miss/`--model-only` model
+  qualification inside the router. Visual inspection found no clipping,
+  overlap, or displaced retained content.
+- Replaced the repository hero with that 257,351-byte render while retaining
+  both documented source marks, four qualified measurements, both prior-art
+  sources, the host qualification, and the existing flow.
+- Removed both standalone README logo images, added the linked GenomOncology /
+  BioMCP maker sentence, and kept the exact routing semantics in adjacent
+  accessible text.
+- Updated provenance, the rolling frontier, the static first-use contract, and
+  the fail-closed image checker. Mutation coverage rejects a second displayed
+  image, a missing hero, an extra or missing source mark, oversized/malformed
+  raster input, and the retained SVG script/reference cases.
+- Focused evidence passed: `bash scripts/check-readme-images.sh`,
+  `bash tests/readme-branding.sh`, `mustmatch test spec/readme-first-use.md`
+  (10 passed), `bash -n scripts/check-readme-images.sh
+  tests/readme-branding.sh`, and `git diff --check`.
+- Replacement remediation developer: Codex (`/root/ticket061_remediation`),
+  2026-08-05. The original developer's agent thread reached its tool limit, so
+  the coordinator assigned the review findings to this replacement. The
+  checker now requires the exact hero Markdown line exactly once, rejects all
+  other Markdown image forms and case-insensitive HTML `img`/`picture`/`source`
+  tags, and scans normalized SVG content so a line break cannot hide a linked
+  `href` or `src`. New reference-style Markdown, uppercase HTML, and multiline
+  SVG mutations cover those findings without changing the accepted hero or
+  README content.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex (`/root/ticket061_code_review`), 2026-08-05.
+
+- Initial verdict: REJECT. The reviewer found that uppercase HTML and
+  reference-style Markdown could bypass the exactly-one-displayed-image rule,
+  and that a multiline SVG linked attribute could bypass the existing
+  line-oriented safety scan. The README, hero, links, semantics, measurements,
+  provenance, and visual layout otherwise passed.
+- The original developer's follow-up thread reached the tool limit, so the
+  coordinator assigned only those findings to replacement remediation
+  developer Codex (`/root/ticket061_remediation`).
+- Remediation requires the exact hero line once, rejects every other Markdown
+  image form and case-insensitive HTML `img`/`picture`/`source` tag, and scans
+  normalized SVG content for multiline linked attributes. Exact mutations
+  cover every reported bypass.
+- Re-review verdict: ACCEPT. The same reviewer reproduced the prior bypasses,
+  confirmed they now fail, reran the image checker, mutation suite, 10-case
+  README spec, shell syntax and diff check, and reported no remaining findings.
 
 ## External Effect Evidence
 
@@ -127,4 +172,15 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex (`/root`), 2026-08-05.
+
+- `make lint`: passed. Existing advisory-only duplicate dependency and
+  `zstd-sys` semver-metadata warnings remain unchanged; advisories, bans,
+  licenses, and sources are accepted.
+- `make test`: passed, including the complete Rust workspace, README image
+  production/mutation checks, executable delivery, and production release
+  qualification.
+- `make spec`: 276 passed, 7 skipped.
+- `git diff --check`, asset hashes, one-image enforcement, exact attribution
+  links, and visual inspection passed. The frontier records the simplified
+  presentation as current, not future work.

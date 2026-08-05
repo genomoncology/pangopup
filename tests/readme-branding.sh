@@ -21,12 +21,32 @@ mkdir -p "$fixture/docs/images"
 cp "$repo/docs/images/"* "$fixture/docs/images/"
 
 rm "$fixture/docs/images/genomoncology.png"
-expect_rejected missing-image "$fixture"
+expect_rejected missing-source-mark "$fixture"
 cp "$repo/docs/images/genomoncology.png" "$fixture/docs/images/genomoncology.png"
 
-printf "\n<img src='docs/images/not-present.png' alt='Missing test image'>\n" >> "$fixture/README.md"
-expect_rejected single-quoted-missing-image "$fixture"
+printf "\n<img src='docs/images/pangopup.svg' alt='Second displayed image'>\n" >> "$fixture/README.md"
+expect_rejected second-displayed-image "$fixture"
 cp "$repo/README.md" "$fixture/README.md"
+
+printf "\n![Second displayed image][source-mark]\n[source-mark]: docs/images/pangopup.svg\n" >> "$fixture/README.md"
+expect_rejected reference-style-image "$fixture"
+cp "$repo/README.md" "$fixture/README.md"
+
+printf "\n<IMG SRC='docs/images/pangopup.svg' ALT='Second displayed image'>\n" >> "$fixture/README.md"
+expect_rejected uppercase-html-img "$fixture"
+cp "$repo/README.md" "$fixture/README.md"
+
+printf "\n<PICTURE><SOURCE SRCSET='docs/images/pangopup.svg'></PICTURE>\n" >> "$fixture/README.md"
+expect_rejected uppercase-html-picture-source "$fixture"
+cp "$repo/README.md" "$fixture/README.md"
+
+sed -i '/pangopup-performance.png/d' "$fixture/README.md"
+expect_rejected missing-hero "$fixture"
+cp "$repo/README.md" "$fixture/README.md"
+
+cp "$repo/docs/images/pangopup.svg" "$fixture/docs/images/extra-source-mark.svg"
+expect_rejected extra-source-mark "$fixture"
+rm "$fixture/docs/images/extra-source-mark.svg"
 
 cp "$repo/docs/images/pangopup-performance.png" "$fixture/docs/images/pangopup-performance.png"
 truncate -s 400001 "$fixture/docs/images/pangopup-performance.png"
@@ -59,6 +79,10 @@ cp "$repo/docs/images/pangopup.svg" "$fixture/docs/images/pangopup.svg"
 
 sed -i 's#</svg>#<image href="other.png" /></svg>#' "$fixture/docs/images/pangopup.svg"
 expect_rejected svg-relative-reference "$fixture"
+cp "$repo/docs/images/pangopup.svg" "$fixture/docs/images/pangopup.svg"
+
+sed -i 's#</svg>#<image href\n="other.png" /></svg>#' "$fixture/docs/images/pangopup.svg"
+expect_rejected svg-multiline-relative-reference "$fixture"
 cp "$repo/docs/images/pangopup.svg" "$fixture/docs/images/pangopup.svg"
 
 sed -i 's#</svg>#<a href="javascript:alert(1)"></a></svg>#' "$fixture/docs/images/pangopup.svg"

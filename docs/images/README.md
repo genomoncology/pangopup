@@ -29,16 +29,18 @@ external image hosting.
 
 - Work: PangoPup lookup-first performance overview
 - Creator: GenomOncology, rendered from the approved local HTML artwork for
-  Ticket 060.
+  Ticket 061.
 - Included marks: the two assets documented above.
-- Repository file SHA-256: `c7cadd217576129ba9608328af9354c3384c9027302a7b39cca2f5c1a270b1f4`
+- Repository file SHA-256: `7a8e5496ed1fe94d36fcffd82d8f77b91a49f1644413661c78f0692929274873`
 - Source measurements:
   [`planning/artifacts/004-snv-lookup-performance.md`](../../planning/artifacts/004-snv-lookup-performance.md)
   and
   [`planning/artifacts/053-current-runtime-resources.md`](../../planning/artifacts/053-current-runtime-resources.md).
-- Change from the approved presentation: narrows model fallback to supported
-  variants, identifies the three supported fallback routes, records the exact
-  `0.441 µs` measurement, and removes the release number.
+- Change from the approved presentation: uses the public-facing title and
+  open-source/GPL/Rust description, shortens the ordinary route labels to
+  `SNV` and `non-SNV`, keeps supported misses and explicit model override in
+  the router, records the qualified `0.441 µs` measurement, and omits a release
+  number.
 - The raster is a web-sized derivative only. Presentation source, renderer
   dependencies, and PowerPoint output are intentionally not part of this
   repository.

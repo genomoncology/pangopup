@@ -18,22 +18,30 @@ test "$headings" = "$(printf '%s\n' \
 printf 'README structure is compact and user-first\n' | mustmatch like 'README structure is compact and user-first'
 ```
 
-The additional opening space is reserved for the two brand marks, the
-performance overview, and its adjacent text equivalent. All four must remain
-before Quick start rather than becoming general README growth.
+The additional opening space is reserved for one performance hero, concise
+maker attribution, and the adjacent text equivalent. They remain before Quick
+start rather than becoming general README growth. The two source marks are
+embedded in the hero, not repeated as standalone README images.
 
 ```bash
 before_quick=$(awk '/^## Quick start$/ { exit } { print }' ../README.md)
 for text in \
-  'docs/images/pangopup.svg' \
-  'docs/images/genomoncology.png' \
   'docs/images/pangopup-performance.png' \
+  '[GenomOncology](https://genomoncology.com/)' \
+  '[BioMCP](https://biomcp.org/)' \
+  'which also makes' \
   'Performance overview in text' \
   'Every score reports whether a' \
   'precomputed lookup, the Pangolin model, or the SQLite cache answered it.'; do
   printf '%s' "$before_quick" | rg -F "$text" >/dev/null
 done
-printf 'branding and accessible performance overview precede Quick start\n' | mustmatch like 'branding and accessible performance overview precede Quick start'
+hero='![PangoPup lookup-first performance overview showing mmap SNV lookup, CPU ONNX model fallback, SQLite reuse, and measured resource use](docs/images/pangopup-performance.png)'
+test "$(grep -Fxc "$hero" ../README.md)" = 1
+test "$(grep -Fo '![' ../README.md | wc -l | tr -d '[:space:]')" = 1
+! rg -i '<[[:space:]]*(img|picture|source)([[:space:]/>])' ../README.md
+! rg -F 'docs/images/pangopup.svg' ../README.md
+! rg -F 'docs/images/genomoncology.png' ../README.md
+printf 'one hero, maker attribution, and accessible overview precede Quick start\n' | mustmatch like 'one hero, maker attribution, and accessible overview precede Quick start'
 ```
 
 The title is followed directly by the product and scientific explanation.
@@ -48,6 +56,9 @@ for text in \
   'gain and signed loss' \
   'genomic-coordinate' \
   'memory-mapped index' \
+  'supported lookup miss' \
+  'supported non-SNV' \
+  'explicit `--model-only` request' \
   'runs through the Pangolin model' \
   'saved in SQLite for reuse' \
   '50 bases on either side' \

@@ -11,9 +11,10 @@ optional gene filter and returns all matching source records by default from an
 explicit fixed-v1 bundle or the active Linux user-data installation. Speed
 leads memory and download size. Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
-established. The first-user README now carries reusable PangoPup and
-GenomOncology branding plus an accessible, release-neutral lookup-first
-performance overview with retained measurements and prior-art attribution.
+established. The first-user README now presents one accessible, release-neutral
+lookup-first performance hero containing the retained PangoPup and
+GenomOncology marks, measurements, and prior-art attribution. Adjacent text
+links GenomOncology and BioMCP without repeating standalone logo images.
 Immutable publication and pinned resumable remote sync are also
 complete. Sync now uses progress-reset blocking reads, typed four-attempt
 transient retry, exact committed byte accounting, and terminal/forced bounded
