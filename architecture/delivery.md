@@ -71,16 +71,16 @@ repository permission and cannot publish an image or release asset. See
 Public container delivery is a separate two-mode manual workflow. `stage`
 builds and qualifies one native, unattested leaf per architecture, records the
 two distinct registry digests in one canonical run receipt, and creates no
-user-facing tag. Publication stops at a visibility checkpoint; if the package
-is private, its owner must make exactly that package public. The first
-repository-linked package was already Public and required no visibility
-mutation. The coordinator always verifies anonymous access before dispatching
+user-facing tag. The coordinator proves public access through credential-free
+exact registry reads rather than requiring package-settings API scope, then
+dispatches
 `finalize` with the exact successful stage run ID. Finalization authenticates that run and its
 unique retained receipt through the Actions API, anonymously repeats native
 miniature qualification, and then creates version, `v`-prefixed version, and
-moving `latest` tags. The current public set is `0.2.0`/`v0.2.0`; the prepared
-v0.3.0 candidate updates the workflow version but creates no registry tags
-until its reviewed publication ticket. The resulting two-platform index's
+moving `latest` tags. The current public set is `0.3.0`/`v0.3.0`/`latest`, all
+resolving to index
+`sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0`.
+The resulting two-platform index's
 version tags are convenient names; the OCI index digest is
 the immutable deployment identity. GHCR cannot atomically create an absent tag,
 so the serialized workflow checks version-tag absence twice but does not claim
@@ -98,8 +98,8 @@ history or Git LFS.
 Release families keep independently versioned concerns separate. The SNV
 lookup uses one shipped eight-file release asset set whose installable transport
 is the closed five-file subset. The ordinary executable release is immutable
-[`v0.2.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.2.0);
-immutable `v0.1.0` remains available as the prior CLI-only release.
+[`v0.3.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.3.0);
+immutable `v0.2.0` and `v0.1.0` remain available as prior releases.
 The converted model, compiled GRCh38 sequence index, and compiled mask form one
 qualified compatibility-bound public immutable `runtime-grch38-v1` release.
 Their model-side local transport is shipped:

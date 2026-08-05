@@ -452,7 +452,9 @@ grep -Fq 'ghcr.io/genomoncology/pangopup:0.3.0' "$release_notes"
 if grep -Eqi 'prepared v0[.]3[.]0 candidate|publication (is )?pending' "$repo/README.md" "$release_notes"; then
   fail 'tagged v0.3.0 documents retain candidate or pending-publication language'
 fi
-grep -Fq 'State: **PREPARED — no Ticket 055 public effect has run.**' "$publication_record"
+grep -Fq 'State: **COMPLETE — immutable v0.3.0 executable and native container are public and qualified.**' "$publication_record"
+grep -Fq 'release ID `365425336`' "$publication_record"
+grep -Fq 'sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0' "$publication_record"
 grep -Fq 'readonly PREVIOUS_RELEASE_ID=364960381' "$publication_record"
 grep -Fq 'readonly PREVIOUS_INDEX=sha256:ad1aa8c27cc61d107310f609cd63f8fcbaf591a4f9760db475384a0a71049de4' "$publication_record"
 ! grep -Fq 'orgs/genomoncology/packages/container/pangopup' "$publication_record"

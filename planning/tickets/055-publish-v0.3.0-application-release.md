@@ -1,6 +1,6 @@
 # 055 — Publish the exact v0.3.0 application release
 
-Status: publication-ready
+Status: complete
 
 ## Why
 
@@ -265,7 +265,35 @@ scope-dependent preflight.
 
 ## External Effect Evidence
 
-Coordinator: pending
+Coordinator: Codex (`/root`), 2026-08-05.
+
+- Published immutable GitHub release `v0.3.0` (ID `365425336`) from exact
+  commit `3a857f7def2c11ad9d9e38ed62b7204bf7d6b691`, with exactly six admitted
+  members and byte-identical reviewed release notes. Anonymous API and all six
+  downloads matched names, sizes, and SHA-256 digests.
+- Exact green CI/native runs were `30993530989` and `30993531181`. Package run
+  `30994324171` produced admitted artifact `8925565070` with digest
+  `sha256:e1dc222db3180359b2dba203a5c0dc4a851df32b7511e049feb357c88072b244`.
+- The pinned curl installer passed in clean Ubuntu 24.04 as a non-root user.
+  Disposable retained-asset copies passed all 1,000 SNV oracles, model/model-
+  only, SQLite reuse, offline status, focused help, and HTTP qualification.
+  Isolated interactive code-only and noninteractive `--full --yes` uninstall
+  checks passed without targeting retained assets.
+- Container stage run `30993928539` produced canonical receipt artifact
+  `8925408153`; finalize run `30995022437` published exact staged AMD64/ARM64
+  leaves in OCI index
+  `sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0`.
+  Anonymous reads proved `0.3.0`, `v0.3.0`, and `latest` resolve to that exact
+  two-leaf index with the reviewed annotations.
+- The initial effect-free preflight stopped on an unnecessary `read:packages`
+  dependency. No effect occurred. The independently reviewed anonymous-
+  registry amendment was committed, gated, and used successfully without
+  broadening credentials.
+
+Full redacted identities and file digests are retained in
+`planning/artifacts/055-public-v0.3.0.md`; local evidence is under
+`/home/ian/workspace/data/pangopup-release-055-3a857f7/` and contains no saved
+token or authenticated URL.
 
 ## Coordinator Final Check
 
@@ -278,3 +306,9 @@ amended preparation changes only the credential-free publication proof and
 tests, performs no public effect, and is ready to become the new exact
 publication commit. Its own remote CI/native gates and complete preflight must
 pass before publication.
+
+Post-effect final check: every reviewed preflight and effect boundary passed;
+the public executable and container use the same exact commit, the immutable
+biological assets were neither rebuilt nor republished, and rolling planning
+now records independent public qualification as the next outcome. Final local
+gates are rerun before committing this evidence.

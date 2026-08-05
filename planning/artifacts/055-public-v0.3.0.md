@@ -1,6 +1,6 @@
 # Ticket 055 v0.3.0 publication record
 
-State: **PREPARED — no Ticket 055 public effect has run.**
+State: **COMPLETE — immutable v0.3.0 executable and native container are public and qualified.**
 
 This record is the coordinator's fail-closed runbook and, after publication,
 the redacted evidence ledger for the application-only v0.3.0 release. It does
@@ -318,25 +318,56 @@ commit without a separately reviewed recovery.
 
 ## 7. Evidence to retain after effects
 
-Replace `pending` below with redacted facts only after every corresponding
-check has passed. Preserve failures and superseded runs as such.
+The following redacted facts were recorded only after every corresponding
+check passed. Failures and superseded preparation are preserved as such.
 
-- Exact publication commit: pending.
-- Exact green CI run: pending.
-- Exact green native container run: pending.
-- Package run and admitted artifact ID/digest: pending.
-- GitHub release ID, tag, target, immutability, and Latest evidence: pending.
-- Six executable member names, sizes, and SHA-256 digests: pending.
-- Pinned installer and production qualification: pending.
-- Isolated interactive code-only and `--full --yes` uninstall evidence:
-  pending.
-- Container stage run and canonical receipt artifact ID/digest: pending.
-- AMD64 and ARM64 leaf digests: pending.
-- Container finalize run and OCI index digest: pending.
-- Anonymous public API/download/registry and native qualification: pending.
-- Final exact-commit remote gates: pending.
+- Exact publication commit: `3a857f7def2c11ad9d9e38ed62b7204bf7d6b691`.
+- Exact green CI run: `30993530989`; exact green native-container run:
+  `30993531181` (native AMD64 and ARM64 smoke jobs passed).
+- Package run `30994324171`; admitted artifact ID `8925565070`, digest
+  `sha256:e1dc222db3180359b2dba203a5c0dc4a851df32b7511e049feb357c88072b244`.
+- GitHub release ID `365425336`, tag `v0.3.0`, target the exact publication
+  commit, immutable, non-prerelease, and Latest. Anonymous API and all six
+  downloads matched the reviewed body and inventory.
+- Executable members (name, bytes, SHA-256):
+  - `LICENSE`, 35,149,
+    `3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986`;
+  - `NOTICE`, 1,899,
+    `19d4942d45f87794e304cf8a3d72a7c7a685fb4641a772f9a35acf8b701754c7`;
+  - `pangopup-linux-x86_64`, 29,069,480,
+    `cd5a451190c35af1fe5dd481abf64d06f430c4154db94068fc889131ccaa3578`;
+  - `pangopup-linux-x86_64.cdx.json`, 201,980,
+    `6b63fa3761f4bd81b3cd949f3fb68a06caf4962d9e6490b2cfda1ac1d62bc1da`;
+  - `pangopup-linux-x86_64.sha256`, 88,
+    `976d6b12925f11ce021a44f9a9480684db71c0db0f7df7187ed69fc0212384fe`;
+  - `release-manifest.json`, 950,
+    `5b5df42e65d6f35d37147e59e40ef7745212e94e0e1655677dff2b3a26d34d59`.
+- The pinned tagged curl installer passed in a clean Ubuntu 24.04 container as
+  UID 12345. Reusing disposable copies of retained assets, all 1,000 SNV
+  oracles, automatic and forced model routes, SQLite reuse, offline status,
+  focused help, and HTTP health/status/SNV/model checks passed.
+- Isolated interactive code-only uninstall displayed all paths, removed the
+  executable, and preserved data/cache. Isolated `--full --yes` displayed the
+  paths, prompted for nothing, and removed executable/data/cache. Failed
+  exploratory fixtures were rejected before mutation; retained assets were
+  never uninstall targets.
+- Container stage run `30993928539`; receipt artifact ID `8925408153`, digest
+  `sha256:f439070360c28c436cdc6fc0baaf5a95ccb1d4ae0783669d56012eac7144c432`.
+- AMD64 leaf
+  `sha256:cc85a70eb6549e35a3641070217c9252759f2b9e22ddfc7ef83605ca54470aba`;
+  ARM64 leaf
+  `sha256:d73958dbd3dc7c2252b01b3354968f8d24f9585e7e5b4aa6d76f8b1e5bc5b1c0`.
+- Container finalize run `30995022437`; OCI index
+  `sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0`.
+  Anonymous registry reads proved the exact two children, annotations, and
+  equality of `0.3.0`, `v0.3.0`, and `latest`. Native qualification passed on
+  both GitHub architectures and was repeated locally for AMD64.
+- The initial effect-free preflight stopped on a missing optional
+  `read:packages` scope. The independently reviewed amendment replaced that
+  weaker settings read with credential-free exact registry reads; its new
+  exact commit and gates passed before any public effect.
 
-After public success, update this state to COMPLETE and reconcile only rolling
-planning documents that still call publication the next outcome. The README
-and release notes in the tag are already final and must not be rewritten after
-publication.
+The README and release notes in the tag were final before publication and were
+not rewritten afterward. Local redacted evidence is retained under
+`/home/ian/workspace/data/pangopup-release-055-3a857f7/`; it contains no saved
+registry token or authenticated URL.

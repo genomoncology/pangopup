@@ -622,26 +622,25 @@ an upstream ONNX Runtime release carrying Apple-aware cpuinfo instead of
 maintaining a custom native runtime solely to suppress a harmless warning.
 
 The root README is now a bounded first-use guide rather than an engineering
-ledger. It separates immutable public v0.2.0 history from the prepared v0.3.0
-candidate,
-documents sync, CLI, HTTP, Docker/Apple Silicon, update, and independently
+ledger. It describes immutable public v0.3.0, documents sync, CLI, HTTP,
+Docker/Apple Silicon, update, and independently
 selectable manual removal, and links detailed architecture and planning. A
 local static executable spec keeps its commands, endpoints, XDG paths, disk
 guidance, security boundary, and attribution present without networking,
 Docker, large downloads, or destructive removal.
 
-The compact public `v0.2.0` executable release is now immutable and Latest.
-Its exact-commit package, anonymous release files, tagged curl installer,
+The compact public `v0.3.0` executable release is now immutable and Latest.
+Its exact-commit package, anonymous release files, pinned tagged curl installer,
 lookup/model/cache behavior, focused help, sync output, and foreground HTTP
 surface passed the clean production qualification. Native multi-architecture
 container delivery now retains the same thin image behind one two-leaf GHCR
 index. Its two-mode manual lifecycle stages digest-addressed leaves without
 user-facing tags, checks public visibility, authenticates the exact successful
 stage-run receipt, anonymously repeats native qualification, and only then
-creates version and moving tags. The first repository-linked package was
-already Public, so no owner visibility mutation was needed. Tags `0.2.0`,
-`v0.2.0`, and `latest` resolve to immutable index
-`sha256:ad1aa8c27cc61d107310f609cd63f8fcbaf591a4f9760db475384a0a71049de4`.
+creates version and moving tags. Anonymous exact-digest reads prove public
+access without a package-settings permission. Tags `0.3.0`, `v0.3.0`, and
+`latest` resolve to immutable index
+`sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0`.
 
 Docker, systemd, Kubernetes, or another external manager owns
 start/stop/restart; Pangopup does not become its own process supervisor.
@@ -669,17 +668,15 @@ mapping is not resident-memory demand and that file-backed pages are
 reclaimable. These are warm-page-cache, single-host observations; future
 multi-host capacity and concurrency limits remain evidence work.
 
-## Next outcome — publish and qualify v0.3.0
+## Next outcome — independent public v0.3.0 qualification
 
-The v0.3.0 application candidate now has one version across active executable,
-HTTP, package, workflow, and container surfaces; a compact measured first-use
-guide; and release notes. The next bounded outcome is publication from that
-one exact reviewed commit: prepare and qualify the six-file Linux executable
-release, create immutable tag/release `v0.3.0`, publish the native AMD64/ARM64
-GHCR index as `0.3.0`, `v0.3.0`, and `latest`, then independently test the
-anonymous installer, both image leaves, offline asset reuse, scoring, caching,
-HTTP, and uninstall. The immutable biological asset releases are reused, not
-rebuilt or republished.
+Application publication is complete from one exact commit. The next bounded
+outcome is an independent, read-only public-release audit: authenticate the six
+anonymous executable members and two-leaf OCI index, install from the pinned
+curl command in a clean Linux environment, reuse the preserved qualified
+assets offline, and repeat CLI scoring, model/cache, HTTP, and isolated
+uninstall checks. It must not rebuild or republish biological assets or mutate
+the immutable release.
 
 ## Later outcome — production and release hardening
 
