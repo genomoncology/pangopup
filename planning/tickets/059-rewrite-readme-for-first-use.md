@@ -1,6 +1,6 @@
 # 059 — Rewrite the README for first-time users
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -229,7 +229,20 @@ Coordinator: not applicable
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex (`/root`), 2026-08-05.
+
+- First `make test` exposed and caused the reviewed stale builder-catalog test
+  repair; second exposed and caused the reviewed citation-link test repair.
+- Final `make test` — passed, including executable delivery and production
+  release qualification.
+- Final `make lint` — passed after mechanical Rustfmt; existing allowed
+  duplicate-dependency advisories remain nonfatal.
+- Final `make spec` — 275 passed, 7 skipped.
+- `git diff --check` and the section-bounded README contract — passed.
+- Final fresh read confirmed the README is 220 lines/1,137 words, starts
+  directly with the product, has no absent-feature inventory or internal
+  project diary, explains result statuses and literal inputs, and preserves
+  only actionable CLI/HTTP/Docker/operations/citation material.
 
 The first full `make test` final gate exposed a scope-causal stale unit
 assertion: `current_state_documents_point_to_the_checked_catalog` required the
@@ -275,3 +288,20 @@ Final gate-remediation code review: ACCEPT by
 diff removes only the obsolete README include/assertion, retains FAQ/frontier
 maintainer checks, changes no CLI behavior, and leaves the accepted README and
 spec facts intact. No material finding remains.
+
+Citation-test remediation developer: Codex subagent
+`/root/ticket059_gate_remediation`, 2026-08-05.
+
+- Updated only the prior-art URL assertion to accept the exact DOI resolver or
+  the exact authoritative Springer article URL for DOI
+  `10.1186/s13059-022-02664-4`.
+- Preserved the creator, Pangolin repository, and Zenodo assertions; changed no
+  README, CFF metadata, or runtime behavior.
+- Focused citation test passed 1/1; the bounded README spec passed 9/9; and
+  `git diff --check` passed.
+
+Citation-test remediation code review: ACCEPT by
+`/root/ticket059_remediation_code_review`. The reviewer confirmed the exact
+two-URL paper identity, unchanged creator/repository/Zenodo/CFF checks, and no
+runtime or metadata change. The complete focused citation target passed 3/3.
+No material finding remains.

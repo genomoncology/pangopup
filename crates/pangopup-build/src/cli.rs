@@ -473,10 +473,8 @@ mod tests {
 
     #[test]
     fn current_state_documents_point_to_the_checked_catalog() {
-        let readme = include_str!("../../../README.md");
         let faq = include_str!("../../../planning/faq.md");
         let frontier = include_str!("../../../planning/frontier.md");
-        assert!(readme.contains("pangopup-build --help"));
         assert!(faq.contains("pangopup-build --help"));
         assert!(frontier.contains(
             "dispatch and successful root, namespace, and leaf help share one checked\ncatalog"

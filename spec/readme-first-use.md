@@ -1,159 +1,233 @@
 # README first-use contract
 
-The README stays a compact user guide. These checks inspect text only; they do
-not use the network, build Docker, synchronize assets, or remove files.
+The root README is a compact user guide. These checks inspect text only; they
+do not use the network, synchronize assets, start a service, or remove files.
 
 ```bash
-test "$(wc -l < ../README.md)" -le 350
-test "$(wc -w < ../README.md)" -le 2200
-printf 'README size is bounded\n' | mustmatch like 'README size is bounded'
+test "$(wc -l < ../README.md)" -le 220
+test "$(wc -w < ../README.md)" -le 1700
+test "$(sed -n '1p' ../README.md)" = '# PangoPup'
+headings=$(rg '^## ' ../README.md)
+test "$headings" = "$(printf '%s\n' \
+  '## Quick start' \
+  '## Input and output' \
+  '## HTTP service' \
+  '## Docker' \
+  '## Storage and operations' \
+  '## Citation and license')"
+printf 'README structure is compact and user-first\n' | mustmatch like 'README structure is compact and user-first'
 ```
 
-The immutable versioned delivery commands are explicit and the tagged guide is
-free of candidate or pending-publication language:
+The title is followed directly by the product and scientific explanation.
 
 ```bash
-rg -F 'immutable **v0.3.0** application release' ../README.md >/dev/null
-! rg -i 'release candidate|publication is still pending|after publication' ../README.md
-rg -F 'raw.githubusercontent.com/genomoncology/pangopup/v0.3.0/install.sh' ../README.md >/dev/null
-rg -F 'ghcr.io/genomoncology/pangopup:0.3.0' ../README.md >/dev/null
-printf 'immutable delivery is explicit\n' | mustmatch like 'immutable delivery is explicit'
+opening=$(awk 'NR == 1 { next } /^## / { exit } { print }' ../README.md)
+for text in \
+  'fast, local' \
+  'Pangolin' \
+  'GRCh38 variants' \
+  'strongest predicted splice-site' \
+  'gain and signed loss' \
+  'genomic-coordinate' \
+  'memory-mapped index' \
+  'runs through the Pangolin model' \
+  'saved in SQLite for reuse' \
+  '50 bases on either side' \
+  'deletion'; do
+  printf '%s' "$opening" | rg -F "$text" >/dev/null
+done
+! rg -n '^## (Introduction|What it predicts|What it does not do|Limitations)' ../README.md
+printf 'opening explains the product directly\n' | mustmatch like 'opening explains the product directly'
 ```
 
-The top of the guide explains the scientific result before a bounded,
-CLI-only first-use path:
+Quick start contains one complete direct-CLI path and no competing modality.
 
 ```bash
-what=$(awk '/^## What it predicts$/{on=1; next} /^## Quick start: CLI$/{on=0} on' ../README.md)
-quick=$(awk '/^## Quick start: CLI$/{on=1; next} /^## Storage and memory$/{on=0} on' ../README.md)
-test "$(rg -n '^## (Introduction|What it predicts|Quick start: CLI|Storage and memory)$' ../README.md | head -4 | cut -d: -f2-)" = "$(printf '%s\n' '## Introduction' '## What it predicts' '## Quick start: CLI' '## Storage and memory')"
-for text in 'splice-site usage' 'gain (increase)' 'signed loss (decrease)' '50 bases on either side of the variant' "deletion's allele span can extend the reported positive offset" 'Overlapping genes' 'separate records' 'genomic-coordinate offset' 'higher genomic coordinate' 'minus-strand gene' 'not a transcript-oriented distance' 'pathogenicity classification' 'clinical diagnosis' 'exact RNA transcript or protein consequence' 'does not expose tissue-specific scores' 'Tony Zeng' 'Yang I. Li' 'https://doi.org/10.1186/s13059-022-02664-4'; do printf '%s' "$what" | rg -F "$text" >/dev/null; done
-for text in 'Linux x86-64/amd64 with GLIBC 2.39 or newer' '2.44 GiB' '14.76 GiB' '25 GB' 'raw.githubusercontent.com/genomoncology/pangopup/v0.3.0/install.sh' 'bash -s -- --version 0.3.0' 'export PATH="$HOME/.local/bin:$PATH"' 'pangopup sync --progress' 'pangopup status' 'pangopup lookup --variant GRCh38:chr12:6801301:G:A' 'pangopup lookup --variant GRCh38:chr12:6801303:G:GA' 'JSON Lines' '`provenance.kind`' '`precomputed` or `model`' 'network-free after' '[Install on Linux](#install-on-linux)' '[Score from the CLI](#score-from-the-cli)'; do printf '%s' "$quick" | rg -F "$text" >/dev/null; done
-! printf '%s' "$quick" | rg -i '(^|[[:space:]])docker([[:space:]]|$)|pangopup serve|/v1/(score|status)|127\.0\.0\.1|git clone|cargo build|PANGOPUP_(DATA|CACHE)|--model-only|--format table|uninstall' >/dev/null
-printf 'prediction and CLI quick start are bounded\n' | mustmatch like 'prediction and CLI quick start are bounded'
+quick=$(awk '/^## Quick start$/ { on=1; next } /^## / { if (on) exit } on' ../README.md)
+for text in \
+  'Linux x86-64/amd64 with GLIBC 2.39 or newer' \
+  '2.44 GiB' \
+  '14.76 GiB' \
+  '25 GB free' \
+  'raw.githubusercontent.com/genomoncology/pangopup/v0.3.0/install.sh' \
+  'bash -s -- --version 0.3.0' \
+  'export PATH="$HOME/.local/bin:$PATH"' \
+  'pangopup sync --progress' \
+  'pangopup status' \
+  'pangopup lookup --variant GRCh38:chr12:6801301:G:A' \
+  'pangopup lookup --variant GRCh38:chr12:6801303:G:GA' \
+  'JSON Lines' \
+  'network-free'; do
+  printf '%s' "$quick" | rg -F "$text" >/dev/null
+done
+! printf '%s' "$quick" | rg -i 'docker|pangopup serve|/v1/score|git clone|cargo build' >/dev/null
+printf 'CLI quick start is complete and bounded\n' | mustmatch like 'CLI quick start is complete and bounded'
 ```
 
-The exact authenticated storage evidence and mmap explanation remain visible:
+Input and output rules stay with the CLI examples they govern.
 
 ```bash
-rg -F '1,931,694,270 bytes' ../README.md >/dev/null
-rg -F '15,033,158,255 bytes' ../README.md >/dev/null
-rg -F '691,874,664 bytes' ../README.md >/dev/null
-rg -F '812,662,222 bytes' ../README.md >/dev/null
-rg -F '2,623,568,934 bytes' ../README.md >/dev/null
-rg -F '15,845,820,477 bytes' ../README.md >/dev/null
-rg -F '25 GB free' ../README.md >/dev/null
-rg -F 'fixed-width records' ../README.md >/dev/null
-rg -F 'reserves virtual address space' ../README.md >/dev/null
-rg -F 'not 15 GB of Rust heap' ../README.md >/dev/null
-printf 'storage and mmap guidance are present\n' | mustmatch like 'storage and mmap guidance are present'
+io=$(awk '/^## Input and output$/ { on=1; next } /^## / { if (on) exit } on' ../README.md)
+for text in \
+  'GRCh38:CONTIG:POS:REF:ALT' \
+  '1-based genomic position' \
+  '1`–`22`, `X`, `Y`, `M`' \
+  'RefSeq accessions' \
+  'uppercase strings' \
+  'does not trim, align, or' \
+  'anchored form' \
+  'share the first base' \
+  'checks REF against' \
+  'at most 100 bases' \
+  '--format table' \
+  '--gene ENSG00000010610' \
+  '--model-only' \
+  'JSON Lines is the default' \
+  '`status`' \
+  '`found`' \
+  'at least one score record' \
+  'no source-reference ambiguity' \
+  '`not_found`' \
+  'not a prediction of zero effect' \
+  '`ambiguous_source_reference`' \
+  'used `N` as its reference' \
+  'source-associated gene, published alternate alleles, and omitted' \
+  '`mixed`' \
+  'both occurred' \
+  'multiple records' \
+  '`gain_score`' \
+  '`loss_score`' \
+  'Loss is signed' \
+  'higher genomic coordinate' \
+  '`provenance.kind`' \
+  '`precomputed`' \
+  '`model`'; do
+  printf '%s' "$io" | rg -F -- "$text" >/dev/null
+done
+printf 'input and output contract is discoverable\n' | mustmatch like 'input and output contract is discoverable'
 ```
 
-Measured resource claims retain their identity and limitations:
+HTTP instructions contain a runnable foreground path, readiness check,
+scoring request, admission limits, and exposure guidance.
 
 ```bash
-rg -F 'five-round, warm-page-cache observation' ../README.md >/dev/null
-rg -F 'AMD Ryzen 7 5825U' ../README.md >/dev/null
-rg -F '12.0 / 12.3 MiB peak RSS' ../README.md >/dev/null
-rg -F '102.3 / 102.5 MiB PSS' ../README.md >/dev/null
-rg -F '105.8 / 106.0 MiB RSS' ../README.md >/dev/null
-rg -F '137.0 / 137.3 MiB high-water RSS' ../README.md >/dev/null
-rg -F '0.8 / 0.5 / 1.1 ms median' ../README.md >/dev/null
-rg -F '4.30 / 5.70 seconds' ../README.md >/dev/null
-rg -F '0.7 / 0.9 ms' ../README.md >/dev/null
-rg -F 'observations, not universal requirements or cold-cache guarantees' ../README.md >/dev/null
-rg -F 'planning/artifacts/053-current-runtime-resources.md' ../README.md >/dev/null
-printf 'measurement boundary is present\n' | mustmatch like 'measurement boundary is present'
+http=$(awk '/^## HTTP service$/ { on=1; next } /^## / { if (on) exit } on' ../README.md)
+for text in \
+  'pangopup serve --listen 127.0.0.1:8080' \
+  '/livez' \
+  '/readyz' \
+  '/v1/status' \
+  '/v1/score' \
+  'content-type: application/json' \
+  '"model_only":true' \
+  '1–100 variants' \
+  '10 uncached model variants' \
+  'HTTP 429' \
+  'no built-in authentication or TLS' \
+  'authenticated TLS reverse proxy'; do
+  printf '%s' "$http" | rg -F "$text" >/dev/null
+done
+printf 'HTTP first-use contract is complete\n' | mustmatch like 'HTTP first-use contract is complete'
 ```
 
-The direct first-use path and variant grammar remain discoverable:
+Docker offers one persistent sync/service path and one direct CLI call.
 
 ```bash
-rg -F 'Linux x86-64/amd64 with GLIBC 2.39 or newer' ../README.md >/dev/null
-rg -F 'Current source requires Git, Rust 1.93' ../README.md >/dev/null || rg -F 'use Git, Rust 1.93' ../README.md >/dev/null
-rg -F 'git rev-parse HEAD' ../README.md >/dev/null
-rg -F 'pangopup sync --progress' ../README.md >/dev/null
-rg -F 'pangopup status' ../README.md >/dev/null
-rg -F 'pangopup sync --offline' ../README.md >/dev/null
-rg -F 'GRCh38:CONTIG:POS:REF:ALT' ../README.md >/dev/null
-rg -F 'pangopup lookup --variant GRCh38:chr12:6801301:G:A' ../README.md >/dev/null
-rg -F 'pangopup lookup --model-only' ../README.md >/dev/null
-printf 'first-use commands are present\n' | mustmatch like 'first-use commands are present'
+docker=$(awk '/^## Docker$/ { on=1; next } /^## / { if (on) exit } on' ../README.md)
+for text in \
+  'ghcr.io/genomoncology/pangopup:0.3.0' \
+  'docker volume create pangopup-data' \
+  'docker volume create pangopup-cache' \
+  'pangopup-data:/var/lib/pangopup:ro' \
+  'pangopup-cache:/var/cache/pangopup' \
+  'sync --progress' \
+  'lookup --variant GRCh38:chr12:6801301:G:A' \
+  'preserves both named volumes' \
+  'Apple Silicon' \
+  'CPU-only' \
+  'does not use MPS or' ; do
+  printf '%s' "$docker" | rg -F "$text" >/dev/null
+done
+printf 'Docker path is coherent\n' | mustmatch like 'Docker path is coherent'
 ```
 
-XDG paths and the two distinct cache controls remain exact:
+Storage and operations retain only capacity, mmap, XDG, offline, update, and
+removal guidance useful to operators.
 
 ```bash
-rg -F '~/.local/share/pangopup' ../README.md >/dev/null
-rg -F '~/.cache/pangopup' ../README.md >/dev/null
-rg -F 'model-results.sqlite3' ../README.md >/dev/null
-rg -F '`PANGOPUP_CACHE_DIR` relocates only resumable transport downloads; it does not' ../README.md >/dev/null
-rg -F 'The model-result path precedence is `--model-cache`, then' ../README.md >/dev/null
-rg -F '`PANGOPUP_MODEL_CACHE`, then `$XDG_CACHE_HOME/pangopup/model-results.sqlite3`' ../README.md >/dev/null
-printf 'XDG and cache paths are present\n' | mustmatch like 'XDG and cache paths are present'
+ops=$(awk '/^## Storage and operations$/ { on=1; next } /^## / { if (on) exit } on' ../README.md)
+for text in \
+  'SNV lookup' \
+  '~1.80 GiB' \
+  '~14.00 GiB' \
+  '~660 MiB' \
+  '~775 MiB' \
+  '~2.44 GiB' \
+  '~14.76 GiB' \
+  'memory-mapped rather than loaded wholly into RAM' \
+  '256 MiB RAM' \
+  '~/.local/share/pangopup' \
+  '~/.cache/pangopup/model-results.sqlite3' \
+  'pangopup sync --offline' \
+  'VERSION=0.3.0' \
+  'v${VERSION}/install.sh' \
+  'preserving assets and caches' \
+  'pangopup sync --progress' \
+  'docker pull "$PANGOPUP_IMAGE"' \
+  'docker stop pangopup' \
+  'preserves the data and cache volumes' \
+  'pangopup uninstall --yes' \
+  'pangopup uninstall --full --yes' \
+  'docker volume rm pangopup-data'; do
+  printf '%s' "$ops" | rg -F -- "$text" >/dev/null
+done
+printf 'storage and lifecycle guidance is compact\n' | mustmatch like 'storage and lifecycle guidance is compact'
 ```
 
-HTTP examples include all routes, request keys, and security limits:
+Attribution is concise and exact.
 
 ```bash
-rg -F 'pangopup serve --listen 127.0.0.1:8080' ../README.md >/dev/null
-for route in /livez /readyz /v1/status /v1/score; do rg -F "$route" ../README.md >/dev/null; done
-rg -F '"model_only":true' ../README.md >/dev/null
-rg -F 'this abridged model output' ../README.md >/dev/null
-rg -F '`precomputed` means' ../README.md >/dev/null
-rg -F '`model` means' ../README.md >/dev/null
-rg -F 'no built-in authentication or TLS' ../README.md >/dev/null
-rg -F 'authenticated TLS reverse proxy' ../README.md >/dev/null
-printf 'HTTP and provenance are present\n' | mustmatch like 'HTTP and provenance are present'
+citation=$(awk '/^## Citation and license$/ { on=1; next } on' ../README.md)
+for text in \
+  '[`CITATION.cff`](CITATION.cff)' \
+  'GPL-3.0-only' \
+  'Tony Zeng' \
+  'Yang I. Li' \
+  'github.com/tkzeng/Pangolin' \
+  'link.springer.com/article/10.1186/s13059-022-02664-4' \
+  '10.5281/zenodo.15649338' \
+  'CC BY 4.0' \
+  'GENCODE v38' \
+  '[`NOTICE`](NOTICE)'; do
+  printf '%s' "$citation" | rg -F "$text" >/dev/null
+done
+printf 'citation facts are present\n' | mustmatch like 'citation facts are present'
 ```
 
-Docker usage preserves architecture, immutable identity, and volume lifecycle:
+Internal history, maintainer instructions, and non-feature trivia stay out of
+the root user guide.
 
 ```bash
-rg -F 'docker volume create pangopup-data' ../README.md >/dev/null
-rg -F 'docker volume create pangopup-cache' ../README.md >/dev/null
-rg -F 'pangopup-data:/var/lib/pangopup:ro' ../README.md >/dev/null
-rg -F 'pangopup-cache:/var/cache/pangopup' ../README.md >/dev/null
-rg -F '"$PANGOPUP_IMAGE" status' ../README.md >/dev/null
-rg -F '"$PANGOPUP_IMAGE" lookup --variant GRCh38:chr12:6801301:G:A' ../README.md >/dev/null
-rg -F 'From another terminal, exercise the running container:' ../README.md >/dev/null
-rg -F 'docker buildx imagetools inspect "$PANGOPUP_IMAGE"' ../README.md >/dev/null
-rg -F 'ghcr.io/genomoncology/pangopup@sha256:<INDEX_DIGEST>' ../README.md >/dev/null
-rg -F 'native Linux ARM64 code' ../README.md >/dev/null
-rg -F 'not MPS or Metal' ../README.md >/dev/null
-rg -F 'Unknown CPU vendor. cpuinfo_vendor value: 0' ../README.md >/dev/null
-rg -F 'Apple-aware `cpuinfo`' ../README.md >/dev/null
-printf 'Docker and Apple boundaries are present\n' | mustmatch like 'Docker and Apple boundaries are present'
-```
-
-Safe update, uninstall, and host-side Docker removal stay visible:
-
-```bash
-rg -F '## Update and uninstall' ../README.md >/dev/null
-rg -F 'raw.githubusercontent.com/genomoncology/pangopup/v0.3.0/install.sh' ../README.md >/dev/null
-rg -F 'docker pull "$PANGOPUP_IMAGE"' ../README.md >/dev/null
-rg -F 'docker stop pangopup' ../README.md >/dev/null
-rg -F 'while reusing both named volumes' ../README.md >/dev/null
-rg -F 'pangopup uninstall --full' ../README.md >/dev/null
-rg -F 'pangopup uninstall --yes' ../README.md >/dev/null
-rg -F 'pangopup uninstall --full --yes' ../README.md >/dev/null
-rg -F '`PANGOPUP_MODEL_CACHE` outside the managed cache root is not discoverable' ../README.md >/dev/null
-rg -F 'docker image rm ghcr.io/genomoncology/pangopup:0.3.0' ../README.md >/dev/null
-rg -F 'docker volume rm pangopup-cache' ../README.md >/dev/null
-rg -F 'docker volume rm pangopup-data' ../README.md >/dev/null
-printf 'update and removal guidance is present\n' | mustmatch like 'update and removal guidance is present'
-```
-
-Attribution and maintainer links remain present without engineering history:
-
-```bash
-rg -F 'GPL-3.0-only' ../README.md >/dev/null
-rg -F '10.5281/zenodo.15649338' ../README.md >/dev/null
-rg -F 'CC BY 4.0' ../README.md >/dev/null
-rg -F 'GENCODE v38' ../README.md >/dev/null
-rg -F '[`NOTICE`](NOTICE)' ../README.md >/dev/null
-rg -F '[Architecture overview](architecture/README.md)' ../README.md >/dev/null
-rg -F '[Current project frontier](planning/frontier.md)' ../README.md >/dev/null
-rg -F 'pangopup-build --help' ../README.md >/dev/null
-printf 'attribution and maintainer links are present\n' | mustmatch like 'attribution and maintainer links are present'
+for phrase in \
+  'v0.2.0' \
+  'immutable release' \
+  'release-engineering' \
+  'HGVS' \
+  'pathogenicity classification' \
+  'clinical diagnosis' \
+  '## Platform and service limits' \
+  'fixed-width records' \
+  'PSS/RSS' \
+  'warm-page-cache' \
+  'git rev-parse' \
+  'cpuinfo_vendor' \
+  'Apple-aware' \
+  'pangopup-build --help' \
+  'make lint' \
+  'make test' \
+  'make spec'; do
+  ! rg -F "$phrase" ../README.md >/dev/null
+done
+! rg -n '\]\((planning/|AGENTS\.md)' ../README.md
+printf 'internal trivia is absent\n' | mustmatch like 'internal trivia is absent'
 ```

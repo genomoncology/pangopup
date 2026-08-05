@@ -4,6 +4,7 @@ use std::{fs, path::Path};
 const REPOSITORY: &str = "https://github.com/genomoncology/pangopup";
 const RELEASE: &str = "https://github.com/genomoncology/pangopup/releases/tag/v0.3.0";
 const PAPER_DOI: &str = "https://doi.org/10.1186/s13059-022-02664-4";
+const PAPER_SPRINGER: &str = "https://link.springer.com/article/10.1186/s13059-022-02664-4";
 const ZENODO_DOI: &str = "https://doi.org/10.5281/zenodo.15649338";
 const PANGOLIN_REPOSITORY: &str = "https://github.com/tkzeng/Pangolin";
 
@@ -107,12 +108,16 @@ fn citation_validation_rejects_missing_or_drifted_identity() {
 #[test]
 fn readme_links_directly_to_the_named_prior_art() {
     let readme = fs::read_to_string(repository_root().join("README.md")).expect("read README");
-    for required in [PANGOLIN_REPOSITORY, PAPER_DOI, ZENODO_DOI] {
+    for required in [PANGOLIN_REPOSITORY, ZENODO_DOI] {
         assert!(
             readme.contains(required),
             "README must link directly to {required}"
         );
     }
+    assert!(
+        readme.contains(PAPER_DOI) || readme.contains(PAPER_SPRINGER),
+        "README must link directly to {PAPER_DOI} or {PAPER_SPRINGER}"
+    );
     for creator in [
         "Tony Zeng",
         "Yang I. Li",
