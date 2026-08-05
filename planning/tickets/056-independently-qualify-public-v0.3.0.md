@@ -1,6 +1,6 @@
 # 056 — Independently qualify the public v0.3.0 release
 
-Status: ready
+Status: complete
 
 ## Why
 
@@ -104,12 +104,56 @@ Final verdict: ACCEPT.
 
 ## Implementation Evidence
 
-Developer: pending
+Developer: Codex subagent `/root/ticket056_implementation`, 2026-08-05.
+
+Verdict: PASS. Added
+`planning/artifacts/056-independent-public-v0.3.0.md` and updated the frontier
+from planned to completed qualification. The anonymous exact-tag release and
+OCI identities passed; a fresh non-root pinned install passed; copied assets
+passed the retained 1,000-SNV, model, cache, and HTTP checks; a separate empty
+SQLite cache proved an 8.61-second miss and 0.01-second separate-process hit
+with identical output, one row, and unchanged primary database bytes; isolated
+code-only/full uninstall boundaries passed; and complete post-test source
+fingerprints equaled the pre-test fingerprints. No external state or product
+code was changed. Evidence root:
+`/home/ian/workspace/data/pangopup-release-056-independent-3a857f7/`.
+
+Developer gates: `make lint`, `make test`, and `make spec` passed; the spec
+result was 276 passed and 7 skipped.
+
+Code-review remediation retained a fresh full native-container qualifier run
+with literal digest argv and pre/post image inspection. The exact AMD64 leaf
+was present in `RepoDigests`, the local image ID was unchanged across the
+successful run, and the report now describes the qualifier's strict
+single-`RepoDigests` optional-assertion assumption rather than calling it
+redundant. The report also distinguishes the zero-length WAL from the nonempty
+SHM sidecar and narrows copied-asset claims to asset-dependent host scoring and
+offline sync.
 
 ## Adversarial Code Review
 
-Reviewer: pending
+Reviewer: Codex subagent `/root/ticket056_code_review`, 2026-08-05.
+
+Initial verdict: REJECT. The retained native-container evidence showed a
+successful qualifier but did not directly bind that run to the exact public
+AMD64 leaf. The reviewer also found inaccurate WAL/SHM wording and an
+overbroad statement that every command used copied assets.
+
+Resolution: rerun the full native qualifier while retaining literal argv and
+byte-identical pre/post Docker inspection, prove the exact leaf in
+`RepoDigests` and the unchanged local image ID, correct the SQLite sidecar
+description, and limit the copied-asset claim to the commands that consume
+installed biological assets.
+
+Final verdict: ACCEPT. The report's public identities, qualification results,
+preservation proof, cache proof, uninstall boundaries, and limitations are
+directly supported by retained evidence.
 
 ## Coordinator Final Check
 
-Coordinator: pending
+Coordinator: Codex (`/root`), 2026-08-05.
+
+PASS. Final local `make lint`, `make test`, and `make spec` all passed; the
+spec result was 276 passed and 7 skipped. The retained report and frontier
+accurately describe the accepted independent evidence and its limits. No
+product code or public state changed during this ticket.

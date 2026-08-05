@@ -668,15 +668,20 @@ mapping is not resident-memory demand and that file-backed pages are
 reclaimable. These are warm-page-cache, single-host observations; future
 multi-host capacity and concurrency limits remain evidence work.
 
-## Next outcome — independent public v0.3.0 qualification
+## Completed outcome — independent public v0.3.0 qualification
 
-Application publication is complete from one exact commit. The next bounded
-outcome is an independent, read-only public-release audit: authenticate the six
-anonymous executable members and two-leaf OCI index, install from the pinned
-curl command in a clean Linux environment, reuse the preserved qualified
-assets offline, and repeat CLI scoring, model/cache, HTTP, and isolated
-uninstall checks. It must not rebuild or republish biological assets or mutate
-the immutable release.
+The independent read-only public-release audit passed. An anonymous clean tag
+checkout authenticated the six executable members and two-leaf OCI index; a
+fresh non-root Ubuntu install, the host-native public container, 1,000 SNVs,
+model fallback and forced-model scoring, an explicit fresh SQLite miss and
+separate-process reuse, HTTP, and isolated uninstall scopes all passed. Every
+asset-dependent host scoring and offline-sync command used real copies of the
+retained installed assets because reflinks were unsupported, and complete
+before/after fingerprints proved the preserved roots unchanged. Retained argv
+and pre/post image inspection bind the full native qualifier to the exact
+public AMD64 leaf despite the local daemon also listing the parent index
+digest. The retained report separates tester/tooling friction from product
+behavior and does not claim local execution of the non-native ARM64 leaf.
 
 ## Later outcome — production and release hardening
 
