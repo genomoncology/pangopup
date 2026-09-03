@@ -161,7 +161,7 @@ pangopup lookup \
   --mask ../tests/fixtures/route-mask/domains.pgm \
   --model-bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle \
   | rg -o '"kind":"(precomputed|model)"' \
-  | paste -sd, \
+  | paste -sd, - \
   | mustmatch like '"kind":"precomputed","kind":"model"'
 pangopup lookup \
   --bundle ../tests/fixtures/snv-regression/bundle \

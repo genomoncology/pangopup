@@ -84,9 +84,9 @@ rm -rf ../target/spec/model-kernel/rebound
 mkdir -p ../target/spec/model-kernel
 cp -R ../tests/fixtures/pangolin-model-kernel-mini/evidence ../target/spec/model-kernel/rebound
 old=$(sha256sum ../target/spec/model-kernel/rebound/kernel-golden.jsonl | cut -d' ' -f1)
-sed -i '0,/0000803f/s//00000000/' ../target/spec/model-kernel/rebound/kernel-golden.jsonl
+perl -pi -e 'if (!$done) { $done = s/0000803f/00000000/ }' ../target/spec/model-kernel/rebound/kernel-golden.jsonl
 new=$(sha256sum ../target/spec/model-kernel/rebound/kernel-golden.jsonl | cut -d' ' -f1)
-sed -i "s/$old/$new/" ../target/spec/model-kernel/rebound/manifest.json
+perl -pi -e "s/$old/$new/" ../target/spec/model-kernel/rebound/manifest.json
 pangopup-build model qualify --bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle --evidence ../target/spec/model-kernel/rebound
 ```
 
