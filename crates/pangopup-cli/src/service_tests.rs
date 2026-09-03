@@ -302,7 +302,7 @@ impl WorkerBackend for FailSecondWorker {
         let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
         if call == 2 {
             return Err(Failure {
-                code: "TEST_FAILURE",
+                code: "MODEL_SCORING",
                 message: "test failure".to_owned(),
                 exit: 1,
                 details: None,
@@ -1142,7 +1142,7 @@ async fn model_failure_stops_batch_without_partial_http_result() {
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(
         body(response).await,
-        b"{\"error\":{\"code\":\"SCORING_FAILED\",\"message\":\"scoring failed\"}}\n"
+        b"{\"error\":{\"code\":\"MODEL_SCORING\",\"message\":\"scoring failed\"}}\n"
     );
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
