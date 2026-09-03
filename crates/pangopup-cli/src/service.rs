@@ -175,7 +175,7 @@ enum JobSlot {
 }
 
 enum WorkerReply {
-    BackendFailure(Failure),
+    BackendFailure(&'static str),
     Unavailable,
 }
 
@@ -739,7 +739,7 @@ fn process_job(
         }
         let result = backend
             .complete(&item.pending, &item.key)
-            .map_err(WorkerReply::BackendFailure)?;
+            .map_err(|failure| WorkerReply::BackendFailure(failure.code))?;
         results.push((item.output_index, result));
     }
     Ok(results)
@@ -1001,12 +1001,8 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
                     outputs[index] = Some(result);
                 }
             }
-            Ok(Err(WorkerReply::BackendFailure(failure))) => {
-                return service_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    failure.code,
-                    "scoring failed",
-                );
+            Ok(Err(WorkerReply::BackendFailure(code))) => {
+                return service_error(StatusCode::INTERNAL_SERVER_ERROR, code, "scoring failed");
             }
             Ok(Err(WorkerReply::Unavailable)) | Err(_) => {
                 return service_error(
