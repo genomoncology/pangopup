@@ -37,9 +37,12 @@ if grep -Eqi '<[[:space:]]*(img|picture|source)([[:space:]/>])' "$readme"; then
   fail "README must not contain HTML image-bearing tags"
 fi
 
-mapfile -t image_assets < <(
+image_assets=()
+while IFS= read -r asset; do
+  image_assets+=("$asset")
+done < <(
   find "$root/docs/images" -maxdepth 1 -type f \
-    \( -name '*.png' -o -name '*.svg' \) -printf '%f\n' | sort
+    \( -name '*.png' -o -name '*.svg' \) -exec basename {} \; | sort
 )
 expected_assets=(genomoncology.png pangopup-performance.png pangopup.svg)
 [[ "${image_assets[*]}" == "${expected_assets[*]}" ]] \

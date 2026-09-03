@@ -85,6 +85,50 @@ struct Options {
     yes: bool,
 }
 
+// Stat field widths differ by platform: Linux reports a 64-bit device and a
+// 32-bit mode where macOS reports 32 and 16. Widen through these so the
+// comparisons read the same on both, and so neither build carries a cast its
+// own lint would call redundant.
+#[cfg(target_os = "linux")]
+fn raw_mode(mode: u32) -> rustix::fs::RawMode {
+    mode
+}
+
+#[cfg(not(target_os = "linux"))]
+fn raw_mode(mode: u32) -> rustix::fs::RawMode {
+    mode as rustix::fs::RawMode
+}
+
+#[cfg(target_os = "linux")]
+fn stat_device(stat: &fs::Stat) -> u64 {
+    stat.st_dev
+}
+
+#[cfg(not(target_os = "linux"))]
+fn stat_device(stat: &fs::Stat) -> u64 {
+    u64::try_from(stat.st_dev).unwrap_or(u64::MAX)
+}
+
+#[cfg(target_os = "linux")]
+fn stat_mode(stat: &fs::Stat) -> u32 {
+    stat.st_mode
+}
+
+#[cfg(not(target_os = "linux"))]
+fn stat_mode(stat: &fs::Stat) -> u32 {
+    u32::from(stat.st_mode)
+}
+
+#[cfg(target_os = "linux")]
+fn stat_nlink(stat: &fs::Stat) -> u64 {
+    stat.st_nlink
+}
+
+#[cfg(not(target_os = "linux"))]
+fn stat_nlink(stat: &fs::Stat) -> u64 {
+    u64::from(stat.st_nlink)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Identity {
     device: u64,
@@ -303,6 +347,7 @@ fn prompt(
     }
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(unused_variables, unreachable_code))]
 fn inspect(executable: PathBuf, data: PathBuf, cache: PathBuf) -> Result<Plan, UninstallError> {
     #[cfg(not(target_os = "linux"))]
     return Err(UninstallError::unsafe_path(
@@ -530,12 +575,12 @@ fn inspect_tree(
     .map_err(|error| UninstallError::unsafe_path(format!("open managed root: {error}")))?;
     let stat = fs::fstat(&fd)
         .map_err(|error| UninstallError::io(format!("inspect managed root: {error}")))?;
-    if stat.st_dev != identity.device || stat.st_ino != identity.inode {
+    if stat_device(&stat) != identity.device || stat.st_ino != identity.inode {
         return Err(UninstallError::unsafe_path(
             "managed root changed during inspection",
         ));
     }
-    inspect_dir(&fd, stat.st_dev, uid, allowed, top)
+    inspect_dir(&fd, stat_device(&stat), uid, allowed, top)
 }
 
 fn inspect_dir(
@@ -593,7 +638,7 @@ fn validate_descendant(
     name: &str,
 ) -> Result<(), UninstallError> {
     let kind = FileType::from_raw_mode(stat.st_mode);
-    if stat.st_dev != device {
+    if stat_device(stat) != device {
         return Err(UninstallError::unsafe_path(format!(
             "managed entry {name} crosses a filesystem boundary"
         )));
@@ -603,7 +648,7 @@ fn validate_descendant(
             "managed entry {name} has a foreign owner"
         )));
     }
-    if kind.is_file() && stat.st_nlink != 1 {
+    if kind.is_file() && stat_nlink(stat) != 1 {
         return Err(UninstallError::unsafe_path(format!(
             "managed entry {name} is unexpectedly hard-linked"
         )));
@@ -846,12 +891,12 @@ fn validate_root_stat(
     uid: u32,
     label: &str,
 ) -> Result<(), UninstallError> {
-    if stat.st_dev != identity.device
+    if stat_device(stat) != identity.device
         || stat.st_ino != identity.inode
-        || stat.st_mode != identity.mode
+        || stat_mode(stat) != identity.mode
         || stat.st_uid != identity.uid
         || identity.uid != uid
-        || !FileType::from_raw_mode(identity.mode).is_dir()
+        || !FileType::from_raw_mode(raw_mode(identity.mode)).is_dir()
     {
         return Err(UninstallError::unsafe_path(format!(
             "{label} changed after admission"
@@ -1013,7 +1058,7 @@ fn create_tombstone(parent: &OwnedFd, uid: u32) -> Result<Tombstone, UninstallEr
                     UninstallError::io(format!("inspect uninstall tombstone: {error}"))
                 })?;
                 if stat.st_uid != uid
-                    || stat.st_nlink != 1
+                    || stat_nlink(&stat) != 1
                     || !FileType::from_raw_mode(stat.st_mode).is_file()
                 {
                     let _ = fs::unlinkat(parent, name.as_c_str(), AtFlags::empty());
@@ -1174,10 +1219,10 @@ fn unlink_executable(plan: &Plan) -> Result<(), UninstallError> {
         .expect("admitted executable has name");
     let stat = fs::statat(&parent, name, AtFlags::SYMLINK_NOFOLLOW)
         .map_err(|error| UninstallError::io(format!("revalidate executable: {error}")))?;
-    if stat.st_dev != plan.executable_identity.device
+    if stat_device(&stat) != plan.executable_identity.device
         || stat.st_ino != plan.executable_identity.inode
         || stat.st_uid != plan.uid
-        || stat.st_nlink != 1
+        || stat_nlink(&stat) != 1
         || !FileType::from_raw_mode(stat.st_mode).is_file()
     {
         return Err(UninstallError::unsafe_path(
@@ -1406,6 +1451,9 @@ mod tests {
         }
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn code_only_unlinks_executable_last_and_preserves_roots() {
         let fixture = Fixture::new();
@@ -1429,6 +1477,9 @@ mod tests {
         assert!(text.contains("\"state\":\"preserved\""));
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn full_yes_removes_roots_then_executable_and_reports_absence() {
         let fixture = Fixture::new();
@@ -1456,6 +1507,9 @@ mod tests {
         )));
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn both_absent_roots_are_reported_without_being_created() {
         let fixture = Fixture::new();
@@ -1482,6 +1536,9 @@ mod tests {
         );
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn interactive_choices_and_full_confirmation_are_exact() {
         for (options, answer, expected_scope) in [
@@ -1520,6 +1577,9 @@ mod tests {
         }
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn cancellation_is_successful_and_does_not_create_locks_or_change_root() {
         use std::os::unix::fs::MetadataExt;
@@ -1567,6 +1627,9 @@ mod tests {
         );
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn nonterminal_and_invalid_or_eof_input_never_mutate() {
         for (terminal, answer, code) in [
@@ -1633,6 +1696,9 @@ mod tests {
         );
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn root_and_nested_symlinks_never_delete_outside_sentinels() {
         let root_link = Fixture::new();
@@ -1780,6 +1846,9 @@ mod tests {
         stdfs::set_permissions(parent, stdfs::Permissions::from_mode(0o700)).expect("restore");
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn held_install_or_sync_authority_blocks_full_removal() {
         for lock in [".sync.lock", ".install.lock"] {
@@ -1812,6 +1881,9 @@ mod tests {
         }
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn admitted_root_swap_is_detected_before_replacement_mutation() {
         let fixture = Fixture::new();
@@ -1843,6 +1915,9 @@ mod tests {
         assert!(fixture.executable.exists());
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn root_swap_between_named_stat_and_open_is_rejected() {
         let fixture = Fixture::new();
@@ -1873,6 +1948,9 @@ mod tests {
         assert!(fixture.executable.exists());
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn public_root_stays_blocked_until_destructive_traversal_finishes() {
         use std::sync::{Arc, Barrier, Mutex};
@@ -1915,6 +1993,9 @@ mod tests {
         assert!(!fixture.data.exists());
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn present_data_blocker_prevents_fresh_authority_during_cache_removal() {
         let fixture = Fixture::new();
@@ -1945,6 +2026,9 @@ mod tests {
         assert!(!fixture.data.exists());
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn absent_data_blocker_prevents_root_creation_during_cache_removal() {
         let fixture = Fixture::new();
@@ -1970,6 +2054,9 @@ mod tests {
         assert!(!fixture.data.exists());
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn absent_data_blocker_is_cleaned_when_cache_is_replaced_after_confirmation() {
         let fixture = Fixture::new();
@@ -2007,6 +2094,9 @@ mod tests {
         assert!(fixture.executable.exists(), "executable remains on failure");
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn replaced_public_blocker_is_never_blindly_unlinked() {
         let fixture = Fixture::new();
@@ -2035,6 +2125,9 @@ mod tests {
         assert!(fixture.executable.exists());
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn injected_later_phase_failure_preserves_executable() {
         let fixture = Fixture::new();
@@ -2059,6 +2152,9 @@ mod tests {
         assert!(fixture.executable.exists(), "executable is always last");
     }
 
+    // Exercises Linux-only asset installation; other platforms get the
+    // documented refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn sparse_payload_preflight_is_metadata_only() {
         let fixture = Fixture::new();

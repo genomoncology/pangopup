@@ -1,5 +1,10 @@
 //! Deterministic, bounded delivery of Pangopup's certified SNV bundle.
 
+// The Linux-only installation tests are compiled out on other targets, which
+// orphans the helpers and fault-injection hooks that only they use. Allow that
+// in non-Linux test builds rather than gating each helper by hand.
+#![cfg_attr(all(test, not(target_os = "linux")), allow(dead_code, unused_imports))]
+
 use pangopup_index::{BundleManifest, parse_bundle_manifest_bytes};
 use serde::{
     Deserialize, Deserializer, Serialize,

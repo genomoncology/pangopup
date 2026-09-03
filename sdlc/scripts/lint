@@ -1,0 +1,36 @@
+#!/bin/sh
+# lint — the first rung of the gate ladder. Exits 0 when the code is clean.
+#
+# The template default: check the size ceiling, then, if the repo root has a
+# Makefile with a `lint` target, run it. A repo with neither a ratchet nor a
+# lint target has nothing to lint, and that is not an error. A project
+# replaces this file with whatever it actually runs.
+set -eu
+
+# The repo is this script's own home when invoked as a file — the template
+# tests run it from arbitrary working directories, and cwd resolution here
+# once made a test suite run itself recursively (the 2026-08-06 storm). Only
+# a gate piping it into sh ($0 names no file) falls back to the working tree,
+# which is exactly the tree it judges.
+case $0 in
+*/lint) REPO=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd) ;;
+*) REPO=$(git rev-parse --show-toplevel) ;;
+esac
+
+# Reentrancy sentinel, scoped to the repo: a check for THIS repo already
+# running above us means some path is recursive — fail loudly instead of
+# forking a storm (2026-08-06). A different repo (a test fixture) is fine.
+if [ "${SDLC_IN_CHECK-}" = "$REPO" ]; then
+	echo "refusing: a check for $REPO is already running above us (recursion)" >&2
+	exit 2
+fi
+export SDLC_IN_CHECK="$REPO"
+
+cd -- "$REPO"
+# Quiet when this repo has adopted no sdlc/ratchet.json.
+node sdlc/scripts/ratchet.mjs
+node sdlc/scripts/answer-ratchet.mjs
+
+[ -f Makefile ] || exit 0
+make -n lint >/dev/null 2>&1 || exit 0
+exec make lint

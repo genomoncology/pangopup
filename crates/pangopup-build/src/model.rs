@@ -11,11 +11,13 @@ use pangopup_model::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+#[cfg(target_os = "linux")]
+use std::io::ErrorKind;
 use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::OsStr,
     fs::{self, File, OpenOptions},
-    io::{self, ErrorKind, Read, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     process::{Command, ExitStatus, Stdio},
     sync::atomic::{AtomicU64, Ordering},
@@ -1368,6 +1370,7 @@ impl Drop for StageGuard {
     }
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(unused_variables, unreachable_code))]
 fn publish_stage(
     stage: &Path,
     parent: &Path,

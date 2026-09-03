@@ -1,0 +1,908 @@
+#!/usr/bin/env bash
+# before — give the attempt a git worktree on its own ticket branch.
+#
+# ENVIRONMENT:
+#   TICKET_ID        four digits; the ticket's id as tasks reported it
+#   TICKET_REF       the repo-relative ticket path; fresh build preparation
+#                    reads it from origin/main to recognize canonical adoption
+#   TICKET_FLOW      the procedure that will run; "quickfix" is exempt from
+#                    the green-main gate, because repairing a red main is
+#                    the whole job
+#   PRIOR_RUN_ID     ) present only on a retry. This script does not branch
+#   PRIOR_RUN_CAUSE  ) on them: it is continuation-friendly by construction —
+#   PRIOR_ATTEMPT_DIR) an existing ticket branch and worktree are REUSED.
+#   WORKTREE_ROOT    where worktrees live (default $HOME/workspace/worktrees)
+#   You start in the repository's registered directory; pwd is the repo.
+#
+# WHAT IT DOES
+#   1. fetch --prune, because everything below reads origin/main
+#   2. worktree at $WORKTREE_ROOT/<owner>/<repo>/<TICKET_ID> on branch
+#      ticket/<TICKET_ID>, branched from origin/main and NEVER from local
+#      main — a local main may be stale, dirty, or different per machine
+#   3. merge origin/main into a ticket branch that does not already contain
+#      it. A merge conflict is held for human recovery with its worktree
+#      intact; nothing prepares or gates that stale tree.
+#   4. sdlc/scripts/install in that tree, if the repo has one
+#   5. the green-main gate: sdlc/scripts/lint then sdlc/scripts/test in that
+#      tree. A valid verdict manifest for the current origin/main skips all
+#      three commands while its recorded executable bytes remain unchanged.
+#      The gate otherwise skips for the quickfix flow and for
+#      a ticket branch carrying commits of its own — a continued branch is
+#      mid-work (a red-first test is its normal state) and its redness says
+#      nothing about origin/main; the landing gate protects main instead.
+#   Steps 4 and 5 undo the tree and branch when they fail, so a refused
+#   before leaves nothing behind — but never a branch holding commits
+#   origin/main lacks; destroying a prior attempt's work is worse than
+#   leaving a tree for the retry to continue.
+#
+# STDOUT:
+#   dir: <absolute worktree path>   the attempt's directory
+#   SDLC_REPO=<absolute repo path>  baggage: where the checkout is, for
+#                                   success and failure when the worktree is
+#                                   gone and pwd can no longer say
+#   SDLC_BRANCH=ticket/<TICKET_ID>  baggage: the branch this attempt owns
+# EXIT:    0 the tree is ready
+#          3 origin/main is red, or a live bot run holds this ticket's tree:
+#            the channel backs off and a quickfix or the other run must
+#            resolve it before anything else can fly
+#          2 a merge could not complete; refuse this ticket and retain its
+#            worktree and in-progress merge for human recovery
+#          any other nonzero: a retryable fault (fetch failed, install
+#            failed, a missing gate, the path is occupied by something that
+#            is not ours).
+#
+# There is no origin claim branch and no claim commit. The old prepare
+# pushed one as a cross-machine lock and called collisions a claim status;
+# the factory's lease is that lock now, so a branch that already exists is
+# this ticket's own work to continue, not evidence of a rival.
+if ((BASH_VERSINFO[0] < 3 || (BASH_VERSINFO[0] == 3 && BASH_VERSINFO[1] < 2))); then
+	printf 'Bash %s is unsupported; Bash 3.2 or newer is required\n' "$BASH_VERSION" >&2
+	exit 2
+fi
+
+set -euo pipefail
+
+git_with_optional_timeout() {
+	if command -v timeout >/dev/null 2>&1; then
+		timeout -k 10 60 git "$@"
+	else
+		git "$@"
+	fi
+}
+
+# stdout is reserved for the protocol lines. Everything a git or a gate
+# prints is chatter and belongs on stderr.
+exec 3>&1 1>&2
+
+: "${TICKET_ID:?before: TICKET_ID is required}"
+case "$TICKET_ID" in
+[0-9][0-9][0-9][0-9]) ;;
+*)
+	echo "before: TICKET_ID must be exactly four digits" >&2
+	exit 1
+	;;
+esac
+
+REPO=$(pwd -P)
+BRANCH="ticket/$TICKET_ID"
+WORKTREES=${WORKTREE_ROOT:-$HOME/workspace/worktrees}
+
+origin_namespace() {
+	local origin namespace
+	origin=$(git -C "$REPO" remote get-url origin 2>/dev/null) || return 1
+	namespace=$(printf '%s\n' "$origin" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/\.git$//; s/:/\//g' | awk -F/ '{ for (i = 1; i <= NF; i++) if ($i != "") part[++n] = $i } END { if (n >= 2) print part[n - 1] "/" part[n] }')
+	# The namespace becomes a path below WORKTREES; traversal components are
+	# not identities.
+	case "$namespace" in ./* | ../* | */. | */..) return 1 ;; esac
+	printf '%s\n' "$namespace"
+}
+
+if ! NAMESPACE=$(origin_namespace) || [ -z "$NAMESPACE" ]; then
+	echo "before: cannot derive owner/repository from origin" >&2
+	exit 1
+fi
+if ! common=$(git -C "$REPO" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) ||
+	! REPO_COMMON=$(CDPATH='' cd -- "$common" && pwd -P); then
+	echo "before: cannot determine the Git common directory for $REPO" >&2
+	exit 1
+fi
+TREE="$WORKTREES/$NAMESPACE/$TICKET_ID"
+
+# A candidate is ours only if Git identifies that path itself as a worktree
+# top-level and both trees share this repository's common directory.
+candidate_owned() {
+	local candidate=$1 top candidate_path top_path candidate_common
+	top=$(git -C "$candidate" rev-parse --show-toplevel 2>/dev/null) || return 1
+	candidate_path=$(CDPATH='' cd -- "$candidate" && pwd -P) || return 1
+	top_path=$(CDPATH='' cd -- "$top" && pwd -P) || return 1
+	[ "$candidate_path" = "$top_path" ] || return 1
+	candidate_common=$(git -C "$candidate" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+	candidate_common=$(CDPATH='' cd -- "$candidate_common" && pwd -P) || return 1
+	[ "$candidate_common" = "$REPO_COMMON" ]
+}
+
+lexical_path() {
+	local path=$1 part
+	local -a parts=() source=()
+	case "$path" in
+	/*) ;;
+	*) return 1 ;;
+	esac
+	IFS=/ read -r -a source <<< "$path"
+	for part in "${source[@]}"; do
+		case "$part" in
+		'' | .) ;;
+		..)
+			if [ "${#parts[@]}" -gt 0 ]; then
+				unset 'parts[${#parts[@]} - 1]'
+			fi
+			;;
+		*) parts+=("$part") ;;
+		esac
+	done
+	local IFS=/
+	printf '/%s\n' "${parts[*]}"
+}
+
+orphan_owned() {
+	local candidate=$1 candidate_path pointer normalized extra
+	[ -d "$candidate" ] || return 1
+	[ -f "$candidate/.git" ] && [ ! -L "$candidate/.git" ] || return 1
+	{
+		IFS= read -r pointer || [ -n "$pointer" ] || return 1
+		if IFS= read -r extra || [ -n "$extra" ]; then
+			return 1
+		fi
+	} <"$candidate/.git" || return 1
+	case "$pointer" in
+	"gitdir: "?*) pointer=${pointer#gitdir: } ;;
+	*) return 1 ;;
+	esac
+	candidate_path=$(CDPATH='' cd -- "$candidate" && pwd -P) || return 1
+	case "$pointer" in
+	/*) normalized=$(lexical_path "$pointer") ;;
+	*) normalized=$(lexical_path "$candidate_path/$pointer") ;;
+	esac
+	case "$normalized" in
+	"$REPO_COMMON"/*) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+owned_worktree() {
+	candidate_owned "$1" || orphan_owned "$1"
+}
+
+# Git is the normal remover. Recursive removal is only for its known stale
+# metadata case, after ownership has been proved again at the point of use.
+remove_tree() {
+	local candidate=$1
+	if git -C "$REPO" worktree remove --force "$candidate" >/dev/null 2>&1; then
+		return 0
+	fi
+	[ -e "$candidate" ] || return 0
+	if ! owned_worktree "$candidate"; then
+		echo "before: refusing to remove $candidate: it is not a worktree owned by $REPO" >&2
+		return 1
+	fi
+	if ! rm -rf "$candidate"; then
+		echo "before: could not remove worktree $candidate" >&2
+		return 1
+	fi
+}
+
+# Bot answers 0 while a live run holds its worktree, 1 when it is idle; any
+# other result is not proof that cleanup is safe.
+worktree_liveness() {
+	bot busy "$1"
+}
+
+# Remove the tree and the local branch. Called on every refusal below, so a
+# refused before leaves nothing behind on this machine — except a branch
+# with its own commits, which is a prior attempt's work and never ours to
+# destroy.
+undo() {
+	if git -C "$REPO" show-ref --verify --quiet "refs/heads/$BRANCH" &&
+		[ "$(git -C "$REPO" rev-list --count "origin/main..$BRANCH" 2>/dev/null || echo 1)" -gt 0 ]; then
+		echo "before: refusing to undo $BRANCH: it holds commits origin/main does not" >&2
+		return 1
+	fi
+
+	if [ -e "$TREE" ]; then
+		local liveness
+		if worktree_liveness "$TREE"; then
+			echo "before: refusing to undo $BRANCH: a live run holds worktree $TREE" >&2
+			return 3
+		else
+			liveness=$?
+		fi
+		case "$liveness" in
+		1) ;;
+		127)
+			echo "before: refusing to undo $BRANCH: bot is not installed or not on PATH" >&2
+			return 3
+			;;
+		*)
+			echo "before: refusing to undo $BRANCH: could not establish liveness for worktree $TREE" >&2
+			return 3
+			;;
+		esac
+
+		if ! owned_worktree "$TREE"; then
+			echo "before: refusing to remove $TREE: it is not a worktree owned by $REPO" >&2
+			return 1
+		fi
+		remove_tree "$TREE" || return 1
+	fi
+	git -C "$REPO" worktree prune >/dev/null 2>&1 || return 1
+	if git -C "$REPO" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+		git -C "$REPO" branch -D "$BRANCH" >/dev/null 2>&1 || return 1
+	fi
+}
+
+# 1. Fetch. Everything below reads origin/main, so it has to be current.
+if ! git_with_optional_timeout -C "$REPO" fetch --quiet --prune origin; then
+	echo "before: git fetch origin failed" >&2
+	exit 1
+fi
+if ! GREEN_MAIN_SHA=$(git -C "$REPO" rev-parse origin/main); then
+	echo "before: could not resolve origin/main" >&2
+	exit 1
+fi
+
+# 2. The tree. Three shapes: continue an existing tree, put a tree back on an
+# existing branch, or make both fresh from origin/main.
+tree_branch() {
+	git -C "$TREE" symbolic-ref --quiet --short HEAD 2>/dev/null
+}
+
+if [ -e "$TREE" ]; then
+	if candidate_owned "$TREE"; then
+		if [ "$(tree_branch || true)" != "$BRANCH" ]; then
+			echo "before: $TREE is checked out on $(tree_branch || echo 'a detached HEAD'), not $BRANCH" >&2
+			exit 1
+		fi
+		if git -C "$REPO" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+			echo "before: continuing the existing worktree $TREE on $BRANCH" >&2
+		else
+			cleanup_status=0
+			undo || cleanup_status=$?
+			if [ "$cleanup_status" -ne 0 ]; then
+				echo "before: cleanup after $BRANCH was gone failed" >&2
+				exit "$cleanup_status"
+			fi
+			echo "before: discarded worktree $TREE because its branch $BRANCH was gone" >&2
+		fi
+	elif orphan_owned "$TREE"; then
+		cleanup_status=0
+		undo || cleanup_status=$?
+		if [ "$cleanup_status" -ne 0 ]; then
+			echo "before: cleanup after unregistered worktree $TREE failed" >&2
+			exit "$cleanup_status"
+		fi
+		echo "before: reclaimed unregistered worktree $TREE" >&2
+	else
+		echo "before: $TREE exists and is not a worktree owned by $REPO — resolve it by hand" >&2
+		exit 1
+	fi
+fi
+
+if [ ! -e "$TREE" ] && git -C "$REPO" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+	# The branch survived a previous attempt; its commits are this ticket's
+	# own work, so put a tree back on it rather than throwing the work away.
+	mkdir -p "$WORKTREES/$NAMESPACE"
+	if ! git -C "$REPO" worktree add --quiet "$TREE" "$BRANCH"; then
+		echo "before: $BRANCH exists but a worktree for it could not be made at $TREE" >&2
+		exit 1
+	fi
+	echo "before: reattached $BRANCH to a new worktree at $TREE" >&2
+elif [ ! -e "$TREE" ]; then
+	mkdir -p "$WORKTREES/$NAMESPACE"
+	if ! git -C "$REPO" worktree add --quiet -b "$BRANCH" "$TREE" origin/main; then
+		echo "before: could not create worktree $TREE on $BRANCH" >&2
+		exit 1
+	fi
+fi
+
+# Retire the managed traceability hook without touching an unrelated hook.
+# A managed hook may have displaced the prior hook into the saved path, so
+# restore that hook when it exists and otherwise remove only the managed one.
+retire_commit_msg_hook() {
+	local hooks hook original grep_status
+	if ! hooks=$(git -C "$TREE" rev-parse --path-format=absolute --git-path hooks); then
+		echo "before: could not determine the Git hooks directory for $REPO" >&2
+		return 1
+	fi
+
+	hook="$hooks/commit-msg"
+	original="$hooks/commit-msg.sdlc-original"
+	if [ -e "$hook" ] || [ -L "$hook" ]; then
+		if [ ! -L "$hook" ] && grep -Fqx '# sdlc-managed-traceability-commit-msg-hook' "$hook"; then
+			if [ -e "$original" ] || [ -L "$original" ]; then
+				if ! mv "$original" "$hook"; then
+					echo "before: could not restore the saved commit-msg hook" >&2
+					return 1
+				fi
+			elif ! rm -f "$hook"; then
+				echo "before: could not remove the managed traceability commit-msg hook" >&2
+				return 1
+			fi
+		else
+			grep_status=$?
+			if [ "$grep_status" -gt 1 ]; then
+				echo "before: could not inspect the commit-msg hook" >&2
+				return 1
+			fi
+		fi
+	elif [ -e "$original" ] || [ -L "$original" ]; then
+		if ! mv "$original" "$hook"; then
+			echo "before: could not restore the saved commit-msg hook" >&2
+			return 1
+		fi
+	fi
+}
+
+if ! retire_commit_msg_hook; then
+	cleanup_status=0
+	undo || cleanup_status=$?
+	if [ "$cleanup_status" -eq 3 ]; then
+		exit 3
+	fi
+	if [ "$cleanup_status" -ne 0 ]; then
+		echo "before: cleanup after traceability hook migration failed" >&2
+	fi
+	echo "before: could not retire the traceability commit-msg hook" >&2
+	exit 1
+fi
+
+# 3. Continue from current main before this attempt reads the ticket or runs
+# anything project-specific. A failed merge remains in the worktree for the
+# person who can resolve it; Git's merge diagnostic stays on stderr.
+merge_main() {
+	local paths
+	if git -C "$TREE" merge origin/main; then
+		return 0
+	fi
+
+	echo "before: could not merge origin/main into $BRANCH; holding the worktree for human recovery" >&2
+	if paths=$(git -C "$TREE" diff --name-only --diff-filter=U); then
+		if [ -n "$paths" ]; then
+			echo "before: conflicting paths:" >&2
+			printf '%s\n' "$paths" >&2
+		fi
+	else
+		echo "before: could not list unmerged paths" >&2
+	fi
+	return 2
+}
+
+if git -C "$TREE" merge-base --is-ancestor origin/main "$BRANCH" >/dev/null 2>&1; then
+	:
+else
+	ancestor_status=$?
+	if [ "$ancestor_status" -ne 1 ]; then
+		echo "before: could not determine whether $BRANCH contains origin/main" >&2
+		exit 1
+	fi
+	merge_main || exit $?
+fi
+
+# How far the branch is ahead of origin/main. Zero means the tree's content
+# is main's content, so the gates below truly measure main; nonzero means
+# this is a continuation of the ticket's own work.
+AHEAD=$(git -C "$TREE" rev-list --count "origin/main..$BRANCH" 2>/dev/null || echo 0)
+
+# Deployment emits one exact ticket shape for canonical lifecycle adoption.
+# Recognize only that committed shape for this ticket. An unreadable or
+# malformed ref is an ordinary build ticket, never an exemption or a fault.
+canonical_adoption_ticket() {
+	local ticket
+	[ "${TICKET_FLOW-}" = build ] && [ "$AHEAD" -eq 0 ] || return 1
+	case "${TICKET_REF-}" in
+	"sdlc/tickets/$TICKET_ID-"*.md) ;;
+	*) return 1 ;;
+	esac
+	case "$TICKET_REF" in *[!A-Za-z0-9_./-]* | *..*) return 1 ;; esac
+	ticket=$(mktemp) || return 1
+	if ! git -C "$REPO" cat-file blob "origin/main:$TICKET_REF" >"$ticket" 2>/dev/null ||
+		[ "$(tail -c 1 "$ticket" | od -An -tu1 | tr -d ' ')" != 10 ]; then
+		rm -f "$ticket"
+		return 1
+	fi
+	awk '
+		function hash(value) { return length(value) == 64 && value !~ /[^0-9a-f]/ }
+		function source(value, parts) {
+			if (value !~ /^sdlc\/tickets\/[0-9][0-9][0-9][0-9]-[A-Za-z0-9._-]+\.md@[0-9a-f]+$/) return 0
+			split(value, parts, "@")
+			if (length(parts[2]) != 40) return 0
+			source_ref = parts[1]
+			commit = parts[2]
+			return 1
+		}
+		function target(line, name) {
+			if (line !~ /^- path: sdlc\/project\/(tasks|before|success|failure|health)$/) return 0
+			name = line
+			sub(/^- path: sdlc\/project\//, "", name)
+			if (seen[name]++) return 0
+			targets++
+			return 1
+		}
+		BEGIN { state = 0; valid = 1 }
+		{
+			if (!valid) next
+			if (state == 0) valid = ($0 == "---")
+			else if (state == 1) valid = ($0 == "flow: build")
+			else if (state == 2) valid = ($0 == "priority: 10")
+			else if (state == 3) valid = ($0 == "---")
+			else if (state == 4) valid = ($0 == "# Adopt canonical lifecycle scripts")
+			else if (state == 5) valid = ($0 == "")
+			else if (state == 6) {
+				valid = ($0 ~ /^Adoption identity: /)
+				identity = substr($0, 20)
+				if (valid) valid = source(identity)
+			}
+			else if (state == 7) valid = ($0 == "")
+			else if (state == 8) valid = ($0 == "Adopt the canonical lifecycle changes landed by `" source_ref "` at exact commit `" commit "`.")
+			else if (state == 9) valid = ($0 == "Apply exactly these bytes and executable states:")
+			else if (state == 10) valid = ($0 == "")
+			else if (state == 11) valid = target($0)
+			else if (state == 12) valid = ($0 ~ /^  sha256: / && hash(substr($0, 11)))
+			else if (state == 13) valid = ($0 == "  executable: true" || $0 == "  executable: false")
+			else if (state == 14) {
+				if ($0 == "") state = 15
+				else { valid = target($0); state = 12 }
+				next
+			}
+			else if (state == 15) valid = ($0 == "Adopt the matching provenance manifest:")
+			else if (state == 16) valid = ($0 == "")
+			else if (state == 17) valid = ($0 == "- path: sdlc/project/provenance.json")
+			else if (state == 18) valid = ($0 ~ /^  sha256: / && hash(substr($0, 11)))
+			else valid = 0
+			state++
+		}
+		END { exit !(valid && targets > 0 && state == 19) }
+	' "$ticket"
+	local status=$?
+	rm -f "$ticket"
+	return "$status"
+}
+
+CANONICAL_ADOPTION=0
+if canonical_adoption_ticket; then
+	CANONICAL_ADOPTION=1
+fi
+
+# A green verdict belongs to the fetched main commit and the executable bytes
+# observed during its proof. Snapshot trust before any project-owned script
+# runs, so install cannot create a marker and skip gates.
+GREEN_MAIN_MARKER=
+GREEN_MAIN_STATE=
+GREEN_MAIN_VERDICT_TRUSTED=0
+GREEN_MAIN_NEEDS_PROOF=0
+GREEN_MAIN_OBSERVATION_DEGRADED=0
+GATE_OUTPUT=
+MARKER_TEMP=
+trap 'rm -rf "${GREEN_MAIN_STATE-}"; rm -f "${GATE_OUTPUT-}" "${MARKER_TEMP-}"' EXIT
+
+hash_executable() {
+	local path=$1 digest
+	[ -f "$path" ] && [ -r "$path" ] || return 1
+	digest=$(sha256sum -- "$path") || return 1
+	digest=${digest%% *}
+	case "$digest" in
+	????????????????????????????????????????????????????????????????) ;;
+	*) return 1 ;;
+	esac
+	case "$digest" in *[!0-9a-f]*) return 1 ;; esac
+	printf '%s\n' "$digest"
+}
+
+# Build the only accepted representation. Comparing a readable marker with
+# this rendering rejects malformed, duplicate, and unsorted records together.
+build_manifest() {
+	local paths=$1 output=$2 path digest sorted
+	sorted=$(mktemp "$GREEN_MAIN_STATE/sorted-paths.XXXXXX") || return 1
+	LC_ALL=C sort -u -- "$paths" >"$sorted" || return 1
+	printf 'sdlc-green-main-v1\n' >"$output" || return 1
+	while IFS= read -r path; do
+		[ -n "$path" ] || continue
+		digest=$(hash_executable "$path") || return 1
+		printf '%s  %s\n' "$digest" "$path" >>"$output" || return 1
+	done <"$sorted"
+	rm -f "$sorted"
+}
+
+validate_manifest() {
+	local marker=$1 line path digest actual
+	local paths="$GREEN_MAIN_STATE/manifest-paths"
+	local expected="$GREEN_MAIN_STATE/expected-manifest"
+	: >"$paths" || return 1
+	{
+		IFS= read -r line || return 1
+		[ "$line" = sdlc-green-main-v1 ] || return 1
+		while IFS= read -r line || [ -n "$line" ]; do
+			if [[ ! "$line" =~ ^([0-9a-f]{64})\ \ (/.+)$ ]]; then
+				return 1
+			fi
+			digest=${BASH_REMATCH[1]}
+			path=${BASH_REMATCH[2]}
+			case "$path" in *$'\n'*) return 1 ;; esac
+			actual=$(hash_executable "$path") || return 1
+			[ "$actual" = "$digest" ] || return 1
+			printf '%s\n' "$path" >>"$paths" || return 1
+		done
+	} <"$marker"
+	build_manifest "$paths" "$expected" || return 1
+	cmp -s -- "$marker" "$expected"
+}
+
+if [ "${TICKET_FLOW-}" != "quickfix" ] && [ "$AHEAD" -eq 0 ]; then
+	GREEN_MAIN_MARKER="$WORKTREES/$NAMESPACE/.green-main/$GREEN_MAIN_SHA"
+	GREEN_MAIN_STATE=$(mktemp -d) || {
+		echo "before: could not prepare green-main verdict state" >&2
+		exit 1
+	}
+	if [ -f "$GREEN_MAIN_MARKER" ] && [ ! -L "$GREEN_MAIN_MARKER" ] && [ -r "$GREEN_MAIN_MARKER" ] &&
+		validate_manifest "$GREEN_MAIN_MARKER"; then
+		GREEN_MAIN_VERDICT_TRUSTED=1
+		echo "before: trusting green-main verdict for $GREEN_MAIN_SHA" >&2
+	else
+		GREEN_MAIN_NEEDS_PROOF=1
+	fi
+fi
+
+# Project-owned setup and gates must not leave an unproven verdict behind.
+clear_unproven_marker() {
+	[ "$GREEN_MAIN_NEEDS_PROOF" -eq 1 ] || return 0
+	if [ -e "$GREEN_MAIN_MARKER" ] || [ -L "$GREEN_MAIN_MARKER" ]; then
+		rm -f "$GREEN_MAIN_MARKER"
+	fi
+}
+
+# Decode successful execve records from strace's byte-escaped form. Failed
+# PATH probes are valid observations but do not identify invoked executables.
+# strace -f interleaves concurrent processes, splitting an execve into an
+# "<unfinished ...>" line and a "<... execve resumed>" line; merge each pair
+# back into one record first, or a busy run reads as an invalid observation.
+# A pending execve that never resumes passes through unmerged and fails the
+# strict parse below, which is the safe verdict for an ambiguous record.
+merge_exec_trace() {
+	awk '
+		/execve\(/ && / <unfinished \.\.\.>$/ {
+			line = $0
+			sub(/ <unfinished \.\.\.>$/, "", line)
+			pending[$1] = line
+			next
+		}
+		/<\.\.\. execve resumed>/ && ($1 in pending) {
+			tail = $0
+			sub(/^[0-9]+[ \t]+<\.\.\. execve resumed>/, "", tail)
+			print pending[$1] tail
+			delete pending[$1]
+			next
+		}
+		{ print }
+		END { for (pid in pending) print pending[pid] }
+	' "$1"
+}
+parse_exec_trace() {
+	local trace=$1 line encoded path resolved
+	local seen=0
+	local merged
+	merged=$(mktemp "$GREEN_MAIN_STATE/execve-merged.XXXXXX") || return 1
+	merge_exec_trace "$trace" >"$merged" || return 1
+	trace=$merged
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in
+		*'execve('*)
+			seen=1
+			if [[ "$line" =~ ^[0-9]+[[:space:]]+execve\(\"((\\x[0-9a-f]{2})+)\".*\)[[:space:]]+=[[:space:]]+0$ ]]; then
+				encoded=${BASH_REMATCH[1]}
+				printf -v path '%b' "$encoded"
+				case "$path" in
+				/*) ;;
+				*)
+					# A relative execve resolves against the child's
+					# cwd, which the trace does not record; it cannot
+					# be re-verified and earns no manifest entry.
+					continue
+					;;
+				esac
+				case "$path" in *$'\n'*) return 1 ;; esac
+				case "$path" in
+				"$TREE" | "$TREE"/*) ;;
+				*)
+					if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+						# Executed and already gone: a transient test
+						# fixture cannot be re-verified, cannot run
+						# again, and cannot be hashed into the
+						# manifest. It earns no entry.
+						:
+					else
+						resolved=$(readlink -f -- "$path") || return 1
+						case "$resolved" in
+						"$TREE" | "$TREE"/*) ;;
+						*) printf '%s\n' "$path" >>"$GREEN_MAIN_STATE/observed-paths" || return 1 ;;
+						esac
+					fi
+					;;
+				esac
+			elif [[ "$line" =~ ^[0-9]+[[:space:]]+execve\(\"((\\x[0-9a-f]{2})+)\".*\)[[:space:]]+=[[:space:]]+-1([[:space:]].*)?$ ]]; then
+				:
+			else
+				return 1
+			fi
+			;;
+		esac
+	done <"$trace"
+	[ "$seen" -eq 1 ]
+}
+
+observe_command() {
+	local directory=$1 script=$2 trace status
+	if [ "$GREEN_MAIN_OBSERVATION_DEGRADED" -eq 1 ]; then
+		# Execution observation is unavailable on this host. Run the command
+		# directly: the verdict stays true, and skipping the manifest below
+		# is the only cost of the missing observation.
+		status=0
+		(cd "$directory" && SDLC_REPO="$REPO" "$script") || status=$?
+		OBSERVED_STATUS=$status
+		OBSERVATION_VALID=1
+		return 0
+	fi
+	trace=$(mktemp "$GREEN_MAIN_STATE/execve.XXXXXX") || {
+		OBSERVATION_VALID=0
+		OBSERVED_STATUS=1
+		return 0
+	}
+	status=0
+	(cd "$directory" && SDLC_REPO="$REPO" strace -f -qq -e trace=execve -s 0 -xx -o "$trace" -- "$script") || status=$?
+	OBSERVED_STATUS=$status
+	if parse_exec_trace "$trace"; then
+		OBSERVATION_VALID=1
+	else
+		OBSERVATION_VALID=0
+	fi
+}
+
+# 4. Project preparation is optional, unlike the green-main gate. An existing
+# non-executable script is a fault rather than an absent install.
+install() {
+	local script="$TREE/sdlc/scripts/install"
+	[ -e "$script" ] || return 0
+	if [ ! -x "$script" ]; then
+		echo "before: $REPO has no executable sdlc/scripts/install" >&2
+		return 2
+	fi
+	if [ "$GREEN_MAIN_NEEDS_PROOF" -eq 1 ]; then
+		observe_command "$TREE" "$script"
+		[ "$OBSERVATION_VALID" -eq 1 ] || return 3
+		[ "$OBSERVED_STATUS" -eq 0 ] || return 1
+	else
+		(cd "$TREE" && SDLC_REPO="$REPO" "$script") || return 1
+	fi
+}
+
+if [ "$GREEN_MAIN_NEEDS_PROOF" -eq 1 ]; then
+	: >"$GREEN_MAIN_STATE/observed-paths"
+	TRACER_PID=$(awk '$1 == "TracerPid:" { print $2; exit }' /proc/self/status 2>/dev/null) || TRACER_PID=
+	if [ -n "$TRACER_PID" ] && [ "$TRACER_PID" != "0" ]; then
+		GREEN_MAIN_OBSERVATION_DEGRADED=1
+		echo "before: a tracer (pid $TRACER_PID) already holds this process; proving origin/main without observation" >&2
+	elif ! command -v strace >/dev/null 2>&1; then
+		GREEN_MAIN_OBSERVATION_DEGRADED=1
+		echo "before: strace is unavailable; proving origin/main without observation" >&2
+	fi
+fi
+
+if [ "$GREEN_MAIN_VERDICT_TRUSTED" -eq 0 ]; then
+	status=0
+	install || status=$?
+	if [ "$status" -ne 0 ]; then
+		clear_unproven_marker || echo "before: could not clear unproven green-main verdict" >&2
+		cleanup_status=0
+		undo || cleanup_status=$?
+		if [ "$cleanup_status" -eq 3 ]; then
+			exit 3
+		fi
+		if [ "$cleanup_status" -ne 0 ]; then
+			echo "before: cleanup after a failed install failed" >&2
+		fi
+		if [ "$status" -eq 3 ]; then
+			echo "before: could not observe sdlc/scripts/install executables" >&2
+		elif [ "$status" -ne 2 ]; then
+			echo "before: sdlc/scripts/install failed" >&2
+		fi
+		exit 1
+	fi
+fi
+
+# 5. Green check, in that tree, using this project's own gate ladder.
+emit_gate_verdict() {
+	check=$1
+	capture=$2
+	suffix=${3-}
+	parsed=$(awk '
+		/^TAP version [0-9]+$/ { tap = 1 }
+		/^1\.\.[0-9]+$/ { plan = $0; sub(/^1\.\./, "", plan); total = plan }
+		/^# tests [0-9]+$/ { total = $3 }
+		/^# pass [0-9]+$/ { passed = $3 }
+		/^# Subtest: / { pending = substr($0, 12); in_failure = 0; next }
+		/^not ok [0-9]+ - / {
+			name = pending
+			if (name == "") {
+				name = $0
+				sub(/^not ok [0-9]+ - /, "", name)
+				sub(/[[:space:]]+#.*/, "", name)
+			}
+			failures++
+			failed[failures] = name
+			in_failure = 1
+			next
+		}
+		in_failure && /^[[:space:]]+error: / && message[failures] == "" {
+			text = $0
+			sub(/^[[:space:]]+error: [[:space:]]*/, "", text)
+			if (text == "|" || text == "|-" || text == ">" || text == ">-") {
+				assertion_block = 1
+				next
+			}
+			if ((substr(text, 1, 1) == "\047" && substr(text, length(text), 1) == "\047") ||
+			    (substr(text, 1, 1) == "\"" && substr(text, length(text), 1) == "\""))
+				text = substr(text, 2, length(text) - 2)
+			# Assertion detail yields first when the verdict needs space for
+			# failure names and counts.
+			if (length(text) > 160) text = substr(text, 1, 157) "..."
+			message[failures] = text
+			next
+		}
+		in_failure && assertion_block && /^[[:space:]]+/ && message[failures] == "" {
+			text = $0
+			sub(/^[[:space:]]+/, "", text)
+			if (text == "") next
+			if (length(text) > 160) text = substr(text, 1, 157) "..."
+			message[failures] = text
+			assertion_block = 0
+		}
+		END {
+			if (!tap || total == "" || failures == 0) exit
+			if (passed == "") passed = total - failures
+			printf "%s/%s passed; failed: ", passed, total
+			for (i = 1; i <= failures; i++) {
+				if (i > 1) printf "; "
+				printf "%s", failed[i]
+				if (message[i] != "") printf ": %s", message[i]
+			}
+		}
+	' "$capture")
+
+	if [ -n "$parsed" ]; then
+		# Reserve the suffix before bounding detail. iconv removes only a
+		# partial final character at the cut.
+		limit=$((1024 - ${#suffix}))
+		bounded=$(head -c "$limit" <<< "$check: $parsed" | iconv -f UTF-8 -t UTF-8 -c)
+		printf '%s%s\n' "$bounded" "$suffix" >&2
+		return
+	fi
+
+	header="$check: failed; unparsed$suffix"
+	printf '%s\n' "$header" >&2
+	# Share the remaining bytes across all twenty lines. This preserves their
+	# order and line count even when individual lines need truncation.
+	tail -n 20 "$capture" | awk -v budget="$((1024 - ${#header}))" '
+		{ line[++count] = $0 }
+		END {
+			for (i = 1; i <= count; i++) {
+				remaining = count - i + 1
+				allowance = int((budget - remaining) / remaining)
+				if (allowance < 0) allowance = 0
+				used = length(line[i])
+				if (used > allowance) used = allowance
+				if (i > 1) printf "\n"
+				printf "%s", substr(line[i], 1, used)
+				budget -= used + 1
+			}
+			if (count > 0) printf "\n"
+		}
+	' | iconv -f UTF-8 -t UTF-8 -c >&2
+}
+
+gate() {
+	local script="$TREE/sdlc/scripts/$1"
+	if [ ! -x "$script" ]; then
+		echo "before: $REPO has no executable sdlc/scripts/$1" >&2
+		return 2
+	fi
+	observe_command "$TREE" "$script" >"$GATE_OUTPUT" 2>&1
+	return "$OBSERVED_STATUS"
+}
+
+if [ "${TICKET_FLOW-}" != "quickfix" ] && [ "$AHEAD" -gt 0 ]; then
+	echo "before: skipping the green-main gate: $BRANCH carries $AHEAD commit(s) of its own work, so this tree is not origin/main" >&2
+fi
+if [ "$GREEN_MAIN_NEEDS_PROOF" -eq 1 ]; then
+	GATE_OUTPUT=$(mktemp) || {
+		echo "before: could not capture green-main gate output" >&2
+		exit 1
+	}
+	for g in lint test; do
+		: >"$GATE_OUTPUT"
+		status=0
+		gate "$g" || status=$?
+		cat "$GATE_OUTPUT" >&2
+		if [ "$OBSERVATION_VALID" -eq 1 ] && [ "$status" -eq 0 ]; then
+			continue
+		fi
+		clear_unproven_marker || echo "before: could not clear unproven green-main verdict" >&2
+		# Missing, unstartable, signal-killed, and unobservable gates are
+		# faults, not red main, and adoption does not exempt them.
+		gate_fault=0
+		if [ "$OBSERVATION_VALID" -ne 1 ]; then
+			gate_fault=1
+		else
+			case "$status" in
+			2 | 126 | 127) gate_fault=1 ;;
+			esac
+			if [ "$status" -gt 128 ]; then
+				gate_fault=1
+			fi
+		fi
+		if [ "$gate_fault" -eq 0 ] && [ "$CANONICAL_ADOPTION" -eq 1 ]; then
+			emit_gate_verdict "$g" "$GATE_OUTPUT" "; origin/main $GREEN_MAIN_SHA"
+			echo "before: canonical lifecycle adoption is proceeding despite failing gate sdlc/scripts/$g" >&2
+			ADOPTION_RED=1
+			break
+		fi
+		cleanup_status=0
+		undo || cleanup_status=$?
+		if [ "$cleanup_status" -eq 3 ]; then
+			exit 3
+		fi
+		if [ "$cleanup_status" -ne 0 ]; then
+			echo "before: cleanup after the failed $g gate failed" >&2
+			exit 1
+		fi
+		if [ "$gate_fault" -eq 1 ]; then
+			if [ "$OBSERVATION_VALID" -ne 1 ]; then
+				echo "before: could not observe sdlc/scripts/$g executables" >&2
+			fi
+			exit 1
+		fi
+		echo "before: origin/main is not green — sdlc/scripts/$g failed; a quickfix has to land first" >&2
+		emit_gate_verdict "$g" "$GATE_OUTPUT" "; origin/main $GREEN_MAIN_SHA"
+		exit 3
+	done
+
+	if [ "${ADOPTION_RED-0}" -eq 1 ]; then
+		:
+	# The filename remains the commit key. Rename a complete private manifest
+	# over stale state only after every gate and executable identity succeeds.
+	# A degraded run observed nothing, so it earns no cached verdict.
+	elif [ "$GREEN_MAIN_OBSERVATION_DEGRADED" -eq 1 ]; then
+		echo "before: not caching the green-main verdict for $GREEN_MAIN_SHA: observation was degraded" >&2
+	else
+		marker_dir=$(dirname "$GREEN_MAIN_MARKER")
+		if ! mkdir -p "$marker_dir" ||
+			! MARKER_TEMP=$(mktemp "$marker_dir/.green-main-v1.XXXXXX") ||
+			! build_manifest "$GREEN_MAIN_STATE/observed-paths" "$MARKER_TEMP" ||
+			! chmod u+r "$MARKER_TEMP" ||
+			! mv -fT -- "$MARKER_TEMP" "$GREEN_MAIN_MARKER"; then
+			rm -f "${MARKER_TEMP-}"
+			MARKER_TEMP=
+			clear_unproven_marker || true
+			echo "before: could not store green-main verdict for $GREEN_MAIN_SHA" >&2
+			exit 1
+		fi
+		MARKER_TEMP=
+		if [ ! -f "$GREEN_MAIN_MARKER" ] || [ -L "$GREEN_MAIN_MARKER" ] || [ ! -r "$GREEN_MAIN_MARKER" ]; then
+			clear_unproven_marker || true
+			echo "before: could not store green-main verdict for $GREEN_MAIN_SHA" >&2
+			exit 1
+		fi
+	fi
+fi
+
+# 6. The place, and the two facts settlement needs when the place is gone.
+printf 'dir: %s\n' "$TREE" >&3
+printf 'SDLC_REPO=%s\n' "$REPO" >&3
+printf 'SDLC_BRANCH=%s\n' "$BRANCH" >&3

@@ -2389,6 +2389,9 @@ mod tests {
         (snv, profile)
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn fixture_combined_status_is_ready_under_the_shared_observation_guard() {
         let temp = TempDir::new().expect("temp");
@@ -2431,6 +2434,9 @@ mod tests {
         assert!(!valid_identity(&"a".repeat(64)));
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn miniature_profile_installs_atomically_and_reuses_without_copy() {
         let temp = TempDir::new().expect("temp");
@@ -2498,6 +2504,9 @@ mod tests {
         assert_eq!(before.mtime(), after.mtime());
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn installed_runtime_admits_real_held_miniature_capabilities() {
         let temp = TempDir::new().expect("temp");
@@ -2516,6 +2525,9 @@ mod tests {
         model.open().expect("open held model");
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn model_only_runtime_admission_does_not_require_the_snv_installation() {
         let temp = TempDir::new().expect("temp");
@@ -2536,6 +2548,9 @@ mod tests {
         mask.open().expect("mask remains available");
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn installed_runtime_is_bound_to_snv_identity_and_detects_pre_return_replacement() {
         let temp = TempDir::new().expect("temp");
@@ -2572,6 +2587,9 @@ mod tests {
         assert_eq!(error.to_string(), "installed runtime profile is missing");
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn installed_runtime_malformed_and_unsafe_states_have_exact_classes() {
         let malformed = TempDir::new().expect("temp");
@@ -2638,6 +2656,9 @@ mod tests {
         assert_eq!(error.to_string(), "installed runtime state is unsafe");
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn admitted_runtime_capabilities_survive_all_pathname_replacements() {
         let temp = TempDir::new().expect("temp");
@@ -2708,6 +2729,9 @@ mod tests {
             .expect("score held model");
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn runtime_status_distinguishes_missing_and_malformed() {
         let temp = TempDir::new().expect("temp");
@@ -2738,6 +2762,9 @@ mod tests {
         );
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn transition_failures_never_expose_a_partial_profile_and_retry_cleanly() {
         for point in [
@@ -2780,6 +2807,9 @@ mod tests {
         }
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn failed_replacement_preserves_the_prior_active_profile() {
         let temp = TempDir::new().expect("temp");
@@ -2812,6 +2842,9 @@ mod tests {
         assert_eq!(profile_id, installed.profile_id);
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn shared_lock_is_nonblocking_and_status_reports_installing() {
         let temp = TempDir::new().expect("temp");
@@ -2841,6 +2874,9 @@ mod tests {
         assert_eq!(error.kind(), AssetErrorKind::AssetLocked);
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn multiply_linked_source_fails_without_active_runtime_state() {
         let temp = TempDir::new().expect("temp");
@@ -2876,6 +2912,9 @@ mod tests {
         assert!(!root.join("runtime/active.json").exists());
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn same_identity_same_size_component_corruption_is_a_conflict() {
         for component in ["model", "reference", "mask"] {
@@ -2925,6 +2964,9 @@ mod tests {
         }
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn replaced_intermediate_destination_fails_before_activation() {
         let temp = TempDir::new().expect("temp");
@@ -2957,6 +2999,9 @@ mod tests {
         );
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn profile_collision_and_receipt_shape_fail_closed() {
         let temp = TempDir::new().expect("temp");
@@ -2997,6 +3042,9 @@ mod tests {
         assert!(!root.join("runtime/active.json").exists());
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn installed_receipt_mode_and_link_count_are_enforced() {
         for hardlink in [false, true] {
@@ -3083,6 +3131,9 @@ mod tests {
         }
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn read_only_source_files_and_non_private_source_directories_install() {
         let temp = TempDir::new().expect("temp");
@@ -3130,6 +3181,9 @@ mod tests {
         assert_eq!(installed.status, "installed");
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn excessive_orphan_staging_entries_fail_without_partial_cleanup_or_activation() {
         let temp = TempDir::new().expect("temp");

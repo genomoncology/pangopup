@@ -319,6 +319,11 @@ fn rename_noreplace(
 ) -> Result<(), CommandError> {
     // SAFETY: both C strings and the held directory descriptor remain valid
     // for the duration of the syscall.
+    //
+    // Linux spells the no-replace rename `renameat2` with RENAME_NOREPLACE and
+    // macOS spells it `renameatx_np` with RENAME_EXCL. Both fail rather than
+    // clobber an existing destination, which is the guarantee this needs.
+    #[cfg(target_os = "linux")]
     let status = unsafe {
         libc::renameat2(
             directory.as_raw_fd(),
@@ -326,6 +331,16 @@ fn rename_noreplace(
             directory.as_raw_fd(),
             output.as_ptr(),
             libc::RENAME_NOREPLACE,
+        )
+    };
+    #[cfg(not(target_os = "linux"))]
+    let status = unsafe {
+        libc::renameatx_np(
+            directory.as_raw_fd(),
+            stage.as_ptr(),
+            directory.as_raw_fd(),
+            output.as_ptr(),
+            libc::RENAME_EXCL,
         )
     };
     if status == 0 {

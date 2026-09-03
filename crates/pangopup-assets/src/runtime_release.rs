@@ -928,7 +928,7 @@ impl SourceDirectory {
         if !safe_name(name) {
             return Err(release_invalid("unsafe runtime transport member name"));
         }
-        let path_descriptor = open_at(self.file.as_raw_fd(), name, libc::O_PATH)
+        let path_descriptor = open_at(self.file.as_raw_fd(), name, o_path_flag())
             .map_err(|error| input_io("inspect runtime transport member path", error))?;
         let path_metadata = path_descriptor
             .metadata()
@@ -1000,6 +1000,11 @@ impl SourceDirectory {
         Ok(())
     }
 
+    // This body uses a Linux-only kernel interface. Every caller already
+    // refuses on other platforms through require_linux, so the non-Linux
+    // build supplies a stub that returns the same refusal instead of a
+    // weaker path that would silently lose the kernel's guarantees.
+    #[cfg(target_os = "linux")]
     fn require_inventory(&self, expected: &[&str]) -> Result<(), AssetError> {
         let cursor = open_at(
             self.file.as_raw_fd(),
@@ -1028,6 +1033,12 @@ impl SourceDirectory {
             ));
         }
         Ok(())
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn require_inventory(&self, _expected: &[&str]) -> Result<(), AssetError> {
+        super::require_linux()?;
+        unreachable!("require_linux refuses on every non-Linux target")
     }
 
     fn require_same_path(&self, path: &Path) -> Result<(), AssetError> {
@@ -1181,7 +1192,7 @@ fn open_at_create(dir: RawFd, name: &str, flags: i32, mode: u32) -> io::Result<F
             dir,
             name.as_ptr(),
             flags | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            mode as libc::mode_t,
+            mode as libc::c_uint,
         )
     };
     file_from_fd(descriptor)
@@ -1277,6 +1288,19 @@ fn valid_sha(value: &str) -> bool {
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     })
+}
+
+// O_PATH opens a descriptor that names a file without granting access to its
+// contents. Only Linux has it. Every caller refuses on other platforms through
+// require_linux, so the substitute here only needs to compile.
+#[cfg(target_os = "linux")]
+fn o_path_flag() -> i32 {
+    libc::O_PATH
+}
+
+#[cfg(not(target_os = "linux"))]
+fn o_path_flag() -> i32 {
+    libc::O_RDONLY
 }
 
 fn release_invalid(message: impl Into<String>) -> AssetError {

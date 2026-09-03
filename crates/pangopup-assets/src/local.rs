@@ -7,11 +7,12 @@ use super::{
 };
 use pangopup_index::{BundleOpen, IndexError};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+#[cfg(target_os = "linux")]
+use std::mem::MaybeUninit;
 use std::{
     ffi::{CString, OsStr, OsString},
     fs::{self, File},
     io::{self, ErrorKind, Read, Write},
-    mem::MaybeUninit,
     os::{
         fd::{AsRawFd, FromRawFd, RawFd},
         unix::{ffi::OsStrExt, fs::MetadataExt, fs::PermissionsExt},
@@ -1820,17 +1821,27 @@ fn open_at(dirfd: RawFd, name: &str, flags: i32, mode: u32) -> io::Result<File> 
 }
 
 #[repr(C)]
+#[cfg(target_os = "linux")]
 struct OpenHow {
     flags: u64,
     mode: u64,
     resolve: u64,
 }
 
+#[cfg(target_os = "linux")]
 const RESOLVE_NO_XDEV: u64 = 0x01;
+#[cfg(target_os = "linux")]
 const RESOLVE_NO_MAGICLINKS: u64 = 0x02;
+#[cfg(target_os = "linux")]
 const RESOLVE_NO_SYMLINKS: u64 = 0x04;
+#[cfg(target_os = "linux")]
 const RESOLVE_BENEATH: u64 = 0x08;
 
+// This body uses a Linux-only kernel interface. Every caller already
+// refuses on other platforms through require_linux, so the non-Linux
+// build supplies a stub that returns the same refusal instead of a
+// weaker path that would silently lose the kernel's guarantees.
+#[cfg(target_os = "linux")]
 fn openat2_beneath(dirfd: RawFd, name: &CString, flags: i32, mode: u32) -> io::Result<File> {
     let how = OpenHow {
         flags: flags as u64,
@@ -1849,6 +1860,14 @@ fn openat2_beneath(dirfd: RawFd, name: &CString, flags: i32, mode: u32) -> io::R
         ) as i32
     };
     file_from_fd(fd)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn openat2_beneath(_dirfd: RawFd, _name: &CString, _flags: i32, _mode: u32) -> io::Result<File> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "openat2 resolution requires Linux",
+    ))
 }
 
 fn file_from_fd(fd: i32) -> io::Result<File> {
@@ -1928,10 +1947,26 @@ fn rename_replace(from: &Dir, old: &str, to: &Dir, new: &str) -> Result<(), Asse
         })
 }
 
+// This body uses a Linux-only kernel interface. Every caller already
+// refuses on other platforms through require_linux, so the non-Linux
+// build supplies a stub that returns the same refusal instead of a
+// weaker path that would silently lose the kernel's guarantees.
+#[cfg(target_os = "linux")]
 fn read_names(dir: &Dir) -> Result<Vec<String>, AssetError> {
     read_names_bounded(dir, usize::MAX)
 }
 
+#[cfg(not(target_os = "linux"))]
+fn read_names(_dir: &Dir) -> Result<Vec<String>, AssetError> {
+    require_linux()?;
+    unreachable!("require_linux refuses on every non-Linux target")
+}
+
+// This body uses a Linux-only kernel interface. Every caller already
+// refuses on other platforms through require_linux, so the non-Linux
+// build supplies a stub that returns the same refusal instead of a
+// weaker path that would silently lose the kernel's guarantees.
+#[cfg(target_os = "linux")]
 pub(crate) fn read_names_bounded(dir: &Dir, maximum: usize) -> Result<Vec<String>, AssetError> {
     let dot = CString::new(".").expect("static component");
     let cursor = openat2_beneath(
@@ -1961,6 +1996,12 @@ pub(crate) fn read_names_bounded(dir: &Dir, maximum: usize) -> Result<Vec<String
         names.push(name);
     }
     Ok(names)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn read_names_bounded(_dir: &Dir, _maximum: usize) -> Result<Vec<String>, AssetError> {
+    require_linux()?;
+    unreachable!("require_linux refuses on every non-Linux target")
 }
 
 fn component(name: &str) -> io::Result<CString> {
@@ -1994,6 +2035,9 @@ mod tests {
 
     static SERIAL: AtomicU64 = AtomicU64::new(0);
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn observation_guards_are_shared_and_exclude_installation() {
         let temp = tempfile::TempDir::new().expect("temp");
@@ -2023,6 +2067,9 @@ mod tests {
         drop(replacement);
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn observation_requires_a_safe_existing_lock_file() {
         let temp = tempfile::TempDir::new().expect("temp");
@@ -2154,6 +2201,9 @@ mod tests {
         );
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn install_audit_proves_one_compressed_pass_and_direct_cheap_open() {
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
@@ -2228,6 +2278,9 @@ mod tests {
         fs::remove_dir_all(root).expect("audit cleanup");
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn every_durable_install_window_recovers_or_discards_deterministically() {
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
@@ -2337,6 +2390,9 @@ mod tests {
         fs::remove_dir_all(root).expect("fault cleanup");
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn wrapper_modes_and_two_phase_reconciliation_fail_closed() {
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
@@ -2430,6 +2486,9 @@ mod tests {
         fs::remove_dir_all(root).expect("reconcile cleanup");
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn recovery_preserves_installed_state_and_conflict_error_kinds() {
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);

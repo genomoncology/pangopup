@@ -3,8 +3,10 @@
 use crate::CommandError;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+#[cfg(target_os = "linux")]
+use std::io;
 use std::{
-    fs, io,
+    fs,
     os::unix::fs::{DirBuilderExt, PermissionsExt},
     path::{Path, PathBuf},
     process::Command,

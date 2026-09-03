@@ -1,0 +1,18 @@
+#!/bin/sh
+# install — make the prepared worktree ready for this project's gates.
+#
+# A fresh worktree has no vendored registry, so fetch the locked dependency
+# set once here rather than letting each gate rung pay for it. The host
+# supplies rustfmt and clippy through rust-toolchain.toml, plus cargo-deny
+# for `make lint` and mustmatch for `make spec`; neither is installed from
+# here, because a gate must not mutate the machine it is judging.
+# sdlc-install: cargo fetch --locked
+set -eu
+
+case $0 in
+*/install) REPO=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd) ;;
+*) REPO=$(git rev-parse --show-toplevel) ;;
+esac
+
+cd -- "$REPO"
+exec cargo fetch --locked

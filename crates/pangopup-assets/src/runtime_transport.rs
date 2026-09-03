@@ -1357,6 +1357,9 @@ mod tests {
         assert!(validate_manifest(&manifest).is_err());
     }
 
+    // Exercises Linux-only installation machinery; every other platform gets
+    // the documented UnsupportedPlatform refusal instead.
+    #[cfg(target_os = "linux")]
     #[test]
     fn cached_transport_decodes_directly_into_atomic_runtime_installation() {
         let temp = TempDir::new().expect("temp");
