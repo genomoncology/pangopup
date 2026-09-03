@@ -164,6 +164,25 @@ struct FailSecondWorker {
     calls: Arc<AtomicUsize>,
 }
 
+struct FailingWorker {
+    failure: Failure,
+}
+
+impl WorkerBackend for FailingWorker {
+    fn complete(
+        &mut self,
+        _pending: &PendingModel,
+        _key: &CacheKey,
+    ) -> Result<RoutedResult, Failure> {
+        Err(Failure {
+            code: self.failure.code,
+            message: self.failure.message.clone(),
+            exit: self.failure.exit,
+            details: self.failure.details.clone(),
+        })
+    }
+}
+
 struct FakeCompletion {
     calls: Arc<AtomicUsize>,
     provenance: ModelProvenance,
@@ -1025,6 +1044,69 @@ async fn worker_panic_fans_out_to_running_and_queued_callers_then_closes_cleanly
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     state.dispatcher.close();
     tokio::task::block_in_place(|| state.dispatcher.join_workers());
+}
+
+async fn worker_failure_code(failure: Failure) -> String {
+    let state = build_state(
+        Arc::new(FakeLookup),
+        Box::new(EmptyCache),
+        identity(),
+        provenance(),
+        vec![Box::new(FailingWorker { failure })],
+        1,
+        2,
+        AssetStatus {
+            snv_bundle_id: "snv".to_owned(),
+            model_bundle_id: "model".to_owned(),
+            reference_bundle_id: "reference".to_owned(),
+            mask_sha256: "mask".to_owned(),
+        },
+    );
+    let response = app(state)
+        .oneshot(score_request(2))
+        .await
+        .expect("response");
+    let value: Value = serde_json::from_slice(&body(response).await).expect("error JSON");
+    value["error"]["code"]
+        .as_str()
+        .expect("error code")
+        .to_owned()
+}
+
+#[tokio::test]
+async fn http_reports_model_rejected_worker_failure() {
+    let code = worker_failure_code(Failure {
+        code: "MODEL_REJECTED",
+        message: "request rejected".to_owned(),
+        exit: 2,
+        details: None,
+    })
+    .await;
+    assert_eq!(code, "MODEL_REJECTED");
+}
+
+#[tokio::test]
+async fn http_reports_model_scoring_worker_failure() {
+    let code = worker_failure_code(Failure {
+        code: "MODEL_SCORING",
+        message: "model failed".to_owned(),
+        exit: 1,
+        details: None,
+    })
+    .await;
+    assert_eq!(code, "MODEL_SCORING");
+}
+
+#[tokio::test]
+async fn http_reports_model_cache_invalid_worker_failure() {
+    let code = worker_failure_code(Failure {
+        code: "MODEL_CACHE_INVALID",
+        message: "cache invalid".to_owned(),
+        exit: 1,
+        details: None,
+    })
+    .await;
+    assert_eq!(code, "MODEL_CACHE_INVALID");
 }
 
 #[tokio::test]
