@@ -36,3 +36,7 @@ router without downloading or running the production model. They pin exact
 success/error bytes, lookup and SQLite bypass under saturation, FIFO admission,
 429 backpressure, disconnect behavior, worker loss, graceful drain, and the
 HTTP-required empty wire body plus exact representation headers for `HEAD`.
+
+Worker backend failures return HTTP 500 with the generic `scoring failed`
+message. Their machine-readable `error.code` retains the backend family:
+`MODEL_REJECTED`, `MODEL_SCORING`, or `MODEL_CACHE_INVALID`.
