@@ -22,6 +22,25 @@ Directory iteration and no-replace rename have the same shape. One of the three
 already has a working macOS spelling in this repository, in
 `crates/pangopup-build/src/runtime_profile.rs`.
 
+## The provenance change is authorized
+
+A previous attempt refused this ticket because its boundary forbade touching
+the files `crates/pangopup-build/src/source_fingerprint.rs` hashes with
+`include_bytes!`, and the required spec files cannot run without them. That
+refusal was right and the boundary was wrong.
+
+Editing those files is authorized here. `snv_source_sha256()` reaches a
+published bundle at `crates/pangopup-build/src/production.rs` as
+`builder.source_sha256`, so a bundle built after this ticket will declare a
+different builder source hash than one built before it. That is what the hash
+is for. The two pins in `source_fingerprint.rs`, `EXPECTED_SNV_SHA256` and
+`EXPECTED_REFERENCE_SHA256`, are re-pinned to the values the changed sources
+produce. Recompute them; never copy a value from a failing test's output
+without checking that the only inputs that changed are the ones this ticket
+changed.
+
+Nothing is published by this ticket.
+
 Done, observably:
 
 - `pangopup sync`, `pangopup assets install` and `pangopup status` complete on
@@ -48,14 +67,14 @@ The baseline to measure against, taken at this ticket's commit: 76 occurrences
 of `target_os` across `local.rs`, `sync.rs`, `runtime_release.rs`,
 `runtime_transport.rs` and `release.rs`; those five files total 12,625 lines.
 
-Boundary. Do not edit any file that `crates/pangopup-build/src/source_fingerprint.rs`
-hashes with `include_bytes!`. In this crate that is `error.rs`, `input_audit.rs`,
-`snv.rs` and `lib.rs`. Editing one changes what the builder publishes as its
-own identity, which is a provenance decision this ticket does not carry. If the
-goal cannot be reached without touching one, stop and say which file and why.
+Boundary. In `crates/pangopup-build/`, change only what a platform refusal
+forces: the no-replace rename primitive, and the two re-pinned constants. Leave
+what the builder computes, reads, writes and certifies exactly as it is. A
+bundle built on Linux before and after this ticket must differ in
+`builder.source_sha256` and in nothing else.
 
 Do not weaken any check to make a platform pass. If a guarantee genuinely
 cannot be reproduced on macOS, keep the refusal for that one path, say in the
 code comment which guarantee is missing, and leave the rest working. Do not
-change `pangopup-build`, the CLI's `uninstall` path, or anything about how
-bundles are built, verified or scored.
+change the CLI's `uninstall` path, which is Linux-only for its own reasons, and
+do not change how bundles are verified or scored.
