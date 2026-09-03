@@ -7,7 +7,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File},
     io::{self, BufRead, BufReader, Read, Write},
-    os::fd::AsRawFd,
     os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -638,13 +637,19 @@ fn open_members(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, CommandError> 
         return Err(invalid("corpus", None, "must be a real directory"));
     }
     let mut names = Vec::new();
-    let anchored_root = PathBuf::from(format!("/proc/self/fd/{}", root.as_raw_fd()));
-    let entries = fs::read_dir(&anchored_root).map_err(|e| io_failure("corpus", &e))?;
+    // Enumerate the descriptor already opened, never the path again. A second
+    // path walk could land on a different directory. `Dir` reads the held
+    // descriptor on every Unix. The earlier `/proc/self/fd` spelling gave the
+    // same guarantee on Linux alone.
+    let entries =
+        rustix::fs::Dir::read_from(&root).map_err(|error| io_failure("corpus", &error.into()))?;
     for entry in entries {
-        let entry = entry.map_err(|e| io_failure("corpus", &e))?;
-        let name = entry
-            .file_name()
-            .into_string()
+        let entry = entry.map_err(|error| io_failure("corpus", &error.into()))?;
+        let raw = entry.file_name().to_bytes();
+        if raw == b"." || raw == b".." {
+            continue;
+        }
+        let name = String::from_utf8(raw.to_vec())
             .map_err(|_| invalid("corpus", None, "member name is not UTF-8"))?;
         names.push(name);
         if names.len() > 3 {
