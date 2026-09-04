@@ -41,6 +41,34 @@ changed.
 
 Nothing is published by this ticket.
 
+The design stage owns both changes and must write them into its contract. The
+first code review refused partly because the code stage made them on its own
+authority. The authorization is here, in the accepted ticket, so it belongs in
+the design contract and not in a code-stage improvisation. The same holds for
+removing the five spec files from the macOS exclusion list.
+
+## Never turn a held descriptor back into a pathname
+
+The first attempt's candidate was refused at its security boundary and the
+refusal was right. On macOS it converted held directory descriptors into
+ordinary pathnames in `runtime_install::descriptor_path` and
+`sync::PublishedTransport::install_path`, then reopened through those names.
+One of the two checked an inode before a later open rather than at the open,
+and the other rechecked nothing. A name can be replaced between the check and
+the use, so that redirects the operation after admission. Holding a descriptor
+and then reopening by name throws away the guarantee the descriptor gave.
+
+Every open stays relative to a descriptor the process already holds. Identity
+is established at the open that uses it, never at an earlier step whose result
+is carried forward by name.
+
+Done, observably:
+
+- No code path in `crates/pangopup-assets/src/` or the runtime install and
+  transport paths derives a pathname from a held descriptor and reopens through
+  it. A test proves an install refuses when the directory a descriptor refers to
+  is replaced between admission and use, on both platforms.
+
 Done, observably:
 
 - `pangopup sync`, `pangopup assets install` and `pangopup status` complete on
