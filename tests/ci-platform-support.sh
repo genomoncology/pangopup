@@ -17,6 +17,28 @@ require_text() {
     esac
 }
 
+normalize_markdown() {
+    awk '
+        {
+            gsub(/[[:space:]]+/, " ")
+            sub(/^ /, "")
+            sub(/ $/, "")
+            if (length($0) > 0) {
+                if (seen) {
+                    printf " "
+                }
+                printf "%s", $0
+                seen = 1
+            }
+        }
+        END {
+            if (seen) {
+                printf "\n"
+            }
+        }
+    '
+}
+
 compiler_step=$(sed -n '/^      - name: Install the Linux ARM64 cross compiler$/,/^      - name: Install uv 0.8.0$/p' "$workflow")
 require_text 'sudo apt-get update' "$compiler_step" 'Linux package index update'
 require_text 'sudo apt-get install --yes gcc-aarch64-linux-gnu' "$compiler_step" 'Linux ARM64 cross compiler installation'
@@ -32,6 +54,22 @@ if grep -Fq '#[cfg(target_os = "linux")]' "$model_routing"; then
     exit 1
 fi
 
-adr_0004=$(<"$repository/architecture/decisions/0004-speed-first-runtime-release-assets.md")
-require_text 'The shipped Linux' "$adr_0004" 'ADR 0004 original installer decision'
-require_text 'Supersession note (2026-09-04): Ticket 0003 extended the shipped local installer to native macOS. The original Linux installer sentence below remains as history.' "$adr_0004" 'ADR 0004 macOS supersession note'
+adr_0004_original='The shipped Linux installer streams that transport into an immutable XDG-data bundle, atomically selects it, and reuses it with cheap structural validation.'
+adr_0004_supersession='Supersession note (2026-09-04): Ticket 0003 extended the shipped local installer to native macOS. The original Linux installer sentence below remains as history.'
+
+check_adr_0004() {
+    local content=$1
+    require_text "$adr_0004_original" "$content" 'ADR 0004 original installer decision'
+    require_text "$adr_0004_supersession" "$content" 'ADR 0004 macOS supersession note'
+}
+
+adr_0004=$(normalize_markdown <"$repository/architecture/decisions/0004-speed-first-runtime-release-assets.md")
+check_adr_0004 "$adr_0004"
+
+adr_0004_prefix=${adr_0004%%"$adr_0004_original"*}
+adr_0004_suffix=${adr_0004#*"$adr_0004_original"}
+adr_0004_mutated="${adr_0004_prefix}The shipped Linux placeholder.${adr_0004_suffix}"
+if (check_adr_0004 "$adr_0004_mutated" >/dev/null 2>&1); then
+    printf 'ADR 0004 guard accepted a placeholder for the original installer decision\n' >&2
+    exit 1
+fi
