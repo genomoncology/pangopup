@@ -2,13 +2,10 @@
 
 use super::release::ProfileMember;
 use super::{
-    AssetError, AssetErrorKind, ReleaseProfile, RuntimeReleaseProfile, install_transport,
-    open_active_bundle,
+    AssetError, AssetErrorKind, ReleaseProfile, RuntimeReleaseProfile, open_active_bundle,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-#[cfg(target_os = "linux")]
-use std::mem::MaybeUninit;
 use std::{
     collections::BTreeSet,
     ffi::{CString, OsStr, OsString},
@@ -113,8 +110,6 @@ mod sync_audit {
         DIRECTORY_ENTRIES.set(0);
     }
 
-    // Only the Linux directory walk records entries.
-    #[cfg(target_os = "linux")]
     pub fn record_directory_entry() {
         DIRECTORY_ENTRIES.with_borrow_mut(|count| *count += 1);
     }
@@ -483,12 +478,14 @@ fn map_reqwest_error(error: reqwest::Error) -> AttemptFailure {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 struct UreqClient {
     agent: ureq::Agent,
 }
 
 #[cfg(test)]
 impl UreqClient {
+    #[allow(dead_code)]
     fn with_timeouts(connect: Duration, headers: Duration, body_idle: Duration) -> Self {
         let config = ureq::Agent::config_builder()
             .proxy(None)
@@ -670,7 +667,7 @@ pub fn sync_runtime_assets_observed(
         &members,
         contract,
         &ReqwestClient::production(),
-        &super::runtime_transport::install_cached_runtime_transport,
+        &super::runtime_transport::install_cached_runtime_transport_handle,
         observer,
     )
 }
@@ -685,7 +682,7 @@ fn sync_runtime_assets_observed_with(
     members: &[ProfileMember],
     contract: SyncContract<'_>,
     client: &dyn TransportClient,
-    installer: &dyn Fn(&Path, &Path) -> Result<super::RuntimeInstallOutcome, AssetError>,
+    installer: &dyn Fn(File, &Path) -> Result<super::RuntimeInstallOutcome, AssetError>,
     observer: &mut dyn FnMut(SyncEvent),
 ) -> Result<RuntimeSyncOutcome, AssetError> {
     observer(SyncEvent::Phase {
@@ -706,7 +703,7 @@ fn sync_runtime_assets_observed_with(
     let cache_root = cache_root.ok_or_else(|| {
         AssetError::new(
             AssetErrorKind::PathUnavailable,
-            "no Linux cache directory is available",
+            "no local cache directory is available",
         )
     })?;
     let cache = Cache::open(cache_root, digest)?;
@@ -736,7 +733,7 @@ pub fn inspect_runtime_cache(
     let cache_root = cache_root.ok_or_else(|| {
         AssetError::new(
             AssetErrorKind::PathUnavailable,
-            "no Linux cache directory is available",
+            "no local cache directory is available",
         )
     })?;
     let members = release
@@ -823,7 +820,7 @@ fn sync_with_observer(
     let cache_root = cache_root.ok_or_else(|| {
         AssetError::new(
             AssetErrorKind::PathUnavailable,
-            "no Linux cache directory is available",
+            "no local cache directory is available",
         )
     })?;
     let cache = Cache::open(cache_root, contract.profile_digest)?;
@@ -922,7 +919,7 @@ struct RuntimeSyncContext<'a> {
     members: &'a [ProfileMember],
     contract: SyncContract<'a>,
     client: &'a dyn TransportClient,
-    installer: &'a dyn Fn(&Path, &Path) -> Result<super::RuntimeInstallOutcome, AssetError>,
+    installer: &'a dyn Fn(File, &Path) -> Result<super::RuntimeInstallOutcome, AssetError>,
 }
 
 fn sync_runtime_cached_with_installer(
@@ -1039,7 +1036,6 @@ fn runtime_active_fast_path(
     data_root: &Path,
     release: &RuntimeReleaseProfile,
 ) -> Result<Option<RuntimeSyncOutcome>, AssetError> {
-    require_linux()?;
     if !active_snv_matches(data_root, &release.runtime.snv_bundle_id)? {
         return Ok(None);
     }
@@ -1095,9 +1091,9 @@ fn install_cached_runtime(
     release: &RuntimeReleaseProfile,
     downloaded: u64,
     resumed: u64,
-    installer: &dyn Fn(&Path, &Path) -> Result<super::RuntimeInstallOutcome, AssetError>,
+    installer: &dyn Fn(File, &Path) -> Result<super::RuntimeInstallOutcome, AssetError>,
 ) -> Result<RuntimeSyncOutcome, AssetError> {
-    match installer(&transport.install_path(), data_root) {
+    match installer(transport.install_handle()?, data_root) {
         Ok(installed) => {
             let suffix = installed
                 .profile_id
@@ -1147,7 +1143,6 @@ fn active_fast_path(
     data_root: &Path,
     profile: &ReleaseProfile,
 ) -> Result<Option<SyncOutcome>, AssetError> {
-    require_linux()?;
     match open_active_bundle(data_root) {
         Ok((active, _))
             if active.bundle_id == profile.bundle.bundle_id
@@ -1169,7 +1164,7 @@ fn install_cached(
     downloaded: u64,
     resumed: u64,
 ) -> Result<SyncOutcome, AssetError> {
-    match install_transport(&transport.install_path(), data_root) {
+    match super::local::install_transport_handle(transport.install_handle()?, data_root) {
         Ok(installed) => Ok(sync_outcome(
             installed.status,
             profile,
@@ -1229,17 +1224,6 @@ fn sync_outcome(
         path,
         downloaded_bytes,
         resumed_bytes,
-    }
-}
-
-fn require_linux() -> Result<(), AssetError> {
-    if cfg!(target_os = "linux") {
-        Ok(())
-    } else {
-        Err(AssetError::new(
-            AssetErrorKind::UnsupportedPlatform,
-            "asset sync is supported only on Linux",
-        ))
     }
 }
 
@@ -1336,8 +1320,11 @@ struct PublishedTransport {
 }
 
 impl PublishedTransport {
-    fn install_path(&self) -> PathBuf {
-        PathBuf::from(format!("/proc/self/fd/{}", self.dir.file.as_raw_fd()))
+    fn install_handle(&self) -> Result<File, AssetError> {
+        self.dir
+            .file
+            .try_clone()
+            .map_err(|_| asset_io("clone held transport directory"))
     }
 }
 
@@ -2406,6 +2393,8 @@ struct SafeDir {
 }
 
 fn open_or_create_cache_root(path: &Path) -> Result<SafeDir, AssetError> {
+    let normalized = normalized_absolute_path(path);
+    let path = normalized.as_deref().unwrap_or(path);
     if !path.is_absolute() {
         return Err(asset_state("cache root is not absolute"));
     }
@@ -2436,6 +2425,8 @@ fn open_or_create_cache_root(path: &Path) -> Result<SafeDir, AssetError> {
 }
 
 fn open_existing_cache_root(path: &Path) -> Result<Option<SafeDir>, AssetError> {
+    let normalized = normalized_absolute_path(path);
+    let path = normalized.as_deref().unwrap_or(path);
     if !path.is_absolute() {
         return Err(asset_state("cache root is not absolute"));
     }
@@ -2467,6 +2458,20 @@ fn open_existing_cache_root(path: &Path) -> Result<Option<SafeDir>, AssetError> 
     }
     validate_private_dir(&current)?;
     Ok(Some(current))
+}
+
+// macOS exposes these historical root names as system-managed symlinks. Map
+// them to their physical roots before descriptor-relative traversal so user
+// path components still retain the no-symlink rule.
+fn normalized_absolute_path(path: &Path) -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    for alias in ["var", "tmp", "etc"] {
+        let root = Path::new("/").join(alias);
+        if let Ok(suffix) = path.strip_prefix(&root) {
+            return Some(Path::new("/private").join(alias).join(suffix));
+        }
+    }
+    None
 }
 
 fn ensure_private_child(parent: &SafeDir, name: &str) -> Result<SafeDir, AssetError> {
@@ -2858,23 +2863,13 @@ impl From<AssetError> for DirectoryVisit {
     }
 }
 
-// This body uses a Linux-only kernel interface. Every caller already
-// refuses on other platforms through require_linux, so the non-Linux
-// build supplies a stub that returns the same refusal instead of a
-// weaker path that would silently lose the kernel's guarantees.
-#[cfg(target_os = "linux")]
 fn for_each_name(
     dir: &SafeDir,
     mut visit: impl FnMut(String) -> Result<(), DirectoryVisit>,
 ) -> Result<(), DirectoryVisit> {
-    let cursor = open_dot(
-        dir.file.as_raw_fd(),
-        libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
-    )
-    .map_err(|_| DirectoryVisit::Asset(asset_io("open cache directory cursor")))?;
-    let mut buffer = [MaybeUninit::<u8>::uninit(); 8192];
-    let mut entries = rustix::fs::RawDir::new(cursor, &mut buffer);
-    while let Some(entry) = entries.next() {
+    let entries = rustix::fs::Dir::read_from(&dir.file)
+        .map_err(|_| DirectoryVisit::Asset(asset_io("open cache directory cursor")))?;
+    for entry in entries {
         let entry = entry.map_err(|_| DirectoryVisit::Asset(asset_io("read cache directory")))?;
         let bytes = entry.file_name().to_bytes();
         if bytes == b"." || bytes == b".." {
@@ -2887,41 +2882,6 @@ fn for_each_name(
         visit(name)?;
     }
     Ok(())
-}
-
-#[cfg(not(target_os = "linux"))]
-fn for_each_name(
-    _dir: &SafeDir,
-    _visit: impl FnMut(String) -> Result<(), DirectoryVisit>,
-) -> Result<(), DirectoryVisit> {
-    Err(DirectoryVisit::Asset(asset_io(
-        "directory iteration requires Linux",
-    )))
-}
-
-// This body uses a Linux-only kernel interface. Every caller already
-// refuses on other platforms through require_linux, so the non-Linux
-// build supplies a stub that returns the same refusal instead of a
-// weaker path that would silently lose the kernel's guarantees.
-#[cfg(target_os = "linux")]
-fn open_dot(dirfd: RawFd, flags: i32) -> io::Result<File> {
-    let name = CString::new(".").expect("static directory component");
-    let how = OpenHow {
-        flags: flags as u64,
-        mode: 0,
-        resolve: RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV,
-    };
-    // SAFETY: the component, descriptor, and OpenHow remain live for the syscall.
-    let fd = unsafe {
-        libc::syscall(
-            libc::SYS_openat2,
-            dirfd,
-            name.as_ptr(),
-            &how,
-            std::mem::size_of::<OpenHow>(),
-        ) as i32
-    };
-    file_from_fd(fd)
 }
 
 fn sync_dir(dir: &SafeDir) -> Result<(), AssetError> {
@@ -2953,64 +2913,13 @@ fn open_path_directory(path: &Path) -> io::Result<File> {
     file_from_fd(fd)
 }
 
-// This body uses a Linux-only kernel interface. Every caller already
-// refuses on other platforms through require_linux, so the non-Linux
-// build supplies a stub that returns the same refusal instead of a
-// weaker path that would silently lose the kernel's guarantees.
-#[cfg(target_os = "linux")]
-fn open_at(dirfd: RawFd, name: &str, flags: i32, mode: u32, no_xdev: bool) -> io::Result<File> {
+fn open_at(dirfd: RawFd, name: &str, flags: i32, mode: u32, _no_xdev: bool) -> io::Result<File> {
     let name = component(name)?;
-    let how = OpenHow {
-        flags: flags as u64,
-        mode: u64::from(mode),
-        resolve: RESOLVE_BENEATH
-            | RESOLVE_NO_SYMLINKS
-            | RESOLVE_NO_MAGICLINKS
-            | if no_xdev { RESOLVE_NO_XDEV } else { 0 },
-    };
-    // SAFETY: the component, descriptor, and OpenHow remain live for the syscall.
-    let fd = unsafe {
-        libc::syscall(
-            libc::SYS_openat2,
-            dirfd,
-            name.as_ptr(),
-            &how,
-            std::mem::size_of::<OpenHow>(),
-        ) as i32
-    };
+    // SAFETY: the validated single component and held descriptor remain live.
+    // Callers include O_NOFOLLOW; SafeDir metadata checks enforce device bounds.
+    let fd = unsafe { libc::openat(dirfd, name.as_ptr(), flags, mode as libc::c_uint) };
     file_from_fd(fd)
 }
-
-#[cfg(not(target_os = "linux"))]
-fn open_at(
-    _dirfd: RawFd,
-    _name: &str,
-    _flags: i32,
-    _mode: u32,
-    _no_xdev: bool,
-) -> io::Result<File> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "openat2 resolution requires Linux",
-    ))
-}
-
-#[repr(C)]
-#[cfg(target_os = "linux")]
-struct OpenHow {
-    flags: u64,
-    mode: u64,
-    resolve: u64,
-}
-
-#[cfg(target_os = "linux")]
-const RESOLVE_NO_XDEV: u64 = 0x01;
-#[cfg(target_os = "linux")]
-const RESOLVE_NO_MAGICLINKS: u64 = 0x02;
-#[cfg(target_os = "linux")]
-const RESOLVE_NO_SYMLINKS: u64 = 0x04;
-#[cfg(target_os = "linux")]
-const RESOLVE_BENEATH: u64 = 0x08;
 
 fn file_from_fd(fd: i32) -> io::Result<File> {
     if fd < 0 {
@@ -3099,6 +3008,7 @@ mod tests {
         sync::{
             Arc, Condvar, Mutex,
             atomic::{AtomicU64, Ordering},
+            mpsc,
         },
         thread,
         time::Instant,
@@ -3111,8 +3021,10 @@ mod tests {
     impl Temp {
         fn new() -> Self {
             let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
-            let path =
-                std::env::temp_dir().join(format!("pangopup-sync-{}-{serial}", std::process::id()));
+            let path = std::env::temp_dir()
+                .canonicalize()
+                .expect("physical temp root")
+                .join(format!("pangopup-sync-{}-{serial}", std::process::id()));
             fs::create_dir(&path).expect("temp");
             Self(path)
         }
@@ -3380,7 +3292,7 @@ mod tests {
         let bundle = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../tests/fixtures/snv-regression/bundle");
         let transport = root.join("fixture-transport");
-        super::super::pack_bundle(&bundle, &transport).expect("pack fixture");
+        super::super::pack_bundle_for_test(&bundle, &transport).expect("pack fixture");
         transport
     }
 
@@ -3405,7 +3317,7 @@ mod tests {
         )
         .expect("write runtime profile");
         let transport = root.join("runtime-transport");
-        crate::pack_runtime_transport(
+        crate::runtime_transport::pack_runtime_transport_for_test(
             &profile_path,
             &fixtures.join("pangolin-model-kernel-mini/bundle"),
             &fixtures.join("reference-route-test/bundle"),
@@ -3436,13 +3348,10 @@ mod tests {
         )
         .expect("write alternate manifest");
         let transport = root.join("alternate-transport");
-        super::super::pack_bundle(&bundle, &transport).expect("pack alternate fixture");
+        super::super::pack_bundle_for_test(&bundle, &transport).expect("pack alternate fixture");
         transport
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn fresh_sync_installs_then_active_reuse_is_zero_network() {
         let temp = Temp::new();
@@ -3524,9 +3433,6 @@ mod tests {
         assert_eq!(active.path, installed.path);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn fresh_snv_install_observer_matrix_is_exact() {
         let temp = Temp::new();
@@ -3610,9 +3516,6 @@ mod tests {
         assert_eq!(events, expected);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn snv_observer_offline_and_active_reuse_sequences_are_exact() {
         let temp = Temp::new();
@@ -3686,9 +3589,6 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn runtime_sync_downloads_ten_members_installs_and_reuses_cache_offline() {
         let temp = Temp::new();
@@ -3890,9 +3790,6 @@ mod tests {
         assert_eq!(retry_client.requests.borrow().len(), 1);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn incomplete_offline_runtime_cache_names_all_ten_release_files() {
         let temp = Temp::new();
@@ -3925,9 +3822,6 @@ mod tests {
         assert!(message.len() < 1_024);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn runtime_cache_inspection_is_read_only_and_stops_at_first_extra_entry() {
         let temp = Temp::new();
@@ -3970,9 +3864,6 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn runtime_reuse_requires_the_current_active_snv_identity() {
         let temp = Temp::new();
@@ -3989,9 +3880,6 @@ mod tests {
         assert!(active_snv_matches(&data, &replacement.bundle_id).expect("replacement active SNV"));
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn runtime_cache_lock_loser_never_reaches_installation() {
         let temp = Temp::new();
@@ -4009,9 +3897,6 @@ mod tests {
         assert_eq!(installer_calls.get(), 0);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn recovery_rejects_path_substitution_after_authentication_before_rename() {
         let temp = Temp::new();
@@ -4063,9 +3948,48 @@ mod tests {
         assert_ne!(format!("sha256:{:x}", Sha256::digest(&moved)), first.sha256);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
+    #[test]
+    fn installation_uses_the_admitted_transport_after_its_name_is_replaced() {
+        let temp = Temp::new();
+        let transport = fixture(&temp.0);
+        let profile = miniature_profile(&transport, "http://fixture.test");
+        let digest = "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
+        let cache = Cache::open(&temp.0.join("cache"), digest).expect("cache");
+        let _lock = lock_and_initialize(&cache);
+        for member in &profile.transport.members {
+            fs::copy(
+                transport.join(&member.asset_name),
+                cache.members.join(&member.asset_name),
+            )
+            .expect("seed completed member");
+            fs::set_permissions(
+                cache.members.join(&member.asset_name),
+                fs::Permissions::from_mode(COMPLETE_FILE_MODE),
+            )
+            .expect("completed mode");
+        }
+        let published = cache.publish_transport(&profile).expect("publish cache");
+        let original = cache.transport.with_file_name("transport-original");
+        fs::rename(&cache.transport, &original).expect("move admitted transport");
+        fs::create_dir(&cache.transport).expect("replacement transport");
+        fs::set_permissions(&cache.transport, fs::Permissions::from_mode(CACHE_DIR_MODE))
+            .expect("replacement mode");
+        fs::write(cache.transport.join("sentinel"), b"replacement").expect("replacement sentinel");
+
+        let installed = super::super::local::install_transport_handle(
+            published
+                .install_handle()
+                .expect("clone admitted transport"),
+            &temp.0.join("data"),
+        )
+        .expect("install original admitted transport");
+        assert_eq!(installed.bundle_id, profile.bundle.bundle_id);
+        assert_eq!(
+            fs::read(cache.transport.join("sentinel")).expect("replacement remains"),
+            b"replacement"
+        );
+    }
+
     #[test]
     fn concurrent_first_sync_has_one_owner_and_one_locked_loser() {
         let temp = Temp::new();
@@ -4125,9 +4049,6 @@ mod tests {
         assert_eq!(active.bundle_id, profile.bundle.bundle_id);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn miniature_transport_installs_through_real_streaming_http_client() {
         let temp = Temp::new();
@@ -4198,9 +4119,6 @@ mod tests {
         assert_eq!(opened.bundle_id(), profile.bundle.bundle_id);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn observed_transient_status_retries_then_reports_exact_committed_counters() {
         let temp = Temp::new();
@@ -4263,9 +4181,6 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn connect_request_and_body_read_retry_classification_is_exact() {
         for (ordinal, reason) in [
@@ -4354,9 +4269,6 @@ mod tests {
         }
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn invalid_invocation_prefix_is_not_credited_when_retry_resumes_new_bytes() {
         let temp = Temp::new();
@@ -4429,9 +4341,6 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn restart_progress_never_falls_below_the_valid_invocation_prefix() {
         let temp = Temp::new();
@@ -4506,9 +4415,6 @@ mod tests {
         assert_eq!(events, expected);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn encoded_transient_status_is_fatal_without_retry() {
         let temp = Temp::new();
@@ -4538,9 +4444,6 @@ mod tests {
         assert_eq!(client.requests.borrow().len(), 1);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn every_selected_transient_http_status_retries() {
         for status in [408, 429, 500, 502, 503, 504] {
@@ -4612,9 +4515,6 @@ mod tests {
         assert_eq!(failed.kind(), AssetErrorKind::AssetIo);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn local_write_failure_is_fatal_after_exactly_one_request() {
         let temp = Temp::new();
@@ -4650,9 +4550,6 @@ mod tests {
         assert!(events.is_empty());
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn retry_exhaustion_uses_injected_one_two_four_second_schedule() {
         struct RecordingSleeper(RefCell<Vec<u64>>);
@@ -4708,9 +4605,6 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn resume_requires_exact_validator_and_range() {
         let temp = Temp::new();
@@ -4832,9 +4726,6 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn interrupted_fresh_body_is_reused_by_exact_range_request() {
         let temp = Temp::new();
@@ -4880,9 +4771,6 @@ mod tests {
         assert_eq!(second.requests.borrow()[0].range, Some(split as u64));
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn resume_redirect_preserves_headers_and_full_200_restarts_without_prefix_credit() {
         let temp = Temp::new();
@@ -4957,9 +4845,6 @@ mod tests {
         assert!(!sidecar.exists());
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn wire_failures_do_not_promote_members() {
         let temp = Temp::new();
@@ -5029,9 +4914,6 @@ mod tests {
         assert!(!cache.members.join(&member.asset_name).exists());
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn wrong_declared_lengths_neither_promote_fresh_nor_append_resumed_bytes() {
         let temp = Temp::new();
@@ -5103,9 +4985,6 @@ mod tests {
         assert!(!resumed_cache.members.join(&member.asset_name).exists());
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn timeout_releases_sync_lock_and_never_publishes_before_successful_retry() {
         let temp = Temp::new();
@@ -5143,9 +5022,6 @@ mod tests {
         assert_eq!(retry.status, "installed");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn offline_missing_reports_all_members_and_paths_are_strict() {
         let temp = Temp::new();
@@ -5183,9 +5059,6 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn cache_lock_is_nonblocking_and_published_corruption_is_evicted() {
         let temp = Temp::new();
@@ -5246,9 +5119,6 @@ mod tests {
         assert!(!published.exists());
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn hostile_transport_entries_are_validated_and_removed_streamingly() {
         let temp = Temp::new();
@@ -5272,9 +5142,6 @@ mod tests {
         assert_eq!(remaining, 0);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn resume_206_matrix_rejects_validator_range_and_status_failures_without_append() {
         let temp = Temp::new();
@@ -5344,9 +5211,6 @@ mod tests {
         }
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn fresh_redirect_is_followed_without_range_headers() {
         let temp = Temp::new();
@@ -5393,9 +5257,6 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn fresh_and_resumed_reads_touch_each_network_byte_and_prefix_byte_once() {
         let temp = Temp::new();
@@ -5476,9 +5337,6 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn cache_traversal_and_member_symlinks_fail_closed() {
         let temp = Temp::new();
@@ -5520,9 +5378,6 @@ mod tests {
         assert_eq!(fs::read(&outside).expect("outside unchanged"), b"outside");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn malformed_resume_records_and_invalid_partial_lengths_are_discarded() {
         let temp = Temp::new();
@@ -5589,9 +5444,6 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn cache_and_data_path_failures_do_not_change_a_valid_install() {
         let temp = Temp::new();
@@ -5599,7 +5451,7 @@ mod tests {
         let profile = miniature_profile(&transport, "http://fixture.test");
         let data = temp.0.join("valid-data");
         let alternate = alternate_fixture(&temp.0);
-        install_transport(&alternate, &data).expect("valid nonmatching install");
+        crate::install_transport(&alternate, &data).expect("valid nonmatching install");
         let (before, _) = open_active_bundle(&data).expect("active before");
         assert_ne!(before.bundle_id, profile.bundle.bundle_id);
         assert_ne!(before.transport_id, profile.transport.transport_id);
@@ -5656,7 +5508,7 @@ mod tests {
         );
 
         let online_data = temp.0.join("online-install-failure");
-        install_transport(&alternate, &online_data).expect("online prior install");
+        crate::install_transport(&alternate, &online_data).expect("online prior install");
         let online_lock = online_data.join(".install.lock");
         fs::remove_file(&online_lock).expect("remove online install lock");
         std::os::unix::fs::symlink(&outside, &online_lock).expect("hostile online install lock");
@@ -5685,9 +5537,6 @@ mod tests {
         }
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn cleanup_failure_preserves_installer_error_kind_and_reports_context() {
         let temp = Temp::new();
@@ -5728,9 +5577,6 @@ mod tests {
         assert!(published.exists());
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn every_durable_sync_boundary_recovers_without_exposing_partial_transport() {
         use sync_audit::FaultPoint;
@@ -5859,9 +5705,6 @@ mod tests {
         }));
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn invalid_urls_make_zero_requests_and_invalid_redirects_make_one() {
         let temp = Temp::new();
@@ -5936,9 +5779,6 @@ mod tests {
         }
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn hostile_cache_shapes_and_oversized_resume_metadata_fail_or_discard_safely() {
         let temp = Temp::new();
@@ -6074,9 +5914,10 @@ mod tests {
     fn real_client_bounds_header_and_body_stalls() {
         let header_listener = TcpListener::bind("127.0.0.1:0").expect("bind header server");
         let header_address = header_listener.local_addr().expect("header address");
+        let (release_header, hold_header) = mpsc::channel();
         let header_server = thread::spawn(move || {
             let (_stream, _) = header_listener.accept().expect("accept header");
-            thread::sleep(Duration::from_millis(80));
+            hold_header.recv().expect("hold stalled headers");
         });
         let client =
             ReqwestClient::with_timeouts(Duration::from_millis(25), Duration::from_millis(25));
@@ -6088,11 +5929,13 @@ mod tests {
             Ok(_) => panic!("header request unexpectedly succeeded"),
             Err(error) => error,
         };
+        release_header.send(()).expect("release stalled headers");
         assert_eq!(error.kind(), AssetErrorKind::AssetTimeout);
         header_server.join().expect("header server");
 
         let body_listener = TcpListener::bind("127.0.0.1:0").expect("bind body server");
         let body_address = body_listener.local_addr().expect("body address");
+        let (release_body, hold_body) = mpsc::channel();
         let body_server = thread::spawn(move || {
             let (mut stream, _) = body_listener.accept().expect("accept body");
             let mut request = [0_u8; 1024];
@@ -6101,7 +5944,7 @@ mod tests {
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nETag: \"stall\"\r\n\r\na")
                 .expect("write headers and prefix");
             stream.flush().expect("flush prefix");
-            thread::sleep(Duration::from_millis(80));
+            hold_body.recv().expect("hold stalled body");
         });
         let mut response = client
             .execute(&Request {
@@ -6122,6 +5965,7 @@ mod tests {
             &mut |_| Ok(()),
         )
         .expect_err("body timeout");
+        release_body.send(()).expect("release stalled body");
         assert_eq!(error.kind(), AssetErrorKind::AssetTimeout);
         body_server.join().expect("body server");
         drop(output);

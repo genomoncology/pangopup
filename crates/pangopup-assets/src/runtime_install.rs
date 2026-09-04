@@ -2,13 +2,11 @@
 
 use crate::{
     AssetError, AssetErrorKind, RuntimeProfile, SnvBundleInspection,
-    canonical_runtime_profile_bytes, inspect_snv_bundle, parse_runtime_profile, runtime_profile_id,
+    canonical_runtime_profile_bytes, parse_runtime_profile, runtime_profile_id,
 };
 use pangopup_index::{
     mask::{AdmittedMaskDomains, MaskDomainsOpen},
-    reference_admission::{
-        InstalledReference, admit_installed_reference, inspect_reference_admission,
-    },
+    reference_admission::{InstalledReference, admit_installed_reference},
 };
 use pangopup_model::{ModelAdmission, ModelKernel, inspect_held_model_admission};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -17,10 +15,7 @@ use std::{
     collections::BTreeSet,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
-    os::{
-        fd::AsRawFd,
-        unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
-    },
+    os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -51,85 +46,118 @@ thread_local! {
 }
 
 #[cfg(test)]
-#[derive(Clone, Copy)]
-enum SourceMutation {
-    Replace,
-    Truncate,
-}
+type StagingReplacement = Box<dyn FnOnce() -> Result<(), AssetError>>;
+
+#[cfg(test)]
+type SourceReplacement = Box<dyn FnOnce()>;
 
 #[cfg(test)]
 thread_local! {
-    static SOURCE_MUTATION: std::cell::Cell<Option<SourceMutation>> =
-        const { std::cell::Cell::new(None) };
+    static SOURCE_MUTATION: std::cell::RefCell<Option<SourceReplacement>> =
+        const { std::cell::RefCell::new(None) };
     static REPLACE_DESTINATION: std::cell::Cell<bool> =
         const { std::cell::Cell::new(false) };
     static REPLACE_RUNTIME_BEFORE_RETURN: std::cell::Cell<bool> =
         const { std::cell::Cell::new(false) };
+    static REPLACE_STAGING_DIRECTORY: std::cell::RefCell<Option<StagingReplacement>> =
+        const { std::cell::RefCell::new(None) };
+    static REPLACE_SOURCE_DIRECTORY: std::cell::RefCell<Option<SourceReplacement>> =
+        const { std::cell::RefCell::new(None) };
+    static REPLACE_PROFILE_PATH: std::cell::RefCell<Option<SourceReplacement>> =
+        const { std::cell::RefCell::new(None) };
+    static STATUS_READ_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
-fn mutate_source_for_test(path: &Path) {
-    let Some(mutation) = SOURCE_MUTATION.take() else {
-        return;
-    };
-    match mutation {
-        SourceMutation::Replace => {
-            let old = path.with_extension("held-old");
-            fs::rename(path, &old).expect("replace source path");
-            fs::copy(&old, path).expect("replacement source");
+fn mutate_source_for_test() {
+    SOURCE_MUTATION.with(|mutation| {
+        if let Some(mutation) = mutation.borrow_mut().take() {
+            mutation();
         }
-        SourceMutation::Truncate => {
-            OpenOptions::new()
-                .write(true)
-                .truncate(true)
-                .open(path)
-                .expect("truncate source");
-        }
-    }
+    });
 }
 
 #[cfg(test)]
-fn mutate_destination_for_test(components: &super::local::Dir) {
+fn replace_staging_directory_for_test() -> Result<(), AssetError> {
+    REPLACE_STAGING_DIRECTORY.with(|replacement| {
+        let Some(replacement) = replacement.borrow_mut().take() else {
+            return Ok(());
+        };
+        replacement()
+    })
+}
+
+#[cfg(test)]
+fn replace_source_directory_for_test() {
+    REPLACE_SOURCE_DIRECTORY.with(|replacement| {
+        if let Some(replacement) = replacement.borrow_mut().take() {
+            replacement();
+        }
+    });
+}
+
+#[cfg(test)]
+fn replace_profile_path_for_test() {
+    REPLACE_PROFILE_PATH.with(|replacement| {
+        if let Some(replacement) = replacement.borrow_mut().take() {
+            replacement();
+        }
+    });
+}
+
+#[cfg(test)]
+fn mutate_destination_for_test(components: &super::local::Dir, root: &super::local::Root) {
     if !REPLACE_DESTINATION.replace(false) {
         return;
     }
-    let components = descriptor_path(components);
-    fs::rename(components.join("model"), components.join("model-replaced"))
+    super::local::rename_owned_replace(components, "model", components, "model-replaced")
         .expect("move held destination");
-    fs::create_dir(components.join("model")).expect("replacement destination");
-    fs::set_permissions(
-        components.join("model"),
-        fs::Permissions::from_mode(DIR_PRIVATE),
-    )
-    .expect("replacement destination mode");
+    super::local::create_owned_dir(components, "model", DIR_PRIVATE, root)
+        .expect("replacement destination");
 }
 
 #[cfg(test)]
-fn mutate_runtime_before_return_for_test(bundle: &super::local::Dir) {
+fn mutate_runtime_before_return_for_test(bundle: &super::local::Dir, root: &super::local::Root) {
     if !REPLACE_RUNTIME_BEFORE_RETURN.replace(false) {
         return;
     }
-    let bundle_path = descriptor_path(bundle);
-    fs::set_permissions(&bundle_path, fs::Permissions::from_mode(DIR_PRIVATE))
-        .expect("make test bundle writable");
-    let member = bundle_path.join("model.onnx");
-    let held = bundle_path.join("model.held");
-    fs::rename(&member, &held).expect("move admitted model");
-    fs::copy(&held, &member).expect("replace admitted model");
-    fs::set_permissions(&member, fs::Permissions::from_mode(FILE_IMMUTABLE))
-        .expect("replacement mode");
-    fs::set_permissions(&bundle_path, fs::Permissions::from_mode(DIR_IMMUTABLE))
-        .expect("restore bundle mode");
+    super::local::set_mode(&bundle.file, DIR_PRIVATE).expect("make test bundle writable");
+    super::local::rename_owned_replace(bundle, "model.onnx", bundle, "model.held")
+        .expect("move admitted model");
+    let mut held = super::local::open_owned_file(
+        bundle,
+        "model.held",
+        FILE_IMMUTABLE,
+        root,
+        AssetErrorKind::StagingInvalid,
+    )
+    .expect("open admitted model");
+    let mut replacement = super::local::create_owned_file(bundle, "model.onnx", FILE_PRIVATE, root)
+        .expect("create replacement model");
+    std::io::copy(&mut held, &mut replacement).expect("replace admitted model");
+    super::local::set_mode(&replacement, FILE_IMMUTABLE).expect("replacement mode");
+    super::local::set_mode(&bundle.file, DIR_IMMUTABLE).expect("restore bundle mode");
 }
 
 #[cfg(not(test))]
-fn mutate_source_for_test(_path: &Path) {}
+fn mutate_source_for_test() {}
 
 #[cfg(not(test))]
-fn mutate_destination_for_test(_components: &super::local::Dir) {}
+fn replace_staging_directory_for_test() -> Result<(), AssetError> {
+    Ok(())
+}
 
 #[cfg(not(test))]
-fn mutate_runtime_before_return_for_test(_bundle: &super::local::Dir) {}
+fn replace_source_directory_for_test() {}
+
+#[cfg(not(test))]
+fn replace_profile_path_for_test() {}
+
+#[cfg(not(test))]
+fn mutate_destination_for_test(_components: &super::local::Dir, _root: &super::local::Root) {}
+
+#[cfg(not(test))]
+fn mutate_runtime_before_return_for_test(_bundle: &super::local::Dir, _root: &super::local::Root) {}
 
 #[cfg(test)]
 fn transition(point: TransitionFault) -> Result<(), AssetError> {
@@ -280,6 +308,7 @@ struct InstalledComponent {
     sha256: String,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SnvInstallReceipt {
@@ -308,24 +337,18 @@ pub fn install_runtime_profile(
     profile
         .require_trusted_production()
         .map_err(profile_parse_error)?;
-    install_with_stager(
-        &bytes,
-        &profile,
-        data_root,
-        |staged_model, staged_reference, staged_mask| {
-            stage_local_sources(
-                InstallSources {
-                    model: model_bundle,
-                    reference: reference_bundle,
-                    mask,
-                },
-                staged_model,
-                staged_reference,
-                staged_mask,
-                &profile,
-            )
-        },
-    )
+    install_with_stager(&bytes, &profile, data_root, |stage, root| {
+        stage_local_sources(
+            InstallSources {
+                model: model_bundle,
+                reference: reference_bundle,
+                mask,
+            },
+            stage,
+            root,
+            &profile,
+        )
+    })
 }
 
 #[cfg(feature = "test-fixtures")]
@@ -337,55 +360,54 @@ pub fn install_test_runtime_profile(
     data_root: &Path,
 ) -> Result<RuntimeInstallOutcome, AssetError> {
     let bytes = canonical_runtime_profile_bytes(profile).map_err(profile_parse_error)?;
-    install_with_stager(
-        &bytes,
-        profile,
-        data_root,
-        |staged_model, staged_reference, staged_mask| {
-            stage_local_sources(
-                InstallSources {
-                    model: model_bundle,
-                    reference: reference_bundle,
-                    mask,
-                },
-                staged_model,
-                staged_reference,
-                staged_mask,
-                profile,
-            )
-        },
-    )
+    install_with_stager(&bytes, profile, data_root, |stage, root| {
+        stage_local_sources(
+            InstallSources {
+                model: model_bundle,
+                reference: reference_bundle,
+                mask,
+            },
+            stage,
+            root,
+            profile,
+        )
+    })
 }
 
 fn stage_local_sources(
     sources: InstallSources<'_>,
-    staged_model: &Path,
-    staged_reference: &Path,
-    staged_mask: &Path,
+    stage: &super::local::Dir,
+    root: &super::local::Root,
     profile: &RuntimeProfile,
 ) -> Result<(), AssetError> {
+    let model = super::local::create_owned_dir(stage, "model", DIR_PRIVATE, root)?;
     copy_bundle(
         sources.model,
-        staged_model,
+        &model,
+        root,
         "model.onnx",
         profile.model.member_bytes,
         &profile.model.member_sha256,
     )?;
+    let reference = super::local::create_owned_dir(stage, "reference", DIR_PRIVATE, root)?;
     copy_bundle(
         sources.reference,
-        staged_reference,
+        &reference,
+        root,
         "reference.pgr",
         profile.reference.member_bytes,
         &profile.reference.member_sha256,
     )?;
-    create_private(staged_mask)?;
-    copy_member(
+    let mask = super::local::create_owned_dir(stage, "mask", DIR_PRIVATE, root)?;
+    copy_path_member(
         sources.mask,
-        &staged_mask.join("domains.pgm"),
+        &mask,
+        "domains.pgm",
+        root,
         profile.mask.member_bytes,
         &profile.mask.member_sha256,
     )?;
-    Ok(())
+    mask.file.sync_all().map_err(|_| output("sync staged mask"))
 }
 
 pub(crate) fn install_with_stager<F>(
@@ -395,7 +417,7 @@ pub(crate) fn install_with_stager<F>(
     stage_sources: F,
 ) -> Result<RuntimeInstallOutcome, AssetError>
 where
-    F: FnOnce(&Path, &Path, &Path) -> Result<(), AssetError>,
+    F: FnOnce(&super::local::Dir, &super::local::Root) -> Result<(), AssetError>,
 {
     let canonical = canonical_runtime_profile_bytes(profile).map_err(profile_parse_error)?;
     if canonical != profile_bytes {
@@ -407,8 +429,7 @@ where
 
     let locked = super::local::acquire_shared_install_lock(data_root)?;
     let root = &locked.root;
-    let root_path = descriptor_path(&root.dir);
-    let snv = inspect_active_snv(&root_path)?;
+    let snv = super::local::inspect_active_snv_locked(root)?;
     require_snv(profile, &snv)?;
 
     let runtime_dir = super::local::ensure_private_dir(&root.dir, "runtime", root)?;
@@ -418,12 +439,10 @@ where
     let mask_dir = super::local::ensure_private_dir(&components_dir, "mask", root)?;
     let profiles_dir = super::local::ensure_private_dir(&runtime_dir, "profiles", root)?;
     let staging_dir = super::local::ensure_private_dir(&runtime_dir, ".staging", root)?;
-    let runtime = descriptor_path(&runtime_dir);
-    let staging_root = descriptor_path(&staging_dir);
-    reconcile_staging(&staging_root)?;
-    reconcile_staged_active(&runtime)?;
+    reconcile_staging(&staging_dir, root)?;
+    reconcile_staged_active(&runtime_dir, root)?;
 
-    if let Some(status) = validate_ready(&root_path, profile)?
+    if let Some(status) = validate_ready_held(root, profile)?
         && status.profile_id == profile_id
     {
         authenticate_ready_capabilities(
@@ -448,24 +467,35 @@ where
             .as_nanos(),
         std::process::id()
     );
-    let stage = staging_root.join(&nonce);
-    create_private(&stage)?;
-    let stage_dir = super::local::open_owned_dir(&staging_dir, &nonce, root, DIR_PRIVATE)?;
-    let stage = descriptor_path(&stage_dir);
+    let stage_dir = super::local::create_owned_dir(&staging_dir, &nonce, DIR_PRIVATE, root)?;
+    let mut cleanup_stage_name = true;
     let result = (|| {
-        let staged_model = stage.join("model");
-        let staged_reference = stage.join("reference");
-        let staged_mask = stage.join("mask");
-        stage_sources(&staged_model, &staged_reference, &staged_mask)?;
+        stage_sources(&stage_dir, root)?;
         transition!(StagedObjectsDurable);
+        replace_staging_directory_for_test()?;
+        if super::local::named_identity_matches(&staging_dir, &nonce, &stage_dir.file).is_err() {
+            cleanup_stage_name = false;
+            return Err(profile_corrupt("runtime staging directory was replaced"));
+        }
+        let staged_model = super::local::open_owned_dir(&stage_dir, "model", root, DIR_PRIVATE)?;
+        let staged_reference =
+            super::local::open_owned_dir(&stage_dir, "reference", root, DIR_PRIVATE)?;
+        let staged_mask = super::local::open_owned_dir(&stage_dir, "mask", root, DIR_PRIVATE)?;
 
-        validate_staged(profile, &staged_model, &staged_reference, &staged_mask)?;
+        validate_staged_held(
+            profile,
+            &staged_model,
+            &staged_reference,
+            &staged_mask,
+            root,
+        )?;
 
         let model_suffix = suffix(&profile.model.bundle_id)?;
         let reference_suffix = suffix(&profile.reference.bundle_id)?;
         let mask_suffix = suffix(&profile.mask.member_sha256)?;
         let model_published = publish_bundle(
-            &staged_model,
+            &stage_dir,
+            "model",
             &model_dir,
             model_suffix,
             root,
@@ -473,7 +503,8 @@ where
             profile.model.member_bytes,
         )?;
         let reference_published = publish_bundle(
-            &staged_reference,
+            &stage_dir,
+            "reference",
             &reference_dir,
             reference_suffix,
             root,
@@ -481,7 +512,8 @@ where
             profile.reference.member_bytes,
         )?;
         let mask_published = publish_mask(
-            &staged_mask,
+            &stage_dir,
+            "mask",
             &mask_dir,
             mask_suffix,
             root,
@@ -494,7 +526,7 @@ where
             profile.model.member_bytes,
             &profile.model.member_sha256,
         )?;
-        validate_model_bundle(&descriptor_path(&model_published.bundle), profile)
+        validate_model_bundle_held(&model_published.bundle, profile, root)
             .map_err(|_| conflict("immutable model component conflicts"))?;
         let reference_member = authenticate_member(
             &reference_published.bundle,
@@ -503,11 +535,8 @@ where
             profile.reference.member_bytes,
             &profile.reference.member_sha256,
         )?;
-        let admitted = inspect_reference_admission(&descriptor_path(&reference_published.bundle))
+        validate_reference_bundle_held(&reference_published.bundle, profile, root)
             .map_err(|_| conflict("immutable reference component conflicts"))?;
-        if admitted.bundle_id() != profile.reference.bundle_id {
-            return Err(conflict("immutable reference component conflicts"));
-        }
         let mask_member = authenticate_member(
             &mask_published.dir,
             "domains.pgm",
@@ -515,39 +544,46 @@ where
             profile.mask.member_bytes,
             &profile.mask.member_sha256,
         )?;
-        MaskDomainsOpen::open(&descriptor_path(&mask_published.dir).join("domains.pgm"))
+        validate_mask_held(&mask_published.dir, profile, root)
             .map_err(|_| conflict("immutable mask component conflicts"))?;
         transition!(ComponentsPublished);
 
         let profile_suffix = suffix(&profile_id)?;
-        let staged_profile = stage.join("profile");
-        create_private(&staged_profile)?;
-        let stored_profile = staged_profile.join("profile.json");
-        write_new(&stored_profile, profile_bytes, FILE_IMMUTABLE)?;
+        let staged_profile =
+            super::local::create_owned_dir(&stage_dir, "profile", DIR_PRIVATE, root)?;
+        write_new_held(
+            &staged_profile,
+            "profile.json",
+            profile_bytes,
+            FILE_IMMUTABLE,
+            root,
+        )?;
         let receipt = receipt(profile, &profile_id);
         let receipt_bytes =
             serde_jcs::to_vec(&receipt).map_err(|_| output("serialize runtime receipt"))?;
-        write_new(
-            &staged_profile.join("receipt.json"),
+        write_new_held(
+            &staged_profile,
+            "receipt.json",
             &receipt_bytes,
             FILE_IMMUTABLE,
+            root,
         )?;
-        sync_dir(&staged_profile)?;
+        staged_profile
+            .file
+            .sync_all()
+            .map_err(|_| output("sync staged profile"))?;
         let published_profile = publish_directory(
-            &staged_profile,
+            &stage_dir,
+            "profile",
             &profiles_dir,
             profile_suffix,
             root,
-            |path| validate_profile_directory(path, profile, &profile_id).map(|_| ()),
+            |dir| validate_profile_directory_held(dir, profile, &profile_id, root).map(|_| ()),
         )?;
         transition!(ProfilePublished);
 
-        validate_profile_directory(
-            &descriptor_path(&published_profile.dir),
-            profile,
-            &profile_id,
-        )?;
-        mutate_destination_for_test(&components_dir);
+        validate_profile_directory_held(&published_profile.dir, profile, &profile_id, root)?;
+        mutate_destination_for_test(&components_dir, root);
         verify_runtime_topology(
             root,
             &runtime_dir,
@@ -575,18 +611,45 @@ where
         };
         let active_bytes =
             serde_jcs::to_vec(&active).map_err(|_| output("serialize runtime active state"))?;
-        let staged_active = runtime.join(".active.new");
-        if staged_active.exists() {
+        if super::local::open_owned_file_optional(
+            &runtime_dir,
+            ".active.new",
+            FILE_PRIVATE,
+            root,
+            AssetErrorKind::InstallConflict,
+        )?
+        .is_some()
+        {
             return Err(conflict("staged active pointer already exists"));
         }
-        write_new(&staged_active, &active_bytes, FILE_PRIVATE)?;
+        write_new_held(
+            &runtime_dir,
+            ".active.new",
+            &active_bytes,
+            FILE_PRIVATE,
+            root,
+        )?;
         transition!(BeforeActiveRename);
-        rename_replace_path(&staged_active, &runtime.join("active.json"))?;
+        super::local::rename_owned_replace(
+            &runtime_dir,
+            ".active.new",
+            &runtime_dir,
+            "active.json",
+        )?;
         transition!(AfterActiveRename);
-        sync_dir(&runtime)?;
+        runtime_dir
+            .file
+            .sync_all()
+            .map_err(|_| output("sync runtime directory"))?;
         Ok(outcome("installed", profile, profile_id.clone()))
     })();
-    let _ = remove_stage(&stage);
+    // A failed identity check proves that this name no longer denotes our
+    // held stage. Do not authorize name-based cleanup of its replacement.
+    if cleanup_stage_name
+        && super::local::named_identity_matches(&staging_dir, &nonce, &stage_dir.file).is_ok()
+    {
+        let _ = remove_stage(&staging_dir, &nonce);
+    }
     result
 }
 
@@ -597,20 +660,9 @@ fn install_with_profile(
     sources: InstallSources<'_>,
     data_root: &Path,
 ) -> Result<RuntimeInstallOutcome, AssetError> {
-    install_with_stager(
-        profile_bytes,
-        profile,
-        data_root,
-        |staged_model, staged_reference, staged_mask| {
-            stage_local_sources(
-                sources,
-                staged_model,
-                staged_reference,
-                staged_mask,
-                profile,
-            )
-        },
-    )
+    install_with_stager(profile_bytes, profile, data_root, |stage, root| {
+        stage_local_sources(sources, stage, root, profile)
+    })
 }
 
 pub fn runtime_local_status(data_root: &Path) -> Result<RuntimeLocalStatus, AssetError> {
@@ -620,9 +672,8 @@ pub fn runtime_local_status(data_root: &Path) -> Result<RuntimeLocalStatus, Asse
         });
     };
     let installing = super::local::probe_install_lock(&root)?;
-    let root_path = descriptor_path(&root.dir);
     runtime_local_status_with(
-        &root_path,
+        &root,
         data_root,
         &crate::production_runtime_profile(),
         installing,
@@ -632,9 +683,8 @@ pub fn runtime_local_status(data_root: &Path) -> Result<RuntimeLocalStatus, Asse
 pub(crate) fn runtime_local_status_locked(
     locked: &super::local::LockedRoot,
 ) -> Result<RuntimeLocalStatus, AssetError> {
-    let root_path = descriptor_path(&locked.root.dir);
     runtime_local_status_with(
-        &root_path,
+        &locked.root,
         &locked.root.path,
         &crate::production_runtime_profile(),
         false,
@@ -646,8 +696,7 @@ pub(crate) fn runtime_local_status_locked_with_profile(
     locked: &super::local::LockedRoot,
     profile: &RuntimeProfile,
 ) -> Result<RuntimeLocalStatus, AssetError> {
-    let root_path = descriptor_path(&locked.root.dir);
-    runtime_local_status_with(&root_path, &locked.root.path, profile, false)
+    runtime_local_status_with(&locked.root, &locked.root.path, profile, false)
 }
 
 /// Admit the active installed runtime tuple for the exact already-open SNV
@@ -691,13 +740,21 @@ fn open_installed_runtime_profile_with(
     let root = super::local::open_root(data_root, false)
         .map_err(|_| profile_unsafe_runtime())?
         .ok_or_else(runtime_missing)?;
-    let runtime = open_runtime_dir_optional(&root.dir, "runtime", &root, DIR_PRIVATE)?
+    open_installed_runtime_profile_from_root(&root, expected_snv_bundle_id, trusted)
+}
+
+fn open_installed_runtime_profile_from_root(
+    root: &super::local::Root,
+    expected_snv_bundle_id: Option<&str>,
+    trusted: &RuntimeProfile,
+) -> Result<InstalledRuntimeProfile, AssetError> {
+    let runtime = open_runtime_dir_optional(&root.dir, "runtime", root, DIR_PRIVATE)?
         .ok_or_else(runtime_missing)?;
     let active_file = super::local::open_owned_file_optional(
         &runtime,
         "active.json",
         FILE_PRIVATE,
-        &root,
+        root,
         AssetErrorKind::StagingInvalid,
     )
     .map_err(|_| profile_unsafe_runtime())?
@@ -714,16 +771,16 @@ fn open_installed_runtime_profile_with(
         return Err(profile_corrupt_runtime());
     }
 
-    let components = open_runtime_dir(&runtime, "components", &root, DIR_PRIVATE)?;
-    let model_parent = open_runtime_dir(&components, "model", &root, DIR_PRIVATE)?;
-    let reference_parent = open_runtime_dir(&components, "reference", &root, DIR_PRIVATE)?;
-    let mask_parent = open_runtime_dir(&components, "mask", &root, DIR_PRIVATE)?;
-    let profiles = open_runtime_dir(&runtime, "profiles", &root, DIR_PRIVATE)?;
+    let components = open_runtime_dir(&runtime, "components", root, DIR_PRIVATE)?;
+    let model_parent = open_runtime_dir(&components, "model", root, DIR_PRIVATE)?;
+    let reference_parent = open_runtime_dir(&components, "reference", root, DIR_PRIVATE)?;
+    let mask_parent = open_runtime_dir(&components, "mask", root, DIR_PRIVATE)?;
+    let profiles = open_runtime_dir(&runtime, "profiles", root, DIR_PRIVATE)?;
     let profile_dir =
-        open_runtime_dir(&profiles, suffix(&active.profile_id)?, &root, DIR_IMMUTABLE)?;
+        open_runtime_dir(&profiles, suffix(&active.profile_id)?, root, DIR_IMMUTABLE)?;
     require_runtime_names(&profile_dir, &["profile.json", "receipt.json"])?;
-    let profile_file = open_runtime_file(&profile_dir, "profile.json", &root, FILE_IMMUTABLE)?;
-    let receipt_file = open_runtime_file(&profile_dir, "receipt.json", &root, FILE_IMMUTABLE)?;
+    let profile_file = open_runtime_file(&profile_dir, "profile.json", root, FILE_IMMUTABLE)?;
+    let receipt_file = open_runtime_file(&profile_dir, "receipt.json", root, FILE_IMMUTABLE)?;
     require_held_file(&profile_file, FILE_IMMUTABLE, MAX_JSON, None)?;
     require_held_file(&receipt_file, FILE_IMMUTABLE, MAX_JSON, None)?;
     let profile_bytes = super::local::read_bounded_handle_ref(
@@ -760,16 +817,16 @@ fn open_installed_runtime_profile_with(
     let model_identity = open_runtime_dir(
         &model_parent,
         suffix(&profile.model.bundle_id)?,
-        &root,
+        root,
         DIR_IMMUTABLE,
     )?;
     require_runtime_names(&model_identity, &["bundle"])?;
-    let model_bundle = open_runtime_dir(&model_identity, "bundle", &root, DIR_IMMUTABLE)?;
+    let model_bundle = open_runtime_dir(&model_identity, "bundle", root, DIR_IMMUTABLE)?;
     let model_files = open_installed_bundle(
         &model_bundle,
         "model.onnx",
         profile.model.member_bytes,
-        &root,
+        root,
     )?;
     let model_admission = inspect_held_model_admission(
         &model_files.manifest_bytes,
@@ -787,16 +844,16 @@ fn open_installed_runtime_profile_with(
     let reference_identity = open_runtime_dir(
         &reference_parent,
         suffix(&profile.reference.bundle_id)?,
-        &root,
+        root,
         DIR_IMMUTABLE,
     )?;
     require_runtime_names(&reference_identity, &["bundle"])?;
-    let reference_bundle = open_runtime_dir(&reference_identity, "bundle", &root, DIR_IMMUTABLE)?;
+    let reference_bundle = open_runtime_dir(&reference_identity, "bundle", root, DIR_IMMUTABLE)?;
     let reference_files = open_installed_bundle(
         &reference_bundle,
         "reference.pgr",
         profile.reference.member_bytes,
-        &root,
+        root,
     )?;
     if format!(
         "sha256:{:x}",
@@ -832,11 +889,11 @@ fn open_installed_runtime_profile_with(
     let mask_identity = open_runtime_dir(
         &mask_parent,
         suffix(&profile.mask.member_sha256)?,
-        &root,
+        root,
         DIR_IMMUTABLE,
     )?;
     require_runtime_names(&mask_identity, &["domains.pgm"])?;
-    let mask_file = open_runtime_file(&mask_identity, "domains.pgm", &root, FILE_IMMUTABLE)?;
+    let mask_file = open_runtime_file(&mask_identity, "domains.pgm", root, FILE_IMMUTABLE)?;
     require_held_file(
         &mask_file,
         FILE_IMMUTABLE,
@@ -855,7 +912,7 @@ fn open_installed_runtime_profile_with(
         return Err(profile_incompatible_runtime());
     }
 
-    mutate_runtime_before_return_for_test(&model_bundle);
+    mutate_runtime_before_return_for_test(&model_bundle, root);
     for (parent, name, held) in [
         (&root.dir, "runtime", &runtime.file),
         (&runtime, "active.json", &active_file),
@@ -1041,12 +1098,12 @@ where
 }
 
 fn runtime_local_status_with(
-    root_path: &Path,
+    root: &super::local::Root,
     display_root: &Path,
     trusted: &RuntimeProfile,
     installing: bool,
 ) -> Result<RuntimeLocalStatus, AssetError> {
-    match validate_ready(root_path, trusted)? {
+    match validate_ready_held(root, trusted)? {
         Some(ready) => Ok(RuntimeLocalStatus::Ready {
             profile_id: ready.profile_id,
             snv_bundle_id: ready.snv_bundle_id,
@@ -1065,6 +1122,204 @@ fn runtime_local_status_with(
             data_dir: display_root.to_owned(),
         }),
     }
+}
+
+fn validate_ready_held(
+    root: &super::local::Root,
+    trusted: &RuntimeProfile,
+) -> Result<Option<Ready>, AssetError> {
+    match validate_ready_held_inner(root, trusted) {
+        Err(error) if error.kind() == AssetErrorKind::StagingInvalid => {
+            Err(profile_corrupt_runtime())
+        }
+        result => result,
+    }
+}
+
+fn validate_ready_held_inner(
+    root: &super::local::Root,
+    trusted: &RuntimeProfile,
+) -> Result<Option<Ready>, AssetError> {
+    let Some(runtime) = open_runtime_dir_optional(&root.dir, "runtime", root, DIR_PRIVATE)? else {
+        return Ok(None);
+    };
+    let Some(active_file) = super::local::open_owned_file_optional(
+        &runtime,
+        "active.json",
+        FILE_PRIVATE,
+        root,
+        AssetErrorKind::StagingInvalid,
+    )
+    .map_err(|_| profile_unsafe_runtime())?
+    else {
+        return Ok(None);
+    };
+    require_held_file(&active_file, FILE_PRIVATE, MAX_JSON, None)?;
+    let active_bytes = read_status_metadata(&active_file, MAX_JSON)?;
+    let active: RuntimeActive = parse_canonical_runtime_bytes(&active_bytes)?;
+    if active.schema != ACTIVE_SCHEMA || !valid_identity(&active.profile_id) {
+        return Err(profile_corrupt_runtime());
+    }
+
+    let components = open_runtime_dir(&runtime, "components", root, DIR_PRIVATE)?;
+    let model_parent = open_runtime_dir(&components, "model", root, DIR_PRIVATE)?;
+    let reference_parent = open_runtime_dir(&components, "reference", root, DIR_PRIVATE)?;
+    let mask_parent = open_runtime_dir(&components, "mask", root, DIR_PRIVATE)?;
+    let profiles = open_runtime_dir(&runtime, "profiles", root, DIR_PRIVATE)?;
+    let profile_dir =
+        open_runtime_dir(&profiles, suffix(&active.profile_id)?, root, DIR_IMMUTABLE)?;
+    require_runtime_names(&profile_dir, &["profile.json", "receipt.json"])?;
+    let profile_file = open_runtime_file(&profile_dir, "profile.json", root, FILE_IMMUTABLE)?;
+    let receipt_file = open_runtime_file(&profile_dir, "receipt.json", root, FILE_IMMUTABLE)?;
+    require_held_file(&profile_file, FILE_IMMUTABLE, MAX_JSON, None)?;
+    require_held_file(&receipt_file, FILE_IMMUTABLE, MAX_JSON, None)?;
+    let profile_bytes = read_status_metadata(&profile_file, MAX_JSON)?;
+    let profile = parse_runtime_profile(&profile_bytes).map_err(|_| profile_corrupt_runtime())?;
+    let profile_id = runtime_profile_id(&profile_bytes)
+        .map_err(|_| profile_corrupt_runtime())?
+        .to_string();
+    if profile_id != active.profile_id {
+        return Err(profile_corrupt_runtime());
+    }
+    if &profile != trusted {
+        return Err(profile_incompatible_runtime());
+    }
+    let receipt_bytes = read_status_metadata(&receipt_file, MAX_JSON)?;
+    let installed_receipt: RuntimeReceipt = parse_canonical_runtime_bytes(&receipt_bytes)?;
+    if installed_receipt != receipt(&profile, &profile_id) {
+        return Err(profile_corrupt_runtime());
+    }
+
+    let model = open_status_bundle(
+        &model_parent,
+        suffix(&profile.model.bundle_id)?,
+        "model.onnx",
+        profile.model.member_bytes,
+        root,
+    )?;
+    let reference = open_status_bundle(
+        &reference_parent,
+        suffix(&profile.reference.bundle_id)?,
+        "reference.pgr",
+        profile.reference.member_bytes,
+        root,
+    )?;
+    let mask_identity = open_runtime_dir(
+        &mask_parent,
+        suffix(&profile.mask.member_sha256)?,
+        root,
+        DIR_IMMUTABLE,
+    )?;
+    require_runtime_names(&mask_identity, &["domains.pgm"])?;
+    let mask_file = open_runtime_file(&mask_identity, "domains.pgm", root, FILE_IMMUTABLE)?;
+    require_held_file(
+        &mask_file,
+        FILE_IMMUTABLE,
+        profile.mask.member_bytes,
+        Some(profile.mask.member_bytes),
+    )?;
+
+    for (parent, name, held) in [
+        (&root.dir, "runtime", &runtime.file),
+        (&runtime, "active.json", &active_file),
+        (&runtime, "components", &components.file),
+        (&components, "model", &model_parent.file),
+        (&components, "reference", &reference_parent.file),
+        (&components, "mask", &mask_parent.file),
+        (&runtime, "profiles", &profiles.file),
+        (&profiles, suffix(&profile_id)?, &profile_dir.file),
+        (&profile_dir, "profile.json", &profile_file),
+        (&profile_dir, "receipt.json", &receipt_file),
+        (
+            &model_parent,
+            suffix(&profile.model.bundle_id)?,
+            &model.identity.file,
+        ),
+        (&model.identity, "bundle", &model.bundle.file),
+        (&model.bundle, "manifest.json", &model.manifest),
+        (&model.bundle, "NOTICE", &model.notice),
+        (&model.bundle, "model.onnx", &model.member),
+        (
+            &reference_parent,
+            suffix(&profile.reference.bundle_id)?,
+            &reference.identity.file,
+        ),
+        (&reference.identity, "bundle", &reference.bundle.file),
+        (&reference.bundle, "manifest.json", &reference.manifest),
+        (&reference.bundle, "NOTICE", &reference.notice),
+        (&reference.bundle, "reference.pgr", &reference.member),
+        (
+            &mask_parent,
+            suffix(&profile.mask.member_sha256)?,
+            &mask_identity.file,
+        ),
+        (&mask_identity, "domains.pgm", &mask_file),
+    ] {
+        super::local::named_identity_matches(parent, name, held)
+            .map_err(|_| profile_corrupt_runtime())?;
+    }
+
+    Ok(Some(Ready {
+        profile_id,
+        snv_bundle_id: profile.snv.bundle_id.clone(),
+        model_bundle_id: profile.model.bundle_id.clone(),
+        reference_bundle_id: profile.reference.bundle_id.clone(),
+        mask_sha256: profile.mask.member_sha256.clone(),
+        model_path: PathBuf::from("runtime")
+            .join("components/model")
+            .join(suffix(&profile.model.bundle_id)?)
+            .join("bundle"),
+        reference_path: PathBuf::from("runtime")
+            .join("components/reference")
+            .join(suffix(&profile.reference.bundle_id)?)
+            .join("bundle"),
+        mask_path: PathBuf::from("runtime")
+            .join("components/mask")
+            .join(suffix(&profile.mask.member_sha256)?)
+            .join("domains.pgm"),
+    }))
+}
+
+fn read_status_metadata(file: &File, maximum: u64) -> Result<Vec<u8>, AssetError> {
+    let bytes = super::local::read_bounded_handle_ref(file, maximum, AssetErrorKind::BundleInvalid)
+        .map_err(|_| profile_corrupt_runtime())?;
+    #[cfg(test)]
+    STATUS_READ_BYTES.set(STATUS_READ_BYTES.get().saturating_add(bytes.len() as u64));
+    Ok(bytes)
+}
+
+struct StatusBundle {
+    identity: super::local::Dir,
+    bundle: super::local::Dir,
+    manifest: File,
+    notice: File,
+    member: File,
+}
+
+fn open_status_bundle(
+    parent: &super::local::Dir,
+    identity: &str,
+    payload: &str,
+    payload_bytes: u64,
+    root: &super::local::Root,
+) -> Result<StatusBundle, AssetError> {
+    let identity = open_runtime_dir(parent, identity, root, DIR_IMMUTABLE)?;
+    require_runtime_names(&identity, &["bundle"])?;
+    let bundle = open_runtime_dir(&identity, "bundle", root, DIR_IMMUTABLE)?;
+    require_runtime_names(&bundle, &["NOTICE", "manifest.json", payload])?;
+    let manifest = open_runtime_file(&bundle, "manifest.json", root, FILE_IMMUTABLE)?;
+    let notice = open_runtime_file(&bundle, "NOTICE", root, FILE_IMMUTABLE)?;
+    let member = open_runtime_file(&bundle, payload, root, FILE_IMMUTABLE)?;
+    require_held_file(&manifest, FILE_IMMUTABLE, MAX_JSON, None)?;
+    require_held_file(&notice, FILE_IMMUTABLE, MAX_NOTICE, None)?;
+    require_held_file(&member, FILE_IMMUTABLE, payload_bytes, Some(payload_bytes))?;
+    Ok(StatusBundle {
+        identity,
+        bundle,
+        manifest,
+        notice,
+        member,
+    })
 }
 
 struct Ready {
@@ -1109,7 +1364,7 @@ fn authenticate_ready_capabilities(
         profile.model.member_bytes,
         &profile.model.member_sha256,
     )?;
-    validate_model_bundle(&descriptor_path(&model_bundle), profile)
+    validate_model_bundle_held(&model_bundle, profile, root)
         .map_err(|_| conflict("immutable model component conflicts"))?;
     let reference_identity = super::local::open_owned_dir(
         reference_parent,
@@ -1126,11 +1381,8 @@ fn authenticate_ready_capabilities(
         profile.reference.member_bytes,
         &profile.reference.member_sha256,
     )?;
-    let admitted = inspect_reference_admission(&descriptor_path(&reference_bundle))
+    validate_reference_bundle_held(&reference_bundle, profile, root)
         .map_err(|_| conflict("immutable reference component conflicts"))?;
-    if admitted.bundle_id() != profile.reference.bundle_id {
-        return Err(conflict("immutable reference component conflicts"));
-    }
     let mask_identity = super::local::open_owned_dir(
         mask_parent,
         suffix(&profile.mask.member_sha256)?,
@@ -1144,11 +1396,11 @@ fn authenticate_ready_capabilities(
         profile.mask.member_bytes,
         &profile.mask.member_sha256,
     )?;
-    MaskDomainsOpen::open(&descriptor_path(&mask_identity).join("domains.pgm"))
+    validate_mask_held(&mask_identity, profile, root)
         .map_err(|_| conflict("immutable mask component conflicts"))?;
     let profile_identity =
         super::local::open_owned_dir(profiles, suffix(&profile_id)?, root, DIR_IMMUTABLE)?;
-    validate_profile_directory(&descriptor_path(&profile_identity), profile, &profile_id)?;
+    validate_profile_directory_held(&profile_identity, profile, &profile_id, root)?;
     verify_runtime_topology(
         root,
         runtime,
@@ -1224,148 +1476,6 @@ fn verify_runtime_topology(
     super::local::named_identity_matches(profiles, profile_name, &profile.dir.file)
 }
 
-fn validate_ready(data_root: &Path, trusted: &RuntimeProfile) -> Result<Option<Ready>, AssetError> {
-    let runtime = data_root.join("runtime");
-    let active_path = runtime.join("active.json");
-    if !nofollow_exists(&active_path)? {
-        return Ok(None);
-    }
-    require_installed_file(&active_path, FILE_PRIVATE, MAX_JSON)?;
-    let active: RuntimeActive = read_canonical(&active_path, MAX_JSON)?;
-    if active.schema != ACTIVE_SCHEMA || !valid_identity(&active.profile_id) {
-        return Err(profile_corrupt("runtime active state is invalid"));
-    }
-    let profile_dir = runtime.join("profiles").join(suffix(&active.profile_id)?);
-    require_installed_dir(&profile_dir, DIR_IMMUTABLE)?;
-    let profile_bytes = read_installed(&profile_dir.join("profile.json"), MAX_JSON)?;
-    let profile = parse_runtime_profile(&profile_bytes)
-        .map_err(|_| profile_corrupt("installed runtime profile is invalid"))?;
-    if &profile != trusted {
-        return Err(AssetError::new(
-            AssetErrorKind::TransportIncompatible,
-            "installed runtime profile is not trusted",
-        ));
-    }
-    let observed_id = runtime_profile_id(&profile_bytes)
-        .map_err(|_| profile_corrupt("installed runtime profile is invalid"))?
-        .to_string();
-    if observed_id != active.profile_id {
-        return Err(profile_corrupt("runtime profile identity mismatch"));
-    }
-    let receipt = validate_profile_directory(&profile_dir, &profile, &observed_id)?;
-    let model_path = data_root.join("runtime").join(&receipt.model.path);
-    let reference_path = data_root.join("runtime").join(&receipt.reference.path);
-    let mask_path = data_root.join("runtime").join(&receipt.mask.path);
-    validate_component_shape(&model_path, "model.onnx", receipt.model.size, true)?;
-    validate_component_shape(
-        &reference_path,
-        "reference.pgr",
-        receipt.reference.size,
-        true,
-    )?;
-    validate_component_shape(&mask_path, "domains.pgm", receipt.mask.size, false)?;
-    Ok(Some(Ready {
-        profile_id: observed_id,
-        snv_bundle_id: receipt.snv_bundle_id,
-        model_bundle_id: profile.model.bundle_id,
-        reference_bundle_id: profile.reference.bundle_id,
-        mask_sha256: profile.mask.member_sha256,
-        model_path: relative_runtime_path(data_root, &model_path)?,
-        reference_path: relative_runtime_path(data_root, &reference_path)?,
-        mask_path: relative_runtime_path(data_root, &mask_path)?,
-    }))
-}
-
-fn inspect_active_snv(data_root: &Path) -> Result<SnvBundleInspection, AssetError> {
-    let active_path = data_root.join("active.json");
-    if !nofollow_exists(&active_path)? {
-        return Err(AssetError::new(
-            AssetErrorKind::AssetsMissing,
-            "an active SNV bundle is required",
-        ));
-    }
-    require_installed_file(&active_path, FILE_PRIVATE, MAX_JSON)?;
-    #[derive(Deserialize, Serialize)]
-    #[serde(deny_unknown_fields)]
-    struct Active {
-        schema: String,
-        bundle_id: String,
-    }
-    let active: Active = read_canonical(&active_path, MAX_JSON)?;
-    if active.schema != "pangopup.active-profile.v1" || !valid_identity(&active.bundle_id) {
-        return Err(AssetError::new(
-            AssetErrorKind::AssetStateInvalid,
-            "active SNV state is invalid",
-        ));
-    }
-    let wrapper = data_root.join("bundles").join(suffix(&active.bundle_id)?);
-    require_installed_dir(&wrapper, DIR_IMMUTABLE)?;
-    exact_names(&wrapper, &["bundle", "receipt.json"])?;
-    require_installed_file(&wrapper.join("receipt.json"), FILE_IMMUTABLE, MAX_JSON)?;
-    let receipt: SnvInstallReceipt = read_canonical(&wrapper.join("receipt.json"), MAX_JSON)?;
-    if receipt.schema != "pangopup.install-receipt.v1"
-        || receipt.bundle_id != active.bundle_id
-        || !valid_identity(&receipt.transport_id)
-        || receipt.members.len() != 3
-        || receipt.members[0].path != "bundle/NOTICE"
-        || receipt.members[1].path != "bundle/manifest.json"
-        || receipt.members[2].path != "bundle/scores.pgi"
-        || receipt
-            .members
-            .iter()
-            .any(|member| !valid_identity(&member.sha256))
-    {
-        return Err(AssetError::new(
-            AssetErrorKind::AssetStateInvalid,
-            "active SNV receipt is invalid",
-        ));
-    }
-    let bundle = wrapper.join("bundle");
-    require_installed_dir(&bundle, DIR_IMMUTABLE)?;
-    exact_names(&bundle, &["NOTICE", "manifest.json", "scores.pgi"])?;
-    require_installed_file(&bundle.join("NOTICE"), FILE_IMMUTABLE, MAX_NOTICE)?;
-    require_installed_file(&bundle.join("manifest.json"), FILE_IMMUTABLE, MAX_JSON)?;
-    require_installed_file(
-        &bundle.join("scores.pgi"),
-        FILE_IMMUTABLE,
-        crate::MAX_FIXED11_BYTES,
-    )?;
-    let inspection = inspect_snv_bundle(&bundle).map_err(|_| {
-        AssetError::new(
-            AssetErrorKind::AssetStateInvalid,
-            "active SNV bundle metadata is invalid",
-        )
-    })?;
-    if inspection.bundle_id != active.bundle_id {
-        return Err(AssetError::new(
-            AssetErrorKind::AssetStateInvalid,
-            "active SNV bundle identity mismatch",
-        ));
-    }
-    if receipt.members[2].size != inspection.member_bytes
-        || receipt.members[2].sha256 != inspection.member_sha256
-    {
-        return Err(AssetError::new(
-            AssetErrorKind::AssetStateInvalid,
-            "active SNV receipt does not match its manifest",
-        ));
-    }
-    let notice = read_installed(&bundle.join("NOTICE"), MAX_NOTICE)?;
-    let manifest = read_installed(&bundle.join("manifest.json"), MAX_JSON)?;
-    if notice != crate::NOTICE
-        || receipt.members[0].size != notice.len() as u64
-        || receipt.members[0].sha256 != format!("sha256:{:x}", Sha256::digest(&notice))
-        || receipt.members[1].size != manifest.len() as u64
-        || receipt.members[1].sha256 != format!("sha256:{:x}", Sha256::digest(&manifest))
-    {
-        return Err(AssetError::new(
-            AssetErrorKind::AssetStateInvalid,
-            "active SNV receipt does not match installed metadata",
-        ));
-    }
-    Ok(inspection)
-}
-
 fn require_snv(profile: &RuntimeProfile, actual: &SnvBundleInspection) -> Result<(), AssetError> {
     if actual.bundle_id != profile.snv.bundle_id
         || actual.format != profile.snv.format
@@ -1380,150 +1490,168 @@ fn require_snv(profile: &RuntimeProfile, actual: &SnvBundleInspection) -> Result
     Ok(())
 }
 
-fn validate_staged(
+fn validate_staged_held(
     profile: &RuntimeProfile,
-    model: &Path,
-    reference: &Path,
-    mask: &Path,
+    model: &super::local::Dir,
+    reference: &super::local::Dir,
+    mask: &super::local::Dir,
+    root: &super::local::Root,
 ) -> Result<(), AssetError> {
-    validate_model_bundle(model, profile)?;
-    let reference_admission = inspect_reference_admission(reference)
-        .map_err(|_| profile_corrupt("staged reference bundle is invalid"))?;
-    if reference_admission.bundle_id() != profile.reference.bundle_id
-        || reference_admission.profile() != profile.reference.profile
-        || reference_admission.format() != profile.reference.format
-        || reference_admission.assembly() != profile.reference.assembly
-        || reference_admission.assembly_accession() != profile.reference.assembly_accession
-        || reference_admission.sequence_set_sha256() != profile.reference.sequence_set_sha256
+    validate_model_bundle_held(model, profile, root)?;
+    validate_reference_bundle_held(reference, profile, root)?;
+    validate_mask_held(mask, profile, root)
+}
+
+fn validate_model_bundle_held(
+    bundle: &super::local::Dir,
+    profile: &RuntimeProfile,
+    root: &super::local::Root,
+) -> Result<(), AssetError> {
+    let files = open_installed_bundle(bundle, "model.onnx", profile.model.member_bytes, root)?;
+    let admission =
+        inspect_held_model_admission(&files.manifest_bytes, &files.notice_bytes, &files.member)
+            .map_err(|_| profile_corrupt("staged model bundle is invalid"))?;
+    if admission.bundle_id().as_str() != profile.model.bundle_id
+        || admission.profile() != profile.model.profile
+        || admission.representation().to_string() != profile.model.representation
+    {
+        return Err(profile_corrupt("staged model facts do not match profile"));
+    }
+    Ok(())
+}
+
+fn validate_reference_bundle_held(
+    bundle: &super::local::Dir,
+    profile: &RuntimeProfile,
+    root: &super::local::Root,
+) -> Result<(), AssetError> {
+    let files = open_installed_bundle(
+        bundle,
+        "reference.pgr",
+        profile.reference.member_bytes,
+        root,
+    )?;
+    if format!("sha256:{:x}", Sha256::digest(&files.manifest_bytes)) != profile.reference.bundle_id
+    {
+        return Err(profile_corrupt(
+            "staged reference bundle identity does not match profile",
+        ));
+    }
+    // SAFETY: staging authenticated this exact descriptor against the trusted
+    // profile before this bounded admission.
+    let admitted = unsafe {
+        admit_installed_reference(
+            &files.manifest_bytes,
+            &files.notice_bytes,
+            files
+                .member
+                .try_clone()
+                .map_err(|_| profile_corrupt("staged reference bundle is invalid"))?,
+        )
+    }
+    .map_err(|_| profile_corrupt("staged reference bundle is invalid"))?;
+    let manifest = admitted.manifest();
+    if manifest.profile != profile.reference.profile
+        || manifest.reference_format != profile.reference.format
+        || manifest.source.assembly != profile.reference.assembly
+        || manifest.source.assembly_accession != profile.reference.assembly_accession
+        || manifest.sequences.sequence_set_sha256 != profile.reference.sequence_set_sha256
     {
         return Err(profile_corrupt(
             "staged reference facts do not match profile",
         ));
     }
-    MaskDomainsOpen::open(&mask.join("domains.pgm"))
+    Ok(())
+}
+
+fn validate_mask_held(
+    mask: &super::local::Dir,
+    profile: &RuntimeProfile,
+    root: &super::local::Root,
+) -> Result<(), AssetError> {
+    require_runtime_names(mask, &["domains.pgm"])?;
+    let file = open_runtime_file(mask, "domains.pgm", root, FILE_IMMUTABLE)?;
+    require_held_file(
+        &file,
+        FILE_IMMUTABLE,
+        profile.mask.member_bytes,
+        Some(profile.mask.member_bytes),
+    )?;
+    let admitted = MaskDomainsOpen::admit_held(file)
         .map_err(|_| profile_corrupt("staged mask is structurally invalid"))?;
-    Ok(())
-}
-
-fn validate_model_bundle(bundle: &Path, profile: &RuntimeProfile) -> Result<(), AssetError> {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Member {
-        bytes: u64,
-        filename: String,
-        sha256: String,
-    }
-    let manifest_bytes = read_installed(&bundle.join("manifest.json"), MAX_JSON)?;
-    let value: serde_json::Value = serde_json::from_slice(&manifest_bytes)
-        .map_err(|_| profile_corrupt("staged model manifest is invalid"))?;
-    if serde_jcs::to_vec(&value).map_err(|_| profile_corrupt("staged model manifest is invalid"))?
-        != manifest_bytes
+    if admitted.identity().bytes() != profile.mask.member_bytes
+        || format!("sha256:{}", admitted.identity().sha256()) != profile.mask.member_sha256
     {
-        return Err(profile_corrupt("staged model manifest is not canonical"));
-    }
-    let object = value
-        .as_object()
-        .ok_or_else(|| profile_corrupt("staged model manifest is invalid"))?;
-    let schema = object.get("schema").and_then(serde_json::Value::as_str);
-    let declared_profile = object.get("profile").and_then(serde_json::Value::as_str);
-    let members: Vec<Member> = serde_json::from_value(
-        object
-            .get("members")
-            .cloned()
-            .ok_or_else(|| profile_corrupt("staged model members are invalid"))?,
-    )
-    .map_err(|_| profile_corrupt("staged model members are invalid"))?;
-    if schema != Some("pangopup-model-bundle-v1")
-        || declared_profile != Some(profile.model.profile.as_str())
-        || profile.model.representation != "singleton"
-        || format!("sha256:{:x}", Sha256::digest(&manifest_bytes)) != profile.model.bundle_id
-        || members.len() != 2
-        || members[0].filename != "NOTICE"
-        || members[1].filename != "model.onnx"
-        || members.iter().any(|member| !valid_identity(&member.sha256))
-    {
-        return Err(profile_corrupt("staged model facts do not match profile"));
-    }
-    for member in members {
-        let path = bundle.join(&member.filename);
-        let metadata =
-            fs::metadata(&path).map_err(|_| profile_corrupt("staged model member is missing"))?;
-        if metadata.len() != member.bytes {
-            return Err(profile_corrupt("staged model member size mismatch"));
-        }
-        if member.filename == "NOTICE" && digest_small(&path, MAX_NOTICE)? != member.sha256 {
-            return Err(profile_corrupt("staged model notice identity mismatch"));
-        }
-        if member.filename == "model.onnx"
-            && (member.bytes != profile.model.member_bytes
-                || member.sha256 != profile.model.member_sha256)
-        {
-            return Err(profile_corrupt("staged model member identity mismatch"));
-        }
+        return Err(profile_corrupt("staged mask facts do not match profile"));
     }
     Ok(())
-}
-
-fn digest_small(path: &Path, maximum: u64) -> Result<String, AssetError> {
-    let bytes = read_installed(path, maximum)?;
-    Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
 }
 
 fn copy_bundle(
     source: &Path,
-    destination: &Path,
+    destination: &super::local::Dir,
+    root: &super::local::Root,
     payload: &str,
     payload_size: u64,
     payload_sha: &str,
 ) -> Result<(), AssetError> {
-    require_source_dir(source)?;
-    exact_source_names(source, &["NOTICE", "manifest.json", payload])?;
-    create_private(destination)?;
+    let source = super::local::open_held_directory(
+        source,
+        AssetErrorKind::InputIo,
+        AssetErrorKind::StagingInvalid,
+    )
+    .map_err(|error| {
+        if error.kind() == AssetErrorKind::StagingInvalid {
+            AssetError::new(AssetErrorKind::StagingInvalid, "source directory is unsafe")
+        } else {
+            input("inspect source directory")
+        }
+    })?;
+    exact_source_names(&source, &["NOTICE", "manifest.json", payload])?;
     copy_member(
-        &source.join("manifest.json"),
-        &destination.join("manifest.json"),
+        &source,
+        "manifest.json",
+        destination,
+        "manifest.json",
+        root,
         MAX_JSON,
         "",
     )?;
+    replace_source_directory_for_test();
     copy_member(
-        &source.join("NOTICE"),
-        &destination.join("NOTICE"),
+        &source,
+        "NOTICE",
+        destination,
+        "NOTICE",
+        root,
         MAX_NOTICE,
         "",
     )?;
     copy_member(
-        &source.join(payload),
-        &destination.join(payload),
+        &source,
+        payload,
+        destination,
+        payload,
+        root,
         payload_size,
         payload_sha,
     )?;
-    sync_dir(destination)?;
-    Ok(())
+    destination
+        .file
+        .sync_all()
+        .map_err(|_| output("sync staged bundle"))
 }
 
-fn exact_source_names(path: &Path, expected: &[&str]) -> Result<(), AssetError> {
-    let names = fs::read_dir(path)
-        .map_err(|_| input("inspect source directory"))?
-        .enumerate()
-        .map(|(index, entry)| {
-            if index >= expected.len() {
-                return Err(AssetError::new(
-                    AssetErrorKind::StagingInvalid,
-                    "source member set is unsafe",
-                ));
-            }
-            entry
-                .map_err(|_| input("inspect source directory entry"))?
-                .file_name()
-                .into_string()
-                .map_err(|_| {
-                    AssetError::new(
-                        AssetErrorKind::StagingInvalid,
-                        "source member name is unsafe",
-                    )
-                })
-        })
-        .collect::<Result<BTreeSet<_>, _>>()?;
+fn exact_source_names(source: &super::local::Dir, expected: &[&str]) -> Result<(), AssetError> {
+    let names = super::local::read_names_bounded(source, expected.len())
+        .map_err(|_| {
+            AssetError::new(
+                AssetErrorKind::StagingInvalid,
+                "source member set is unsafe",
+            )
+        })?
+        .into_iter()
+        .collect::<BTreeSet<_>>();
     let expected = expected.iter().map(|name| (*name).to_owned()).collect();
     if names != expected {
         return Err(AssetError::new(
@@ -1535,24 +1663,49 @@ fn exact_source_names(path: &Path, expected: &[&str]) -> Result<(), AssetError> 
 }
 
 fn copy_member(
-    source: &Path,
-    destination: &Path,
+    source: &super::local::Dir,
+    source_name: &str,
+    destination: &super::local::Dir,
+    destination_name: &str,
+    root: &super::local::Root,
     maximum_or_exact: u64,
     expected_sha: &str,
 ) -> Result<(), AssetError> {
-    let before_path = fs::symlink_metadata(source).map_err(|_| input("open source member"))?;
-    if !before_path.file_type().is_file()
-        || before_path.file_type().is_symlink()
-        || before_path.nlink() != 1
-        || (!expected_sha.is_empty() && before_path.len() != maximum_or_exact)
-        || (expected_sha.is_empty() && before_path.len() > maximum_or_exact)
-    {
-        return Err(AssetError::new(
-            AssetErrorKind::StagingInvalid,
-            "source member is unsafe",
-        ));
-    }
-    let mut input_file = OpenOptions::new()
+    let (input_file, held) = super::local::open_held_regular(
+        source,
+        source_name,
+        AssetErrorKind::InputIo,
+        AssetErrorKind::StagingInvalid,
+    )
+    .map_err(|error| {
+        if error.kind() == AssetErrorKind::StagingInvalid {
+            AssetError::new(AssetErrorKind::StagingInvalid, "source member is unsafe")
+        } else {
+            input("open source member")
+        }
+    })?;
+    mutate_source_for_test();
+    copy_open_member(
+        input_file,
+        held,
+        Some((source, source_name)),
+        destination,
+        destination_name,
+        root,
+        maximum_or_exact,
+        expected_sha,
+    )
+}
+
+fn copy_path_member(
+    source: &Path,
+    destination: &super::local::Dir,
+    destination_name: &str,
+    root: &super::local::Root,
+    maximum_or_exact: u64,
+    expected_sha: &str,
+) -> Result<(), AssetError> {
+    let input_file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(source)
@@ -1560,19 +1713,42 @@ fn copy_member(
     let held = input_file
         .metadata()
         .map_err(|_| input("inspect source member"))?;
-    if held.dev() != before_path.dev() || held.ino() != before_path.ino() {
+    copy_open_member(
+        input_file,
+        held,
+        None,
+        destination,
+        destination_name,
+        root,
+        maximum_or_exact,
+        expected_sha,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn copy_open_member(
+    mut input_file: File,
+    held: fs::Metadata,
+    source_name: Option<(&super::local::Dir, &str)>,
+    destination: &super::local::Dir,
+    destination_name: &str,
+    root: &super::local::Root,
+    maximum_or_exact: u64,
+    expected_sha: &str,
+) -> Result<(), AssetError> {
+    if !held.file_type().is_file()
+        || held.nlink() != 1
+        || (!expected_sha.is_empty() && held.len() != maximum_or_exact)
+        || (expected_sha.is_empty() && held.len() > maximum_or_exact)
+    {
         return Err(AssetError::new(
             AssetErrorKind::StagingInvalid,
-            "source member changed before copy",
+            "source member is unsafe",
         ));
     }
-    mutate_source_for_test(source);
-    let mut output_file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(FILE_PRIVATE)
-        .open(destination)
-        .map_err(|_| output("create staged member"))?;
+    let mut output_file =
+        super::local::create_owned_file(destination, destination_name, FILE_PRIVATE, root)
+            .map_err(|_| output("create staged member"))?;
     let mut hasher = Sha256::new();
     let mut total = 0_u64;
     let cap = maximum_or_exact;
@@ -1598,19 +1774,31 @@ fn copy_member(
     let after_held = input_file
         .metadata()
         .map_err(|_| input("inspect copied source member"))?;
-    let after_path = fs::symlink_metadata(source).map_err(|_| input("reinspect source member"))?;
-    if after_held.dev() != held.dev()
-        || after_held.ino() != held.ino()
-        || after_held.len() != held.len()
-        || after_path.dev() != held.dev()
-        || after_path.ino() != held.ino()
-        || after_path.len() != held.len()
-        || total != held.len()
-    {
+    if !same_source_state(&after_held, &held) || total != held.len() {
         return Err(AssetError::new(
             AssetErrorKind::StagingInvalid,
             "source member changed during copy",
         ));
+    }
+    if let Some((source, name)) = source_name {
+        let (_, named) = super::local::open_held_regular(
+            source,
+            name,
+            AssetErrorKind::InputIo,
+            AssetErrorKind::StagingInvalid,
+        )
+        .map_err(|_| {
+            AssetError::new(
+                AssetErrorKind::StagingInvalid,
+                "source member changed during copy",
+            )
+        })?;
+        if !same_source_state(&named, &held) {
+            return Err(AssetError::new(
+                AssetErrorKind::StagingInvalid,
+                "source member changed during copy",
+            ));
+        }
     }
     if !expected_sha.is_empty() && format!("sha256:{:x}", hasher.finalize()) != expected_sha {
         return Err(profile_corrupt(
@@ -1627,6 +1815,15 @@ fn copy_member(
     Ok(())
 }
 
+fn same_source_state(left: &fs::Metadata, right: &fs::Metadata) -> bool {
+    left.dev() == right.dev()
+        && left.ino() == right.ino()
+        && left.len() == right.len()
+        && left.nlink() == right.nlink()
+        && left.mtime() == right.mtime()
+        && left.mtime_nsec() == right.mtime_nsec()
+}
+
 struct PublishedBundle {
     identity: super::local::Dir,
     bundle: super::local::Dir,
@@ -1637,24 +1834,34 @@ struct PublishedDirectory {
 }
 
 fn publish_bundle(
-    source: &Path,
+    source_parent: &super::local::Dir,
+    source_name: &str,
     destination_parent: &super::local::Dir,
     destination_name: &str,
     root: &super::local::Root,
     payload: &str,
     expected_payload: u64,
 ) -> Result<PublishedBundle, AssetError> {
-    let wrapper = source.with_extension("wrapper");
-    create_private(&wrapper)?;
-    rename_replace_path(source, &wrapper.join("bundle"))?;
-    set_mode(&wrapper.join("bundle"), DIR_IMMUTABLE)?;
-    sync_dir(&wrapper)?;
+    let source = super::local::open_owned_dir(source_parent, source_name, root, DIR_PRIVATE)?;
+    let wrapper_name = format!("{source_name}.wrapper");
+    let wrapper = super::local::create_owned_dir(source_parent, &wrapper_name, DIR_PRIVATE, root)?;
+    super::local::rename_owned_replace(source_parent, source_name, &wrapper, "bundle")?;
+    super::local::set_mode(&source.file, DIR_IMMUTABLE)?;
+    source
+        .file
+        .sync_all()
+        .map_err(|_| output("sync runtime bundle mode"))?;
+    wrapper
+        .file
+        .sync_all()
+        .map_err(|_| output("sync runtime wrapper"))?;
     let published = publish_directory(
-        &wrapper,
+        source_parent,
+        &wrapper_name,
         destination_parent,
         destination_name,
         root,
-        |path| validate_component_shape(&path.join("bundle"), payload, expected_payload, true),
+        |dir| validate_component_shape_held(dir, payload, expected_payload, true, root),
     )?;
     let bundle = super::local::open_owned_dir(&published.dir, "bundle", root, DIR_IMMUTABLE)?;
     Ok(PublishedBundle {
@@ -1664,51 +1871,45 @@ fn publish_bundle(
 }
 
 fn publish_mask(
-    source: &Path,
+    source_parent: &super::local::Dir,
+    source_name: &str,
     destination_parent: &super::local::Dir,
     destination_name: &str,
     root: &super::local::Root,
     expected: u64,
 ) -> Result<PublishedDirectory, AssetError> {
-    publish_directory(source, destination_parent, destination_name, root, |path| {
-        validate_component_shape(&path.join("domains.pgm"), "domains.pgm", expected, false)
-    })
+    publish_directory(
+        source_parent,
+        source_name,
+        destination_parent,
+        destination_name,
+        root,
+        |dir| validate_component_shape_held(dir, "domains.pgm", expected, false, root),
+    )
 }
 
 fn publish_directory(
-    source: &Path,
+    source_parent: &super::local::Dir,
+    source_name: &str,
     destination_parent: &super::local::Dir,
     destination_name: &str,
     root: &super::local::Root,
-    validate_existing: impl FnOnce(&Path) -> Result<(), AssetError>,
+    validate_existing: impl FnOnce(&super::local::Dir) -> Result<(), AssetError>,
 ) -> Result<PublishedDirectory, AssetError> {
     if let Some(existing) =
         super::local::open_owned_dir_optional(destination_parent, destination_name, root)?
     {
-        validate_existing(&descriptor_path(&existing))
+        validate_existing(&existing)
             .map_err(|_| conflict("immutable runtime component conflicts"))?;
-        remove_stage(source)?;
+        remove_stage(source_parent, source_name)?;
         return Ok(PublishedDirectory { dir: existing });
     }
-    let (source_parent, source_name) = open_parent(source)?;
-    rustix::fs::renameat_with(
-        &source_parent,
+    super::local::rename_owned_noreplace(
+        source_parent,
         source_name,
-        &destination_parent.file,
+        destination_parent,
         destination_name,
-        rustix::fs::RenameFlags::NOREPLACE,
-    )
-    .map_err(|error| {
-        let error = std::io::Error::from(error);
-        if matches!(
-            error.kind(),
-            std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::DirectoryNotEmpty
-        ) {
-            conflict("immutable runtime identity already exists")
-        } else {
-            output("publish runtime object")
-        }
-    })?;
+    )?;
     let published =
         super::local::open_owned_dir(destination_parent, destination_name, root, DIR_PRIVATE)?;
     super::local::set_mode(&published.file, DIR_IMMUTABLE)?;
@@ -1721,6 +1922,24 @@ fn publish_directory(
         .sync_all()
         .map_err(|_| output("sync runtime directory"))?;
     Ok(PublishedDirectory { dir: published })
+}
+
+fn validate_component_shape_held(
+    identity: &super::local::Dir,
+    payload: &str,
+    expected_size: u64,
+    bundle: bool,
+    root: &super::local::Root,
+) -> Result<(), AssetError> {
+    if bundle {
+        require_runtime_names(identity, &["bundle"])?;
+        let bundle = open_runtime_dir(identity, "bundle", root, DIR_IMMUTABLE)?;
+        open_installed_bundle(&bundle, payload, expected_size, root).map(|_| ())
+    } else {
+        require_runtime_names(identity, &[payload])?;
+        let member = open_runtime_file(identity, payload, root, FILE_IMMUTABLE)?;
+        require_held_file(&member, FILE_IMMUTABLE, expected_size, Some(expected_size))
+    }
 }
 
 fn authenticate_member(
@@ -1768,22 +1987,22 @@ fn authenticate_member(
     Ok(file)
 }
 
-fn nofollow_exists(path: &Path) -> Result<bool, AssetError> {
-    match fs::symlink_metadata(path) {
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(_) => Err(profile_corrupt("runtime object cannot be inspected")),
-    }
-}
-
-fn validate_profile_directory(
-    path: &Path,
+fn validate_profile_directory_held(
+    directory: &super::local::Dir,
     profile: &RuntimeProfile,
     profile_id: &str,
+    root: &super::local::Root,
 ) -> Result<RuntimeReceipt, AssetError> {
-    require_installed_dir(path, DIR_IMMUTABLE)?;
-    exact_names(path, &["profile.json", "receipt.json"])?;
-    let profile_bytes = read_installed(&path.join("profile.json"), MAX_JSON)?;
+    require_runtime_names(directory, &["profile.json", "receipt.json"])?;
+    let profile_file = open_runtime_file(directory, "profile.json", root, FILE_IMMUTABLE)?;
+    let receipt_file = open_runtime_file(directory, "receipt.json", root, FILE_IMMUTABLE)?;
+    require_held_file(&profile_file, FILE_IMMUTABLE, MAX_JSON, None)?;
+    require_held_file(&receipt_file, FILE_IMMUTABLE, MAX_JSON, None)?;
+    let profile_bytes = super::local::read_bounded_handle_ref(
+        &profile_file,
+        MAX_JSON,
+        AssetErrorKind::BundleInvalid,
+    )?;
     if runtime_profile_id(&profile_bytes)
         .map_err(|_| profile_corrupt("installed profile is invalid"))?
         .as_str()
@@ -1794,8 +2013,12 @@ fn validate_profile_directory(
     {
         return Err(profile_corrupt("installed profile identity conflicts"));
     }
-    require_installed_file(&path.join("receipt.json"), FILE_IMMUTABLE, MAX_JSON)?;
-    let installed_receipt: RuntimeReceipt = read_canonical(&path.join("receipt.json"), MAX_JSON)?;
+    let receipt_bytes = super::local::read_bounded_handle_ref(
+        &receipt_file,
+        MAX_JSON,
+        AssetErrorKind::BundleInvalid,
+    )?;
+    let installed_receipt: RuntimeReceipt = parse_canonical_runtime_bytes(&receipt_bytes)?;
     if installed_receipt != receipt(profile, profile_id) {
         return Err(profile_corrupt("installed runtime receipt is invalid"));
     }
@@ -1849,61 +2072,12 @@ fn outcome(
     }
 }
 
-fn validate_component_shape(
-    path: &Path,
-    payload: &str,
-    expected_size: u64,
-    bundle: bool,
+fn reconcile_staging(
+    staging: &super::local::Dir,
+    root: &super::local::Root,
 ) -> Result<(), AssetError> {
-    if bundle {
-        require_installed_dir(path, DIR_IMMUTABLE)?;
-        let payload = if payload.is_empty() {
-            if path.to_string_lossy().contains("/model/") {
-                "model.onnx"
-            } else {
-                "reference.pgr"
-            }
-        } else {
-            payload
-        };
-        exact_names(path, &["NOTICE", "manifest.json", payload])?;
-        require_installed_file(&path.join("NOTICE"), FILE_IMMUTABLE, MAX_NOTICE)?;
-        require_installed_file(&path.join("manifest.json"), FILE_IMMUTABLE, MAX_JSON)?;
-        require_installed_file(&path.join(payload), FILE_IMMUTABLE, expected_size)?;
-        if fs::metadata(path.join(payload))
-            .map_err(|_| profile_corrupt("installed component is missing"))?
-            .len()
-            != expected_size
-        {
-            return Err(profile_corrupt("installed component size mismatch"));
-        }
-    } else {
-        require_installed_file(path, FILE_IMMUTABLE, expected_size)?;
-        if fs::metadata(path)
-            .map_err(|_| profile_corrupt("installed mask is missing"))?
-            .len()
-            != expected_size
-        {
-            return Err(profile_corrupt("installed mask size mismatch"));
-        }
-    }
-    Ok(())
-}
-
-fn reconcile_staging(staging: &Path) -> Result<(), AssetError> {
-    let mut stages = Vec::new();
-    for (index, entry) in fs::read_dir(staging)
-        .map_err(|_| output("inspect runtime staging"))?
-        .enumerate()
-    {
-        if index >= 128 {
-            return Err(profile_corrupt("runtime staging entry limit exceeded"));
-        }
-        let entry = entry.map_err(|_| output("inspect runtime staging entry"))?;
-        let name = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| profile_corrupt("runtime staging name is invalid"))?;
+    let stages = super::local::read_names_bounded(staging, 128)?;
+    for name in &stages {
         if name.is_empty()
             || !name
                 .bytes()
@@ -1911,153 +2085,71 @@ fn reconcile_staging(staging: &Path) -> Result<(), AssetError> {
         {
             return Err(profile_corrupt("runtime staging entry is unsafe"));
         }
-        let metadata = fs::symlink_metadata(entry.path())
-            .map_err(|_| output("inspect runtime staging entry"))?;
-        if !metadata.file_type().is_dir()
-            || metadata.file_type().is_symlink()
-            || metadata.uid() != effective_uid()
-        {
-            return Err(profile_corrupt("runtime staging entry is unsafe"));
-        }
-        stages.push(entry.path());
+        super::local::open_owned_dir(staging, name, root, DIR_PRIVATE)
+            .map_err(|_| profile_corrupt("runtime staging entry is unsafe"))?;
     }
-    for stage in stages {
-        remove_stage(&stage)?;
+    for name in stages {
+        remove_stage(staging, &name)?;
     }
     Ok(())
 }
 
-fn reconcile_staged_active(runtime: &Path) -> Result<(), AssetError> {
-    let path = runtime.join(".active.new");
-    if !nofollow_exists(&path)? {
+fn reconcile_staged_active(
+    runtime: &super::local::Dir,
+    root: &super::local::Root,
+) -> Result<(), AssetError> {
+    let Some(file) = super::local::open_owned_file_optional(
+        runtime,
+        ".active.new",
+        FILE_PRIVATE,
+        root,
+        AssetErrorKind::BundleInvalid,
+    )?
+    else {
         return Ok(());
-    }
-    require_installed_file(&path, FILE_PRIVATE, MAX_JSON)?;
-    fs::remove_file(path).map_err(|_| output("remove staged active pointer"))?;
-    sync_dir(runtime)
-}
-
-fn create_private(path: &Path) -> Result<(), AssetError> {
-    fs::create_dir(path).map_err(|_| output("create staged directory"))?;
-    fs::set_permissions(path, fs::Permissions::from_mode(DIR_PRIVATE))
-        .map_err(|_| output("set staged directory mode"))
-}
-
-fn require_source_dir(path: &Path) -> Result<(), AssetError> {
-    let metadata = fs::symlink_metadata(path).map_err(|_| input("inspect source directory"))?;
-    if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
-        return Err(AssetError::new(
-            AssetErrorKind::StagingInvalid,
-            "source directory is unsafe",
-        ));
-    }
-    Ok(())
-}
-
-fn require_installed_dir(path: &Path, mode: u32) -> Result<(), AssetError> {
-    let metadata = fs::symlink_metadata(path)
-        .map_err(|_| profile_corrupt("installed directory is missing"))?;
-    if !metadata.file_type().is_dir()
-        || metadata.file_type().is_symlink()
-        || metadata.uid() != effective_uid()
-        || metadata.mode() & 0o777 != mode
-    {
-        return Err(profile_corrupt("installed directory is unsafe"));
-    }
-    Ok(())
-}
-
-fn require_installed_file(path: &Path, mode: u32, maximum: u64) -> Result<(), AssetError> {
-    let metadata =
-        fs::symlink_metadata(path).map_err(|_| profile_corrupt("installed file is missing"))?;
-    if !metadata.file_type().is_file()
-        || metadata.file_type().is_symlink()
-        || metadata.uid() != effective_uid()
-        || metadata.nlink() != 1
-        || metadata.mode() & 0o777 != mode
-        || metadata.len() > maximum
-    {
-        return Err(profile_corrupt("installed file is unsafe"));
-    }
-    Ok(())
-}
-
-fn exact_names(path: &Path, expected: &[&str]) -> Result<(), AssetError> {
-    let names = fs::read_dir(path)
-        .map_err(|_| profile_corrupt("directory cannot be inspected"))?
-        .enumerate()
-        .map(|(index, entry)| {
-            if index >= expected.len() {
-                return Err(profile_corrupt("directory member set is invalid"));
-            }
-            entry
-                .map_err(|_| profile_corrupt("directory entry cannot be inspected"))?
-                .file_name()
-                .into_string()
-                .map_err(|_| profile_corrupt("directory entry name is invalid"))
-        })
-        .collect::<Result<BTreeSet<_>, _>>()?;
-    let expected = expected.iter().map(|name| (*name).to_owned()).collect();
-    if names != expected {
-        return Err(profile_corrupt("directory member set is invalid"));
-    }
-    Ok(())
+    };
+    require_held_file(&file, FILE_PRIVATE, MAX_JSON, None)?;
+    super::local::remove_owned_file(runtime, ".active.new")?;
+    runtime
+        .file
+        .sync_all()
+        .map_err(|_| output("sync runtime directory"))
 }
 
 fn read_small_source(path: &Path, maximum: u64) -> Result<Vec<u8>, AssetError> {
-    let metadata = fs::symlink_metadata(path).map_err(|_| input("open runtime profile"))?;
-    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() || metadata.nlink() != 1
-    {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+        .map_err(|_| input("open runtime profile"))?;
+    let before = file
+        .metadata()
+        .map_err(|_| input("inspect runtime profile"))?;
+    if !before.file_type().is_file() || before.nlink() != 1 || before.len() > maximum {
         return Err(AssetError::new(
             AssetErrorKind::StagingInvalid,
             "runtime profile input is unsafe",
         ));
     }
-    read_bounded(path, maximum, AssetErrorKind::InputIo)
-}
-
-fn read_installed(path: &Path, maximum: u64) -> Result<Vec<u8>, AssetError> {
-    require_installed_file(path, FILE_IMMUTABLE, maximum)?;
-    read_bounded(path, maximum, AssetErrorKind::BundleInvalid)
-}
-
-fn read_canonical<T: DeserializeOwned + Serialize>(
-    path: &Path,
-    maximum: u64,
-) -> Result<T, AssetError> {
-    let bytes = read_bounded(path, maximum, AssetErrorKind::BundleInvalid)?;
-    let value: T =
-        serde_json::from_slice(&bytes).map_err(|_| profile_corrupt("installed JSON is invalid"))?;
-    let canonical =
-        serde_jcs::to_vec(&value).map_err(|_| profile_corrupt("installed JSON is invalid"))?;
-    if canonical != bytes {
-        return Err(profile_corrupt("installed JSON is not canonical"));
-    }
-    Ok(value)
-}
-
-fn read_bounded(path: &Path, maximum: u64, kind: AssetErrorKind) -> Result<Vec<u8>, AssetError> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)
-        .map_err(|_| AssetError::new(kind, "file cannot be opened"))?;
-    let metadata = file
-        .metadata()
-        .map_err(|_| AssetError::new(kind, "file cannot be inspected"))?;
-    if metadata.len() > maximum {
-        return Err(AssetError::new(kind, "file exceeds its size bound"));
-    }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    file.take(maximum + 1)
+    replace_profile_path_for_test();
+    let mut bytes = Vec::with_capacity(before.len() as usize);
+    (&mut file)
+        .take(maximum + 1)
         .read_to_end(&mut bytes)
-        .map_err(|_| AssetError::new(kind, "file cannot be read"))?;
-    if bytes.len() as u64 != metadata.len() {
-        return Err(AssetError::new(kind, "file changed while reading"));
+        .map_err(|_| input("read runtime profile"))?;
+    let after = file
+        .metadata()
+        .map_err(|_| input("reinspect runtime profile"))?;
+    if bytes.len() as u64 != before.len() || !same_source_state(&before, &after) {
+        return Err(AssetError::new(
+            AssetErrorKind::StagingInvalid,
+            "runtime profile input changed while reading",
+        ));
     }
     Ok(bytes)
 }
 
+#[cfg(test)]
 fn write_new(path: &Path, bytes: &[u8], mode: u32) -> Result<(), AssetError> {
     let mut file = OpenOptions::new()
         .write(true)
@@ -2071,78 +2163,30 @@ fn write_new(path: &Path, bytes: &[u8], mode: u32) -> Result<(), AssetError> {
     file.sync_all().map_err(|_| output("sync runtime metadata"))
 }
 
-fn rename_replace_path(source: &Path, destination: &Path) -> Result<(), AssetError> {
-    let (source_parent, source_name) = open_parent(source)?;
-    let (destination_parent, destination_name) = open_parent(destination)?;
-    rustix::fs::renameat(
-        &source_parent,
-        source_name,
-        &destination_parent,
-        destination_name,
-    )
-    .map_err(|_| output("activate runtime profile"))
-}
-
-fn open_parent(path: &Path) -> Result<(File, String), AssetError> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| output("resolve runtime object parent"))?;
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .filter(|name| !name.is_empty() && *name != "." && *name != "..")
-        .ok_or_else(|| output("resolve runtime object name"))?
-        .to_owned();
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(parent.join("."))
-        .map_err(|_| output("open runtime object parent"))?;
-    Ok((file, name))
-}
-
-fn descriptor_path(dir: &super::local::Dir) -> PathBuf {
-    PathBuf::from(format!("/proc/self/fd/{}/.", dir.file.as_raw_fd()))
-}
-
-fn sync_dir(path: &Path) -> Result<(), AssetError> {
-    File::open(path)
-        .and_then(|file| file.sync_all())
-        .map_err(|_| output("sync runtime directory"))
-}
-
-fn set_mode(path: &Path, mode: u32) -> Result<(), AssetError> {
-    let metadata = fs::symlink_metadata(path).map_err(|_| output("inspect runtime object mode"))?;
-    let flags = libc::O_NOFOLLOW
-        | libc::O_CLOEXEC
-        | if metadata.file_type().is_dir() {
-            libc::O_DIRECTORY
-        } else {
-            0
-        };
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(flags)
-        .open(path)
-        .map_err(|_| output("open runtime object for mode"))?;
+fn write_new_held(
+    parent: &super::local::Dir,
+    name: &str,
+    bytes: &[u8],
+    mode: u32,
+    root: &super::local::Root,
+) -> Result<(), AssetError> {
+    let mut file = super::local::create_owned_file(parent, name, FILE_PRIVATE, root)?;
+    file.write_all(bytes)
+        .map_err(|_| output("write runtime metadata"))?;
     super::local::set_mode(&file, mode)?;
-    file.sync_all()
-        .map_err(|_| output("sync runtime object mode"))
+    file.sync_all().map_err(|_| output("sync runtime metadata"))
 }
 
-fn remove_stage(path: &Path) -> Result<(), AssetError> {
-    if !nofollow_exists(path)? {
-        return Ok(());
-    }
-    let (parent, name) = open_parent(path)?;
-    super::local::remove_owned_tree_bounded(parent, &name, 8, 64)
-}
-
-fn relative_runtime_path(data_root: &Path, path: &Path) -> Result<PathBuf, AssetError> {
-    let relative = path
-        .strip_prefix(data_root)
-        .map_err(|_| profile_corrupt("installed runtime path escaped data root"))?;
-    Ok(relative.to_owned())
+fn remove_stage(parent: &super::local::Dir, name: &str) -> Result<(), AssetError> {
+    super::local::remove_owned_tree_bounded(
+        parent
+            .file
+            .try_clone()
+            .map_err(|_| output("clone runtime staging parent"))?,
+        name,
+        8,
+        64,
+    )
 }
 
 fn suffix(identity: &str) -> Result<&str, AssetError> {
@@ -2220,10 +2264,12 @@ fn output(message: &'static str) -> AssetError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::inspect_snv_bundle;
     use pangopup_core::{GenomicPosition, Grch38Contig, ReferenceProvider};
     use pangopup_index::mask::{MaskProvider, MaskQueryBuffer};
+    use pangopup_index::reference_admission::inspect_reference_admission;
     use pangopup_model::{MIN_CONTEXT_LENGTH, ModelContext, Strand, StrandPair};
-    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
     use tempfile::TempDir;
 
     fn fixture(name: &str) -> PathBuf {
@@ -2365,7 +2411,7 @@ mod tests {
     ) -> Result<RuntimeLocalStatus, AssetError> {
         let opened = crate::local::open_root(root, false)?
             .ok_or_else(|| AssetError::new(AssetErrorKind::AssetsMissing, "missing test root"))?;
-        runtime_local_status_with(&descriptor_path(&opened.dir), root, profile, false)
+        runtime_local_status_with(&opened, root, profile, false)
     }
 
     fn install_mini_runtime(root: &Path) -> (SnvBundleInspection, RuntimeProfile) {
@@ -2389,9 +2435,6 @@ mod tests {
         (snv, profile)
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn fixture_combined_status_is_ready_under_the_shared_observation_guard() {
         let temp = TempDir::new().expect("temp");
@@ -2411,6 +2454,54 @@ mod tests {
             status.runtime,
             crate::RuntimeStatusObservation::Ready(_)
         ));
+    }
+
+    #[test]
+    fn runtime_status_reads_only_bounded_metadata_and_payload_sizes() {
+        let temp = TempDir::new().expect("temp");
+        let root = temp.path().join("data");
+        let (snv, profile) = install_mini_runtime(&root);
+        let profile_id = runtime_profile_id(
+            &canonical_runtime_profile_bytes(&profile).expect("canonical profile"),
+        )
+        .expect("profile id")
+        .to_string();
+        let profile_dir = root
+            .join("runtime/profiles")
+            .join(suffix(&profile_id).expect("profile suffix"));
+        let expected_read_bytes = [
+            root.join("runtime/active.json"),
+            profile_dir.join("profile.json"),
+            profile_dir.join("receipt.json"),
+        ]
+        .into_iter()
+        .map(|path| fs::metadata(path).expect("bounded metadata").len())
+        .sum::<u64>();
+
+        let mask = root
+            .join("runtime/components/mask")
+            .join(suffix(&profile.mask.member_sha256).expect("mask suffix"))
+            .join("domains.pgm");
+        fs::set_permissions(&mask, fs::Permissions::from_mode(0o600)).expect("make mask writable");
+        let mut bytes = fs::read(&mask).expect("read mask fixture");
+        let last = bytes.last_mut().expect("nonempty mask fixture");
+        *last ^= 0xff;
+        fs::write(&mask, bytes).expect("change an unbounded payload byte");
+        fs::set_permissions(&mask, fs::Permissions::from_mode(FILE_IMMUTABLE))
+            .expect("restore mask mode");
+
+        STATUS_READ_BYTES.set(0);
+        assert!(matches!(
+            miniature_status(&root, &profile).expect("metadata-only status"),
+            RuntimeLocalStatus::Ready { .. }
+        ));
+        assert_eq!(STATUS_READ_BYTES.get(), expected_read_bytes);
+        assert_eq!(
+            open_installed_runtime_profile_with(&root, Some(&snv.bundle_id), &profile)
+                .expect_err("full admission detects payload corruption")
+                .kind(),
+            AssetErrorKind::TransportIncompatible
+        );
     }
 
     #[test]
@@ -2434,9 +2525,6 @@ mod tests {
         assert!(!valid_identity(&"a".repeat(64)));
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn miniature_profile_installs_atomically_and_reuses_without_copy() {
         let temp = TempDir::new().expect("temp");
@@ -2504,9 +2592,6 @@ mod tests {
         assert_eq!(before.mtime(), after.mtime());
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn installed_runtime_admits_real_held_miniature_capabilities() {
         let temp = TempDir::new().expect("temp");
@@ -2525,9 +2610,6 @@ mod tests {
         model.open().expect("open held model");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn model_only_runtime_admission_does_not_require_the_snv_installation() {
         let temp = TempDir::new().expect("temp");
@@ -2548,9 +2630,6 @@ mod tests {
         mask.open().expect("mask remains available");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn installed_runtime_is_bound_to_snv_identity_and_detects_pre_return_replacement() {
         let temp = TempDir::new().expect("temp");
@@ -2587,9 +2666,6 @@ mod tests {
         assert_eq!(error.to_string(), "installed runtime profile is missing");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn installed_runtime_malformed_and_unsafe_states_have_exact_classes() {
         let malformed = TempDir::new().expect("temp");
@@ -2656,9 +2732,6 @@ mod tests {
         assert_eq!(error.to_string(), "installed runtime state is unsafe");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn admitted_runtime_capabilities_survive_all_pathname_replacements() {
         let temp = TempDir::new().expect("temp");
@@ -2729,9 +2802,6 @@ mod tests {
             .expect("score held model");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn runtime_status_distinguishes_missing_and_malformed() {
         let temp = TempDir::new().expect("temp");
@@ -2762,9 +2832,6 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn transition_failures_never_expose_a_partial_profile_and_retry_cleanly() {
         for point in [
@@ -2807,9 +2874,6 @@ mod tests {
         }
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn failed_replacement_preserves_the_prior_active_profile() {
         let temp = TempDir::new().expect("temp");
@@ -2842,9 +2906,6 @@ mod tests {
         assert_eq!(profile_id, installed.profile_id);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn shared_lock_is_nonblocking_and_status_reports_installing() {
         let temp = TempDir::new().expect("temp");
@@ -2874,9 +2935,6 @@ mod tests {
         assert_eq!(error.kind(), AssetErrorKind::AssetLocked);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn multiply_linked_source_fails_without_active_runtime_state() {
         let temp = TempDir::new().expect("temp");
@@ -2912,9 +2970,6 @@ mod tests {
         assert!(!root.join("runtime/active.json").exists());
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn same_identity_same_size_component_corruption_is_a_conflict() {
         for component in ["model", "reference", "mask"] {
@@ -2964,9 +3019,6 @@ mod tests {
         }
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn replaced_intermediate_destination_fails_before_activation() {
         let temp = TempDir::new().expect("temp");
@@ -2999,9 +3051,63 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
+    #[test]
+    fn replaced_staging_directory_is_refused_at_use() {
+        let temp = TempDir::new().expect("temp");
+        let root = temp.path().join("data");
+        let snv = install_mini_snv(&root);
+        let profile = miniature_profile(&snv);
+        let bytes = canonical_runtime_profile_bytes(&profile).expect("profile");
+        let sources = InstallSources {
+            model: &fixture("pangolin-model-kernel-mini/bundle"),
+            reference: &fixture("reference-route-test/bundle"),
+            mask: &fixture("route-mask/domains.pgm"),
+        };
+
+        let replacement_root = root.clone();
+        let replacement_sentinel = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let observed_sentinel = std::rc::Rc::clone(&replacement_sentinel);
+        REPLACE_STAGING_DIRECTORY.with(|replacement| {
+            *replacement.borrow_mut() = Some(Box::new(move || {
+                let staging = replacement_root.join("runtime/.staging");
+                let admitted = fs::read_dir(&staging)
+                    .map_err(|_| output("inspect test staging directory"))?
+                    .next()
+                    .ok_or_else(|| output("find test staging directory"))?
+                    .map_err(|_| output("inspect test staging entry"))?
+                    .path();
+                let name = admitted
+                    .file_name()
+                    .ok_or_else(|| output("name test staging directory"))?;
+                let held = staging.join(format!("{}.held", name.to_string_lossy()));
+                fs::rename(&admitted, &held)
+                    .map_err(|_| output("move admitted test staging directory"))?;
+                fs::create_dir(&admitted)
+                    .map_err(|_| output("replace admitted test staging directory"))?;
+                fs::set_permissions(&admitted, fs::Permissions::from_mode(DIR_PRIVATE))
+                    .map_err(|_| output("set replacement staging mode"))?;
+                let sentinel = admitted.join("foreign-sentinel");
+                fs::write(&sentinel, b"foreign replacement")
+                    .map_err(|_| output("write replacement staging sentinel"))?;
+                *observed_sentinel.borrow_mut() = Some(sentinel);
+                Ok(())
+            }));
+        });
+
+        let result = install_with_profile(&bytes, &profile, sources, &root);
+
+        result.expect_err("a replaced admitted staging directory must be refused");
+        assert!(!root.join("runtime/active.json").exists());
+        let sentinel = replacement_sentinel
+            .borrow()
+            .clone()
+            .expect("replacement sentinel path");
+        assert_eq!(
+            fs::read(sentinel).expect("foreign replacement must survive"),
+            b"foreign replacement"
+        );
+    }
+
     #[test]
     fn profile_collision_and_receipt_shape_fail_closed() {
         let temp = TempDir::new().expect("temp");
@@ -3042,9 +3148,6 @@ mod tests {
         assert!(!root.join("runtime/active.json").exists());
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn installed_receipt_mode_and_link_count_are_enforced() {
         for hardlink in [false, true] {
@@ -3100,8 +3203,28 @@ mod tests {
                 .expect("copy model");
             }
             match case {
-                "replace" => SOURCE_MUTATION.set(Some(SourceMutation::Replace)),
-                "truncate" => SOURCE_MUTATION.set(Some(SourceMutation::Truncate)),
+                "replace" => {
+                    let source = model.join("manifest.json");
+                    SOURCE_MUTATION.with(|mutation| {
+                        *mutation.borrow_mut() = Some(Box::new(move || {
+                            let held = source.with_extension("held-old");
+                            fs::rename(&source, &held).expect("replace source path");
+                            fs::copy(&held, &source).expect("replacement source");
+                        }));
+                    });
+                }
+                "truncate" => {
+                    let source = model.join("manifest.json");
+                    SOURCE_MUTATION.with(|mutation| {
+                        *mutation.borrow_mut() = Some(Box::new(move || {
+                            OpenOptions::new()
+                                .write(true)
+                                .truncate(true)
+                                .open(source)
+                                .expect("truncate source");
+                        }));
+                    });
+                }
                 "symlink" => {
                     fs::remove_file(model.join("model.onnx")).expect("remove model");
                     std::os::unix::fs::symlink(
@@ -3131,9 +3254,78 @@ mod tests {
         }
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
+    #[test]
+    fn source_bundle_copy_keeps_one_admitted_parent_after_path_replacement() {
+        let temp = TempDir::new().expect("temp");
+        let root = temp.path().join("data");
+        let snv = install_mini_snv(&root);
+        let profile = miniature_profile(&snv);
+        let bytes = canonical_runtime_profile_bytes(&profile).expect("profile");
+        let model = temp.path().join("model");
+        fs::create_dir(&model).expect("model source");
+        for name in ["NOTICE", "manifest.json", "model.onnx"] {
+            fs::copy(
+                fixture("pangolin-model-kernel-mini/bundle").join(name),
+                model.join(name),
+            )
+            .expect("copy model member");
+        }
+        let held_model = temp.path().join("model-held");
+        let replacement_model = model.clone();
+        REPLACE_SOURCE_DIRECTORY.with(|replacement| {
+            *replacement.borrow_mut() = Some(Box::new(move || {
+                fs::rename(&replacement_model, &held_model).expect("move admitted source");
+                fs::create_dir(&replacement_model).expect("replace source directory");
+                fs::write(replacement_model.join("NOTICE"), b"decoy").expect("write decoy member");
+            }));
+        });
+        let reference = fixture("reference-route-test/bundle");
+        let mask = fixture("route-mask/domains.pgm");
+
+        let installed = install_with_profile(
+            &bytes,
+            &profile,
+            InstallSources {
+                model: &model,
+                reference: &reference,
+                mask: &mask,
+            },
+            &root,
+        )
+        .expect("copy from admitted source directory");
+
+        assert_eq!(installed.status, "installed");
+        assert_eq!(
+            fs::read(model.join("NOTICE")).expect("read decoy source"),
+            b"decoy"
+        );
+    }
+
+    #[test]
+    fn runtime_profile_read_keeps_the_admitted_file_after_path_replacement() {
+        let temp = TempDir::new().expect("temp");
+        let profile = temp.path().join("runtime-profile.json");
+        let held_profile = temp.path().join("runtime-profile-held.json");
+        let original = b"original profile";
+        fs::write(&profile, original).expect("write profile");
+        let replacement_profile = profile.clone();
+        REPLACE_PROFILE_PATH.with(|replacement| {
+            *replacement.borrow_mut() = Some(Box::new(move || {
+                fs::rename(&replacement_profile, &held_profile).expect("move admitted profile");
+                fs::write(&replacement_profile, b"decoy profile").expect("replace profile path");
+            }));
+        });
+
+        assert_eq!(
+            read_small_source(&profile, MAX_JSON).expect("read admitted profile"),
+            original
+        );
+        assert_eq!(
+            fs::read(&profile).expect("read decoy profile"),
+            b"decoy profile"
+        );
+    }
+
     #[test]
     fn read_only_source_files_and_non_private_source_directories_install() {
         let temp = TempDir::new().expect("temp");
@@ -3181,9 +3373,6 @@ mod tests {
         assert_eq!(installed.status, "installed");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn excessive_orphan_staging_entries_fail_without_partial_cleanup_or_activation() {
         let temp = TempDir::new().expect("temp");

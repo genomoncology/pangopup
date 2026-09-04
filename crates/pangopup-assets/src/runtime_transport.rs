@@ -17,7 +17,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File},
     io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write},
-    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
 };
 
@@ -182,6 +182,39 @@ pub fn pack_runtime_transport(
     output: &Path,
 ) -> Result<PackRuntimeTransportOutcome, AssetError> {
     super::require_linux()?;
+    pack_runtime_transport_portable(
+        profile_path,
+        model_bundle,
+        reference_bundle,
+        mask_path,
+        output,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn pack_runtime_transport_for_test(
+    profile_path: &Path,
+    model_bundle: &Path,
+    reference_bundle: &Path,
+    mask_path: &Path,
+    output: &Path,
+) -> Result<PackRuntimeTransportOutcome, AssetError> {
+    pack_runtime_transport_portable(
+        profile_path,
+        model_bundle,
+        reference_bundle,
+        mask_path,
+        output,
+    )
+}
+
+fn pack_runtime_transport_portable(
+    profile_path: &Path,
+    model_bundle: &Path,
+    reference_bundle: &Path,
+    mask_path: &Path,
+    output: &Path,
+) -> Result<PackRuntimeTransportOutcome, AssetError> {
     super::ensure_output_absent(output)?;
 
     let profile_bytes = read_checked(profile_path, 64 * 1024)?;
@@ -323,14 +356,18 @@ pub fn pack_runtime_transport(
 pub fn verify_runtime_transport(
     transport: &Path,
 ) -> Result<VerifyRuntimeTransportOutcome, AssetError> {
-    let opened = open_transport(transport)?;
+    let transport = open_transport_directory(transport)?;
+    let opened = open_transport_held(&transport)?;
     let mut compressed_bytes = 0;
     for member in &opened.manifest.members {
-        let path = transport.join(&member.name);
         match member.encoding {
-            Encoding::Raw => verify_raw(&path, member)?,
+            Encoding::Raw => {
+                if !opened.raw_members.contains_key(&member.name) {
+                    return Err(part_set("raw runtime transport member is missing"));
+                }
+            }
             Encoding::Zstd => {
-                verify_frame(&path, member, None)?;
+                verify_held_frame(&transport, member, None)?;
                 compressed_bytes += member.stored_bytes;
             }
         }
@@ -350,7 +387,8 @@ pub fn unpack_runtime_transport(
 ) -> Result<UnpackRuntimeTransportOutcome, AssetError> {
     super::require_linux()?;
     super::ensure_output_absent(output)?;
-    let opened = open_transport(transport)?;
+    let transport = open_transport_directory(transport)?;
+    let opened = open_transport_held(&transport)?;
     let transport_id = sha256(&opened.bytes);
     let profile_id = opened.manifest.runtime_profile_id.clone();
     let (stage, mut guard) = create_stage(output)?;
@@ -360,17 +398,19 @@ pub fn unpack_runtime_transport(
                 .map_err(|error| output_io("create reconstructed directory", error))?;
         }
         for member in &opened.manifest.members {
-            let source = transport.join(&member.name);
             let destination = unpack_path(&stage, &member.name)?;
             match member.encoding {
                 Encoding::Raw => {
-                    let bytes = read_and_verify_raw(&source, member)?;
-                    write_synced(&destination, &bytes)?;
+                    let bytes = opened
+                        .raw_members
+                        .get(&member.name)
+                        .ok_or_else(|| part_set("raw runtime transport member is missing"))?;
+                    write_synced(&destination, bytes)?;
                 }
                 Encoding::Zstd => {
                     let mut file = File::create(&destination)
                         .map_err(|error| output_io("create reconstructed member", error))?;
-                    verify_frame(&source, member, Some(&mut file))?;
+                    verify_held_frame(&transport, member, Some(&mut file))?;
                     file.sync_all()
                         .map_err(|error| output_io("sync reconstructed member", error))?;
                 }
@@ -459,33 +499,49 @@ pub(crate) fn verify_runtime_transport_held_frame(
     input
         .seek(SeekFrom::Start(0))
         .map_err(|error| input_io("rewind held runtime member", error))?;
-    verify_frame_open(input, before, member, None, None).map(|_| ())
+    verify_frame_open(input, before, member, None).map(|_| ())
 }
 
-fn open_transport(path: &Path) -> Result<OpenedTransport, AssetError> {
-    let descriptor_path = path.parent() == Some(Path::new("/proc/self/fd"))
-        && path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| !name.is_empty() && name.bytes().all(|byte| byte.is_ascii_digit()));
-    let root = if descriptor_path {
-        fs::metadata(path)
-    } else {
-        fs::symlink_metadata(path)
-    }
-    .map_err(|error| input_io("inspect transport", error))?;
-    if (!descriptor_path && root.file_type().is_symlink()) || !root.file_type().is_dir() {
-        return Err(part_set("transport is not a regular directory"));
-    }
-    let bytes = read_checked(&path.join(TRANSPORT_MANIFEST), MAX_JSON)?;
+fn verify_held_frame(
+    transport: &super::local::Dir,
+    member: &Member,
+    output: Option<&mut dyn Write>,
+) -> Result<FrameMetrics, AssetError> {
+    let (input, before) = super::local::open_held_regular(
+        transport,
+        &member.name,
+        AssetErrorKind::InputIo,
+        AssetErrorKind::PartSetInvalid,
+    )?;
+    require_single_link(&before)?;
+    verify_frame_open(input, &before, member, output)
+}
+
+fn open_transport_directory(path: &Path) -> Result<super::local::Dir, AssetError> {
+    super::local::open_held_directory(
+        path,
+        AssetErrorKind::InputIo,
+        AssetErrorKind::PartSetInvalid,
+    )
+}
+
+fn open_transport_held(transport: &super::local::Dir) -> Result<OpenedTransport, AssetError> {
+    let bytes = read_transport_member_bounded(transport, TRANSPORT_MANIFEST, MAX_JSON)?;
     let manifest = parse_runtime_transport_manifest_for_release(&bytes)?;
-    require_transport_inventory(path, &manifest)?;
+    require_transport_inventory_held(transport, &manifest)?;
     let mut raw_members = BTreeMap::new();
     for member in &manifest.members {
         if member.encoding == Encoding::Raw {
+            let (file, before) = super::local::open_held_regular(
+                transport,
+                &member.name,
+                AssetErrorKind::InputIo,
+                AssetErrorKind::PartSetInvalid,
+            )?;
+            require_single_link(&before)?;
             raw_members.insert(
                 member.name.clone(),
-                read_and_verify_raw(&path.join(&member.name), member)?,
+                read_runtime_transport_held_raw(&file, &before, member)?,
             );
         }
     }
@@ -507,22 +563,24 @@ fn open_transport(path: &Path) -> Result<OpenedTransport, AssetError> {
     })
 }
 
-/// Install an authenticated cached runtime transport without materializing a
-/// second decoded transport tree.
-pub(crate) fn install_cached_runtime_transport(
-    transport: &Path,
+pub(crate) fn install_cached_runtime_transport_handle(
+    transport: File,
     data_root: &Path,
 ) -> Result<super::RuntimeInstallOutcome, AssetError> {
-    install_cached_runtime_transport_with_policy(transport, data_root, true)
+    let transport = super::local::held_directory_from_file(
+        transport,
+        AssetErrorKind::InputIo,
+        AssetErrorKind::PartSetInvalid,
+    )?;
+    install_cached_runtime_transport_held(&transport, data_root, true)
 }
 
-fn install_cached_runtime_transport_with_policy(
-    transport: &Path,
+fn install_cached_runtime_transport_held(
+    transport: &super::local::Dir,
     data_root: &Path,
     require_production: bool,
 ) -> Result<super::RuntimeInstallOutcome, AssetError> {
-    super::require_linux()?;
-    let opened = open_transport(transport)?;
+    let opened = open_transport_held(transport)?;
     if require_production {
         require_production_manifest(&opened.bytes)?;
     }
@@ -541,16 +599,7 @@ fn install_cached_runtime_transport_with_policy(
         profile_bytes,
         &profile,
         data_root,
-        |model, reference, mask| {
-            stage_cached_transport(
-                transport,
-                manifest,
-                &opened.raw_members,
-                model,
-                reference,
-                mask,
-            )
-        },
+        |stage, root| stage_cached_transport(transport, manifest, &opened.raw_members, stage, root),
     )
 }
 
@@ -566,57 +615,65 @@ fn require_production_manifest(bytes: &[u8]) -> Result<(), AssetError> {
 
 #[cfg(test)]
 pub(crate) fn install_cached_runtime_transport_for_test(
-    transport: &Path,
+    transport: File,
     data_root: &Path,
 ) -> Result<super::RuntimeInstallOutcome, AssetError> {
-    install_cached_runtime_transport_with_policy(transport, data_root, false)
+    let transport = super::local::held_directory_from_file(
+        transport,
+        AssetErrorKind::InputIo,
+        AssetErrorKind::PartSetInvalid,
+    )?;
+    install_cached_runtime_transport_held(&transport, data_root, false)
 }
 
 fn stage_cached_transport(
-    transport: &Path,
+    transport: &super::local::Dir,
     manifest: &Manifest,
     raw: &BTreeMap<String, Vec<u8>>,
-    model: &Path,
-    reference: &Path,
-    mask: &Path,
+    stage: &super::local::Dir,
+    root: &super::local::Root,
 ) -> Result<(), AssetError> {
-    for directory in [model, reference, mask] {
-        fs::create_dir(directory)
-            .map_err(|error| output_io("create runtime installation staging directory", error))?;
-        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
-            .map_err(|error| output_io("protect runtime installation staging directory", error))?;
-    }
+    let model = super::local::create_owned_dir(stage, "model", 0o700, root)?;
+    let reference = super::local::create_owned_dir(stage, "reference", 0o700, root)?;
+    let mask = super::local::create_owned_dir(stage, "mask", 0o700, root)?;
     for member in &manifest.members {
-        let destination = match member.name.as_str() {
+        let (destination, name) = match member.name.as_str() {
             "runtime-profile.json" => continue,
-            "model-manifest.json" => model.join("manifest.json"),
-            "model-NOTICE" => model.join("NOTICE"),
-            "model.onnx.zst" => model.join("model.onnx"),
-            "reference-manifest.json" => reference.join("manifest.json"),
-            "reference-NOTICE" => reference.join("NOTICE"),
-            "reference.pgr.zst" => reference.join("reference.pgr"),
+            "model-manifest.json" => (&model, "manifest.json"),
+            "model-NOTICE" => (&model, "NOTICE"),
+            "model.onnx.zst" => (&model, "model.onnx"),
+            "reference-manifest.json" => (&reference, "manifest.json"),
+            "reference-NOTICE" => (&reference, "NOTICE"),
+            "reference.pgr.zst" => (&reference, "reference.pgr"),
             "mask-NOTICE" => continue,
-            "domains.pgm.zst" => mask.join("domains.pgm"),
+            "domains.pgm.zst" => (&mask, "domains.pgm"),
             _ => return Err(invalid_manifest("unexpected runtime transport member")),
         };
+        let mut output =
+            super::local::create_owned_file(destination, name, 0o600, root).map_err(|error| {
+                output_io(
+                    "create decoded runtime member",
+                    std::io::Error::other(error.to_string()),
+                )
+            })?;
         match member.encoding {
             Encoding::Raw => {
                 let bytes = raw
                     .get(&member.name)
                     .ok_or_else(|| part_set("raw runtime transport member is missing"))?;
-                write_install_member(&destination, bytes)?;
+                write_install_member(&mut output, bytes)?;
             }
             Encoding::Zstd => {
-                let mut output = fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .mode(0o600)
-                    .open(&destination)
-                    .map_err(|error| output_io("create decoded runtime member", error))?;
+                let (input, before) = super::local::open_held_regular(
+                    transport,
+                    &member.name,
+                    AssetErrorKind::InputIo,
+                    AssetErrorKind::PartSetInvalid,
+                )?;
+                require_single_link(&before)?;
                 let (metrics, final_write_bytes) = {
                     let mut counted = CountingWriter::new(&mut output);
-                    let metrics =
-                        verify_frame(&transport.join(&member.name), member, Some(&mut counted))?;
+                    let metrics = verify_frame_open(input, &before, member, Some(&mut counted))?;
                     (metrics, counted.bytes)
                 };
                 record_direct_install(
@@ -625,32 +682,29 @@ fn stage_cached_transport(
                     metrics.decoded_bytes,
                     final_write_bytes,
                 );
-                output
-                    .set_permissions(fs::Permissions::from_mode(0o444))
-                    .map_err(|error| output_io("protect decoded runtime member", error))?;
+                super::local::set_mode(&output, 0o444)?;
                 output
                     .sync_all()
                     .map_err(|error| output_io("sync decoded runtime member", error))?;
             }
         }
     }
-    for directory in [model, reference, mask] {
-        sync_directory(directory)?;
+    for directory in [&model, &reference, &mask] {
+        directory
+            .file
+            .sync_all()
+            .map_err(|error| output_io("sync runtime installation staging directory", error))?;
     }
     Ok(())
 }
 
-fn write_install_member(path: &Path, bytes: &[u8]) -> Result<(), AssetError> {
-    let mut output = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
-        .map_err(|error| output_io("create staged runtime member", error))?;
+fn write_install_member(output: &mut File, bytes: &[u8]) -> Result<(), AssetError> {
     output
         .write_all(bytes)
-        .and_then(|_| output.set_permissions(fs::Permissions::from_mode(0o444)))
-        .and_then(|_| output.sync_all())
+        .map_err(|error| output_io("write staged runtime member", error))?;
+    super::local::set_mode(output, 0o444)?;
+    output
+        .sync_all()
         .map_err(|error| output_io("write staged runtime member", error))
 }
 
@@ -786,26 +840,11 @@ impl Write for CountingWriter<'_> {
     }
 }
 
-fn verify_frame(
-    path: &Path,
-    member: &Member,
-    output: Option<&mut dyn Write>,
-) -> Result<FrameMetrics, AssetError> {
-    let (input, before) = open_regular(
-        path,
-        AssetErrorKind::InputIo,
-        AssetErrorKind::PartSetInvalid,
-    )?;
-    require_single_link(&before)?;
-    verify_frame_open(input, &before, member, output, Some(path))
-}
-
 fn verify_frame_open(
     input: File,
     before: &fs::Metadata,
     member: &Member,
     output: Option<&mut dyn Write>,
-    path: Option<&Path>,
 ) -> Result<FrameMetrics, AssetError> {
     if before.len() != member.stored_bytes {
         return Err(part_set("compressed member size does not match manifest"));
@@ -859,9 +898,6 @@ fn verify_frame_open(
     }
     let hashing = remaining.into_inner();
     validate_held_metadata(&hashing.inner, before)?;
-    if let Some(path) = path {
-        validate_retained_path(path, &hashing.inner, before)?;
-    }
     if trailing {
         return Err(compression_invalid(
             "compressed member has a second frame or trailing bytes",
@@ -982,6 +1018,36 @@ fn read_checked(path: &Path, cap: u64) -> Result<Vec<u8>, AssetError> {
     Ok(bytes)
 }
 
+fn read_transport_member_bounded(
+    transport: &super::local::Dir,
+    name: &str,
+    cap: u64,
+) -> Result<Vec<u8>, AssetError> {
+    let (file, before) = super::local::open_held_regular(
+        transport,
+        name,
+        AssetErrorKind::InputIo,
+        AssetErrorKind::PartSetInvalid,
+    )?;
+    require_single_link(&before)?;
+    if before.len() > cap {
+        return Err(part_set("runtime transport member exceeds its bound"));
+    }
+    let mut input = file
+        .try_clone()
+        .map_err(|error| input_io("clone held runtime member", error))?;
+    let mut bytes = Vec::with_capacity(before.len() as usize);
+    Read::by_ref(&mut input)
+        .take(cap + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| input_io("read held runtime member", error))?;
+    validate_held_metadata(&file, &before)?;
+    if bytes.len() as u64 != before.len() {
+        return Err(part_set("runtime transport member changed while read"));
+    }
+    Ok(bytes)
+}
+
 fn raw_member(name: &str, role: &str, bytes: &[u8]) -> Member {
     Member {
         name: name.to_owned(),
@@ -992,48 +1058,6 @@ fn raw_member(name: &str, role: &str, bytes: &[u8]) -> Member {
         stored_bytes: bytes.len() as u64,
         stored_sha256: sha256(bytes),
     }
-}
-
-fn read_and_verify_raw(path: &Path, member: &Member) -> Result<Vec<u8>, AssetError> {
-    let bytes = read_checked_transport(path, member.stored_bytes)?;
-    if bytes.len() as u64 != member.stored_bytes
-        || member.stored_bytes != member.uncompressed_bytes
-        || sha256(&bytes) != member.stored_sha256
-        || member.stored_sha256 != member.uncompressed_sha256
-    {
-        return Err(AssetError::new(
-            AssetErrorKind::TransportHashMismatch,
-            "raw runtime transport member identity mismatch",
-        ));
-    }
-    Ok(bytes)
-}
-
-fn verify_raw(path: &Path, member: &Member) -> Result<(), AssetError> {
-    read_and_verify_raw(path, member).map(|_| ())
-}
-
-fn read_checked_transport(path: &Path, expected: u64) -> Result<Vec<u8>, AssetError> {
-    let cap = MAX_JSON.max(MAX_NOTICE);
-    if expected > cap {
-        return Err(part_set("raw runtime transport member exceeds bound"));
-    }
-    let (mut file, before) = open_regular(
-        path,
-        AssetErrorKind::InputIo,
-        AssetErrorKind::PartSetInvalid,
-    )?;
-    require_single_link(&before)?;
-    if before.len() != expected {
-        return Err(part_set("raw runtime transport member size mismatch"));
-    }
-    let mut bytes = Vec::with_capacity(expected as usize);
-    Read::by_ref(&mut file)
-        .take(cap + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| input_io("read raw runtime transport member", error))?;
-    validate_retained_path(path, &file, &before)?;
-    Ok(bytes)
 }
 
 fn validate_manifest(manifest: &Manifest) -> Result<(), AssetError> {
@@ -1072,23 +1096,22 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), AssetError> {
     Ok(())
 }
 
-fn require_transport_inventory(path: &Path, manifest: &Manifest) -> Result<(), AssetError> {
+fn require_transport_inventory_held(
+    transport: &super::local::Dir,
+    manifest: &Manifest,
+) -> Result<(), AssetError> {
     let expected: BTreeSet<_> = std::iter::once(TRANSPORT_MANIFEST.to_owned())
         .chain(manifest.members.iter().map(|member| member.name.clone()))
         .collect();
     let mut observed = BTreeSet::new();
-    for entry in fs::read_dir(path).map_err(|error| input_io("read transport directory", error))? {
-        let entry = entry.map_err(|error| input_io("read transport entry", error))?;
-        let name = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| part_set("non-UTF-8 transport member"))?;
-        let metadata = fs::symlink_metadata(entry.path())
-            .map_err(|error| input_io("inspect transport member", error))?;
-        if metadata.file_type().is_symlink()
-            || !metadata.file_type().is_file()
-            || metadata.nlink() != 1
-        {
+    for name in super::local::read_names_bounded(transport, EXPECTED.len() + 1)? {
+        let (_file, metadata) = super::local::open_held_regular(
+            transport,
+            &name,
+            AssetErrorKind::InputIo,
+            AssetErrorKind::PartSetInvalid,
+        )?;
+        if metadata.nlink() != 1 {
             return Err(part_set(
                 "transport member is not a regular single-link file",
             ));
@@ -1357,16 +1380,13 @@ mod tests {
         assert!(validate_manifest(&manifest).is_err());
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn cached_transport_decodes_directly_into_atomic_runtime_installation() {
         let temp = TempDir::new().expect("temp");
         let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
         let snv_source = fixtures.join("snv-regression/bundle");
         let snv_transport = temp.path().join("snv-transport");
-        crate::pack_bundle(&snv_source, &snv_transport).expect("pack SNV");
+        crate::pack_bundle_for_test(&snv_source, &snv_transport).expect("pack SNV");
         let data = temp.path().join("data");
         crate::install_transport(&snv_transport, &data).expect("install SNV");
         let snv = crate::inspect_snv_bundle(&snv_source).expect("inspect SNV");
@@ -1387,7 +1407,7 @@ mod tests {
         )
         .expect("write profile");
         let transport = temp.path().join("runtime-transport");
-        pack_runtime_transport(
+        pack_runtime_transport_for_test(
             &profile_path,
             &fixtures.join("pangolin-model-kernel-mini/bundle"),
             &fixtures.join("reference-route-test/bundle"),
@@ -1397,7 +1417,14 @@ mod tests {
         .expect("pack runtime");
 
         direct_install_audit::reset();
-        let installed = install_cached_runtime_transport_for_test(&transport, &data)
+        let transport_handle = super::super::local::open_held_directory(
+            &transport,
+            AssetErrorKind::InputIo,
+            AssetErrorKind::PartSetInvalid,
+        )
+        .expect("open held runtime transport")
+        .file;
+        let installed = install_cached_runtime_transport_for_test(transport_handle, &data)
             .expect("direct cached install");
         assert_eq!(installed.status, "installed");
         assert!(data.join("runtime/active.json").is_file());

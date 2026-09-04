@@ -780,9 +780,6 @@ mod tests {
         ));
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn empty_status_is_exact_and_sync_lock_is_observable_and_nonblocking() {
         let temp = tempfile::TempDir::new().expect("temp");
@@ -823,9 +820,6 @@ mod tests {
         drop(replacement);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn shared_install_lock_yields_nonwaiting_installing_observations() {
         let temp = tempfile::TempDir::new().expect("temp");
@@ -852,15 +846,12 @@ mod tests {
         drop(owner);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn installed_partial_status_is_read_only_and_requires_lock_authority() {
         let temp = tempfile::TempDir::new().expect("temp");
         let root = temp.path().join("data");
         let transport = temp.path().join("transport");
-        crate::pack_bundle(
+        crate::pack_bundle_for_test(
             &Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../tests/fixtures/snv-regression/bundle"),
             &transport,
@@ -900,14 +891,12 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn offline_empty_pair_reports_both_bounded_missing_inventories() {
         let temp = tempfile::TempDir::new().expect("temp");
-        let root = temp.path().join("data");
-        let cache = temp.path().join("cache");
+        let physical = temp.path().canonicalize().expect("physical temp root");
+        let root = physical.join("data");
+        let cache = physical.join("cache");
         let result = sync_all_assets(&root, Some(&cache), true).expect("bounded result");
         let CombinedSyncResult::Incomplete(incomplete) = result else {
             panic!("incomplete")
@@ -1010,15 +999,12 @@ mod tests {
         ));
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn top_level_lock_loser_calls_no_component_and_active_lookup_stays_usable() {
         let temp = tempfile::TempDir::new().expect("temp");
         let data = temp.path().join("data");
         let transport = temp.path().join("transport");
-        crate::pack_bundle(
+        crate::pack_bundle_for_test(
             &Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../tests/fixtures/snv-regression/bundle"),
             &transport,
@@ -1060,9 +1046,6 @@ mod tests {
         drop(owner);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn complete_cached_pair_flows_through_locked_top_level_composition() {
         let temp = tempfile::TempDir::new().expect("temp");

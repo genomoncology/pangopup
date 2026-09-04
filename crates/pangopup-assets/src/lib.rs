@@ -1,10 +1,5 @@
 //! Deterministic, bounded delivery of Pangopup's certified SNV bundle.
 
-// The Linux-only installation tests are compiled out on other targets, which
-// orphans the helpers and fault-injection hooks that only they use. Allow that
-// in non-Linux test builds rather than gating each helper by hand.
-#![cfg_attr(all(test, not(target_os = "linux")), allow(dead_code, unused_imports))]
-
 use pangopup_index::{BundleManifest, parse_bundle_manifest_bytes};
 use serde::{
     Deserialize, Deserializer, Serialize,
@@ -333,6 +328,18 @@ struct CompressionDiscriminator {
 
 pub fn pack_bundle(bundle: &Path, output: &Path) -> Result<PackOutcome, AssetError> {
     require_linux()?;
+    pack_bundle_portable(bundle, output)
+}
+
+#[cfg(test)]
+pub(crate) fn pack_bundle_for_test(
+    bundle: &Path,
+    output: &Path,
+) -> Result<PackOutcome, AssetError> {
+    pack_bundle_portable(bundle, output)
+}
+
+fn pack_bundle_portable(bundle: &Path, output: &Path) -> Result<PackOutcome, AssetError> {
     let certification = certify_bundle(bundle)?;
     let manifest_bytes = read_bounded(
         &bundle.join("manifest.json"),
@@ -480,7 +487,7 @@ pub fn unpack_transport(path: &Path, output: &Path) -> Result<UnpackOutcome, Ass
     finish_staged(result, &mut guard)
 }
 
-struct VerifiedTransport {
+pub(crate) struct VerifiedTransport {
     manifest: TransportManifest,
     transport_bytes: Vec<u8>,
     bundle_manifest_bytes: Vec<u8>,
@@ -491,9 +498,10 @@ fn verify_internal(
     path: &Path,
     reconstructed: Option<&mut File>,
 ) -> Result<VerifiedTransport, AssetError> {
-    let verified = inspect_transport_internal(path)?;
-    decode_parts(
-        path,
+    let directory = open_transport_directory(path)?;
+    let verified = inspect_transport_held(&directory)?;
+    decode_parts_held(
+        &directory,
         &verified.manifest,
         reconstructed.map(|file| file as &mut dyn Write),
     )?;
@@ -551,22 +559,40 @@ fn transport_inspection_from_verified(verified: VerifiedTransport) -> TransportI
 }
 
 fn inspect_transport_internal(path: &Path) -> Result<VerifiedTransport, AssetError> {
-    let manifest_bytes = read_bounded(
-        &path.join("transport.json"),
+    let directory = open_transport_directory(path)?;
+    inspect_transport_held(&directory)
+}
+
+fn open_transport_directory(path: &Path) -> Result<local::Dir, AssetError> {
+    local::open_held_directory(
+        path,
+        AssetErrorKind::InputIo,
+        AssetErrorKind::PartSetInvalid,
+    )
+}
+
+pub(crate) fn inspect_transport_held(
+    directory: &local::Dir,
+) -> Result<VerifiedTransport, AssetError> {
+    let manifest_bytes = read_bounded_held(
+        directory,
+        "transport.json",
         MAX_JSON_BYTES,
         AssetErrorKind::InputIo,
         AssetErrorKind::ManifestInvalid,
     )?;
     let manifest = parse_transport_manifest(&manifest_bytes)?;
-    validate_directory(path, &manifest)?;
-    let bundle_manifest_bytes = read_bounded(
-        &path.join("bundle-manifest.json"),
+    validate_directory(directory, &manifest)?;
+    let bundle_manifest_bytes = read_bounded_held(
+        directory,
+        "bundle-manifest.json",
         MAX_JSON_BYTES,
         AssetErrorKind::InputIo,
         AssetErrorKind::BundleInvalid,
     )?;
-    let notice = read_bounded(
-        &path.join("NOTICE"),
+    let notice = read_bounded_held(
+        directory,
+        "NOTICE",
         MAX_NOTICE_BYTES,
         AssetErrorKind::InputIo,
         AssetErrorKind::BundleInvalid,
@@ -721,7 +747,10 @@ fn validate_bundle_metadata(
     Ok(())
 }
 
-fn validate_directory(path: &Path, manifest: &TransportManifest) -> Result<(), AssetError> {
+fn validate_directory(
+    directory: &local::Dir,
+    manifest: &TransportManifest,
+) -> Result<(), AssetError> {
     let mut expected = BTreeSet::from([
         "NOTICE".to_owned(),
         "bundle-manifest.json".to_owned(),
@@ -729,23 +758,13 @@ fn validate_directory(path: &Path, manifest: &TransportManifest) -> Result<(), A
     ]);
     expected.extend(manifest.payload.parts.iter().map(|part| part.path.clone()));
     let mut actual = BTreeSet::new();
-    for (count, entry) in fs::read_dir(path)
-        .map_err(|error| input_io("read transport directory", error))?
-        .enumerate()
-    {
-        if count >= MAX_PARTS + 3 {
-            return Err(part_error("transport has too many directory entries"));
-        }
-        let entry = entry.map_err(|error| input_io("read transport entry", error))?;
-        let name = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| part_error("transport entry name is not UTF-8"))?;
-        let metadata = fs::symlink_metadata(entry.path())
-            .map_err(|error| input_io("inspect transport entry", error))?;
-        if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
-            return Err(part_error("transport entries must be regular files"));
-        }
+    for name in local::read_names_bounded(directory, MAX_PARTS + 3)? {
+        let (_file, metadata) = local::open_held_regular(
+            directory,
+            &name,
+            AssetErrorKind::InputIo,
+            AssetErrorKind::PartSetInvalid,
+        )?;
         let expected_size = match name.as_str() {
             "transport.json" => None,
             "bundle-manifest.json" => Some(manifest.bundle.manifest.size),
@@ -768,13 +787,23 @@ fn validate_directory(path: &Path, manifest: &TransportManifest) -> Result<(), A
     Ok(())
 }
 
+#[cfg(test)]
 fn decode_parts(
     path: &Path,
     manifest: &TransportManifest,
     output: Option<&mut dyn Write>,
 ) -> Result<(), AssetError> {
+    let directory = open_transport_directory(path)?;
+    decode_parts_held(&directory, manifest, output)
+}
+
+pub(crate) fn decode_parts_held(
+    directory: &local::Dir,
+    manifest: &TransportManifest,
+    output: Option<&mut dyn Write>,
+) -> Result<(), AssetError> {
     let failure = Rc::new(RefCell::new(None));
-    let reader = PartReader::new(path, &manifest.payload, Rc::clone(&failure));
+    let reader = PartReader::new(directory, &manifest.payload, Rc::clone(&failure));
     let mut buffered = BufReader::with_capacity(128 * 1024, reader);
     let header = buffered.fill_buf().map_err(|error| {
         take_part_failure(&failure).unwrap_or_else(|| input_io("read Zstandard header", error))
@@ -1081,7 +1110,7 @@ impl Write for SplitWriter {
 }
 
 struct PartReader<'a> {
-    directory: &'a Path,
+    directory: &'a local::Dir,
     payload: &'a PayloadManifest,
     index: usize,
     current: Option<File>,
@@ -1094,7 +1123,7 @@ struct PartReader<'a> {
 
 impl<'a> PartReader<'a> {
     fn new(
-        directory: &'a Path,
+        directory: &'a local::Dir,
         payload: &'a PayloadManifest,
         failure: Rc<RefCell<Option<AssetError>>>,
     ) -> Self {
@@ -1124,9 +1153,9 @@ impl<'a> PartReader<'a> {
         let Some(part) = self.payload.parts.get(self.index) else {
             return Ok(false);
         };
-        let path = self.directory.join(&part.path);
-        let (file, metadata) = open_regular(
-            &path,
+        let (file, metadata) = local::open_held_regular(
+            self.directory,
+            &part.path,
             AssetErrorKind::InputIo,
             AssetErrorKind::PartSetInvalid,
         )
@@ -1322,6 +1351,35 @@ fn read_bounded(
     invalid_kind: AssetErrorKind,
 ) -> Result<Vec<u8>, AssetError> {
     let (file, metadata) = open_regular(path, io_kind, invalid_kind)?;
+    if metadata.len() > cap {
+        return Err(AssetError::new(
+            invalid_kind,
+            "bounded input exceeds size limit",
+        ));
+    }
+    let capacity = usize::try_from(metadata.len())
+        .map_err(|_| AssetError::new(invalid_kind, "bounded input size conversion"))?;
+    let mut bytes = Vec::with_capacity(capacity);
+    file.take(cap + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| AssetError::new(io_kind, error.to_string()))?;
+    if bytes.len() as u64 > cap {
+        return Err(AssetError::new(
+            invalid_kind,
+            "bounded input grew beyond size limit",
+        ));
+    }
+    Ok(bytes)
+}
+
+fn read_bounded_held(
+    directory: &local::Dir,
+    name: &str,
+    cap: u64,
+    io_kind: AssetErrorKind,
+    invalid_kind: AssetErrorKind,
+) -> Result<Vec<u8>, AssetError> {
+    let (file, metadata) = local::open_held_regular(directory, name, io_kind, invalid_kind)?;
     if metadata.len() > cap {
         return Err(AssetError::new(
             invalid_kind,
@@ -1557,7 +1615,7 @@ fn ensure_output_absent(output: &Path) -> Result<(), AssetError> {
 }
 
 fn publish_stage(stage: &Path, output: &Path, guard: &mut StageGuard) -> Result<(), AssetError> {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", test))]
     {
         rustix::fs::renameat_with(
             rustix::fs::CWD,
@@ -1584,7 +1642,7 @@ fn publish_stage(stage: &Path, output: &Path, guard: &mut StageGuard) -> Result<
         sync_directory(output.parent().unwrap_or_else(|| Path::new(".")))?;
         Ok(())
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(all(not(target_os = "linux"), not(test)))]
     {
         let _ = (stage, output, guard);
         Err(AssetError::new(
@@ -1979,7 +2037,8 @@ mod tests {
             parts,
         };
         let failure = Rc::new(RefCell::new(None));
-        let mut reader = PartReader::new(&root, &payload, Rc::clone(&failure));
+        let directory = open_transport_directory(&root).expect("open synthetic transport");
+        let mut reader = PartReader::new(&directory, &payload, Rc::clone(&failure));
         let mut actual = Vec::new();
         reader.read_to_end(&mut actual).expect("iterate every part");
         reader.finish_validation().expect("complete payload");
@@ -2053,7 +2112,8 @@ mod tests {
             }],
         };
         let failure = Rc::new(RefCell::new(None));
-        let mut reader = PartReader::new(&root, &payload, failure);
+        let directory = open_transport_directory(&root).expect("open synthetic transport");
+        let mut reader = PartReader::new(&directory, &payload, failure);
         let mut actual = vec![0_u8; 1];
         reader
             .read_exact(&mut actual)
