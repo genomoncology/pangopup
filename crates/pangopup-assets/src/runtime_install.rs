@@ -2988,6 +2988,63 @@ mod tests {
     }
 
     #[test]
+    fn replaced_staging_directory_is_refused_at_use() {
+        let temp = TempDir::new().expect("temp");
+        let root = temp.path().join("data");
+        let snv = install_mini_snv(&root);
+        let profile = miniature_profile(&snv);
+        let bytes = canonical_runtime_profile_bytes(&profile).expect("profile");
+        let sources = InstallSources {
+            model: &fixture("pangolin-model-kernel-mini/bundle"),
+            reference: &fixture("reference-route-test/bundle"),
+            mask: &fixture("route-mask/domains.pgm"),
+        };
+
+        let result = install_with_stager(
+            &bytes,
+            &profile,
+            &root,
+            |staged_model, staged_reference, staged_mask| {
+                stage_local_sources(
+                    sources,
+                    staged_model,
+                    staged_reference,
+                    staged_mask,
+                    &profile,
+                )?;
+
+                let staging = root.join("runtime/.staging");
+                let admitted = fs::read_dir(&staging)
+                    .map_err(|_| output("inspect test staging directory"))?
+                    .next()
+                    .ok_or_else(|| output("find test staging directory"))?
+                    .map_err(|_| output("inspect test staging entry"))?
+                    .path();
+                let name = admitted
+                    .file_name()
+                    .ok_or_else(|| output("name test staging directory"))?;
+                let held = staging.join(format!("{}.held", name.to_string_lossy()));
+                fs::rename(&admitted, &held)
+                    .map_err(|_| output("move admitted test staging directory"))?;
+                fs::create_dir(&admitted)
+                    .map_err(|_| output("replace admitted test staging directory"))?;
+                fs::set_permissions(&admitted, fs::Permissions::from_mode(DIR_PRIVATE))
+                    .map_err(|_| output("set replacement staging mode"))?;
+                stage_local_sources(
+                    sources,
+                    &admitted.join("model"),
+                    &admitted.join("reference"),
+                    &admitted.join("mask"),
+                    &profile,
+                )
+            },
+        );
+
+        result.expect_err("a replaced admitted staging directory must be refused");
+        assert!(!root.join("runtime/active.json").exists());
+    }
+
+    #[test]
     fn profile_collision_and_receipt_shape_fail_closed() {
         let temp = TempDir::new().expect("temp");
         let root = temp.path().join("data");
