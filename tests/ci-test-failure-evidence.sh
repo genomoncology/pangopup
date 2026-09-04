@@ -79,3 +79,23 @@ if [[ "${#summary}" -gt 4096 ]]; then
     exit 1
 fi
 [[ "$(printf '%s' "$decoded" | awk 'END { print NR }')" -le 120 ]]
+
+escapable=$(printf '%3101s' '' | tr ' ' '%')
+final_marker='pangopup-final-linux-test-output'
+escapable+="$final_marker"
+if [[ "$(printf '%s' "$escapable" | wc -c | tr -d ' ')" -le 3000 ]]; then
+    printf 'worst-case fixture did not contain more than 3000 escapable bytes\n' >&2
+    exit 1
+fi
+run_wrapper 2 2 0 "$escapable"
+annotation=${WRAPPER_OUTPUT##*$'\n'}
+summary=${annotation#*::error file=Makefile,line=30,title=Linux make test failure::}
+retained=${summary:0:4096}
+if [[ "${#summary}" -gt 4096 ]]; then
+    printf 'worst-case annotation summary exceeded the observed 4096-character limit\n' >&2
+    exit 1
+fi
+if [[ "$retained" != *"$final_marker"* ]]; then
+    printf 'the retained worst-case annotation omitted the final test output\n' >&2
+    exit 1
+fi
