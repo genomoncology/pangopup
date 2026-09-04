@@ -15,6 +15,10 @@ The Rust workspace builds a native Apple Silicon executable. Existing qualificat
 
 Ticket 0002 supplies the descriptor-relative asset boundary this behavior requires.
 
+## Acceptance status on 2026-09-04
+
+Candidate `2d0e93861bd379f5c650db859ea47a6fcc56f6e8` passed independent code review, the complete macOS `make lint`, `make test`, and `make spec` gates, and two complete native Linux `make test` runs from a byte-verified archive of that exact commit. Fresh hosted run 33846843073 passed the macOS job but failed the Linux `make test` step with exit code 2. This session lacks authenticated access to the job log, so the failing test is not known. Fresh hosted container run 33846843016 passed both AMD64 and ARM64 smoke jobs. The ticket remains open until a later hosted Linux run passes or exposes a reproducible defect.
+
 ## Done, observably
 
 - `pangopup sync`, `pangopup assets install`, and `pangopup status` complete on macOS against a local transport and match Linux for the same input.
