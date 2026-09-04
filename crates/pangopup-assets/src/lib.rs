@@ -1817,15 +1817,24 @@ mod tests {
     }
 
     #[test]
-    fn publication_platform_contract_is_explicit() {
-        #[cfg(target_os = "linux")]
-        require_linux().expect("Linux publication support");
-        #[cfg(not(target_os = "linux"))]
+    fn no_replace_publication_preserves_the_existing_destination() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let stage = temp.path().join("stage");
+        let output = temp.path().join("output");
+        fs::create_dir(&stage).expect("stage");
+        fs::create_dir(&output).expect("existing output");
+        fs::write(output.join("sentinel"), b"existing").expect("sentinel");
+        let mut guard = StageGuard {
+            path: stage.clone(),
+            armed: true,
+        };
+
+        let error = publish_stage(&stage, &output, &mut guard)
+            .expect_err("no-replace publication must reject an existing destination");
+        assert_eq!(error.kind(), AssetErrorKind::OutputConflict);
         assert_eq!(
-            require_linux()
-                .expect_err("non-Linux publication is unsupported")
-                .kind(),
-            AssetErrorKind::UnsupportedPlatform
+            fs::read(output.join("sentinel")).expect("existing destination remains readable"),
+            b"existing"
         );
     }
 
