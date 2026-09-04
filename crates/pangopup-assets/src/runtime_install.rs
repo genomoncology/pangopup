@@ -468,12 +468,15 @@ where
         std::process::id()
     );
     let stage_dir = super::local::create_owned_dir(&staging_dir, &nonce, DIR_PRIVATE, root)?;
+    let mut cleanup_stage_name = true;
     let result = (|| {
         stage_sources(&stage_dir, root)?;
         transition!(StagedObjectsDurable);
         replace_staging_directory_for_test()?;
-        super::local::named_identity_matches(&staging_dir, &nonce, &stage_dir.file)
-            .map_err(|_| profile_corrupt("runtime staging directory was replaced"))?;
+        if super::local::named_identity_matches(&staging_dir, &nonce, &stage_dir.file).is_err() {
+            cleanup_stage_name = false;
+            return Err(profile_corrupt("runtime staging directory was replaced"));
+        }
         let staged_model = super::local::open_owned_dir(&stage_dir, "model", root, DIR_PRIVATE)?;
         let staged_reference =
             super::local::open_owned_dir(&stage_dir, "reference", root, DIR_PRIVATE)?;
@@ -640,7 +643,13 @@ where
             .map_err(|_| output("sync runtime directory"))?;
         Ok(outcome("installed", profile, profile_id.clone()))
     })();
-    let _ = remove_stage(&staging_dir, &nonce);
+    // A failed identity check proves that this name no longer denotes our
+    // held stage. Do not authorize name-based cleanup of its replacement.
+    if cleanup_stage_name
+        && super::local::named_identity_matches(&staging_dir, &nonce, &stage_dir.file).is_ok()
+    {
+        let _ = remove_stage(&staging_dir, &nonce);
+    }
     result
 }
 
@@ -3056,6 +3065,8 @@ mod tests {
         };
 
         let replacement_root = root.clone();
+        let replacement_sentinel = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let observed_sentinel = std::rc::Rc::clone(&replacement_sentinel);
         REPLACE_STAGING_DIRECTORY.with(|replacement| {
             *replacement.borrow_mut() = Some(Box::new(move || {
                 let staging = replacement_root.join("runtime/.staging");
@@ -3075,6 +3086,10 @@ mod tests {
                     .map_err(|_| output("replace admitted test staging directory"))?;
                 fs::set_permissions(&admitted, fs::Permissions::from_mode(DIR_PRIVATE))
                     .map_err(|_| output("set replacement staging mode"))?;
+                let sentinel = admitted.join("foreign-sentinel");
+                fs::write(&sentinel, b"foreign replacement")
+                    .map_err(|_| output("write replacement staging sentinel"))?;
+                *observed_sentinel.borrow_mut() = Some(sentinel);
                 Ok(())
             }));
         });
@@ -3083,6 +3098,14 @@ mod tests {
 
         result.expect_err("a replaced admitted staging directory must be refused");
         assert!(!root.join("runtime/active.json").exists());
+        let sentinel = replacement_sentinel
+            .borrow()
+            .clone()
+            .expect("replacement sentinel path");
+        assert_eq!(
+            fs::read(sentinel).expect("foreign replacement must survive"),
+            b"foreign replacement"
+        );
     }
 
     #[test]

@@ -392,15 +392,40 @@ fn main() -> ExitCode {
 }
 
 fn run(raw: &[OsString]) -> Result<Vec<u8>, Failure> {
+    require_native_asset_command(raw)?;
     run_with_sync(raw, &|data, cache, offline| {
         sync_all_assets(data, cache, offline)
     })
 }
 
 fn run_cli(raw: &[OsString], terminal: bool, stderr: &mut dyn Write) -> Result<Vec<u8>, Failure> {
+    require_native_asset_command(raw)?;
     run_cli_with_sync(raw, terminal, stderr, &|data, cache, offline, observer| {
         pangopup_assets::sync_all_assets_observed(data, cache, offline, observer)
     })
+}
+
+fn require_native_asset_command(raw: &[OsString]) -> Result<(), Failure> {
+    match parse_command(raw)? {
+        Command::Lookup(_) => Ok(()),
+        Command::Sync { .. } => require_linux_cli("asset sync is supported only on Linux"),
+        Command::Install { .. } | Command::RuntimeInstall { .. } | Command::Status { .. } => {
+            require_linux_cli("local asset installation requires Linux")
+        }
+    }
+}
+
+fn require_linux_cli(message: &'static str) -> Result<(), Failure> {
+    if cfg!(target_os = "linux") {
+        Ok(())
+    } else {
+        Err(Failure {
+            code: "UNSUPPORTED_PLATFORM",
+            message: message.to_owned(),
+            exit: 1,
+            details: None,
+        })
+    }
 }
 
 fn run_cli_with_sync(
