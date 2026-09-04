@@ -1,4 +1,4 @@
-# Local asset installation
+# Linux local asset installation
 
 The runtime installs an already available Ticket 005 transport into an
 isolated absolute data root. The spec uses only the checked-in miniature build
@@ -23,15 +23,15 @@ stdout is one compact object whose path names the three-member bundle itself.
 data=$(cd .. && pwd)/target/spec/local-assets/data
 pangopup assets install --transport ../target/spec/local-assets/transport --data-dir "$data" | sed -E "s|$data|<data>|; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch like '{"status":"installed","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle"}'
 pangopup status --data-dir "$data" | sed -E "s|$data|<data>|g; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch like '{"status":"partial","data_dir":"<data>","syncing":false,"installing":false,"snv":{"status":"ready","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle"},"runtime":{"status":"missing"}}'
-LC_ALL=C ls -laR "$data" | sed '/ \.\.$/d' > ../target/spec/local-assets/status-before
+find "$data" -printf '%P %m %s\n' | sort > ../target/spec/local-assets/status-before
 pangopup status --data-dir "$data" >/dev/null
-LC_ALL=C ls -laR "$data" | sed '/ \.\.$/d' > ../target/spec/local-assets/status-after
+find "$data" -printf '%P %m %s\n' | sort > ../target/spec/local-assets/status-after
 cmp ../target/spec/local-assets/status-before ../target/spec/local-assets/status-after
-test "$(LC_ALL=C ls -ld "$data" | cut -c 1-10)" = drwx------
-test "$(LC_ALL=C ls -l "$data/active.json" | cut -c 1-10)" = -rw-------
-test "$(LC_ALL=C ls -ld "$data"/bundles/* | cut -c 1-10)" = dr-xr-xr-x
-test "$(LC_ALL=C ls -ld "$data"/bundles/*/bundle | cut -c 1-10)" = dr-xr-xr-x
-test "$(LC_ALL=C ls -l "$data"/bundles/*/bundle/scores.pgi | cut -c 1-10)" = -r--r--r--
+test "$(stat -c %a "$data")" = 700
+test "$(stat -c %a "$data/active.json")" = 600
+test "$(find "$data/bundles" -mindepth 1 -maxdepth 1 -type d -printf '%m')" = 555
+test "$(find "$data/bundles" -mindepth 2 -maxdepth 2 -type d -name bundle -printf '%m')" = 555
+test "$(find "$data/bundles" -type f -name scores.pgi -printf '%m')" = 444
 printf 'private atomic installation\n' | mustmatch like 'private atomic installation'
 ```
 

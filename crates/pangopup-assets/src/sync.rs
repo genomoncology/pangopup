@@ -2,8 +2,7 @@
 
 use super::release::ProfileMember;
 use super::{
-    AssetError, AssetErrorKind, ReleaseProfile, RuntimeReleaseProfile, install_transport,
-    open_active_bundle,
+    AssetError, AssetErrorKind, ReleaseProfile, RuntimeReleaseProfile, open_active_bundle,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -668,7 +667,7 @@ pub fn sync_runtime_assets_observed(
         &members,
         contract,
         &ReqwestClient::production(),
-        &super::runtime_transport::install_cached_runtime_transport,
+        &super::runtime_transport::install_cached_runtime_transport_handle,
         observer,
     )
 }
@@ -683,7 +682,7 @@ fn sync_runtime_assets_observed_with(
     members: &[ProfileMember],
     contract: SyncContract<'_>,
     client: &dyn TransportClient,
-    installer: &dyn Fn(&Path, &Path) -> Result<super::RuntimeInstallOutcome, AssetError>,
+    installer: &dyn Fn(File, &Path) -> Result<super::RuntimeInstallOutcome, AssetError>,
     observer: &mut dyn FnMut(SyncEvent),
 ) -> Result<RuntimeSyncOutcome, AssetError> {
     observer(SyncEvent::Phase {
@@ -920,7 +919,7 @@ struct RuntimeSyncContext<'a> {
     members: &'a [ProfileMember],
     contract: SyncContract<'a>,
     client: &'a dyn TransportClient,
-    installer: &'a dyn Fn(&Path, &Path) -> Result<super::RuntimeInstallOutcome, AssetError>,
+    installer: &'a dyn Fn(File, &Path) -> Result<super::RuntimeInstallOutcome, AssetError>,
 }
 
 fn sync_runtime_cached_with_installer(
@@ -1092,9 +1091,9 @@ fn install_cached_runtime(
     release: &RuntimeReleaseProfile,
     downloaded: u64,
     resumed: u64,
-    installer: &dyn Fn(&Path, &Path) -> Result<super::RuntimeInstallOutcome, AssetError>,
+    installer: &dyn Fn(File, &Path) -> Result<super::RuntimeInstallOutcome, AssetError>,
 ) -> Result<RuntimeSyncOutcome, AssetError> {
-    match installer(&transport.install_path()?, data_root) {
+    match installer(transport.install_handle()?, data_root) {
         Ok(installed) => {
             let suffix = installed
                 .profile_id
@@ -1165,7 +1164,7 @@ fn install_cached(
     downloaded: u64,
     resumed: u64,
 ) -> Result<SyncOutcome, AssetError> {
-    match install_transport(&transport.install_path()?, data_root) {
+    match super::local::install_transport_handle(transport.install_handle()?, data_root) {
         Ok(installed) => Ok(sync_outcome(
             installed.status,
             profile,
@@ -1321,44 +1320,11 @@ struct PublishedTransport {
 }
 
 impl PublishedTransport {
-    fn install_path(&self) -> Result<PathBuf, AssetError> {
-        // Linux exposes traversable descriptor directories through procfs.
-        // macOS has no equivalent and reports a descriptor's retained path
-        // through F_GETPATH. Both spellings are checked against the held
-        // directory identity before installation opens any member.
-        #[cfg(target_os = "linux")]
-        let path = PathBuf::from(format!("/proc/self/fd/{}", self.dir.file.as_raw_fd()));
-        #[cfg(target_os = "macos")]
-        let path = {
-            use std::os::unix::ffi::OsStrExt;
-            let mut bytes = [0_u8; libc::PATH_MAX as usize];
-            // SAFETY: F_GETPATH writes at most PATH_MAX bytes to this live buffer.
-            if unsafe {
-                libc::fcntl(
-                    self.dir.file.as_raw_fd(),
-                    libc::F_GETPATH,
-                    bytes.as_mut_ptr().cast::<libc::c_char>(),
-                )
-            } < 0
-            {
-                return Err(asset_io("resolve held transport directory"));
-            }
-            let length = bytes.iter().position(|byte| *byte == 0).ok_or_else(|| {
-                asset_state("held transport directory path exceeds the platform bound")
-            })?;
-            PathBuf::from(OsStr::from_bytes(&bytes[..length]))
-        };
-        let held = self
-            .dir
+    fn install_handle(&self) -> Result<File, AssetError> {
+        self.dir
             .file
-            .metadata()
-            .map_err(|_| asset_io("inspect held transport directory"))?;
-        let current =
-            std::fs::metadata(&path).map_err(|_| asset_state("transport path changed"))?;
-        if held.dev() != current.dev() || held.ino() != current.ino() {
-            return Err(asset_state("transport path changed"));
-        }
-        Ok(path)
+            .try_clone()
+            .map_err(|_| asset_io("clone held transport directory"))
     }
 }
 
@@ -3326,7 +3292,7 @@ mod tests {
         let bundle = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../tests/fixtures/snv-regression/bundle");
         let transport = root.join("fixture-transport");
-        super::super::pack_bundle(&bundle, &transport).expect("pack fixture");
+        super::super::pack_bundle_for_test(&bundle, &transport).expect("pack fixture");
         transport
     }
 
@@ -3351,7 +3317,7 @@ mod tests {
         )
         .expect("write runtime profile");
         let transport = root.join("runtime-transport");
-        crate::pack_runtime_transport(
+        crate::runtime_transport::pack_runtime_transport_for_test(
             &profile_path,
             &fixtures.join("pangolin-model-kernel-mini/bundle"),
             &fixtures.join("reference-route-test/bundle"),
@@ -3382,7 +3348,7 @@ mod tests {
         )
         .expect("write alternate manifest");
         let transport = root.join("alternate-transport");
-        super::super::pack_bundle(&bundle, &transport).expect("pack alternate fixture");
+        super::super::pack_bundle_for_test(&bundle, &transport).expect("pack alternate fixture");
         transport
     }
 
@@ -3980,6 +3946,48 @@ mod tests {
         let first = &profile.transport.members[0];
         let moved = fs::read(cache.members.join(&first.asset_name)).expect("moved replacement");
         assert_ne!(format!("sha256:{:x}", Sha256::digest(&moved)), first.sha256);
+    }
+
+    #[test]
+    fn installation_uses_the_admitted_transport_after_its_name_is_replaced() {
+        let temp = Temp::new();
+        let transport = fixture(&temp.0);
+        let profile = miniature_profile(&transport, "http://fixture.test");
+        let digest = "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
+        let cache = Cache::open(&temp.0.join("cache"), digest).expect("cache");
+        let _lock = lock_and_initialize(&cache);
+        for member in &profile.transport.members {
+            fs::copy(
+                transport.join(&member.asset_name),
+                cache.members.join(&member.asset_name),
+            )
+            .expect("seed completed member");
+            fs::set_permissions(
+                cache.members.join(&member.asset_name),
+                fs::Permissions::from_mode(COMPLETE_FILE_MODE),
+            )
+            .expect("completed mode");
+        }
+        let published = cache.publish_transport(&profile).expect("publish cache");
+        let original = cache.transport.with_file_name("transport-original");
+        fs::rename(&cache.transport, &original).expect("move admitted transport");
+        fs::create_dir(&cache.transport).expect("replacement transport");
+        fs::set_permissions(&cache.transport, fs::Permissions::from_mode(CACHE_DIR_MODE))
+            .expect("replacement mode");
+        fs::write(cache.transport.join("sentinel"), b"replacement").expect("replacement sentinel");
+
+        let installed = super::super::local::install_transport_handle(
+            published
+                .install_handle()
+                .expect("clone admitted transport"),
+            &temp.0.join("data"),
+        )
+        .expect("install original admitted transport");
+        assert_eq!(installed.bundle_id, profile.bundle.bundle_id);
+        assert_eq!(
+            fs::read(cache.transport.join("sentinel")).expect("replacement remains"),
+            b"replacement"
+        );
     }
 
     #[test]
@@ -5443,7 +5451,7 @@ mod tests {
         let profile = miniature_profile(&transport, "http://fixture.test");
         let data = temp.0.join("valid-data");
         let alternate = alternate_fixture(&temp.0);
-        install_transport(&alternate, &data).expect("valid nonmatching install");
+        crate::install_transport(&alternate, &data).expect("valid nonmatching install");
         let (before, _) = open_active_bundle(&data).expect("active before");
         assert_ne!(before.bundle_id, profile.bundle.bundle_id);
         assert_ne!(before.transport_id, profile.transport.transport_id);
@@ -5500,7 +5508,7 @@ mod tests {
         );
 
         let online_data = temp.0.join("online-install-failure");
-        install_transport(&alternate, &online_data).expect("online prior install");
+        crate::install_transport(&alternate, &online_data).expect("online prior install");
         let online_lock = online_data.join(".install.lock");
         fs::remove_file(&online_lock).expect("remove online install lock");
         std::os::unix::fs::symlink(&outside, &online_lock).expect("hostile online install lock");

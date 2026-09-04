@@ -2,18 +2,18 @@
 
 use super::{
     AssetError, AssetErrorKind, MAX_FIXED11_BYTES, MAX_JSON_BYTES, MAX_NOTICE_BYTES,
-    VerifiedTransport, decode_parts, inspect_transport_internal, parse_bundle_manifest_bytes,
-    reject_duplicate_json, sha256, valid_sha256,
+    SnvBundleInspection, VerifiedTransport, decode_parts_held, inspect_transport_held,
+    parse_bundle_manifest_bytes, reject_duplicate_json, sha256, valid_sha256,
 };
 use pangopup_index::{BundleOpen, IndexError};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
     ffi::{CString, OsStr, OsString},
-    fs::{self, File},
+    fs::{self, File, OpenOptions},
     io::{self, ErrorKind, Read, Write},
     os::{
         fd::{AsRawFd, FromRawFd, RawFd},
-        unix::{ffi::OsStrExt, fs::MetadataExt, fs::PermissionsExt},
+        unix::{ffi::OsStrExt, fs::MetadataExt, fs::OpenOptionsExt, fs::PermissionsExt},
     },
     path::{Path, PathBuf},
 };
@@ -217,16 +217,43 @@ pub fn install_transport(transport: &Path, data_root: &Path) -> Result<InstallOu
     let root = open_root(data_root, true)?.ok_or_else(|| asset_io("create data root"))?;
     let _lock = acquire_install_lock(&root)?;
     let active_before = read_active_optional_for_install(&root)?;
-    let verified = inspect_transport_internal(transport)?;
+    let transport = open_held_directory(
+        transport,
+        AssetErrorKind::InputIo,
+        AssetErrorKind::PartSetInvalid,
+    )?;
+    install_transport_directory(transport, &root, active_before)
+}
+
+pub(crate) fn install_transport_handle(
+    transport: File,
+    data_root: &Path,
+) -> Result<InstallOutcome, AssetError> {
+    let root = open_root(data_root, true)?.ok_or_else(|| asset_io("create data root"))?;
+    let _lock = acquire_install_lock(&root)?;
+    let active_before = read_active_optional_for_install(&root)?;
+    let transport = held_directory_from_file(
+        transport,
+        AssetErrorKind::InputIo,
+        AssetErrorKind::PartSetInvalid,
+    )?;
+    install_transport_directory(transport, &root, active_before)
+}
+
+fn install_transport_directory(
+    transport: Dir,
+    root: &Root,
+    active_before: Option<ActiveBundle>,
+) -> Result<InstallOutcome, AssetError> {
+    let verified = inspect_transport_held(&transport)?;
     let bundle_id = verified.manifest.bundle.bundle_id.clone();
     let transport_id = verified.manifest.transport_id.clone();
-    let bundles = ensure_private_dir(&root.dir, "bundles", &root)?;
-    let staging = ensure_private_dir(&root.dir, ".staging", &root)?;
+    let bundles = ensure_private_dir(&root.dir, "bundles", root)?;
+    let staging = ensure_private_dir(&root.dir, ".staging", root)?;
 
-    let recovered =
-        reconcile_staging(&root, &bundles, &staging, Some((&bundle_id, &transport_id)))?;
+    let recovered = reconcile_staging(root, &bundles, &staging, Some((&bundle_id, &transport_id)))?;
     if recovered {
-        let active = read_active_optional_for_install(&root)?.ok_or_else(|| {
+        let active = read_active_optional_for_install(root)?.ok_or_else(|| {
             AssetError::new(
                 AssetErrorKind::AssetStateInvalid,
                 "recovery did not publish active state",
@@ -242,14 +269,14 @@ pub fn install_transport(transport: &Path, data_root: &Path) -> Result<InstallOu
     }
 
     let suffix = identity_suffix(&bundle_id)?;
-    if let Some(bundle_dir) = open_dir_optional(&bundles, suffix, &root)? {
+    if let Some(bundle_dir) = open_dir_optional(&bundles, suffix, root)? {
         if file_mode(&bundle_dir.file)? != BUNDLE_MODE {
             return Err(AssetError::new(
                 AssetErrorKind::InstallConflict,
                 "published bundle wrapper is not immutable",
             ));
         }
-        let installed = validate_installed(&root, suffix, &bundle_dir, None)?;
+        let installed = validate_installed(root, suffix, &bundle_dir, None)?;
         if installed.active.bundle_id != bundle_id || installed.active.transport_id != transport_id
         {
             return Err(AssetError::new(
@@ -257,11 +284,11 @@ pub fn install_transport(transport: &Path, data_root: &Path) -> Result<InstallOu
                 "published bundle identity conflicts with the requested transport",
             ));
         }
-        activate_existing(&root, &staging, &installed.active)?;
+        activate_existing(root, &staging, &installed.active)?;
         return Ok(outcome("reused", installed.active));
     }
 
-    install_new(&root, &bundles, &staging, transport, verified)
+    install_new(root, &bundles, &staging, &transport, verified)
 }
 
 pub fn local_status(data_root: &Path) -> Result<LocalStatus, AssetError> {
@@ -292,6 +319,27 @@ pub(crate) fn local_status_locked(locked: &LockedRoot) -> Result<LocalStatus, As
             data_dir: locked.root.path.clone(),
         }),
     }
+}
+
+pub(crate) fn inspect_active_snv_locked(root: &Root) -> Result<SnvBundleInspection, AssetError> {
+    let validated = read_active_open_optional(root)?.ok_or_else(|| {
+        AssetError::new(
+            AssetErrorKind::AssetsMissing,
+            "an active SNV bundle is required",
+        )
+    })?;
+    let manifest = validated.opened.manifest();
+    let scores = manifest
+        .members
+        .iter()
+        .find(|member| member.path == "scores.pgi")
+        .ok_or_else(|| state_invalid("active SNV bundle lacks scores.pgi"))?;
+    Ok(SnvBundleInspection {
+        bundle_id: validated.active.bundle_id,
+        format: manifest.index_format.clone(),
+        member_bytes: scores.size,
+        member_sha256: scores.sha256.clone(),
+    })
 }
 
 pub fn active_bundle(data_root: &Path) -> Result<ActiveBundle, AssetError> {
@@ -330,7 +378,7 @@ fn install_new(
     root: &Root,
     bundles: &Dir,
     staging: &Dir,
-    transport: &Path,
+    transport: &Dir,
     verified: VerifiedTransport,
 ) -> Result<InstallOutcome, AssetError> {
     let bundle_id = verified.manifest.bundle.bundle_id.clone();
@@ -345,13 +393,15 @@ fn install_new(
 
         let mut score = create_file(&bundle, "scores.pgi", MEMBER_MODE, root)?;
         let mut score_writer = InstallScoreWriter(&mut score);
-        decode_parts(transport, &verified.manifest, Some(&mut score_writer)).map_err(|error| {
-            if error.kind() == AssetErrorKind::OutputIo {
-                AssetError::new(AssetErrorKind::AssetIo, error.to_string())
-            } else {
-                error
-            }
-        })?;
+        decode_parts_held(transport, &verified.manifest, Some(&mut score_writer)).map_err(
+            |error| {
+                if error.kind() == AssetErrorKind::OutputIo {
+                    AssetError::new(AssetErrorKind::AssetIo, error.to_string())
+                } else {
+                    error
+                }
+            },
+        )?;
         crash_at!(ScoreChmod);
         set_mode(&score, MEMBER_MODE)?;
         crash_at!(ScoreSync);
@@ -1518,6 +1568,15 @@ fn remove_owned_tree_entry(
     }
 }
 
+pub(crate) fn create_owned_dir(
+    parent: &Dir,
+    name: &str,
+    mode: u32,
+    root: &Root,
+) -> Result<Dir, AssetError> {
+    create_dir(parent, name, mode, root)
+}
+
 fn create_dir(parent: &Dir, name: &str, mode: u32, root: &Root) -> Result<Dir, AssetError> {
     mkdir_at(parent, name, mode).map_err(|_| asset_io("create staged directory"))?;
     open_required_dir(parent, name, root, Some(mode))
@@ -1575,12 +1634,79 @@ fn dir_from_file(file: File) -> Result<Dir, AssetError> {
     })
 }
 
+pub(crate) fn open_held_directory(
+    path: &Path,
+    io_kind: AssetErrorKind,
+    invalid_kind: AssetErrorKind,
+) -> Result<Dir, AssetError> {
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+        .map_err(|error| AssetError::new(io_kind, error.to_string()))?;
+    held_directory_from_file(file, io_kind, invalid_kind)
+}
+
+pub(crate) fn held_directory_from_file(
+    file: File,
+    io_kind: AssetErrorKind,
+    invalid_kind: AssetErrorKind,
+) -> Result<Dir, AssetError> {
+    let metadata = file
+        .metadata()
+        .map_err(|error| AssetError::new(io_kind, error.to_string()))?;
+    if !metadata.file_type().is_dir() {
+        return Err(AssetError::new(
+            invalid_kind,
+            "held input is not a directory",
+        ));
+    }
+    Ok(Dir {
+        file,
+        dev: metadata.dev(),
+    })
+}
+
+pub(crate) fn open_held_regular(
+    parent: &Dir,
+    name: &str,
+    io_kind: AssetErrorKind,
+    invalid_kind: AssetErrorKind,
+) -> Result<(File, fs::Metadata), AssetError> {
+    let file = open_at(
+        parent.file.as_raw_fd(),
+        name,
+        libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        0,
+    )
+    .map_err(|error| AssetError::new(io_kind, error.to_string()))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| AssetError::new(io_kind, error.to_string()))?;
+    if !metadata.file_type().is_file() || metadata.dev() != parent.dev {
+        return Err(AssetError::new(
+            invalid_kind,
+            "held directory entry is not a same-filesystem regular file",
+        ));
+    }
+    Ok((file, metadata))
+}
+
 fn validate_owned_metadata(
     metadata: &fs::Metadata,
     root: &Root,
     kind: AssetErrorKind,
 ) -> Result<(), AssetError> {
-    if metadata.dev() != root.dir.dev || metadata.uid() != root.euid {
+    validate_owned_identity(metadata.dev(), metadata.uid(), root, kind)
+}
+
+fn validate_owned_identity(
+    device: u64,
+    owner: u32,
+    root: &Root,
+    kind: AssetErrorKind,
+) -> Result<(), AssetError> {
+    if device != root.dir.dev || owner != root.euid {
         return Err(AssetError::new(
             kind,
             "asset-store entry has the wrong filesystem or owner",
@@ -1720,6 +1846,15 @@ fn open_or_create_file(
     }
 }
 
+pub(crate) fn create_owned_file(
+    parent: &Dir,
+    name: &str,
+    mode: u32,
+    root: &Root,
+) -> Result<File, AssetError> {
+    create_file(parent, name, mode, root)
+}
+
 fn create_file(parent: &Dir, name: &str, mode: u32, root: &Root) -> Result<File, AssetError> {
     let file = open_at(
         parent.file.as_raw_fd(),
@@ -1845,6 +1980,19 @@ fn unlink_file(parent: &Dir, name: &str) -> Result<(), AssetError> {
     }
 }
 
+pub(crate) fn remove_owned_file(parent: &Dir, name: &str) -> Result<(), AssetError> {
+    unlink_file(parent, name)
+}
+
+pub(crate) fn rename_owned_noreplace(
+    from: &Dir,
+    old: &str,
+    to: &Dir,
+    new: &str,
+) -> Result<(), AssetError> {
+    rename_noreplace(from, old, to, new)
+}
+
 fn rename_noreplace(from: &Dir, old: &str, to: &Dir, new: &str) -> Result<(), AssetError> {
     rustix::fs::renameat_with(
         &from.file,
@@ -1870,6 +2018,15 @@ fn rename_noreplace(from: &Dir, old: &str, to: &Dir, new: &str) -> Result<(), As
             )
         }
     })
+}
+
+pub(crate) fn rename_owned_replace(
+    from: &Dir,
+    old: &str,
+    to: &Dir,
+    new: &str,
+) -> Result<(), AssetError> {
+    rename_replace(from, old, to, new)
 }
 
 fn rename_replace(from: &Dir, old: &str, to: &Dir, new: &str) -> Result<(), AssetError> {
@@ -1963,27 +2120,18 @@ mod tests {
 
     #[test]
     fn one_component_mount_crossing_is_rejected() {
-        let parent_file = open_path_directory(Path::new("/")).expect("open filesystem root");
-        let parent_metadata = parent_file.metadata().expect("root metadata");
-        let mounted_metadata = fs::metadata("/dev").expect("mounted /dev metadata");
-        assert_ne!(
-            parent_metadata.dev(),
-            mounted_metadata.dev(),
-            "the test fixture must cross from / to the mounted /dev filesystem"
-        );
-        let root = Root {
-            path: PathBuf::from("/"),
-            dir: Dir {
-                file: parent_file,
-                dev: parent_metadata.dev(),
-            },
-            euid: parent_metadata.uid(),
-        };
-
-        let error = match open_dir_optional(&root.dir, "dev", &root) {
-            Ok(_) => panic!("one-component mount crossing was accepted"),
-            Err(error) => error,
-        };
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = open_root(temp.path(), false)
+            .expect("open root")
+            .expect("existing root");
+        let mismatched_device = root.dir.dev.wrapping_add(1);
+        let error = validate_owned_identity(
+            mismatched_device,
+            root.euid,
+            &root,
+            AssetErrorKind::AssetStateInvalid,
+        )
+        .expect_err("one-component mount crossing was accepted");
         assert_eq!(error.kind(), AssetErrorKind::AssetStateInvalid);
     }
 
@@ -2159,7 +2307,7 @@ mod tests {
             .join("../..")
             .join("tests/fixtures/snv-regression/bundle");
         let transport = root.join("transport");
-        crate::pack_bundle(&fixture, &transport).expect("pack audit transport");
+        crate::pack_bundle_for_test(&fixture, &transport).expect("pack audit transport");
         install_audit::take();
         pangopup_index::test_reset_score_read_bytes();
         let data = root.join("data");
@@ -2233,7 +2381,7 @@ mod tests {
             .join("../..")
             .join("tests/fixtures/snv-regression/bundle");
         let transport = root.join("transport");
-        crate::pack_bundle(&fixture, &transport).expect("pack fault transport");
+        crate::pack_bundle_for_test(&fixture, &transport).expect("pack fault transport");
 
         let write_failure_data = root.join("data-score-write-failure");
         install_audit::set_fault(FaultPoint::ScoreWrite);
@@ -2342,7 +2490,7 @@ mod tests {
             .join("../..")
             .join("tests/fixtures/snv-regression/bundle");
         let transport = root.join("transport");
-        crate::pack_bundle(&fixture, &transport).expect("pack reconcile transport");
+        crate::pack_bundle_for_test(&fixture, &transport).expect("pack reconcile transport");
 
         let conflict_data = root.join("conflict-data");
         let installed =
@@ -2435,7 +2583,7 @@ mod tests {
             .join("../..")
             .join("tests/fixtures/snv-regression/bundle");
         let transport = root.join("transport");
-        crate::pack_bundle(&fixture, &transport).expect("pack recovery error transport");
+        crate::pack_bundle_for_test(&fixture, &transport).expect("pack recovery error transport");
 
         let receipt_data = root.join("receipt-data");
         let receipt_install =

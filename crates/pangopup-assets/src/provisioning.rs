@@ -851,7 +851,7 @@ mod tests {
         let temp = tempfile::TempDir::new().expect("temp");
         let root = temp.path().join("data");
         let transport = temp.path().join("transport");
-        crate::pack_bundle(
+        crate::pack_bundle_for_test(
             &Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../tests/fixtures/snv-regression/bundle"),
             &transport,
@@ -1004,7 +1004,7 @@ mod tests {
         let temp = tempfile::TempDir::new().expect("temp");
         let data = temp.path().join("data");
         let transport = temp.path().join("transport");
-        crate::pack_bundle(
+        crate::pack_bundle_for_test(
             &Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../tests/fixtures/snv-regression/bundle"),
             &transport,
