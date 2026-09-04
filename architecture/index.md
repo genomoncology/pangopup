@@ -325,7 +325,7 @@ deterministic compressed `scores.pgi` stream cut into ordered exact
 checks metadata, parts, the complete compressed stream, and reconstructed score
 identity without materializing it. `transport unpack` additionally performs
 exhaustive fixed-v1 certification before atomically publishing the unchanged
-three-file bundle. The Linux installer instead verifies the same transport and
+three-file bundle. The native installer instead verifies the same transport and
 reconstructed score identity in one write stream, publishes a canonical
 receipt and active profile, then performs only cheap open-time validation.
 Runtime lookup maps either that active expanded member or an explicit override

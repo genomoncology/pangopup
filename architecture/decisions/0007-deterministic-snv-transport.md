@@ -2,6 +2,8 @@
 
 Status: accepted
 
+Supersession note (2026-09-04): Ticket 0003 extended transport packing and no-replace unpacking to native macOS. The original Linux publication statement below remains as history.
+
 ## Decision
 
 Pangopup transports a certified SNV bundle without introducing a general

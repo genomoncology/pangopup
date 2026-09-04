@@ -4,7 +4,7 @@
 # a corpus fixture that is not in the checkout, and `source_fingerprint` hashes
 # several of its files as the builder's published provenance -- so making them
 # pass on another platform would mean changing what the builder claims to be.
-# Exclude it off Linux instead; CI is Linux and still runs the whole workspace.
+# Exclude it off Linux. The Linux CI job still runs the whole workspace.
 WORKSPACE_TESTS := --workspace
 ifneq ($(shell uname -s),Linux)
 WORKSPACE_TESTS := --workspace --exclude pangopup-build
@@ -12,11 +12,13 @@ endif
 
 # The qualification harnesses below drive GNU sed (in-place `-i`, `1i`, `0,/re/`)
 # and GNU find. macOS ships BSD versions that reject those forms outright, so
-# they run on Linux only. CI is Linux and still runs all three.
+# they run only in the Linux CI job.
 SHELL_QUALIFICATION := tests/readme-branding.sh tests/executable-delivery.sh tests/production-release-qualification.sh
 ifneq ($(shell uname -s),Linux)
 SHELL_QUALIFICATION :=
 endif
+
+PORTABLE_QUALIFICATION := tests/ci-platform-support.sh
 
 
 lint:          ## static analysis: rustfmt + clippy + dependency policy
@@ -26,11 +28,12 @@ lint:          ## static analysis: rustfmt + clippy + dependency policy
 
 test:          ## inside-out unit and integration tests
 	cargo test --locked $(WORKSPACE_TESTS)
+	@for script in $(PORTABLE_QUALIFICATION); do echo "bash $$script"; bash $$script || exit 1; done
 	@for script in $(SHELL_QUALIFICATION); do echo "bash $$script"; bash $$script || exit 1; done
 
 # Spec files that only hold on Linux. mustmatch has no per-block skip, so the
 # exclusion is whole files. Each one is listed with the reason it cannot run
-# here. CI is Linux and still runs every spec file.
+# here. The Linux CI job still runs every spec file.
 #
 # cli.md              `pangopup uninstall` refuses on every non-Linux target.
 #                     Direct uninstall is a Linux-only product feature.

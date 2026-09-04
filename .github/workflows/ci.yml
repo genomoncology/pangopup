@@ -25,6 +25,10 @@ jobs:
           rustup override set "$toolchain"
           rustup target add --toolchain "$toolchain" aarch64-unknown-linux-gnu
           rustup show active-toolchain
+      - name: Install the Linux ARM64 cross compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes gcc-aarch64-linux-gnu
       - name: Install uv 0.8.0
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
@@ -66,6 +70,9 @@ jobs:
           rg --version
       - run: make lint
       - name: Check the Linux ARM64 command build
+        env:
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo check --locked --target aarch64-unknown-linux-gnu --package pangopup-cli
       - name: Test the portable native service fixture
         run: cargo test --locked --package pangopup-cli --features service-test-fixtures --test http_service_lifecycle installed_success

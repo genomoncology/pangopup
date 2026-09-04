@@ -8,7 +8,7 @@ Repository onboarding, source ingestion, format selection, full-corpus build
 and certification, and typed SNV lookup are established. Pangopup is standalone
 open-source software. Its shipped CLI accepts an explicit GRCh38 SNV and
 optional gene filter and returns all matching source records by default from an
-explicit fixed-v1 bundle or the active Linux user-data installation. Speed
+explicit fixed-v1 bundle or the active Linux or macOS user-data installation. Speed
 leads memory and download size. Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
 established. The first-user README now presents one accessible, release-neutral
@@ -184,7 +184,7 @@ semantically certified atomic unpack now implement that boundary. Transport
 compression is removed at installation; the lookup path continues to map the
 fixed representation.
 
-## Established — Linux local installation and fast semantic regression
+## Established — Linux and macOS local installation and fast semantic regression
 
 `pangopup assets install` consumes a caller-supplied transport under one
 nonblocking lock, streams reconstruction once into private no-follow staging,
@@ -483,7 +483,7 @@ measurements remain the final host-specific acceptance evidence.
 ## Established — one compatible installed runtime profile
 
 The path-free authority binds the independently versioned SNV, model, compiled
-GRCh38 sequence index, mask, and scoring policy. The Linux installer reuses the
+GRCh38 sequence index, mask, and scoring policy. The native installer reuses the
 active certified SNV object, streams the three fallback assets once into a
 private immutable store, and atomically selects one profile. Bounded status,
 idempotent reuse, shared-lock behavior, and transition failure/retry are

@@ -3,9 +3,11 @@
 Status: accepted
 Date: 2026-07-21
 
-Implementation status: Linux local installation, XDG discovery, canonical
+Implementation status: Linux and macOS local installation, XDG discovery, canonical
 receipts, active selection, cheap reuse, and explicit pinned remote sync are
 shipped. Automatic service-start provisioning remains future.
+
+Supersession note (2026-09-04): Ticket 0003 extended the shipped XDG installation, discovery, and sync adapters to native macOS. The original Linux path decision below remains as history. Native macOS uses the same XDG defaults.
 
 ## Decision
 

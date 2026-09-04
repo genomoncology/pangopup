@@ -1,5 +1,3 @@
-#![cfg_attr(not(target_os = "linux"), allow(dead_code, unused_imports))]
-
 use serde_json::Value;
 use std::{
     fs,
@@ -78,8 +76,6 @@ fn error(output: &Output) -> Value {
     line
 }
 
-// Packs a miniature SNV bundle, which requires Linux.
-#[cfg(target_os = "linux")]
 #[test]
 fn authoritative_installed_hit_ignores_malformed_cache_environment_and_missing_runtime() {
     let temp = tempfile::tempdir().expect("temp");
@@ -206,8 +202,6 @@ fn explicit_model_only_bypasses_snv_assets_and_reuses_the_exact_cache() {
     );
 }
 
-// Packs a miniature SNV bundle, which requires Linux.
-#[cfg(target_os = "linux")]
 #[test]
 fn model_only_batch_is_ordered_and_transactional() {
     let mut ordered = model_only_args("GRCh38:chr1:5051:A:C");

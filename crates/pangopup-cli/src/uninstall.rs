@@ -1452,7 +1452,7 @@ mod tests {
         }
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -1478,7 +1478,7 @@ mod tests {
         assert!(text.contains("\"state\":\"preserved\""));
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -1508,7 +1508,7 @@ mod tests {
         )));
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -1537,7 +1537,7 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -1578,7 +1578,7 @@ mod tests {
         }
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -1628,7 +1628,7 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -1697,7 +1697,7 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -1847,7 +1847,7 @@ mod tests {
         stdfs::set_permissions(parent, stdfs::Permissions::from_mode(0o700)).expect("restore");
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -1882,7 +1882,7 @@ mod tests {
         }
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -1916,7 +1916,7 @@ mod tests {
         assert!(fixture.executable.exists());
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -1949,7 +1949,7 @@ mod tests {
         assert!(fixture.executable.exists());
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -1994,7 +1994,7 @@ mod tests {
         assert!(!fixture.data.exists());
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -2027,7 +2027,7 @@ mod tests {
         assert!(!fixture.data.exists());
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -2055,7 +2055,7 @@ mod tests {
         assert!(!fixture.data.exists());
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -2095,7 +2095,7 @@ mod tests {
         assert!(fixture.executable.exists(), "executable remains on failure");
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -2126,7 +2126,7 @@ mod tests {
         assert!(fixture.executable.exists());
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]
@@ -2153,7 +2153,7 @@ mod tests {
         assert!(fixture.executable.exists(), "executable is always last");
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
+    // Exercises Linux-only direct uninstall; other platforms get the
     // documented refusal instead.
     #[cfg(target_os = "linux")]
     #[test]

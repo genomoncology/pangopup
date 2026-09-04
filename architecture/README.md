@@ -3,7 +3,7 @@
 Pangopup's target combines exact published Pangolin SNV lookup with compatible
 model inference. The shipped functional runtime answers GRCh38 SNV queries from
 the Wagner/Neverov precomputed dataset through a fixed 11-byte mmap index and
-typed CLI, plus Linux local installation, active-bundle discovery, the
+typed CLI, plus Linux and macOS local installation, active-bundle discovery, the
 immutable public `snv-grch38-v1` release, and pinned resumable remote sync.
 The checked `pangopup-compat-v1` oracle now fixes upstream model and
 post-processing behavior. The shipped authenticated CPU kernel now executes
@@ -19,7 +19,7 @@ host-qualified `1×1`, `1×2`, `1×4`, and `2×4` mappings while leaving portabl
 ineligible because the v2 exporter omitted its declared dynamic axes. The
 corrected full experiment retained singleton through both the drift and
 replacement gates. Persistent SQLite model-result reuse and the canonical
-four-asset compatibility profile and offline Linux/XDG installer are
+four-asset compatibility profile and offline Linux/macOS XDG installer are
 established, and installed runtime consumption is shipped. Deterministic local
 model-side packaging, immutable publication, and pinned typed sync are
 shipped. Combined CLI provisioning/status, the foreground HTTP adapter, and a

@@ -114,7 +114,7 @@ dependencies for that member.
 
 Owns the byte-exact notice, exhaustive installed-bundle certification, strict
 SNV transport manifest, pinned Zstandard codec, streaming part verification,
-atomic local pack/unpack, and the Linux local-user store: XDG path resolution,
+atomic local pack/unpack, and the Linux and macOS local-user store: XDG path resolution,
 dirfd-relative no-follow state, locking, receipts, staging/reconciliation, and
 active selection. Dependency direction is `pangopup-core <-
 pangopup-index <- pangopup-assets <- pangopup-build`. The build CLI is a thin
@@ -176,7 +176,7 @@ admission.
 
 The HTTP module consumes the same routed result boundary rather than leaking
 model runtime, HTTP, or cache types into the scoring API. The
-shipped assets crate owns explicit pinned remote sync plus its Linux
+shipped assets crate owns explicit pinned remote sync plus its Linux and macOS
 XDG installation adapter. `pangopup-core` performs no network or home-directory
 access. The HTTP adapter runs in the
 foreground; process lifecycle belongs to external managers as described in
@@ -273,7 +273,7 @@ Every result carries enough provenance to identify:
 ## Target runtime behavior
 
 Today the CLI opens either one explicitly supplied SNV bundle or the atomically
-selected active Linux installation. It opens an explicit local identified
+selected active Linux or macOS installation. It opens an explicit local identified
 reference, identified mask, and model tuple only after a default batch needs
 fallback, or immediately when the caller supplies `--model-only`. Combined
 pinned sync, coherent four-asset activation, local status, and clean-machine

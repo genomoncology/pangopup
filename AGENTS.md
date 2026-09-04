@@ -5,7 +5,7 @@ service. The target product combines exact lookup of published GRCh38 SNV
 scores with model fallback for lookup misses and supported non-SNVs. The
 repository currently ships the source inspector, deterministic complete-corpus
 builder and verifier, fixed 11-byte mmap reader, typed score-provider API,
-batch lookup CLI, Linux local-user asset installation/discovery, the immutable
+batch lookup CLI, Linux and macOS local-user asset installation/discovery, the immutable
 public `snv-grch38-v1` lookup-data release, pinned resumable remote sync, and a
 strict frozen upstream compatibility corpus with a bounded offline inspector,
 the qualified compiled RefSeq GRCh38.p14 sequence-index bundle/provider, and an
@@ -30,7 +30,7 @@ candidate met the independent replacement gates, so ordinary dispatch remains
 singleton. Ticket 023 adds persistent exact SQLite reuse for successful
 complete model results while preserving lookup-first laziness. One canonical
 four-asset runtime profile now binds the exact compatible production tuple;
-offline Linux/XDG installation, atomic activation, and lookup consumption are
+offline Linux/macOS XDG installation, atomic activation, and lookup consumption are
 shipped. Deterministic local model-side packaging, immutable publication, and
 the typed pinned model-side sync/install primitive and combined top-level CLI
 provisioning/status are shipped. The immutable Linux x86_64 executable and its

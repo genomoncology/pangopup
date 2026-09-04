@@ -85,7 +85,7 @@ The transformed fixed 11-byte index is intended for distribution as separately
 named GitHub release assets, not as Git objects. The measured complete bundle
 compressed to 1,935,000,209 bytes, too close to the under-2-GiB per-asset limit
 for comfortable headroom. The shipped local transport is split deterministically
-and can be verified, reconstructed, and installed in Linux user data without
+and can be verified, reconstructed, and installed in Linux or macOS user data without
 network access; runtime lookup still maps the unchanged fixed-v1 member and
 never decompresses a query. The pinned release profile, proof receipt,
 checksums, notes generator, bounded preparation command, immutable public

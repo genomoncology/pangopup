@@ -1,5 +1,7 @@
 # ADR 0021: Atomically select one locally installed runtime profile
 
+Supersession note (2026-09-04): Ticket 0003 extended this descriptor-relative installation and status boundary to native macOS. The original Linux-only consequence below remains as history. Direct uninstall remains Linux-only.
+
 ## Decision
 
 Pangopup installs the model, compiled RefSeq reference, and GENCODE mask from
