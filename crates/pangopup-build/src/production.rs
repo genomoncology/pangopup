@@ -940,7 +940,6 @@ fn sync_directory(path: &Path) -> Result<(), CommandError> {
         })
 }
 
-#[cfg(target_os = "linux")]
 fn rename_noreplace(source: &Path, destination: &Path) -> io::Result<()> {
     rustix::fs::renameat_with(
         rustix::fs::CWD,
@@ -950,14 +949,6 @@ fn rename_noreplace(source: &Path, destination: &Path) -> io::Result<()> {
         rustix::fs::RenameFlags::NOREPLACE,
     )
     .map_err(io::Error::from)
-}
-
-#[cfg(not(target_os = "linux"))]
-fn rename_noreplace(_source: &Path, _destination: &Path) -> io::Result<()> {
-    Err(io::Error::new(
-        ErrorKind::Unsupported,
-        "atomic no-replace directory publication is unsupported on this target",
-    ))
 }
 
 fn io_error(action: &str, error: io::Error) -> CommandError {

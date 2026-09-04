@@ -909,7 +909,6 @@ fn publish_stage_with<F>(
 where
     F: FnMut(&Path) -> Result<(), CommandError>,
 {
-    #[cfg(target_os = "linux")]
     let renamed = rustix::fs::renameat_with(
         rustix::fs::CWD,
         stage,
@@ -918,11 +917,6 @@ where
         rustix::fs::RenameFlags::NOREPLACE,
     )
     .map_err(io::Error::from);
-    #[cfg(not(target_os = "linux"))]
-    let renamed: io::Result<()> = Err(io::Error::new(
-        ErrorKind::Unsupported,
-        "no-replace rename unsupported",
-    ));
     renamed.map_err(|error| {
         if matches!(
             error.kind(),

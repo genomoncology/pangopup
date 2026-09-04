@@ -632,7 +632,6 @@ fn prepare_release_contract(
     output: &Path,
     contract: PreparationContract<'_>,
 ) -> Result<PrepareReleaseOutcome, AssetError> {
-    super::require_linux()?;
     ensure_output_absent(output)?;
     let supplied_receipt = read_release_input(receipt_path, MAX_RECEIPT_BYTES)?;
     if supplied_receipt != contract.receipt_bytes

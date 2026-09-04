@@ -1,10 +1,5 @@
 //! Deterministic, bounded delivery of Pangopup's certified SNV bundle.
 
-// The Linux-only installation tests are compiled out on other targets, which
-// orphans the helpers and fault-injection hooks that only they use. Allow that
-// in non-Linux test builds rather than gating each helper by hand.
-#![cfg_attr(all(test, not(target_os = "linux")), allow(dead_code, unused_imports))]
-
 use pangopup_index::{BundleManifest, parse_bundle_manifest_bytes};
 use serde::{
     Deserialize, Deserializer, Serialize,
@@ -332,7 +327,6 @@ struct CompressionDiscriminator {
 }
 
 pub fn pack_bundle(bundle: &Path, output: &Path) -> Result<PackOutcome, AssetError> {
-    require_linux()?;
     let certification = certify_bundle(bundle)?;
     let manifest_bytes = read_bounded(
         &bundle.join("manifest.json"),
@@ -449,7 +443,6 @@ pub fn verify_transport(path: &Path) -> Result<VerifyTransportOutcome, AssetErro
 }
 
 pub fn unpack_transport(path: &Path, output: &Path) -> Result<UnpackOutcome, AssetError> {
-    require_linux()?;
     ensure_output_absent(output)?;
     let (stage, mut guard) = create_stage(output)?;
     let result = (|| {
@@ -1557,41 +1550,30 @@ fn ensure_output_absent(output: &Path) -> Result<(), AssetError> {
 }
 
 fn publish_stage(stage: &Path, output: &Path, guard: &mut StageGuard) -> Result<(), AssetError> {
-    #[cfg(target_os = "linux")]
-    {
-        rustix::fs::renameat_with(
-            rustix::fs::CWD,
-            stage,
-            rustix::fs::CWD,
-            output,
-            rustix::fs::RenameFlags::NOREPLACE,
-        )
-        .map_err(io::Error::from)
-        .map_err(|error| {
-            if matches!(
-                error.kind(),
-                ErrorKind::AlreadyExists | ErrorKind::DirectoryNotEmpty
-            ) {
-                AssetError::new(
-                    AssetErrorKind::OutputConflict,
-                    "output publication race lost",
-                )
-            } else {
-                output_io("publish staged output", error)
-            }
-        })?;
-        guard.published();
-        sync_directory(output.parent().unwrap_or_else(|| Path::new(".")))?;
-        Ok(())
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = (stage, output, guard);
-        Err(AssetError::new(
-            AssetErrorKind::UnsupportedPlatform,
-            "atomic no-replace publication requires Linux",
-        ))
-    }
+    rustix::fs::renameat_with(
+        rustix::fs::CWD,
+        stage,
+        rustix::fs::CWD,
+        output,
+        rustix::fs::RenameFlags::NOREPLACE,
+    )
+    .map_err(io::Error::from)
+    .map_err(|error| {
+        if matches!(
+            error.kind(),
+            ErrorKind::AlreadyExists | ErrorKind::DirectoryNotEmpty
+        ) {
+            AssetError::new(
+                AssetErrorKind::OutputConflict,
+                "output publication race lost",
+            )
+        } else {
+            output_io("publish staged output", error)
+        }
+    })?;
+    guard.published();
+    sync_directory(output.parent().unwrap_or_else(|| Path::new(".")))?;
+    Ok(())
 }
 
 fn finish_staged<T>(
@@ -1616,17 +1598,6 @@ fn sync_directory(path: &Path) -> Result<(), AssetError> {
     File::open(path)
         .and_then(|directory| directory.sync_all())
         .map_err(|error| output_io("sync output directory", error))
-}
-
-fn require_linux() -> Result<(), AssetError> {
-    if cfg!(target_os = "linux") {
-        Ok(())
-    } else {
-        Err(AssetError::new(
-            AssetErrorKind::UnsupportedPlatform,
-            "pack and unpack require Linux",
-        ))
-    }
 }
 
 fn input_io(action: &str, error: io::Error) -> AssetError {

@@ -93,7 +93,7 @@ fn mutate_destination_for_test(components: &super::local::Dir) {
     if !REPLACE_DESTINATION.replace(false) {
         return;
     }
-    let components = descriptor_path(components);
+    let components = descriptor_path(components).expect("held component path");
     fs::rename(components.join("model"), components.join("model-replaced"))
         .expect("move held destination");
     fs::create_dir(components.join("model")).expect("replacement destination");
@@ -109,7 +109,7 @@ fn mutate_runtime_before_return_for_test(bundle: &super::local::Dir) {
     if !REPLACE_RUNTIME_BEFORE_RETURN.replace(false) {
         return;
     }
-    let bundle_path = descriptor_path(bundle);
+    let bundle_path = descriptor_path(bundle).expect("held bundle path");
     fs::set_permissions(&bundle_path, fs::Permissions::from_mode(DIR_PRIVATE))
         .expect("make test bundle writable");
     let member = bundle_path.join("model.onnx");
@@ -407,7 +407,7 @@ where
 
     let locked = super::local::acquire_shared_install_lock(data_root)?;
     let root = &locked.root;
-    let root_path = descriptor_path(&root.dir);
+    let root_path = descriptor_path(&root.dir)?;
     let snv = inspect_active_snv(&root_path)?;
     require_snv(profile, &snv)?;
 
@@ -418,8 +418,8 @@ where
     let mask_dir = super::local::ensure_private_dir(&components_dir, "mask", root)?;
     let profiles_dir = super::local::ensure_private_dir(&runtime_dir, "profiles", root)?;
     let staging_dir = super::local::ensure_private_dir(&runtime_dir, ".staging", root)?;
-    let runtime = descriptor_path(&runtime_dir);
-    let staging_root = descriptor_path(&staging_dir);
+    let runtime = descriptor_path(&runtime_dir)?;
+    let staging_root = descriptor_path(&staging_dir)?;
     reconcile_staging(&staging_root)?;
     reconcile_staged_active(&runtime)?;
 
@@ -451,7 +451,7 @@ where
     let stage = staging_root.join(&nonce);
     create_private(&stage)?;
     let stage_dir = super::local::open_owned_dir(&staging_dir, &nonce, root, DIR_PRIVATE)?;
-    let stage = descriptor_path(&stage_dir);
+    let stage = descriptor_path(&stage_dir)?;
     let result = (|| {
         let staged_model = stage.join("model");
         let staged_reference = stage.join("reference");
@@ -494,7 +494,7 @@ where
             profile.model.member_bytes,
             &profile.model.member_sha256,
         )?;
-        validate_model_bundle(&descriptor_path(&model_published.bundle), profile)
+        validate_model_bundle(&descriptor_path(&model_published.bundle)?, profile)
             .map_err(|_| conflict("immutable model component conflicts"))?;
         let reference_member = authenticate_member(
             &reference_published.bundle,
@@ -503,7 +503,7 @@ where
             profile.reference.member_bytes,
             &profile.reference.member_sha256,
         )?;
-        let admitted = inspect_reference_admission(&descriptor_path(&reference_published.bundle))
+        let admitted = inspect_reference_admission(&descriptor_path(&reference_published.bundle)?)
             .map_err(|_| conflict("immutable reference component conflicts"))?;
         if admitted.bundle_id() != profile.reference.bundle_id {
             return Err(conflict("immutable reference component conflicts"));
@@ -515,7 +515,7 @@ where
             profile.mask.member_bytes,
             &profile.mask.member_sha256,
         )?;
-        MaskDomainsOpen::open(&descriptor_path(&mask_published.dir).join("domains.pgm"))
+        MaskDomainsOpen::open(&descriptor_path(&mask_published.dir)?.join("domains.pgm"))
             .map_err(|_| conflict("immutable mask component conflicts"))?;
         transition!(ComponentsPublished);
 
@@ -543,7 +543,7 @@ where
         transition!(ProfilePublished);
 
         validate_profile_directory(
-            &descriptor_path(&published_profile.dir),
+            &descriptor_path(&published_profile.dir)?,
             profile,
             &profile_id,
         )?;
@@ -620,7 +620,7 @@ pub fn runtime_local_status(data_root: &Path) -> Result<RuntimeLocalStatus, Asse
         });
     };
     let installing = super::local::probe_install_lock(&root)?;
-    let root_path = descriptor_path(&root.dir);
+    let root_path = descriptor_path(&root.dir)?;
     runtime_local_status_with(
         &root_path,
         data_root,
@@ -632,7 +632,7 @@ pub fn runtime_local_status(data_root: &Path) -> Result<RuntimeLocalStatus, Asse
 pub(crate) fn runtime_local_status_locked(
     locked: &super::local::LockedRoot,
 ) -> Result<RuntimeLocalStatus, AssetError> {
-    let root_path = descriptor_path(&locked.root.dir);
+    let root_path = descriptor_path(&locked.root.dir)?;
     runtime_local_status_with(
         &root_path,
         &locked.root.path,
@@ -646,7 +646,7 @@ pub(crate) fn runtime_local_status_locked_with_profile(
     locked: &super::local::LockedRoot,
     profile: &RuntimeProfile,
 ) -> Result<RuntimeLocalStatus, AssetError> {
-    let root_path = descriptor_path(&locked.root.dir);
+    let root_path = descriptor_path(&locked.root.dir)?;
     runtime_local_status_with(&root_path, &locked.root.path, profile, false)
 }
 
@@ -1109,7 +1109,7 @@ fn authenticate_ready_capabilities(
         profile.model.member_bytes,
         &profile.model.member_sha256,
     )?;
-    validate_model_bundle(&descriptor_path(&model_bundle), profile)
+    validate_model_bundle(&descriptor_path(&model_bundle)?, profile)
         .map_err(|_| conflict("immutable model component conflicts"))?;
     let reference_identity = super::local::open_owned_dir(
         reference_parent,
@@ -1126,7 +1126,7 @@ fn authenticate_ready_capabilities(
         profile.reference.member_bytes,
         &profile.reference.member_sha256,
     )?;
-    let admitted = inspect_reference_admission(&descriptor_path(&reference_bundle))
+    let admitted = inspect_reference_admission(&descriptor_path(&reference_bundle)?)
         .map_err(|_| conflict("immutable reference component conflicts"))?;
     if admitted.bundle_id() != profile.reference.bundle_id {
         return Err(conflict("immutable reference component conflicts"));
@@ -1144,11 +1144,11 @@ fn authenticate_ready_capabilities(
         profile.mask.member_bytes,
         &profile.mask.member_sha256,
     )?;
-    MaskDomainsOpen::open(&descriptor_path(&mask_identity).join("domains.pgm"))
+    MaskDomainsOpen::open(&descriptor_path(&mask_identity)?.join("domains.pgm"))
         .map_err(|_| conflict("immutable mask component conflicts"))?;
     let profile_identity =
         super::local::open_owned_dir(profiles, suffix(&profile_id)?, root, DIR_IMMUTABLE)?;
-    validate_profile_directory(&descriptor_path(&profile_identity), profile, &profile_id)?;
+    validate_profile_directory(&descriptor_path(&profile_identity)?, profile, &profile_id)?;
     verify_runtime_topology(
         root,
         runtime,
@@ -1685,7 +1685,7 @@ fn publish_directory(
     if let Some(existing) =
         super::local::open_owned_dir_optional(destination_parent, destination_name, root)?
     {
-        validate_existing(&descriptor_path(&existing))
+        validate_existing(&descriptor_path(&existing)?)
             .map_err(|_| conflict("immutable runtime component conflicts"))?;
         remove_stage(source)?;
         return Ok(PublishedDirectory { dir: existing });
@@ -2101,8 +2101,38 @@ fn open_parent(path: &Path) -> Result<(File, String), AssetError> {
     Ok((file, name))
 }
 
-fn descriptor_path(dir: &super::local::Dir) -> PathBuf {
-    PathBuf::from(format!("/proc/self/fd/{}/.", dir.file.as_raw_fd()))
+fn descriptor_path(dir: &super::local::Dir) -> Result<PathBuf, AssetError> {
+    // Linux procfs exposes traversable directory descriptors. macOS has no
+    // equivalent pseudo-path and reports the held descriptor path with
+    // F_GETPATH. The caller still retains the admitted directory descriptor.
+    #[cfg(target_os = "linux")]
+    {
+        Ok(PathBuf::from(format!(
+            "/proc/self/fd/{}/.",
+            dir.file.as_raw_fd()
+        )))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let mut bytes = [0_u8; libc::PATH_MAX as usize];
+        // SAFETY: F_GETPATH writes at most PATH_MAX bytes to this live buffer.
+        let status = unsafe {
+            libc::fcntl(
+                dir.file.as_raw_fd(),
+                libc::F_GETPATH,
+                bytes.as_mut_ptr().cast::<libc::c_char>(),
+            )
+        };
+        if status < 0 {
+            return Err(output("resolve held directory path"));
+        }
+        let length = bytes
+            .iter()
+            .position(|byte| *byte == 0)
+            .ok_or_else(|| output("resolve held directory path"))?;
+        Ok(PathBuf::from(std::ffi::OsStr::from_bytes(&bytes[..length])))
+    }
 }
 
 fn sync_dir(path: &Path) -> Result<(), AssetError> {
@@ -2365,7 +2395,7 @@ mod tests {
     ) -> Result<RuntimeLocalStatus, AssetError> {
         let opened = crate::local::open_root(root, false)?
             .ok_or_else(|| AssetError::new(AssetErrorKind::AssetsMissing, "missing test root"))?;
-        runtime_local_status_with(&descriptor_path(&opened.dir), root, profile, false)
+        runtime_local_status_with(&descriptor_path(&opened.dir)?, root, profile, false)
     }
 
     fn install_mini_runtime(root: &Path) -> (SnvBundleInspection, RuntimeProfile) {
@@ -2389,9 +2419,6 @@ mod tests {
         (snv, profile)
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn fixture_combined_status_is_ready_under_the_shared_observation_guard() {
         let temp = TempDir::new().expect("temp");
@@ -2434,9 +2461,6 @@ mod tests {
         assert!(!valid_identity(&"a".repeat(64)));
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn miniature_profile_installs_atomically_and_reuses_without_copy() {
         let temp = TempDir::new().expect("temp");
@@ -2504,9 +2528,6 @@ mod tests {
         assert_eq!(before.mtime(), after.mtime());
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn installed_runtime_admits_real_held_miniature_capabilities() {
         let temp = TempDir::new().expect("temp");
@@ -2525,9 +2546,6 @@ mod tests {
         model.open().expect("open held model");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn model_only_runtime_admission_does_not_require_the_snv_installation() {
         let temp = TempDir::new().expect("temp");
@@ -2548,9 +2566,6 @@ mod tests {
         mask.open().expect("mask remains available");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn installed_runtime_is_bound_to_snv_identity_and_detects_pre_return_replacement() {
         let temp = TempDir::new().expect("temp");
@@ -2587,9 +2602,6 @@ mod tests {
         assert_eq!(error.to_string(), "installed runtime profile is missing");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn installed_runtime_malformed_and_unsafe_states_have_exact_classes() {
         let malformed = TempDir::new().expect("temp");
@@ -2656,9 +2668,6 @@ mod tests {
         assert_eq!(error.to_string(), "installed runtime state is unsafe");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn admitted_runtime_capabilities_survive_all_pathname_replacements() {
         let temp = TempDir::new().expect("temp");
@@ -2729,9 +2738,6 @@ mod tests {
             .expect("score held model");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn runtime_status_distinguishes_missing_and_malformed() {
         let temp = TempDir::new().expect("temp");
@@ -2762,9 +2768,6 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn transition_failures_never_expose_a_partial_profile_and_retry_cleanly() {
         for point in [
@@ -2807,9 +2810,6 @@ mod tests {
         }
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn failed_replacement_preserves_the_prior_active_profile() {
         let temp = TempDir::new().expect("temp");
@@ -2842,9 +2842,6 @@ mod tests {
         assert_eq!(profile_id, installed.profile_id);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn shared_lock_is_nonblocking_and_status_reports_installing() {
         let temp = TempDir::new().expect("temp");
@@ -2874,9 +2871,6 @@ mod tests {
         assert_eq!(error.kind(), AssetErrorKind::AssetLocked);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn multiply_linked_source_fails_without_active_runtime_state() {
         let temp = TempDir::new().expect("temp");
@@ -2912,9 +2906,6 @@ mod tests {
         assert!(!root.join("runtime/active.json").exists());
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn same_identity_same_size_component_corruption_is_a_conflict() {
         for component in ["model", "reference", "mask"] {
@@ -2964,9 +2955,6 @@ mod tests {
         }
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn replaced_intermediate_destination_fails_before_activation() {
         let temp = TempDir::new().expect("temp");
@@ -2999,9 +2987,6 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn profile_collision_and_receipt_shape_fail_closed() {
         let temp = TempDir::new().expect("temp");
@@ -3042,9 +3027,6 @@ mod tests {
         assert!(!root.join("runtime/active.json").exists());
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn installed_receipt_mode_and_link_count_are_enforced() {
         for hardlink in [false, true] {
@@ -3131,9 +3113,6 @@ mod tests {
         }
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn read_only_source_files_and_non_private_source_directories_install() {
         let temp = TempDir::new().expect("temp");
@@ -3181,9 +3160,6 @@ mod tests {
         assert_eq!(installed.status, "installed");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn excessive_orphan_staging_entries_fail_without_partial_cleanup_or_activation() {
         let temp = TempDir::new().expect("temp");

@@ -181,7 +181,6 @@ pub fn pack_runtime_transport(
     mask_path: &Path,
     output: &Path,
 ) -> Result<PackRuntimeTransportOutcome, AssetError> {
-    super::require_linux()?;
     super::ensure_output_absent(output)?;
 
     let profile_bytes = read_checked(profile_path, 64 * 1024)?;
@@ -348,7 +347,6 @@ pub fn unpack_runtime_transport(
     transport: &Path,
     output: &Path,
 ) -> Result<UnpackRuntimeTransportOutcome, AssetError> {
-    super::require_linux()?;
     super::ensure_output_absent(output)?;
     let opened = open_transport(transport)?;
     let transport_id = sha256(&opened.bytes);
@@ -521,7 +519,6 @@ fn install_cached_runtime_transport_with_policy(
     data_root: &Path,
     require_production: bool,
 ) -> Result<super::RuntimeInstallOutcome, AssetError> {
-    super::require_linux()?;
     let opened = open_transport(transport)?;
     if require_production {
         require_production_manifest(&opened.bytes)?;
@@ -1357,9 +1354,6 @@ mod tests {
         assert!(validate_manifest(&manifest).is_err());
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn cached_transport_decodes_directly_into_atomic_runtime_installation() {
         let temp = TempDir::new().expect("temp");

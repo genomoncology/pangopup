@@ -1,4 +1,4 @@
-//! Linux local-user installation and active-bundle discovery.
+//! Unix local-user installation and active-bundle discovery.
 
 use super::{
     AssetError, AssetErrorKind, MAX_FIXED11_BYTES, MAX_JSON_BYTES, MAX_NOTICE_BYTES,
@@ -7,8 +7,6 @@ use super::{
 };
 use pangopup_index::{BundleOpen, IndexError};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-#[cfg(target_os = "linux")]
-use std::mem::MaybeUninit;
 use std::{
     ffi::{CString, OsStr, OsString},
     fs::{self, File},
@@ -79,7 +77,7 @@ pub fn resolve_data_root(inputs: &DataPathInputs) -> Result<PathBuf, AssetError>
     }
     Err(AssetError::new(
         AssetErrorKind::PathUnavailable,
-        "no Linux data directory is available",
+        "no local data directory is available",
     ))
 }
 
@@ -216,7 +214,6 @@ impl Drop for ProvisioningLock {
 }
 
 pub fn install_transport(transport: &Path, data_root: &Path) -> Result<InstallOutcome, AssetError> {
-    require_linux()?;
     let root = open_root(data_root, true)?.ok_or_else(|| asset_io("create data root"))?;
     let _lock = acquire_install_lock(&root)?;
     let active_before = read_active_optional_for_install(&root)?;
@@ -268,7 +265,6 @@ pub fn install_transport(transport: &Path, data_root: &Path) -> Result<InstallOu
 }
 
 pub fn local_status(data_root: &Path) -> Result<LocalStatus, AssetError> {
-    require_linux()?;
     let Some(root) = open_root(data_root, false)? else {
         return Ok(LocalStatus::Missing {
             data_dir: data_root.to_owned(),
@@ -299,7 +295,6 @@ pub(crate) fn local_status_locked(locked: &LockedRoot) -> Result<LocalStatus, As
 }
 
 pub fn active_bundle(data_root: &Path) -> Result<ActiveBundle, AssetError> {
-    require_linux()?;
     let Some(root) = open_root(data_root, false)? else {
         return Err(AssetError::new(
             AssetErrorKind::AssetsMissing,
@@ -316,7 +311,6 @@ pub fn active_bundle(data_root: &Path) -> Result<ActiveBundle, AssetError> {
 
 /// Open the active local bundle entirely through verified directory handles.
 pub fn open_active_bundle(data_root: &Path) -> Result<(ActiveBundle, BundleOpen), AssetError> {
-    require_linux()?;
     let Some(root) = open_root(data_root, false)? else {
         return Err(AssetError::new(
             AssetErrorKind::AssetsMissing,
@@ -1216,17 +1210,6 @@ fn effective_uid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
-fn require_linux() -> Result<(), AssetError> {
-    if cfg!(target_os = "linux") {
-        Ok(())
-    } else {
-        Err(AssetError::new(
-            AssetErrorKind::UnsupportedPlatform,
-            "local asset installation requires Linux",
-        ))
-    }
-}
-
 fn acquire_install_lock(root: &Root) -> Result<InstallLock, AssetError> {
     let file = open_or_create_file(&root.dir, ".install.lock", METADATA_MODE, root)?;
     set_mode(&file, METADATA_MODE)?;
@@ -1265,7 +1248,6 @@ pub(crate) enum InstallObservation {
 }
 
 pub(crate) fn acquire_shared_install_lock(data_root: &Path) -> Result<LockedRoot, AssetError> {
-    require_linux()?;
     let root = open_root(data_root, true)?.ok_or_else(|| asset_io("create data root"))?;
     let lock = acquire_install_lock(&root)?;
     Ok(LockedRoot { root, _lock: lock })
@@ -1274,7 +1256,6 @@ pub(crate) fn acquire_shared_install_lock(data_root: &Path) -> Result<LockedRoot
 pub(crate) fn acquire_install_observation(
     data_root: &Path,
 ) -> Result<InstallObservation, AssetError> {
-    require_linux()?;
     let Some(root) = open_root(data_root, false)? else {
         return Ok(InstallObservation::MissingRoot);
     };
@@ -1306,7 +1287,6 @@ pub(crate) fn acquire_install_observation(
 }
 
 pub(crate) fn acquire_provisioning_lock(data_root: &Path) -> Result<ProvisioningLock, AssetError> {
-    require_linux()?;
     let root = open_root(data_root, true)?.ok_or_else(|| asset_io("create data root"))?;
     let file = open_or_create_file(&root.dir, ".sync.lock", METADATA_MODE, &root)?;
     set_mode(&file, METADATA_MODE)?;
@@ -1325,7 +1305,6 @@ pub(crate) fn acquire_provisioning_lock(data_root: &Path) -> Result<Provisioning
 }
 
 pub(crate) fn probe_provisioning_lock(data_root: &Path) -> Result<bool, AssetError> {
-    require_linux()?;
     let Some(root) = open_root(data_root, false)? else {
         return Ok(false);
     };
@@ -1817,57 +1796,14 @@ fn open_any_nofollow(parent: &Dir, name: &str) -> io::Result<File> {
 
 fn open_at(dirfd: RawFd, name: &str, flags: i32, mode: u32) -> io::Result<File> {
     let name = component(name)?;
-    openat2_beneath(dirfd, &name, flags, mode)
+    openat_beneath(dirfd, &name, flags, mode)
 }
 
-#[repr(C)]
-#[cfg(target_os = "linux")]
-struct OpenHow {
-    flags: u64,
-    mode: u64,
-    resolve: u64,
-}
-
-#[cfg(target_os = "linux")]
-const RESOLVE_NO_XDEV: u64 = 0x01;
-#[cfg(target_os = "linux")]
-const RESOLVE_NO_MAGICLINKS: u64 = 0x02;
-#[cfg(target_os = "linux")]
-const RESOLVE_NO_SYMLINKS: u64 = 0x04;
-#[cfg(target_os = "linux")]
-const RESOLVE_BENEATH: u64 = 0x08;
-
-// This body uses a Linux-only kernel interface. Every caller already
-// refuses on other platforms through require_linux, so the non-Linux
-// build supplies a stub that returns the same refusal instead of a
-// weaker path that would silently lose the kernel's guarantees.
-#[cfg(target_os = "linux")]
-fn openat2_beneath(dirfd: RawFd, name: &CString, flags: i32, mode: u32) -> io::Result<File> {
-    let how = OpenHow {
-        flags: flags as u64,
-        mode: u64::from(mode),
-        resolve: RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV,
-    };
-    // SAFETY: `name` and `how` remain live for the syscall, `dirfd` is held by
-    // the caller, and the kernel receives the exact structure size.
-    let fd = unsafe {
-        libc::syscall(
-            libc::SYS_openat2,
-            dirfd,
-            name.as_ptr(),
-            &how,
-            std::mem::size_of::<OpenHow>(),
-        ) as i32
-    };
+fn openat_beneath(dirfd: RawFd, name: &CString, flags: i32, mode: u32) -> io::Result<File> {
+    // SAFETY: `name` and the held parent descriptor remain valid. Callers
+    // include O_NOFOLLOW, and component() admits only one non-traversing name.
+    let fd = unsafe { libc::openat(dirfd, name.as_ptr(), flags, mode as libc::c_uint) };
     file_from_fd(fd)
-}
-
-#[cfg(not(target_os = "linux"))]
-fn openat2_beneath(_dirfd: RawFd, _name: &CString, _flags: i32, _mode: u32) -> io::Result<File> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "openat2 resolution requires Linux",
-    ))
 }
 
 fn file_from_fd(fd: i32) -> io::Result<File> {
@@ -1947,39 +1883,15 @@ fn rename_replace(from: &Dir, old: &str, to: &Dir, new: &str) -> Result<(), Asse
         })
 }
 
-// This body uses a Linux-only kernel interface. Every caller already
-// refuses on other platforms through require_linux, so the non-Linux
-// build supplies a stub that returns the same refusal instead of a
-// weaker path that would silently lose the kernel's guarantees.
-#[cfg(target_os = "linux")]
 fn read_names(dir: &Dir) -> Result<Vec<String>, AssetError> {
     read_names_bounded(dir, usize::MAX)
 }
 
-#[cfg(not(target_os = "linux"))]
-fn read_names(_dir: &Dir) -> Result<Vec<String>, AssetError> {
-    require_linux()?;
-    unreachable!("require_linux refuses on every non-Linux target")
-}
-
-// This body uses a Linux-only kernel interface. Every caller already
-// refuses on other platforms through require_linux, so the non-Linux
-// build supplies a stub that returns the same refusal instead of a
-// weaker path that would silently lose the kernel's guarantees.
-#[cfg(target_os = "linux")]
 pub(crate) fn read_names_bounded(dir: &Dir, maximum: usize) -> Result<Vec<String>, AssetError> {
-    let dot = CString::new(".").expect("static component");
-    let cursor = openat2_beneath(
-        dir.file.as_raw_fd(),
-        &dot,
-        libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
-        0,
-    )
-    .map_err(|_| asset_io("open directory cursor"))?;
-    let mut buffer = [MaybeUninit::<u8>::uninit(); 8192];
-    let mut entries = rustix::fs::RawDir::new(cursor, &mut buffer);
+    let entries =
+        rustix::fs::Dir::read_from(&dir.file).map_err(|_| asset_io("open directory cursor"))?;
     let mut names = Vec::new();
-    while let Some(entry) = entries.next() {
+    for entry in entries {
         let entry = entry.map_err(|_| asset_io("read asset-store directory entry"))?;
         let bytes = entry.file_name().to_bytes();
         if bytes == b"." || bytes == b".." {
@@ -1996,12 +1908,6 @@ pub(crate) fn read_names_bounded(dir: &Dir, maximum: usize) -> Result<Vec<String
         names.push(name);
     }
     Ok(names)
-}
-
-#[cfg(not(target_os = "linux"))]
-pub(crate) fn read_names_bounded(_dir: &Dir, _maximum: usize) -> Result<Vec<String>, AssetError> {
-    require_linux()?;
-    unreachable!("require_linux refuses on every non-Linux target")
 }
 
 fn component(name: &str) -> io::Result<CString> {
@@ -2081,9 +1987,6 @@ mod tests {
         assert_eq!(error.kind(), AssetErrorKind::AssetStateInvalid);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn observation_guards_are_shared_and_exclude_installation() {
         let temp = tempfile::TempDir::new().expect("temp");
@@ -2113,9 +2016,6 @@ mod tests {
         drop(replacement);
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn observation_requires_a_safe_existing_lock_file() {
         let temp = tempfile::TempDir::new().expect("temp");
@@ -2247,9 +2147,6 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn install_audit_proves_one_compressed_pass_and_direct_cheap_open() {
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
@@ -2324,9 +2221,6 @@ mod tests {
         fs::remove_dir_all(root).expect("audit cleanup");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn every_durable_install_window_recovers_or_discards_deterministically() {
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
@@ -2436,9 +2330,6 @@ mod tests {
         fs::remove_dir_all(root).expect("fault cleanup");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn wrapper_modes_and_two_phase_reconciliation_fail_closed() {
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
@@ -2532,9 +2423,6 @@ mod tests {
         fs::remove_dir_all(root).expect("reconcile cleanup");
     }
 
-    // Exercises Linux-only installation machinery; every other platform gets
-    // the documented UnsupportedPlatform refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn recovery_preserves_installed_state_and_conflict_error_kinds() {
         let serial = SERIAL.fetch_add(1, Ordering::Relaxed);

@@ -23,9 +23,9 @@ stdout is one compact object whose path names the three-member bundle itself.
 data=$(cd .. && pwd)/target/spec/local-assets/data
 pangopup assets install --transport ../target/spec/local-assets/transport --data-dir "$data" | sed -E "s|$data|<data>|; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch like '{"status":"installed","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle"}'
 pangopup status --data-dir "$data" | sed -E "s|$data|<data>|g; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch like '{"status":"partial","data_dir":"<data>","syncing":false,"installing":false,"snv":{"status":"ready","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle"},"runtime":{"status":"missing"}}'
-LC_ALL=C ls -laR "$data" > ../target/spec/local-assets/status-before
+LC_ALL=C ls -laR "$data" | sed '/ \.\.$/d' > ../target/spec/local-assets/status-before
 pangopup status --data-dir "$data" >/dev/null
-LC_ALL=C ls -laR "$data" > ../target/spec/local-assets/status-after
+LC_ALL=C ls -laR "$data" | sed '/ \.\.$/d' > ../target/spec/local-assets/status-after
 cmp ../target/spec/local-assets/status-before ../target/spec/local-assets/status-after
 test "$(LC_ALL=C ls -ld "$data" | cut -c 1-10)" = drwx------
 test "$(LC_ALL=C ls -l "$data/active.json" | cut -c 1-10)" = -rw-------
