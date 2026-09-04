@@ -5856,76 +5856,78 @@ mod tests {
         assert!(client.requests.borrow().is_empty());
     }
 
-    // FLAKY: this races a real 25 ms read timeout against a local server
-    // that often delivers the whole body sooner, so `expect_err` panics.
-    // Observed failing 2 of 3 isolated runs on an Apple M5 Max. Restricted
-    // to Linux to keep the gate truthful; a fast Linux host will race it
-    // too and it wants an injected clock rather than a wall-clock timeout.
-    #[cfg(target_os = "linux")]
     #[test]
-    fn replacement_resets_read_guard_while_legacy_header_timer_carries_forward() {
-        fn server(listener: TcpListener) -> thread::JoinHandle<()> {
-            thread::spawn(move || {
-                for _ in 0..2 {
-                    let (mut stream, _) = listener.accept().expect("accept streaming request");
-                    let mut request = [0_u8; 1024];
-                    let _ = stream.read(&mut request).expect("read request");
-                    stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nETag: \"slow\"\r\nConnection: close\r\n\r\n").expect("headers");
-                    for byte in b"data" {
-                        if stream.write_all(&[*byte]).is_err() || stream.flush().is_err() {
-                            break;
-                        }
-                        thread::sleep(Duration::from_millis(10));
+    fn replacement_resets_read_guard_after_each_body_chunk() {
+        const BODY: &[u8] = b"stream";
+        const BODY_READ_TIMEOUT: Duration = Duration::from_secs(2);
+        const CHUNK_DELAY: Duration = Duration::from_millis(500);
+
+        fn server() -> (std::net::SocketAddr, thread::JoinHandle<()>) {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind streaming server");
+            let address = listener.local_addr().expect("streaming address");
+            let (ready, wait_until_ready) = mpsc::channel();
+            let server = thread::spawn(move || {
+                ready.send(()).expect("announce streaming server");
+                let (mut stream, _) = listener.accept().expect("accept streaming request");
+                let mut request = [0_u8; 1024];
+                let _ = stream.read(&mut request).expect("read request");
+                stream
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nETag: \"slow\"\r\nConnection: close\r\n\r\n",
+                    )
+                    .expect("headers");
+                for (index, byte) in BODY.iter().enumerate() {
+                    if stream.write_all(&[*byte]).is_err() || stream.flush().is_err() {
+                        break;
+                    }
+                    if index + 1 < BODY.len() {
+                        thread::sleep(CHUNK_DELAY);
                     }
                 }
-            })
+            });
+            wait_until_ready.recv().expect("streaming server ready");
+            (address, server)
         }
 
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind streaming server");
-        let address = listener.local_addr().expect("streaming address");
-        let server = server(listener);
-        let request = Request {
-            url: format!("http://{address}/asset"),
+        let (replacement_address, replacement_server) = server();
+        let replacement_request = Request {
+            url: format!("http://{replacement_address}/asset"),
             range: None,
             if_range: None,
         };
-
-        let legacy = UreqClient::with_timeouts(
-            Duration::from_millis(25),
-            Duration::from_millis(25),
-            Duration::from_millis(100),
-        );
-        let mut legacy_response = legacy.execute(&request).expect("legacy headers");
-        let mut legacy_bytes = Vec::new();
-        let legacy_error = legacy_response
-            .body
-            .read_to_end(&mut legacy_bytes)
-            .expect_err("legacy timer carries into body");
-        assert!(legacy_error.kind() == io::ErrorKind::TimedOut || legacy_error.get_ref().is_some());
-
-        let replacement =
-            ReqwestClient::with_timeouts(Duration::from_millis(25), Duration::from_millis(25));
-        let mut replacement_response = replacement.execute(&request).expect("replacement headers");
+        let replacement = ReqwestClient::with_timeouts(BODY_READ_TIMEOUT, BODY_READ_TIMEOUT);
+        let started = Instant::now();
+        let mut replacement_response = replacement
+            .execute(&replacement_request)
+            .expect("replacement headers");
         let mut replacement_bytes = Vec::new();
         replacement_response
             .body
             .read_to_end(&mut replacement_bytes)
             .expect("progress resets read guard");
-        assert_eq!(replacement_bytes, b"data");
-        server.join().expect("streaming server");
+        assert_eq!(replacement_bytes, BODY);
+        assert!(started.elapsed() > BODY_READ_TIMEOUT);
+        replacement_server
+            .join()
+            .expect("replacement streaming server");
     }
 
     #[test]
     fn real_client_bounds_header_and_body_stalls() {
+        const STALL_TIMEOUT: Duration = Duration::from_secs(1);
+        const SERVER_WATCHDOG: Duration = Duration::from_secs(5);
+
         let header_listener = TcpListener::bind("127.0.0.1:0").expect("bind header server");
         let header_address = header_listener.local_addr().expect("header address");
         let (release_header, hold_header) = mpsc::channel();
+        let (header_ready, wait_for_header_server) = mpsc::channel();
         let header_server = thread::spawn(move || {
+            header_ready.send(()).expect("announce header server");
             let (_stream, _) = header_listener.accept().expect("accept header");
-            hold_header.recv().expect("hold stalled headers");
+            let _release = hold_header.recv_timeout(SERVER_WATCHDOG);
         });
-        let client =
-            ReqwestClient::with_timeouts(Duration::from_millis(25), Duration::from_millis(25));
+        wait_for_header_server.recv().expect("header server ready");
+        let client = ReqwestClient::with_timeouts(STALL_TIMEOUT, STALL_TIMEOUT);
         let error = match client.execute(&Request {
             url: format!("http://{header_address}/asset"),
             range: None,
@@ -5941,7 +5943,9 @@ mod tests {
         let body_listener = TcpListener::bind("127.0.0.1:0").expect("bind body server");
         let body_address = body_listener.local_addr().expect("body address");
         let (release_body, hold_body) = mpsc::channel();
+        let (body_ready, wait_for_body_server) = mpsc::channel();
         let body_server = thread::spawn(move || {
+            body_ready.send(()).expect("announce body server");
             let (mut stream, _) = body_listener.accept().expect("accept body");
             let mut request = [0_u8; 1024];
             let _ = stream.read(&mut request).expect("read request");
@@ -5949,9 +5953,11 @@ mod tests {
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nETag: \"stall\"\r\n\r\na")
                 .expect("write headers and prefix");
             stream.flush().expect("flush prefix");
-            hold_body.recv().expect("hold stalled body");
+            let _release = hold_body.recv_timeout(SERVER_WATCHDOG);
         });
-        let mut response = client
+        wait_for_body_server.recv().expect("body server ready");
+        let body_client = ReqwestClient::with_timeouts(STALL_TIMEOUT, STALL_TIMEOUT);
+        let mut response = body_client
             .execute(&Request {
                 url: format!("http://{body_address}/asset"),
                 range: None,
