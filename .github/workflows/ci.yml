@@ -78,18 +78,7 @@ jobs:
         run: cargo test --locked --package pangopup-cli --features service-test-fixtures --test http_service_lifecycle installed_success
       - name: Run Linux tests with public failure evidence
         shell: bash
-        run: |
-          set -o pipefail
-          log="$RUNNER_TEMP/make-test.log"
-          if make test 2>&1 | tee "$log"; then
-            exit 0
-          fi
-          summary=$(tail -n 120 "$log" | tail -c 16000)
-          summary=${summary//'%'/'%25'}
-          summary=${summary//$'\r'/'%0D'}
-          summary=${summary//$'\n'/'%0A'}
-          printf '::error file=Makefile,line=30,title=Linux make test failure::%s\n' "$summary"
-          exit 1
+        run: scripts/run-linux-tests-with-public-failure.sh
       - run: make spec
 
   macos:

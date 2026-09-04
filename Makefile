@@ -18,7 +18,7 @@ ifneq ($(shell uname -s),Linux)
 SHELL_QUALIFICATION :=
 endif
 
-PORTABLE_QUALIFICATION := tests/ci-platform-support.sh
+PORTABLE_QUALIFICATION := tests/ci-platform-support.sh tests/ci-test-failure-evidence.sh
 
 
 lint:          ## static analysis: rustfmt + clippy + dependency policy
