@@ -1,11 +1,19 @@
-#![cfg(not(target_os = "linux"))]
+#![cfg(target_os = "macos")]
 
 use serde_json::Value;
 use std::{
     ffi::OsString,
-    path::Path,
+    fs,
+    os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
     process::{Command, Output},
 };
+
+fn repository_path(relative: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(relative)
+}
 
 fn run(arguments: impl IntoIterator<Item = OsString>) -> Output {
     Command::new(env!("CARGO_BIN_EXE_pangopup"))
@@ -14,17 +22,15 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Output {
         .expect("run pangopup")
 }
 
-fn assert_unsupported(output: &Output, message: &str) {
+fn error(output: &Output) -> Value {
     assert!(!output.status.success());
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
-    let error: Value = serde_json::from_slice(&output.stderr).expect("one JSON error");
-    assert_eq!(error["code"], "UNSUPPORTED_PLATFORM");
-    assert_eq!(error["message"], message);
     assert_eq!(
         output.stderr.iter().filter(|byte| **byte == b'\n').count(),
         1
     );
+    serde_json::from_slice(&output.stderr).expect("one JSON error")
 }
 
 fn text(path: &Path) -> OsString {
@@ -32,56 +38,92 @@ fn text(path: &Path) -> OsString {
 }
 
 #[test]
-fn status_refuses_before_inspecting_a_native_asset_root() {
+fn status_reports_missing_without_creating_the_native_asset_root() {
     let temp = tempfile::tempdir().expect("temp");
+    fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o700)).expect("private temp");
     let data = temp.path().join("status-data");
     let output = run([
         OsString::from("status"),
         OsString::from("--data-dir"),
         text(&data),
     ]);
-    assert_unsupported(&output, "local asset installation requires Linux");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status: Value = serde_json::from_slice(&output.stdout).expect("status JSON");
+    assert_eq!(status["status"], "missing");
+    assert_eq!(
+        status["data_dir"].as_str(),
+        Some(data.to_str().expect("UTF-8"))
+    );
+    assert_eq!(status["snv"]["status"], "missing");
+    assert_eq!(status["runtime"]["status"], "missing");
     assert!(!data.exists());
 }
 
 #[test]
-fn asset_installs_refuse_before_opening_inputs_or_creating_a_root() {
+fn caller_supplied_snv_transport_installs_on_macos() {
     let temp = tempfile::tempdir().expect("temp");
+    fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o700)).expect("private temp");
+    let transport = temp.path().join("transport");
+    pangopup_assets::pack_bundle(
+        &repository_path("tests/fixtures/snv-regression/bundle"),
+        &transport,
+    )
+    .expect("pack portable transport");
     let data = temp.path().join("install-data");
     let output = run([
         OsString::from("assets"),
         OsString::from("install"),
         OsString::from("--transport"),
-        text(&temp.path().join("missing-transport")),
+        text(&transport),
         OsString::from("--data-dir"),
         text(&data),
     ]);
-    assert_unsupported(&output, "local asset installation requires Linux");
-    assert!(!data.exists());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let installed: Value = serde_json::from_slice(&output.stdout).expect("install JSON");
+    assert_eq!(installed["status"], "installed");
+    assert!(data.join("active.json").is_file());
+}
 
-    let runtime_data = temp.path().join("runtime-install-data");
+#[test]
+fn runtime_install_reaches_asset_validation_on_macos() {
+    let temp = tempfile::tempdir().expect("temp");
+    fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o700)).expect("private temp");
+    let data = temp.path().join("runtime-install-data");
     let output = run([
         OsString::from("assets"),
         OsString::from("runtime"),
         OsString::from("install"),
         OsString::from("--profile"),
-        text(&temp.path().join("missing-profile.json")),
+        text(&repository_path(
+            "planning/artifacts/024-four-asset-runtime-profile.json",
+        )),
         OsString::from("--model-bundle"),
-        text(&temp.path().join("missing-model")),
+        text(&temp.path().join("not-opened-model")),
         OsString::from("--reference-bundle"),
-        text(&temp.path().join("missing-reference")),
+        text(&temp.path().join("not-opened-reference")),
         OsString::from("--mask"),
-        text(&temp.path().join("missing-mask")),
+        text(&temp.path().join("not-opened-mask")),
         OsString::from("--data-dir"),
-        text(&runtime_data),
+        text(&data),
     ]);
-    assert_unsupported(&output, "local asset installation requires Linux");
-    assert!(!runtime_data.exists());
+    let failure = error(&output);
+    assert_eq!(failure["code"], "ASSETS_MISSING");
+    assert!(!data.join("runtime/active.json").exists());
+    assert!(!data.join("runtime/components").exists());
 }
 
 #[test]
-fn sync_refuses_before_creating_native_asset_or_cache_roots() {
+fn offline_sync_reaches_cache_validation_on_macos() {
     let temp = tempfile::tempdir().expect("temp");
+    fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o700)).expect("private temp");
     let data = temp.path().join("sync-data");
     let cache = temp.path().join("sync-cache");
     let output = run([
@@ -92,26 +134,28 @@ fn sync_refuses_before_creating_native_asset_or_cache_roots() {
         OsString::from("--cache-dir"),
         text(&cache),
     ]);
-    assert_unsupported(&output, "asset sync is supported only on Linux");
-    assert!(!data.exists());
-    assert!(!cache.exists());
+    let failure = error(&output);
+    assert_eq!(failure["code"], "ASSET_SYNC_INCOMPLETE");
+    assert_eq!(failure["details"]["snv"]["code"], "ASSETS_MISSING");
 }
 
 #[test]
-fn serve_refuses_before_inspecting_a_native_asset_root() {
+fn serve_reaches_asset_validation_on_macos() {
     let temp = tempfile::tempdir().expect("temp");
+    fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o700)).expect("private temp");
     let data = temp.path().join("serve-data");
     let output = run([
         OsString::from("serve"),
         OsString::from("--data-dir"),
         text(&data),
     ]);
-    assert_unsupported(&output, "local asset installation requires Linux");
+    let failure = error(&output);
+    assert_eq!(failure["code"], "ASSETS_MISSING");
     assert!(!data.exists());
 }
 
 #[test]
-fn uninstall_keeps_its_existing_non_linux_refusal() {
+fn uninstall_keeps_its_existing_macos_refusal() {
     let temp = tempfile::tempdir().expect("temp");
     let output = Command::new(env!("CARGO_BIN_EXE_pangopup"))
         .args(["uninstall", "--yes"])
@@ -121,10 +165,10 @@ fn uninstall_keeps_its_existing_non_linux_refusal() {
         .expect("run pangopup uninstall");
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
-    let error: Value = serde_json::from_slice(&output.stderr).expect("one JSON error");
-    assert_eq!(error["code"], "UNINSTALL_UNSAFE");
+    let failure: Value = serde_json::from_slice(&output.stderr).expect("one JSON error");
+    assert_eq!(failure["code"], "UNINSTALL_UNSAFE");
     assert_eq!(
-        error["message"],
+        failure["message"],
         "direct uninstall is supported only on Linux"
     );
 }

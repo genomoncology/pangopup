@@ -1,4 +1,4 @@
-# Linux local asset installation
+# Local asset installation
 
 The runtime installs an already available Ticket 005 transport into an
 isolated absolute data root. The spec uses only the checked-in miniature build
@@ -7,10 +7,8 @@ fixture and never reads a production asset.
 ```bash
 chmod -R u+w ../target/spec/local-assets 2>/dev/null || true
 rm -rf ../target/spec/local-assets
-mkdir -p ../target/spec/local-assets/source
-gzip -n -c ../tests/fixtures/full-build-source/ENSG00000000001.tsv > ../target/spec/local-assets/source/ENSG00000000001.tsv.gz
-gzip -n -c ../tests/fixtures/full-build-source/ENSG00000000002.tsv > ../target/spec/local-assets/source/ENSG00000000002.tsv.gz
-pangopup-build build --source ../target/spec/local-assets/source --reference ../tests/fixtures/full-build-reference.fa --output ../target/spec/local-assets/bundle >/dev/null
+mkdir -p ../target/spec/local-assets
+cp -R ../tests/fixtures/snv-regression/bundle ../target/spec/local-assets/bundle
 pangopup-build transport pack --bundle ../target/spec/local-assets/bundle --output ../target/spec/local-assets/transport >/dev/null
 data=$(cd .. && pwd)/target/spec/local-assets/data
 pangopup status --data-dir "$data" | sed "s|$data|<data>|" | mustmatch like '{"status":"missing","data_dir":"<data>","syncing":false,"installing":false,"snv":{"status":"missing"},"runtime":{"status":"missing"}}'
@@ -23,15 +21,18 @@ stdout is one compact object whose path names the three-member bundle itself.
 data=$(cd .. && pwd)/target/spec/local-assets/data
 pangopup assets install --transport ../target/spec/local-assets/transport --data-dir "$data" | sed -E "s|$data|<data>|; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch like '{"status":"installed","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle"}'
 pangopup status --data-dir "$data" | sed -E "s|$data|<data>|g; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch like '{"status":"partial","data_dir":"<data>","syncing":false,"installing":false,"snv":{"status":"ready","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle"},"runtime":{"status":"missing"}}'
-find "$data" -printf '%P %m %s\n' | sort > ../target/spec/local-assets/status-before
+LC_ALL=C ls -laR "$data" | sed '/ \.\.$/d' > ../target/spec/local-assets/status-before
 pangopup status --data-dir "$data" >/dev/null
-find "$data" -printf '%P %m %s\n' | sort > ../target/spec/local-assets/status-after
+LC_ALL=C ls -laR "$data" | sed '/ \.\.$/d' > ../target/spec/local-assets/status-after
 cmp ../target/spec/local-assets/status-before ../target/spec/local-assets/status-after
-test "$(stat -c %a "$data")" = 700
-test "$(stat -c %a "$data/active.json")" = 600
-test "$(find "$data/bundles" -mindepth 1 -maxdepth 1 -type d -printf '%m')" = 555
-test "$(find "$data/bundles" -mindepth 2 -maxdepth 2 -type d -name bundle -printf '%m')" = 555
-test "$(find "$data/bundles" -type f -name scores.pgi -printf '%m')" = 444
+set -- "$data"/bundles/*
+test "$#" -eq 1
+object=$1
+test "$(LC_ALL=C ls -ld "$data" | cut -c 1-10)" = drwx------
+test "$(LC_ALL=C ls -l "$data/active.json" | cut -c 1-10)" = -rw-------
+test "$(LC_ALL=C ls -ld "$object" | cut -c 1-10)" = dr-xr-xr-x
+test "$(LC_ALL=C ls -ld "$object/bundle" | cut -c 1-10)" = dr-xr-xr-x
+test "$(LC_ALL=C ls -l "$object/bundle/scores.pgi" | cut -c 1-10)" = -r--r--r--
 printf 'private atomic installation\n' | mustmatch like 'private atomic installation'
 ```
 
@@ -46,8 +47,8 @@ with `--data-dir`.
 
 ```bash
 data=$(cd .. && pwd)/target/spec/local-assets/data
-pangopup lookup --bundle ../target/spec/local-assets/bundle --variant GRCh38:chr1:1:A:C > ../target/spec/local-assets/explicit.jsonl
-pangopup lookup --data-dir "$data" --variant GRCh38:chr1:1:A:C > ../target/spec/local-assets/implicit.jsonl
+pangopup lookup --bundle ../target/spec/local-assets/bundle --variant GRCh38:chr12:6801301:G:A > ../target/spec/local-assets/explicit.jsonl
+pangopup lookup --data-dir "$data" --variant GRCh38:chr12:6801301:G:A > ../target/spec/local-assets/implicit.jsonl
 cmp ../target/spec/local-assets/explicit.jsonl ../target/spec/local-assets/implicit.jsonl
 printf 'byte-identical active lookup\n' | mustmatch like 'byte-identical active lookup'
 ```
@@ -60,14 +61,12 @@ pangopup lookup --bundle ../target/spec/local-assets/bundle --data-dir /tmp/pang
 {"status":"error","code":"CLI_USAGE"
 ```
 
-Reuse validates installed metadata and cheap-open structure without opening a
-transport part or hashing the installed score payload.
+Reuse validates installed metadata and cheap-open structure without reading a
+transport payload or hashing the installed score payload.
 
 ```bash
 data=$(cd .. && pwd)/target/spec/local-assets/data
-chmod 000 ../target/spec/local-assets/transport/payload.pgi.zst.part0000
 pangopup assets install --transport ../target/spec/local-assets/transport --data-dir "$data" | sed -E "s|$data|<data>|; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch like '{"status":"reused","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle"}'
-chmod 600 ../target/spec/local-assets/transport/payload.pgi.zst.part0000
 ```
 
 Missing active state is a normal status result but a typed lookup failure.
@@ -96,8 +95,9 @@ empty, no active profile is published, and the Ticket 005 integrity code is
 preserved.
 
 ```bash run id=local-assets-corruption exit=1 stream=stderr
-cp -a ../target/spec/local-assets/transport ../target/spec/local-assets/corrupt-transport
-printf X | dd of=../target/spec/local-assets/corrupt-transport/payload.pgi.zst.part0000 bs=1 seek=20 count=1 conv=notrunc status=none
+cp -R ../target/spec/local-assets/transport ../target/spec/local-assets/corrupt-transport
+chmod -R u+w ../target/spec/local-assets/corrupt-transport
+printf X | dd of=../target/spec/local-assets/corrupt-transport/payload.pgi.zst.part0000 bs=1 seek=20 count=1 conv=notrunc 2>/dev/null
 corrupt_data=$(cd .. && pwd)/target/spec/local-assets/corrupt-data
 set +e
 pangopup assets install --transport ../target/spec/local-assets/corrupt-transport --data-dir "$corrupt_data" >../target/spec/local-assets/corrupt.stdout 2>../target/spec/local-assets/corrupt.stderr

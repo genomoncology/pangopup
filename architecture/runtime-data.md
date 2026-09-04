@@ -8,15 +8,7 @@ already contains the source Ensembl gene identity, masked gain/loss values, and
 their relative positions. It does not need a FASTA, GTF, transcript database,
 or network call on this path.
 
-On Linux, `pangopup sync` downloads both exact compiled-in public transports
-into disposable XDG cache and passes them to the same
-`pangopup assets install` boundary that reconstructs a supplied transport under
-XDG user data. The installer records its canonical receipt and atomically
-selects it in `active.json`. Normal lookup discovers that active bundle without a
-`--bundle` argument and performs only cheap manifest/size/structure checks.
-`--bundle` remains an explicit override. Lookup never downloads data or scans
-the complete score payload at startup; only the explicit sync command uses the
-network.
+On Linux and macOS, `pangopup sync` downloads both exact compiled-in public transports into disposable XDG cache and passes them to the same `pangopup assets install` boundary that reconstructs a supplied transport under XDG user data. The installer records its canonical receipt and atomically selects it in `active.json`. Normal lookup discovers that active bundle without a `--bundle` argument and performs only cheap manifest, size, and structure checks. `--bundle` remains an explicit override. Lookup never downloads data or scans the complete score payload at startup. Only the explicit sync command uses the network.
 
 The request's reference allele remains part of the key. A wrong reference
 therefore fails or misses rather than returning the score for a different
@@ -43,7 +35,7 @@ schema, format identity, manifest claims, and member-integrity checks.
 
 Variant-level model scoring is implemented as a library composition over held
 installed providers or one complete explicit override. The four assets are bound by one canonical
-path-free compatibility profile. The offline Linux installer copies the model,
+path-free compatibility profile. The offline native installer copies the model,
 compiled reference, and mask into private immutable XDG storage, reuses the
 certified active SNV object, and atomically selects one coherent profile. The
 CLI admits that profile only after lookup requires inference. Explicit paths
@@ -281,3 +273,5 @@ also shipped, and its exact public assets are immutable. The typed library
 provisioning operation, direct cached-transport installation, and combined
 SNV/runtime CLI command and status surface are shipped.
 Lookup-only use continues to omit the latter three assets.
+
+Native macOS uses the same asset profile, lookup-first router, CPU ONNX model, score representation, status contract, and foreground HTTP service as Linux. Portable descriptor-relative installation and metadata-only status do not change asset identity or model output. CI runs the portable asset boundaries and native service fixture on macOS while the Linux job retains the complete repository gates.

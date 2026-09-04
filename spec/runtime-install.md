@@ -62,5 +62,5 @@ pangopup status --data-dir "$data"
 ```
 
 ```text expect=runtime-status-malformed exact
-{"status":"error","code":"ASSET_STATUS_INVALID","message":"installed asset state is invalid","details":{"snv":{"status":"missing"},"runtime":{"status":"error","code":"PROFILE_CORRUPT","message":"installed JSON is invalid"}}}
+{"status":"error","code":"ASSET_STATUS_INVALID","message":"installed asset state is invalid","details":{"snv":{"status":"missing"},"runtime":{"status":"error","code":"PROFILE_CORRUPT","message":"installed runtime profile is invalid"}}}
 ```

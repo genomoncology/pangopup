@@ -21,7 +21,7 @@ pangopup-build runtime-transport pack \
   --reference-bundle ../tests/fixtures/reference-route-test/bundle \
   --mask ../tests/fixtures/gencode-mask-mini/domains.pgm \
   --output ../target/spec/runtime-transport/second >/dev/null
-find ../target/spec/runtime-transport/first -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort | mustmatch like "domains.pgm.zst
+find ../target/spec/runtime-transport/first -type f -print | sed 's|.*/||' | sort | mustmatch like "domains.pgm.zst
 mask-NOTICE
 model-NOTICE
 model-manifest.json

@@ -429,7 +429,6 @@ fn prepare_with_contract(
     output: &Path,
     contract: Contract<'_>,
 ) -> Result<PrepareRuntimeReleaseOutcome, AssetError> {
-    super::require_linux()?;
     if !valid_commit(target_commit) {
         return Err(release_invalid(
             "target commit must be exactly 40 lowercase hexadecimal characters",
@@ -1000,22 +999,11 @@ impl SourceDirectory {
         Ok(())
     }
 
-    // This body uses a Linux-only kernel interface. Every caller already
-    // refuses on other platforms through require_linux, so the non-Linux
-    // build supplies a stub that returns the same refusal instead of a
-    // weaker path that would silently lose the kernel's guarantees.
-    #[cfg(target_os = "linux")]
     fn require_inventory(&self, expected: &[&str]) -> Result<(), AssetError> {
-        let cursor = open_at(
-            self.file.as_raw_fd(),
-            ".",
-            libc::O_RDONLY | libc::O_DIRECTORY,
-        )
-        .map_err(|error| input_io("open runtime transport inventory", error))?;
-        let mut buffer = [std::mem::MaybeUninit::<u8>::uninit(); 8192];
-        let mut entries = rustix::fs::RawDir::new(cursor, &mut buffer);
+        let entries = rustix::fs::Dir::read_from(&self.file)
+            .map_err(|error| input_io("open runtime transport inventory", error.into()))?;
         let mut observed = BTreeSet::new();
-        while let Some(entry) = entries.next() {
+        for entry in entries {
             let entry = entry
                 .map_err(|error| input_io("read runtime transport inventory", error.into()))?;
             let bytes = entry.file_name().to_bytes();
@@ -1033,12 +1021,6 @@ impl SourceDirectory {
             ));
         }
         Ok(())
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    fn require_inventory(&self, _expected: &[&str]) -> Result<(), AssetError> {
-        super::require_linux()?;
-        unreachable!("require_linux refuses on every non-Linux target")
     }
 
     fn require_same_path(&self, path: &Path) -> Result<(), AssetError> {
@@ -1290,9 +1272,9 @@ fn valid_sha(value: &str) -> bool {
     })
 }
 
-// O_PATH opens a descriptor that names a file without granting access to its
-// contents. Only Linux has it. Every caller refuses on other platforms through
-// require_linux, so the substitute here only needs to compile.
+// Linux O_PATH names a file without granting content access. macOS has no
+// equivalent flag, so a nonblocking read descriptor supplies the held identity
+// without waiting when an attacker substitutes a FIFO.
 #[cfg(target_os = "linux")]
 fn o_path_flag() -> i32 {
     libc::O_PATH
@@ -1300,7 +1282,7 @@ fn o_path_flag() -> i32 {
 
 #[cfg(not(target_os = "linux"))]
 fn o_path_flag() -> i32 {
-    libc::O_RDONLY
+    libc::O_RDONLY | libc::O_NONBLOCK
 }
 
 fn release_invalid(message: impl Into<String>) -> AssetError {

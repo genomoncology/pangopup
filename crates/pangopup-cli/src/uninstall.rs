@@ -121,7 +121,7 @@ fn stat_mode(stat: &fs::Stat) -> u32 {
 
 #[cfg(target_os = "linux")]
 fn stat_nlink(stat: &fs::Stat) -> u64 {
-    stat.st_nlink
+    u64::from(stat.st_nlink)
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -1336,6 +1336,7 @@ fn fail_root_detach() -> bool {
 }
 
 #[cfg(test)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code, unused_imports))]
 mod tests {
     use super::*;
     use std::{

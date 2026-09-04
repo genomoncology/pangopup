@@ -20,13 +20,7 @@ PangoPup was built by [GenomOncology](https://genomoncology.com/), which also ma
 <details>
 <summary><strong>Performance overview in text</strong></summary>
 
-PangoPup routes a covered SNV to the published-score index. A supported non-SNV,
-supported lookup miss, or explicit `--model-only` request runs through the Pangolin model
-with CPU ONNX Runtime. Exact modeled results are saved in SQLite, so the same request can
-be reused without another inference. The 15 GB SNV index is memory-mapped: Linux brings
-in only the file pages a query touches and may reclaim those pages, rather than PangoPup
-copying the whole index into application memory. Every score reports whether a
-precomputed lookup, the Pangolin model, or the SQLite cache answered it.
+PangoPup routes a covered SNV to the published-score index. A supported non-SNV, supported lookup miss, or explicit `--model-only` request runs through the Pangolin model with CPU ONNX Runtime. Exact modeled results are saved in SQLite, so the same request can be reused without another inference. The 15 GB SNV index is memory-mapped. Linux and macOS bring in only the file pages a query touches and may reclaim those pages instead of copying the whole index into application memory. Every score reports whether a precomputed lookup, the Pangolin model, or the SQLite cache answered it.
 
 Retained measurements are an already-open filtered SNV lookup p50 of **0.441 µs**; about
 **12 MiB** peak RSS for a one-SNV CLI call; **4.3 s → 0.7 ms** median for uncached model
@@ -60,6 +54,7 @@ pangopup lookup --variant GRCh38:chr12:6801303:G:GA
 
 After `sync`, scoring is network-free. The SNV normally uses the precomputed index; the
 supported insertion automatically uses the model. Both commands return JSON Lines.
+Native macOS uses the same commands after a source install. The Storage and operations section shows that path.
 
 ## Input and output
 
@@ -179,13 +174,24 @@ Metal.
 | Model, reference, and mask | ~660 MiB | ~775 MiB |
 | Combined | ~2.44 GiB | ~14.76 GiB |
 
-The SNV index is memory-mapped rather than loaded wholly into RAM. Linux reads the file
-pages touched by queries and can reclaim them through its normal page cache. For one
-default foreground service, 256 MiB RAM is a practical starting allocation; measure
-against your workload before setting a production limit.
+The SNV index is memory-mapped rather than loaded wholly into RAM. Linux and macOS read the file pages touched by queries and can reclaim them through the normal page cache. For one default foreground service, 256 MiB RAM is a practical starting allocation. Measure against your workload before setting a production limit.
 
-By default, installed assets are in `~/.local/share/pangopup`; resumable downloads are in
-`~/.cache/pangopup`; and model results are in `~/.cache/pangopup/model-results.sqlite3`.
+By default on Linux and macOS, installed assets are in `~/.local/share/pangopup`; resumable downloads are in `~/.cache/pangopup`; and model results are in `~/.cache/pangopup/model-results.sqlite3`.
+
+### Native macOS
+
+PangoPup supports native macOS through a source install. The project does not publish a macOS executable or executable installer yet. Install the Rust toolchain named in `rust-toolchain.toml`, then run:
+
+```bash
+git clone https://github.com/genomoncology/pangopup.git
+cd pangopup
+cargo install --locked --path crates/pangopup-cli
+pangopup sync --progress
+pangopup status
+pangopup serve --listen 127.0.0.1:8080
+```
+
+Native macOS inference uses CPU ONNX Runtime. It does not use MPS or Metal. `pangopup uninstall` refuses on macOS. Manage the Cargo-installed executable and XDG asset directories directly.
 
 Verify an existing installation without network access:
 
@@ -217,7 +223,7 @@ docker stop pangopup
 
 Replacing the container preserves the data and cache volumes.
 
-For removal, PangoPup displays every resolved path before asking what to delete:
+For native Linux removal, PangoPup displays every resolved path before asking what to delete:
 
 ```bash
 pangopup uninstall              # choose code only, full removal, or cancel

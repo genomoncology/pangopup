@@ -23,6 +23,7 @@ jobs:
           done
           "${install[@]}"
           rustup override set "$toolchain"
+          rustup target add --toolchain "$toolchain" aarch64-unknown-linux-gnu
           rustup show active-toolchain
       - name: Install uv 0.8.0
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -63,6 +64,118 @@ jobs:
           tar --extract --gzip --file "$archive"
           install -m 0755 ripgrep-15.2.0-x86_64-unknown-linux-musl/rg "$HOME/.local/bin/rg"
           rg --version
+      - run: make lint
+      - name: Check the Linux ARM64 command build
+        run: cargo check --locked --target aarch64-unknown-linux-gnu --package pangopup-cli
+      - name: Test the portable native service fixture
+        run: cargo test --locked --package pangopup-cli --features service-test-fixtures --test http_service_lifecycle installed_success
+      - run: make test
+      - run: make spec
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install pinned Rust toolchain
+        run: |
+          toolchain=$(sed -nE 's/^channel = "([^"]+)"$/\1/p' rust-toolchain.toml)
+          profile=$(sed -nE 's/^profile = "([^"]+)"$/\1/p' rust-toolchain.toml)
+          components=$(sed -nE 's/^components = \[(.*)\]$/\1/p' rust-toolchain.toml | tr -d '",')
+          install=(rustup toolchain install "$toolchain" --profile "$profile")
+          for component in $components; do
+            install+=(--component "$component")
+          done
+          "${install[@]}"
+          rustup override set "$toolchain"
+          rustup show active-toolchain
+      - name: Install uv 0.8.0
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.8.0"
+      - name: Install authenticated mustmatch 0.1.0
+        run: |
+          case "$(uname -m)" in
+            arm64)
+              wheel=mustmatch-0.1.0-py3-none-macosx_11_0_arm64.whl
+              bytes=1299924
+              sha256=92e8395793d175525f241158a4833a02b00fcf889321e228973cff643eff2411
+              ;;
+            x86_64)
+              wheel=mustmatch-0.1.0-py3-none-macosx_10_12_x86_64.whl
+              bytes=1366249
+              sha256=be600301724e3cac580cbe4c14d109bd9e4c41e054d63f6484199a66fa6d5ba1
+              ;;
+            *) exit 1 ;;
+          esac
+          curl --fail --location --silent --show-error \
+            --output "$wheel" \
+            "https://github.com/genomoncology/mustmatch/releases/download/v0.1.0/$wheel"
+          test "$(wc -c < "$wheel" | tr -d '[:space:]')" -eq "$bytes"
+          printf '%s  %s\n' "$sha256" "$wheel" | shasum -a 256 --check
+          mkdir -p "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          UV_TOOL_BIN_DIR="$HOME/.local/bin" uv tool install "$PWD/$wheel"
+          "$HOME/.local/bin/mustmatch" --version
+      - name: Install authenticated cargo-deny 0.19.4
+        run: |
+          case "$(uname -m)" in
+            arm64)
+              target=aarch64-apple-darwin
+              bytes=4536769
+              sha256=2437a51d904b29abe2d3aa9ea87e353c86cff108d519ba1e5fb495bb28e7fbaf
+              ;;
+            x86_64)
+              target=x86_64-apple-darwin
+              bytes=4757661
+              sha256=90fb22528daae11d0ce68cd968ea1f8e4d852b33510d0243d8c6666fc1dbea16
+              ;;
+            *) exit 1 ;;
+          esac
+          archive="cargo-deny-0.19.4-$target.tar.gz"
+          directory="cargo-deny-0.19.4-$target"
+          curl --fail --location --silent --show-error \
+            --output "$archive" \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.4/$archive"
+          test "$(wc -c < "$archive" | tr -d '[:space:]')" -eq "$bytes"
+          printf '%s  %s\n' "$sha256" "$archive" | shasum -a 256 --check
+          tar --extract --gzip --file "$archive"
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 "$directory/cargo-deny" "$HOME/.local/bin/cargo-deny"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/cargo-deny" --version
+      - name: Install authenticated ripgrep 15.2.0
+        run: |
+          case "$(uname -m)" in
+            arm64)
+              target=aarch64-apple-darwin
+              bytes=1764284
+              sha256=3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4
+              ;;
+            x86_64)
+              target=x86_64-apple-darwin
+              bytes=1878284
+              sha256=af7825fcc69a2afc7a7aea55fc9af90e26421d8f20fe59df32e233c0b8a231c1
+              ;;
+            *) exit 1 ;;
+          esac
+          archive="ripgrep-15.2.0-$target.tar.gz"
+          directory="ripgrep-15.2.0-$target"
+          curl --fail --location --silent --show-error \
+            --output "$archive" \
+            "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/$archive"
+          test "$(wc -c < "$archive" | tr -d '[:space:]')" -eq "$bytes"
+          printf '%s  %s\n' "$sha256" "$archive" | shasum -a 256 --check
+          tar --extract --gzip --file "$archive"
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 "$directory/rg" "$HOME/.local/bin/rg"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/rg" --version
+      - name: Test portable asset boundaries
+        run: |
+          cargo test --locked --package pangopup-assets
+          cargo test --locked --package pangopup-cli --test macos_cli_boundary
+          cargo test --locked --package pangopup-build --test runtime_release
+          cargo test --locked --package pangopup-cli --features service-test-fixtures --test http_service_lifecycle installed_success
       - run: make lint
       - run: make test
       - run: make spec

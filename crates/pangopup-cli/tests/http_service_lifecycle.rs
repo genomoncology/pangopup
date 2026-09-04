@@ -350,9 +350,6 @@ mod retained_production {
     }
 }
 
-// Asserts the Linux ASSETS_MISSING path. Elsewhere asset discovery
-// refuses first with UNSUPPORTED_PLATFORM, which is correct.
-#[cfg(target_os = "linux")]
 #[test]
 fn missing_assets_fail_before_listener_and_direct_user_to_sync() {
     let temp = tempfile::tempdir().expect("temp");

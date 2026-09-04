@@ -327,7 +327,6 @@ struct CompressionDiscriminator {
 }
 
 pub fn pack_bundle(bundle: &Path, output: &Path) -> Result<PackOutcome, AssetError> {
-    require_linux()?;
     pack_bundle_portable(bundle, output)
 }
 
@@ -456,7 +455,6 @@ pub fn verify_transport(path: &Path) -> Result<VerifyTransportOutcome, AssetErro
 }
 
 pub fn unpack_transport(path: &Path, output: &Path) -> Result<UnpackOutcome, AssetError> {
-    require_linux()?;
     ensure_output_absent(output)?;
     let (stage, mut guard) = create_stage(output)?;
     let result = (|| {
@@ -1615,41 +1613,30 @@ fn ensure_output_absent(output: &Path) -> Result<(), AssetError> {
 }
 
 fn publish_stage(stage: &Path, output: &Path, guard: &mut StageGuard) -> Result<(), AssetError> {
-    #[cfg(any(target_os = "linux", test))]
-    {
-        rustix::fs::renameat_with(
-            rustix::fs::CWD,
-            stage,
-            rustix::fs::CWD,
-            output,
-            rustix::fs::RenameFlags::NOREPLACE,
-        )
-        .map_err(io::Error::from)
-        .map_err(|error| {
-            if matches!(
-                error.kind(),
-                ErrorKind::AlreadyExists | ErrorKind::DirectoryNotEmpty
-            ) {
-                AssetError::new(
-                    AssetErrorKind::OutputConflict,
-                    "output publication race lost",
-                )
-            } else {
-                output_io("publish staged output", error)
-            }
-        })?;
-        guard.published();
-        sync_directory(output.parent().unwrap_or_else(|| Path::new(".")))?;
-        Ok(())
-    }
-    #[cfg(all(not(target_os = "linux"), not(test)))]
-    {
-        let _ = (stage, output, guard);
-        Err(AssetError::new(
-            AssetErrorKind::UnsupportedPlatform,
-            "atomic no-replace publication requires Linux",
-        ))
-    }
+    rustix::fs::renameat_with(
+        rustix::fs::CWD,
+        stage,
+        rustix::fs::CWD,
+        output,
+        rustix::fs::RenameFlags::NOREPLACE,
+    )
+    .map_err(io::Error::from)
+    .map_err(|error| {
+        if matches!(
+            error.kind(),
+            ErrorKind::AlreadyExists | ErrorKind::DirectoryNotEmpty
+        ) {
+            AssetError::new(
+                AssetErrorKind::OutputConflict,
+                "output publication race lost",
+            )
+        } else {
+            output_io("publish staged output", error)
+        }
+    })?;
+    guard.published();
+    sync_directory(output.parent().unwrap_or_else(|| Path::new(".")))?;
+    Ok(())
 }
 
 fn finish_staged<T>(
@@ -1875,7 +1862,7 @@ mod tests {
     }
 
     #[test]
-    fn publication_platform_contract_is_explicit() {
+    fn snv_release_platform_contract_is_explicit() {
         #[cfg(target_os = "linux")]
         require_linux().expect("Linux publication support");
         #[cfg(not(target_os = "linux"))]

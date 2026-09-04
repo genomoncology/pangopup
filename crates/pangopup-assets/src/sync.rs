@@ -2463,14 +2463,19 @@ fn open_existing_cache_root(path: &Path) -> Result<Option<SafeDir>, AssetError> 
 // macOS exposes these historical root names as system-managed symlinks. Map
 // them to their physical roots before descriptor-relative traversal so user
 // path components still retain the no-symlink rule.
+#[cfg(target_os = "macos")]
 fn normalized_absolute_path(path: &Path) -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
     for alias in ["var", "tmp", "etc"] {
         let root = Path::new("/").join(alias);
         if let Ok(suffix) = path.strip_prefix(&root) {
             return Some(Path::new("/private").join(alias).join(suffix));
         }
     }
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+fn normalized_absolute_path(_path: &Path) -> Option<PathBuf> {
     None
 }
 

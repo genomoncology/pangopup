@@ -197,6 +197,10 @@ for text in \
   '256 MiB RAM' \
   '~/.local/share/pangopup' \
   '~/.cache/pangopup/model-results.sqlite3' \
+  '### Native macOS' \
+  'cargo install --locked --path crates/pangopup-cli' \
+  'does not publish a macOS executable or executable installer' \
+  '`pangopup uninstall` refuses on macOS' \
   'pangopup sync --offline' \
   'VERSION=0.3.0' \
   'v${VERSION}/install.sh' \

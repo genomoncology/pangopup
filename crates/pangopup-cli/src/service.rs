@@ -380,9 +380,6 @@ pub(super) fn run(raw: &[OsString]) -> ExitCode {
         Ok(options) => options,
         Err(error) => return super::fail(&error),
     };
-    if let Err(error) = super::require_linux_cli("local asset installation requires Linux") {
-        return super::fail(&error);
-    }
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

@@ -1,9 +1,6 @@
 # Artifact Delivery
 
-This document records the shipped immutable SNV release, local transport,
-Linux installation, and pinned resumable remote sync. The runtime opens either
-an explicitly supplied bundle path or the active receipt-bound bundle in Linux
-user data.
+This document records the shipped immutable SNV release, portable local transport, native Linux and macOS installation, and pinned resumable remote sync. The runtime opens either an explicitly supplied bundle path or the active receipt-bound bundle in XDG user data.
 
 ## Repository publication-security boundary
 
@@ -18,8 +15,7 @@ crates. The reviewed policy therefore allows wildcard linting, while the locked
 graph and source policy admit only workspace paths and the canonical crates.io
 registry.
 
-CI has an explicit `contents: read` token, pins every action to a full commit,
-and installs mustmatch, cargo-deny, and ripgrep through reviewed exact digests.
+Linux and macOS CI have an explicit `contents: read` token, pin every action to a full commit, and install mustmatch, cargo-deny, and ripgrep through reviewed exact digests. Linux CI also checks the CLI for the Linux ARM64 target before the native full gates.
 GitHub repository settings are an external coordinator-owned boundary rather
 than runtime code. Before another public asset family, the live repository must
 also verify read-only Actions defaults, disabled Actions PR approval, enabled
@@ -147,6 +143,8 @@ installs under `${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}`. It never uses sudo,
 changes shell configuration, or downloads runtime assets; `pangopup sync`
 remains explicit.
 
+Native macOS support starts from a source-built CLI. The project publishes no macOS executable archive or executable installer. `pangopup uninstall` remains a Linux-only command and refuses on macOS.
+
 The direct Linux executable also owns a conservative `pangopup uninstall`
 boundary. It resolves the running executable and the same XDG data/cache roots
 used at runtime, admits only the known managed layouts, and presents either
@@ -223,8 +221,7 @@ pangopup-build release prepare --transport <TRANSPORT_DIR> --receipt <PROOF_RECE
 Pack first exhaustively certifies the installed bundle. Integrity-only verify
 streams every declared layer and proves the exact decompressed member without
 creating it; it does not authenticate the publisher or prove fixed-v1 semantic
-structure. Unpack writes into unique same-filesystem staging, runs complete
-semantic certification, syncs it, and publishes by Linux no-replace rename.
+structure. Unpack writes into unique same-filesystem staging, runs complete semantic certification, syncs it, and publishes by an atomic no-replace rename on Linux and macOS.
 Release preparation inspects only the three bounded metadata files and
 no-follow name/type/size metadata for payload parts. It emits the reviewed
 profile, receipt copy, digest list, and release notes atomically; it performs no
@@ -332,7 +329,7 @@ and pinned typed remote provisioning are shipped. Combined CLI provisioning
 composes them. The production reader performs none of those delivery
 operations.
 
-## Shipped Linux installation and pinned remote sync
+## Shipped native installation and pinned remote sync
 
 The binary embeds the canonical `snv-grch38-v1` release profile for one
 compatible lookup asset set. The shipped full runtime profile separately
@@ -346,6 +343,7 @@ The shipped local command accepts an already available transport:
 
 ```text
 pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]
+pangopup assets runtime install --profile <JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]
 pangopup sync [--offline] [--progress | --quiet] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
 pangopup status [--data-dir <ABSOLUTE_PATH>]
 ```
@@ -383,9 +381,7 @@ installer. Remote sync:
    fatal;
 5. pass the exact local transport directory to the shipped installer.
 
-Cache traversal and mutation stay behind held Linux directory descriptors:
-`openat2` rejects symlinked components, `mkdirat` creates private directories
-as mode 0700, and member publication and eviction are descriptor-relative.
+Cache traversal and mutation stay behind held directory descriptors on Linux and macOS. Descriptor-relative `openat` calls use `O_NOFOLLOW`, metadata checks retain the admitted device and owner boundary, `mkdirat` creates private directories as mode 0700, and no-replace member publication and eviction remain descriptor-relative.
 Bootstrap/profile/lock creation tolerates simultaneous first use; the profile
 lock is acquired before working directories or a published transport are
 inspected or changed. Hostile directory entries are validated and removed as a
@@ -408,16 +404,9 @@ verified ranged completion. The CLI renders these events to stderr for a
 terminal, under `--progress`, or not at all under `--quiet`; stdout retains its
 single machine-readable result.
 
-Current managed storage follows Linux XDG application-data conventions rather
-than Pangolin's Python-package layout. macOS and Windows behavior remains
-unimplemented. The core scoring library accepts already resolved paths and
-performs no download or home-directory discovery.
+Current managed storage follows XDG application-data conventions on Linux and macOS rather than Pangolin's Python-package layout. Windows behavior remains unimplemented. The core scoring library accepts already resolved paths and performs no download or home-directory discovery.
 
-On Linux, durable installed bundles live under
-`${XDG_DATA_HOME:-$HOME/.local/share}/pangopup/`; transport archives and partial
-downloads use `${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/`, with
-`PANGOPUP_CACHE_DIR` and `--cache-dir` overrides. Installed data are not cache:
-clearing the download cache does not break a complete installation.
+On Linux and macOS, durable installed bundles live under `${XDG_DATA_HOME:-$HOME/.local/share}/pangopup/`; transport archives and partial downloads use `${XDG_CACHE_HOME:-$HOME/.cache}/pangopup/`, with `PANGOPUP_CACHE_DIR` and `--cache-dir` overrides. Installed data are not cache. Clearing the download cache does not break a complete installation.
 
 The explicit local installer does not require a network and is the primitive.
 Remote sync only obtains the exact bytes named by a pinned manifest and then

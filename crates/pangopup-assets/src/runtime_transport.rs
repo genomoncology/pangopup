@@ -181,7 +181,6 @@ pub fn pack_runtime_transport(
     mask_path: &Path,
     output: &Path,
 ) -> Result<PackRuntimeTransportOutcome, AssetError> {
-    super::require_linux()?;
     pack_runtime_transport_portable(
         profile_path,
         model_bundle,
@@ -385,7 +384,6 @@ pub fn unpack_runtime_transport(
     transport: &Path,
     output: &Path,
 ) -> Result<UnpackRuntimeTransportOutcome, AssetError> {
-    super::require_linux()?;
     super::ensure_output_absent(output)?;
     let transport = open_transport_directory(transport)?;
     let opened = open_transport_held(&transport)?;
@@ -1104,7 +1102,15 @@ fn require_transport_inventory_held(
         .chain(manifest.members.iter().map(|member| member.name.clone()))
         .collect();
     let mut observed = BTreeSet::new();
-    for name in super::local::read_names_bounded(transport, EXPECTED.len() + 1)? {
+    let names =
+        super::local::read_names_bounded(transport, EXPECTED.len() + 1).map_err(|error| {
+            if error.kind() == AssetErrorKind::BundleInvalid {
+                part_set("runtime transport directory member set mismatch")
+            } else {
+                error
+            }
+        })?;
+    for name in names {
         let (_file, metadata) = super::local::open_held_regular(
             transport,
             &name,

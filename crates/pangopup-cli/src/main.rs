@@ -1,7 +1,3 @@
-// The Linux-only installation tests are compiled out elsewhere, orphaning
-// the helpers and hooks that only they use.
-#![cfg_attr(all(test, not(target_os = "linux")), allow(dead_code, unused_imports))]
-
 use pangopup_assets::{
     AssetError, AssetErrorKind, CachePathInputs, CombinedStatusResult, CombinedSyncResult,
     DataPathInputs, InstalledModelInput, combined_local_status, install_runtime_profile,
@@ -392,40 +388,15 @@ fn main() -> ExitCode {
 }
 
 fn run(raw: &[OsString]) -> Result<Vec<u8>, Failure> {
-    require_native_asset_command(raw)?;
     run_with_sync(raw, &|data, cache, offline| {
         sync_all_assets(data, cache, offline)
     })
 }
 
 fn run_cli(raw: &[OsString], terminal: bool, stderr: &mut dyn Write) -> Result<Vec<u8>, Failure> {
-    require_native_asset_command(raw)?;
     run_cli_with_sync(raw, terminal, stderr, &|data, cache, offline, observer| {
         pangopup_assets::sync_all_assets_observed(data, cache, offline, observer)
     })
-}
-
-fn require_native_asset_command(raw: &[OsString]) -> Result<(), Failure> {
-    match parse_command(raw)? {
-        Command::Lookup(_) => Ok(()),
-        Command::Sync { .. } => require_linux_cli("asset sync is supported only on Linux"),
-        Command::Install { .. } | Command::RuntimeInstall { .. } | Command::Status { .. } => {
-            require_linux_cli("local asset installation requires Linux")
-        }
-    }
-}
-
-fn require_linux_cli(message: &'static str) -> Result<(), Failure> {
-    if cfg!(target_os = "linux") {
-        Ok(())
-    } else {
-        Err(Failure {
-            code: "UNSUPPORTED_PLATFORM",
-            message: message.to_owned(),
-            exit: 1,
-            details: None,
-        })
-    }
 }
 
 fn run_cli_with_sync(
@@ -2231,9 +2202,6 @@ mod tests {
         }
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
-    // documented refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn implicit_installed_route_matches_explicit_and_reuses_cache_after_recomposition() {
         let temp = tempfile::TempDir::new().expect("temp");
@@ -2349,9 +2317,6 @@ mod tests {
         );
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
-    // documented refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn installed_runtime_failures_are_exact_redacted_cli_json() {
         let temp = tempfile::TempDir::new().expect("temp");
@@ -2402,9 +2367,6 @@ mod tests {
         }
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
-    // documented refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn implicit_runtime_is_lazy_explicit_wins_and_bundle_never_mixes() {
         let temp = tempfile::TempDir::new().expect("temp");
@@ -2509,9 +2471,6 @@ mod tests {
         assert_eq!(output, b"sync: checking snv assets\nsync: snv scores.part0000 resume attempt 2/4 100/200 bytes (50 downloaded, 25 resumed)\nsync: runtime model.onnx retry 2/4 after http-status-503\nsync: ready (75 downloaded, 25 resumed)\n");
     }
 
-    // Exercises Linux-only asset installation; other platforms get the
-    // documented refusal instead.
-    #[cfg(target_os = "linux")]
     #[test]
     fn runtime_asset_grammar_is_closed_and_status_json_is_exact() {
         let temp = tempfile::TempDir::new().expect("temp");
