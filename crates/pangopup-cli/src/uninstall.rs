@@ -119,7 +119,12 @@ fn stat_mode(stat: &fs::Stat) -> u32 {
     u32::from(stat.st_mode)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn stat_nlink(stat: &fs::Stat) -> u64 {
+    stat.st_nlink
+}
+
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 fn stat_nlink(stat: &fs::Stat) -> u64 {
     u64::from(stat.st_nlink)
 }
