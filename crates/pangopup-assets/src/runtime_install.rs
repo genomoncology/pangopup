@@ -58,6 +58,9 @@ enum SourceMutation {
 }
 
 #[cfg(test)]
+type StagingReplacement = Box<dyn FnOnce() -> Result<(), AssetError>>;
+
+#[cfg(test)]
 thread_local! {
     static SOURCE_MUTATION: std::cell::Cell<Option<SourceMutation>> =
         const { std::cell::Cell::new(None) };
@@ -65,6 +68,8 @@ thread_local! {
         const { std::cell::Cell::new(false) };
     static REPLACE_RUNTIME_BEFORE_RETURN: std::cell::Cell<bool> =
         const { std::cell::Cell::new(false) };
+    static REPLACE_STAGING_DIRECTORY: std::cell::RefCell<Option<StagingReplacement>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]
@@ -86,6 +91,16 @@ fn mutate_source_for_test(path: &Path) {
                 .expect("truncate source");
         }
     }
+}
+
+#[cfg(test)]
+fn replace_staging_directory_for_test() -> Result<(), AssetError> {
+    REPLACE_STAGING_DIRECTORY.with(|replacement| {
+        let Some(replacement) = replacement.borrow_mut().take() else {
+            return Ok(());
+        };
+        replacement()
+    })
 }
 
 #[cfg(test)]
@@ -124,6 +139,11 @@ fn mutate_runtime_before_return_for_test(bundle: &super::local::Dir) {
 
 #[cfg(not(test))]
 fn mutate_source_for_test(_path: &Path) {}
+
+#[cfg(not(test))]
+fn replace_staging_directory_for_test() -> Result<(), AssetError> {
+    Ok(())
+}
 
 #[cfg(not(test))]
 fn mutate_destination_for_test(_components: &super::local::Dir) {}
@@ -458,6 +478,7 @@ where
         let staged_mask = stage.join("mask");
         stage_sources(&staged_model, &staged_reference, &staged_mask)?;
         transition!(StagedObjectsDurable);
+        replace_staging_directory_for_test()?;
 
         validate_staged(profile, &staged_model, &staged_reference, &staged_mask)?;
 
@@ -3000,20 +3021,11 @@ mod tests {
             mask: &fixture("route-mask/domains.pgm"),
         };
 
-        let result = install_with_stager(
-            &bytes,
-            &profile,
-            &root,
-            |staged_model, staged_reference, staged_mask| {
-                stage_local_sources(
-                    sources,
-                    staged_model,
-                    staged_reference,
-                    staged_mask,
-                    &profile,
-                )?;
-
-                let staging = root.join("runtime/.staging");
+        let replacement_root = root.clone();
+        let replacement_profile = profile.clone();
+        REPLACE_STAGING_DIRECTORY.with(|replacement| {
+            *replacement.borrow_mut() = Some(Box::new(move || {
+                let staging = replacement_root.join("runtime/.staging");
                 let admitted = fs::read_dir(&staging)
                     .map_err(|_| output("inspect test staging directory"))?
                     .next()
@@ -3030,15 +3042,24 @@ mod tests {
                     .map_err(|_| output("replace admitted test staging directory"))?;
                 fs::set_permissions(&admitted, fs::Permissions::from_mode(DIR_PRIVATE))
                     .map_err(|_| output("set replacement staging mode"))?;
+                let model = fixture("pangolin-model-kernel-mini/bundle");
+                let reference = fixture("reference-route-test/bundle");
+                let mask = fixture("route-mask/domains.pgm");
                 stage_local_sources(
-                    sources,
+                    InstallSources {
+                        model: &model,
+                        reference: &reference,
+                        mask: &mask,
+                    },
                     &admitted.join("model"),
                     &admitted.join("reference"),
                     &admitted.join("mask"),
-                    &profile,
+                    &replacement_profile,
                 )
-            },
-        );
+            }));
+        });
+
+        let result = install_with_profile(&bytes, &profile, sources, &root);
 
         result.expect_err("a replaced admitted staging directory must be refused");
         assert!(!root.join("runtime/active.json").exists());
