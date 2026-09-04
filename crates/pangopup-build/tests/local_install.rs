@@ -186,6 +186,35 @@ fn local_install_is_atomic_reusable_and_lock_safe() {
 }
 
 #[test]
+fn fresh_install_authenticates_payload_parts() {
+    let scratch = Scratch::new();
+    let (_bundle, transport) = fixture(&scratch.0);
+    let part = transport.join("payload.pgi.zst.part0000");
+    let mut bytes = fs::read(&part).expect("payload part");
+    bytes[0] ^= 1;
+    fs::write(&part, bytes).expect("corrupt payload part");
+    let data = scratch.0.join("data");
+
+    assert_eq!(
+        install_transport(&transport, &data)
+            .expect_err("fresh install must authenticate the payload")
+            .kind(),
+        AssetErrorKind::TransportHashMismatch
+    );
+    assert!(matches!(
+        local_status(&data).expect("failed install status"),
+        LocalStatus::Missing { .. }
+    ));
+    assert!(
+        fs::read_dir(data.join("bundles"))
+            .expect("bundle store")
+            .next()
+            .is_none(),
+        "an unauthenticated payload must not publish a bundle"
+    );
+}
+
+#[test]
 fn path_and_store_shape_fail_closed() {
     let scratch = Scratch::new();
     assert_eq!(

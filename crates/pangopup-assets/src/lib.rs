@@ -757,7 +757,19 @@ fn validate_directory(
     expected.extend(manifest.payload.parts.iter().map(|part| part.path.clone()));
     let mut actual = BTreeSet::new();
     for name in local::read_names_bounded(directory, MAX_PARTS + 3)? {
-        let (_file, metadata) = open_transport_regular(directory, &name)?;
+        let size = local::held_regular_size(
+            directory,
+            &name,
+            AssetErrorKind::InputIo,
+            AssetErrorKind::PartSetInvalid,
+        )
+        .map_err(|error| {
+            normalize_held_non_regular(
+                error,
+                AssetErrorKind::PartSetInvalid,
+                "transport entries must be regular files",
+            )
+        })?;
         let expected_size = match name.as_str() {
             "transport.json" => None,
             "bundle-manifest.json" => Some(manifest.bundle.manifest.size),
@@ -769,7 +781,7 @@ fn validate_directory(
                 .find(|part| part.path == name)
                 .map(|part| part.size),
         };
-        if expected_size.is_some_and(|size| metadata.len() != size) {
+        if expected_size.is_some_and(|expected| size != expected) {
             return Err(part_error("transport entry size does not match metadata"));
         }
         actual.insert(name);

@@ -1699,6 +1699,27 @@ pub(crate) fn open_held_regular(
     Ok((file, metadata))
 }
 
+pub(crate) fn held_regular_size(
+    parent: &Dir,
+    name: &str,
+    io_kind: AssetErrorKind,
+    invalid_kind: AssetErrorKind,
+) -> Result<u64, AssetError> {
+    let metadata = rustix::fs::statat(&parent.file, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW)
+        .map_err(io::Error::from)
+        .map_err(|error| AssetError::new(io_kind, error.to_string()))?;
+    if rustix::fs::FileType::from_raw_mode(metadata.st_mode) != rustix::fs::FileType::RegularFile
+        || metadata.st_dev as u64 != parent.dev
+    {
+        return Err(AssetError::new(
+            invalid_kind,
+            "held directory entry is not a same-filesystem regular file",
+        ));
+    }
+    u64::try_from(metadata.st_size)
+        .map_err(|_| AssetError::new(invalid_kind, "held directory entry size is invalid"))
+}
+
 fn validate_owned_metadata(
     metadata: &fs::Metadata,
     root: &Root,
