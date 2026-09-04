@@ -39,21 +39,15 @@ test:          ## inside-out unit and integration tests
 # snv-lookup.md       Needs a published SNV bundle.
 # snv-transport.md    Needs a published SNV bundle.
 # snv-release.md      Release packing refuses off Linux.
-# runtime-release.md  Release packing refuses off Linux.
-# runtime-transport.md Transport packing refuses off Linux.
 # http-service.md     Startup asset resolution refuses off Linux first.
-# local-assets.md     Asset installation is built on openat2 RESOLVE_BENEATH.
-# remote-assets.md    Same asset installation path.
-# runtime-install.md  Same asset installation path.
 #
 # The publication syscall has a working macOS spelling, renameatx_np with
 # RENAME_EXCL, already used in crates/pangopup-build/src/runtime_profile.rs.
 # Porting the other two sites would mean editing production.rs and
 # reference_builder.rs. source_fingerprint.rs hashes both as published builder
 # provenance, so an edit there changes what the builder claims to be.
-SPEC_LINUX_ONLY := cli.md full-bundle.md http-service.md local-assets.md \
-	reference.md remote-assets.md runtime-install.md runtime-release.md \
-	runtime-transport.md snv-lookup.md snv-release.md snv-transport.md
+SPEC_LINUX_ONLY := cli.md full-bundle.md http-service.md reference.md \
+	snv-lookup.md snv-release.md snv-transport.md
 SPEC_PATHS := spec/
 ifneq ($(shell uname -s),Linux)
 SPEC_PATHS := $(filter-out $(addprefix spec/,$(SPEC_LINUX_ONLY)),$(wildcard spec/*.md))

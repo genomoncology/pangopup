@@ -2035,6 +2035,52 @@ mod tests {
 
     static SERIAL: AtomicU64 = AtomicU64::new(0);
 
+    #[test]
+    fn install_never_follows_a_symlinked_authority() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let data = temp.path().join("data");
+        fs::create_dir(&data).expect("data root");
+        fs::set_permissions(&data, fs::Permissions::from_mode(ROOT_MODE)).expect("root mode");
+        let outside = temp.path().join("outside");
+        fs::write(&outside, b"outside sentinel").expect("outside sentinel");
+        std::os::unix::fs::symlink(&outside, data.join(".install.lock"))
+            .expect("symlinked install authority");
+
+        let error = install_transport(&temp.path().join("unused-transport"), &data)
+            .expect_err("symlinked authority must be rejected");
+        assert_eq!(error.kind(), AssetErrorKind::AssetStateInvalid);
+        assert_eq!(
+            fs::read(outside).expect("outside remains readable"),
+            b"outside sentinel"
+        );
+    }
+
+    #[test]
+    fn one_component_mount_crossing_is_rejected() {
+        let parent_file = open_path_directory(Path::new("/")).expect("open filesystem root");
+        let parent_metadata = parent_file.metadata().expect("root metadata");
+        let mounted_metadata = fs::metadata("/dev").expect("mounted /dev metadata");
+        assert_ne!(
+            parent_metadata.dev(),
+            mounted_metadata.dev(),
+            "the test fixture must cross from / to the mounted /dev filesystem"
+        );
+        let root = Root {
+            path: PathBuf::from("/"),
+            dir: Dir {
+                file: parent_file,
+                dev: parent_metadata.dev(),
+            },
+            euid: parent_metadata.uid(),
+        };
+
+        let error = match open_dir_optional(&root.dir, "dev", &root) {
+            Ok(_) => panic!("one-component mount crossing was accepted"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), AssetErrorKind::AssetStateInvalid);
+    }
+
     // Exercises Linux-only installation machinery; every other platform gets
     // the documented UnsupportedPlatform refusal instead.
     #[cfg(target_os = "linux")]
