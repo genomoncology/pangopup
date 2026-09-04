@@ -31,3 +31,7 @@ if grep -Fq '#[cfg(target_os = "linux")]' "$model_routing"; then
     printf 'portable model-routing tests remain gated to Linux\n' >&2
     exit 1
 fi
+
+adr_0004=$(<"$repository/architecture/decisions/0004-speed-first-runtime-release-assets.md")
+require_text 'The shipped Linux' "$adr_0004" 'ADR 0004 original installer decision'
+require_text 'Supersession note (2026-09-04): Ticket 0003 extended the shipped local installer to native macOS. The original Linux installer sentence below remains as history.' "$adr_0004" 'ADR 0004 macOS supersession note'

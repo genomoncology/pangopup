@@ -3,6 +3,8 @@
 Status: superseded by ADR 0006 for index-format selection; delivery principles retained
 Date: 2026-07-21
 
+Supersession note (2026-09-04): Ticket 0003 extended the shipped local installer to native macOS. The original Linux installer sentence below remains as history.
+
 ## Decision
 
 After correctness, the optimization order is query performance, resident memory
@@ -17,7 +19,7 @@ GitHub Releases, not Git or Git LFS. The shipped local SNV transport carries
 a canonical manifest, exact copies of the small installed members, and one
 deterministic compressed `scores.pgi` stream cut into ordered exact
 1,000,000,000-byte parts except for its final part. Explicit local unpack
-verifies and reconstructs the unchanged fixed-v1 bundle once. The shipped native
+verifies and reconstructs the unchanged fixed-v1 bundle once. The shipped Linux
 installer streams that transport into an immutable XDG-data bundle, atomically
 selects it, and reuses it with cheap structural validation. The request path
 never downloads or decompresses an SNV lookup.
