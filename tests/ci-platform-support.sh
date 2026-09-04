@@ -48,6 +48,17 @@ require_text 'CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc' "$arm_step" '
 require_text 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc' "$arm_step" 'Rust target linker'
 require_text 'run: cargo check --locked --target aarch64-unknown-linux-gnu --package pangopup-cli' "$arm_step" 'Linux ARM64 command build'
 
+test_step=$(sed -n '/^      - name: Run Linux tests with public failure evidence$/,/^      - run: make spec$/p' "$workflow")
+require_text 'set -o pipefail' "$test_step" 'Linux test pipeline failure handling'
+require_text 'log="$RUNNER_TEMP/make-test.log"' "$test_step" 'Linux test failure log'
+require_text 'if make test 2>&1 | tee "$log"; then' "$test_step" 'Linux test gate'
+require_text 'summary=$(tail -n 120 "$log" | tail -c 16000)' "$test_step" 'bounded Linux test failure summary'
+require_text "summary=\${summary//'%'/'%25'}" "$test_step" 'Linux annotation percent escaping'
+require_text "summary=\${summary//\$'\\r'/'%0D'}" "$test_step" 'Linux annotation carriage-return escaping'
+require_text "summary=\${summary//\$'\\n'/'%0A'}" "$test_step" 'Linux annotation newline escaping'
+require_text '::error file=Makefile,line=30,title=Linux make test failure::%s' "$test_step" 'public Linux test failure annotation'
+require_text 'exit 1' "$test_step" 'Linux test failure exit'
+
 model_routing="$repository/crates/pangopup-cli/tests/model_routing.rs"
 if grep -Fq '#[cfg(target_os = "linux")]' "$model_routing"; then
     printf 'portable model-routing tests remain gated to Linux\n' >&2
