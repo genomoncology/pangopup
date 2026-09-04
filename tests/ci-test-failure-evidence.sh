@@ -66,8 +66,16 @@ done
 run_wrapper 2 2 0 "$bounded"
 annotation=${WRAPPER_OUTPUT##*$'\n'}
 summary=${annotation#*::error file=Makefile,line=30,title=Linux make test failure::}
+retained=${summary:0:4096}
 decoded=${summary//'%0A'/$'\n'}
 [[ "$decoded" != *discarded-line* ]]
 [[ "$decoded" == *line-130-* ]]
-[[ "$(printf '%s' "$decoded" | wc -c | tr -d ' ')" -le 16000 ]]
+if [[ "$retained" != *line-130-* ]]; then
+    printf 'the retained 4096-character annotation omitted the final test output\n' >&2
+    exit 1
+fi
+if [[ "${#summary}" -gt 4096 ]]; then
+    printf 'annotation summary exceeded the observed 4096-character limit\n' >&2
+    exit 1
+fi
 [[ "$(printf '%s' "$decoded" | awk 'END { print NR }')" -le 120 ]]

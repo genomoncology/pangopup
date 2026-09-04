@@ -11,7 +11,9 @@ tee_status=${statuses[1]}
 if [[ "$make_status" == 0 && "$tee_status" == 0 ]]; then
     exit 0
 fi
-if [[ -f "$log" ]] && summary=$(tail -n 120 "$log" | tail -c 16000); then
+# GitHub retains the first 4,096 annotation characters. Each raw byte can
+# expand to three characters below, so keep a final 1,300-byte tail.
+if [[ -f "$log" ]] && summary=$(tail -n 120 "$log" | tail -c 1300); then
     :
 else
     summary='Linux test log is unavailable'
