@@ -1679,7 +1679,14 @@ pub(crate) fn open_held_regular(
         libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
         0,
     )
-    .map_err(|error| AssetError::new(io_kind, error.to_string()))?;
+    .map_err(|error| {
+        let kind = if error.raw_os_error() == Some(libc::ELOOP) {
+            invalid_kind
+        } else {
+            io_kind
+        };
+        AssetError::new(kind, error.to_string())
+    })?;
     let metadata = file
         .metadata()
         .map_err(|error| AssetError::new(io_kind, error.to_string()))?;
@@ -2097,6 +2104,38 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static SERIAL: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn held_regular_open_classifies_only_terminal_symlinks_as_invalid() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let target = temp.path().join("target");
+        fs::write(&target, b"target").expect("target");
+        std::os::unix::fs::symlink(&target, temp.path().join("linked")).expect("symlink");
+        let parent = open_held_directory(
+            temp.path(),
+            AssetErrorKind::InputIo,
+            AssetErrorKind::PartSetInvalid,
+        )
+        .expect("held parent");
+
+        let linked = open_held_regular(
+            &parent,
+            "linked",
+            AssetErrorKind::InputIo,
+            AssetErrorKind::PartSetInvalid,
+        )
+        .expect_err("terminal symlink");
+        assert_eq!(linked.kind(), AssetErrorKind::PartSetInvalid);
+
+        let missing = open_held_regular(
+            &parent,
+            "missing",
+            AssetErrorKind::InputIo,
+            AssetErrorKind::PartSetInvalid,
+        )
+        .expect_err("missing input");
+        assert_eq!(missing.kind(), AssetErrorKind::InputIo);
+    }
 
     #[test]
     fn install_never_follows_a_symlinked_authority() {

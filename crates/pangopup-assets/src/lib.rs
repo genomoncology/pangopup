@@ -1378,6 +1378,7 @@ fn read_bounded_held(
     invalid_kind: AssetErrorKind,
 ) -> Result<Vec<u8>, AssetError> {
     let (file, metadata) = local::open_held_regular(directory, name, io_kind, invalid_kind)?;
+    record_test_input_open(Path::new(name));
     if metadata.len() > cap {
         return Err(AssetError::new(
             invalid_kind,
