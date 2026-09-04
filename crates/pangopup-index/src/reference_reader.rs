@@ -95,9 +95,11 @@ impl ReferenceBundleOpen {
     ///
     /// Unlike ordinary installed-runtime [`Self::open`], this bounded operation
     /// reads and hashes the complete member. It verifies the manifest-declared
-    /// size and SHA-256 before constructing the provider, detects descriptor or
-    /// pathname replacement during hashing, and retains the authenticated
-    /// descriptor alongside the mmap capability.
+    /// size and SHA-256 before constructing the provider, checks descriptor
+    /// metadata and pathname identity after hashing, and retains the
+    /// authenticated descriptor alongside the mmap capability. The caller
+    /// must keep the admitted inode immutable. Concurrent in-place mutation or
+    /// truncation remains outside the supported threat model.
     pub fn open_identified(
         bundle: &Path,
     ) -> Result<IdentifiedReferenceBundle, ReferenceIndexError> {
@@ -1099,7 +1101,7 @@ mod tests {
     }
 
     #[test]
-    fn identified_reference_rejects_same_size_corruption_symlink_and_hash_races() {
+    fn identified_reference_rejects_static_corruption_symlink_and_changes_after_open() {
         let scratch = identified_scratch("controls");
         if scratch.exists() {
             fs::remove_dir_all(&scratch).expect("remove stale identified scratch");
@@ -1130,23 +1132,18 @@ mod tests {
         let mutation = scratch.join("mutation");
         copy_route_bundle(&mutation);
         let mutation_path = mutation.join("reference.pgr");
-        let mut mutated = false;
         let result = ReferenceBundleOpen::open_identified_with(
             &mutation,
-            || {},
-            |_| {
-                if !mutated {
-                    mutate_reference(&mutation_path, 1);
-                    mutated = true;
-                }
-            },
+            || mutate_reference(&mutation_path, 1),
+            |_| {},
         );
-        assert!(matches!(
-            result,
+        match result {
             Err(ReferenceIndexError::Corrupt(
-                "reference member changed during hashing" | "reference member authentication"
-            ))
-        ));
+                "reference member changed during hashing" | "reference member authentication",
+            )) => {}
+            Err(error) => panic!("unexpected mutation result: {error:?}"),
+            Ok(_) => panic!("accepted reference member mutated after descriptor admission"),
+        }
 
         let replacement = scratch.join("replacement");
         copy_route_bundle(&replacement);

@@ -42,16 +42,7 @@ authority boundary. The resulting opaque capability retains and maps that
 descriptor, never reopens its pathname, and gives safe callers only the normal
 reference-provider behavior.
 
-Explicit CLI fallback uses the stricter `open_identified` capability. It opens
-one regular single-link `reference.pgr` descriptor without following symlinks,
-reads at most the bounded member size while hashing it, verifies the
-manifest-declared size and SHA-256, rejects descriptor mutation or pathname
-replacement during hashing, maps that same descriptor, and retains it with the
-provider used by scoring. This deliberately reads the complete reference
-member—772,091,760 bytes for the qualified production bundle—once when a
-batch actually requires explicit fallback. It is not paid by authoritative
-SNV hits, and it does not change the cheap ordinary open used after a future
-installer has already authenticated immutable bytes.
+Explicit CLI fallback uses the stricter `open_identified` capability. It opens one regular single-link `reference.pgr` descriptor without following symlinks. It reads at most the bounded member size while hashing it. It verifies the manifest-declared size and SHA-256. It checks descriptor metadata and pathname identity after hashing. It maps that same descriptor and retains it with the provider used by scoring. The caller must keep the identified inode immutable. The supported threat model excludes concurrent in-place mutation or truncation. One explicit fallback reads all 772,091,760 bytes of the qualified production member. Authoritative SNV hits skip this work. The cheap ordinary open remains unchanged after an installer has authenticated immutable bytes.
 
 The provider rejects empty or out-of-range windows without changing the
 destination. chrM never wraps. Alias parsing is an adapter concern; the core

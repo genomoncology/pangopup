@@ -757,12 +757,7 @@ fn validate_directory(
     expected.extend(manifest.payload.parts.iter().map(|part| part.path.clone()));
     let mut actual = BTreeSet::new();
     for name in local::read_names_bounded(directory, MAX_PARTS + 3)? {
-        let (_file, metadata) = local::open_held_regular(
-            directory,
-            &name,
-            AssetErrorKind::InputIo,
-            AssetErrorKind::PartSetInvalid,
-        )?;
+        let (_file, metadata) = open_transport_regular(directory, &name)?;
         let expected_size = match name.as_str() {
             "transport.json" => None,
             "bundle-manifest.json" => Some(manifest.bundle.manifest.size),
@@ -783,6 +778,25 @@ fn validate_directory(
         return Err(part_error("transport directory member set mismatch"));
     }
     Ok(())
+}
+
+fn open_transport_regular(
+    directory: &local::Dir,
+    name: &str,
+) -> Result<(File, fs::Metadata), AssetError> {
+    local::open_held_regular(
+        directory,
+        name,
+        AssetErrorKind::InputIo,
+        AssetErrorKind::PartSetInvalid,
+    )
+    .map_err(|error| {
+        normalize_held_non_regular(
+            error,
+            AssetErrorKind::PartSetInvalid,
+            "transport entries must be regular files",
+        )
+    })
 }
 
 #[cfg(test)]
@@ -1151,13 +1165,8 @@ impl<'a> PartReader<'a> {
         let Some(part) = self.payload.parts.get(self.index) else {
             return Ok(false);
         };
-        let (file, metadata) = local::open_held_regular(
-            self.directory,
-            &part.path,
-            AssetErrorKind::InputIo,
-            AssetErrorKind::PartSetInvalid,
-        )
-        .map_err(|error| self.fail(error))?;
+        let (file, metadata) =
+            open_transport_regular(self.directory, &part.path).map_err(|error| self.fail(error))?;
         if metadata.len() != part.size {
             return Err(self.fail(part_error("payload part changed size before opening")));
         }
@@ -1377,7 +1386,10 @@ fn read_bounded_held(
     io_kind: AssetErrorKind,
     invalid_kind: AssetErrorKind,
 ) -> Result<Vec<u8>, AssetError> {
-    let (file, metadata) = local::open_held_regular(directory, name, io_kind, invalid_kind)?;
+    let (file, metadata) = local::open_held_regular(directory, name, io_kind, invalid_kind)
+        .map_err(|error| {
+            normalize_held_non_regular(error, invalid_kind, "required input is not a regular file")
+        })?;
     record_test_input_open(Path::new(name));
     if metadata.len() > cap {
         return Err(AssetError::new(
@@ -1398,6 +1410,18 @@ fn read_bounded_held(
         ));
     }
     Ok(bytes)
+}
+
+fn normalize_held_non_regular(
+    error: AssetError,
+    invalid_kind: AssetErrorKind,
+    message: &'static str,
+) -> AssetError {
+    if error.kind() == invalid_kind {
+        AssetError::new(invalid_kind, message)
+    } else {
+        error
+    }
 }
 
 fn open_regular(
@@ -1860,6 +1884,73 @@ mod tests {
     fn embedded_notice_identity_is_pinned() {
         assert_eq!(NOTICE.len(), 1_709);
         assert_eq!(sha256(NOTICE), NOTICE_SHA256);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn held_non_regular_transport_manifest_keeps_stable_message() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let manifest_root = temp.path().join("manifest");
+        fs::create_dir(&manifest_root).expect("manifest root");
+        let manifest_target = temp.path().join("manifest-target");
+        fs::write(&manifest_target, b"manifest").expect("manifest target");
+        std::os::unix::fs::symlink(&manifest_target, manifest_root.join("transport.json"))
+            .expect("manifest symlink");
+        let manifest_directory =
+            open_transport_directory(&manifest_root).expect("held manifest root");
+
+        let symlink_error = read_bounded_held(
+            &manifest_directory,
+            "transport.json",
+            MAX_JSON_BYTES,
+            AssetErrorKind::InputIo,
+            AssetErrorKind::ManifestInvalid,
+        )
+        .expect_err("symlinked manifest");
+        assert_eq!(symlink_error.kind(), AssetErrorKind::ManifestInvalid);
+        assert_eq!(
+            symlink_error.to_string(),
+            "required input is not a regular file"
+        );
+
+        fs::remove_file(manifest_root.join("transport.json")).expect("remove manifest symlink");
+        fs::create_dir(manifest_root.join("transport.json")).expect("manifest directory");
+        let directory_error = read_bounded_held(
+            &manifest_directory,
+            "transport.json",
+            MAX_JSON_BYTES,
+            AssetErrorKind::InputIo,
+            AssetErrorKind::ManifestInvalid,
+        )
+        .expect_err("directory manifest");
+        assert_eq!(directory_error.kind(), AssetErrorKind::ManifestInvalid);
+        assert_eq!(
+            directory_error.to_string(),
+            "required input is not a regular file"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn held_non_regular_transport_part_keeps_stable_message() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let part_root = temp.path().join("parts");
+        fs::create_dir(&part_root).expect("part root");
+        fs::write(part_root.join("transport.json"), b"manifest").expect("transport manifest");
+        fs::write(part_root.join("bundle-manifest.json"), [0_u8; 10]).expect("bundle manifest");
+        fs::write(part_root.join("NOTICE"), NOTICE).expect("notice");
+        let part_target = temp.path().join("part-target");
+        fs::write(&part_target, [0_u8; 20]).expect("part target");
+        std::os::unix::fs::symlink(&part_target, part_root.join("payload.pgi.zst.part0000"))
+            .expect("part symlink");
+        let part_directory = open_transport_directory(&part_root).expect("held part root");
+        let part_error =
+            validate_directory(&part_directory, &signed_manifest()).expect_err("symlinked part");
+        assert_eq!(part_error.kind(), AssetErrorKind::PartSetInvalid);
+        assert_eq!(
+            part_error.to_string(),
+            "transport entries must be regular files"
+        );
     }
 
     #[test]
