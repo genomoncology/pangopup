@@ -3042,6 +3042,7 @@ mod tests {
         sync::{
             Arc, Condvar, Mutex,
             atomic::{AtomicU64, Ordering},
+            mpsc,
         },
         thread,
         time::Instant,
@@ -5905,9 +5906,10 @@ mod tests {
     fn real_client_bounds_header_and_body_stalls() {
         let header_listener = TcpListener::bind("127.0.0.1:0").expect("bind header server");
         let header_address = header_listener.local_addr().expect("header address");
+        let (release_header, hold_header) = mpsc::channel();
         let header_server = thread::spawn(move || {
             let (_stream, _) = header_listener.accept().expect("accept header");
-            thread::sleep(Duration::from_millis(80));
+            hold_header.recv().expect("hold stalled headers");
         });
         let client =
             ReqwestClient::with_timeouts(Duration::from_millis(25), Duration::from_millis(25));
@@ -5919,11 +5921,13 @@ mod tests {
             Ok(_) => panic!("header request unexpectedly succeeded"),
             Err(error) => error,
         };
+        release_header.send(()).expect("release stalled headers");
         assert_eq!(error.kind(), AssetErrorKind::AssetTimeout);
         header_server.join().expect("header server");
 
         let body_listener = TcpListener::bind("127.0.0.1:0").expect("bind body server");
         let body_address = body_listener.local_addr().expect("body address");
+        let (release_body, hold_body) = mpsc::channel();
         let body_server = thread::spawn(move || {
             let (mut stream, _) = body_listener.accept().expect("accept body");
             let mut request = [0_u8; 1024];
@@ -5932,7 +5936,7 @@ mod tests {
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nETag: \"stall\"\r\n\r\na")
                 .expect("write headers and prefix");
             stream.flush().expect("flush prefix");
-            thread::sleep(Duration::from_millis(80));
+            hold_body.recv().expect("hold stalled body");
         });
         let mut response = client
             .execute(&Request {
@@ -5953,6 +5957,7 @@ mod tests {
             &mut |_| Ok(()),
         )
         .expect_err("body timeout");
+        release_body.send(()).expect("release stalled body");
         assert_eq!(error.kind(), AssetErrorKind::AssetTimeout);
         body_server.join().expect("body server");
         drop(output);
