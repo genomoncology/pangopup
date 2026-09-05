@@ -99,7 +99,7 @@ impl WorkerBackend for FakeWorker {
         &mut self,
         pending: &PendingModel,
         _key: &CacheKey,
-    ) -> Result<RoutedResult, Failure> {
+    ) -> Result<RoutedResult, WorkerFailure> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(RoutedResult::Modeled {
             variant: pending.variant().clone(),
@@ -121,7 +121,7 @@ impl WorkerBackend for BlockingWorker {
         &mut self,
         pending: &PendingModel,
         _key: &CacheKey,
-    ) -> Result<RoutedResult, Failure> {
+    ) -> Result<RoutedResult, WorkerFailure> {
         let position = pending.variant().position().get();
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.order.lock().expect("order").push(position);
@@ -149,7 +149,7 @@ impl WorkerBackend for ControlledPanicWorker {
         &mut self,
         _pending: &PendingModel,
         _key: &CacheKey,
-    ) -> Result<RoutedResult, Failure> {
+    ) -> Result<RoutedResult, WorkerFailure> {
         let _ = self.entered.send(());
         let (lock, ready) = &*self.release;
         let mut released = lock.lock().expect("release");
@@ -165,7 +165,7 @@ struct FailSecondWorker {
 }
 
 struct FailingWorker {
-    failure: Failure,
+    failure: WorkerFailure,
 }
 
 impl WorkerBackend for FailingWorker {
@@ -173,12 +173,38 @@ impl WorkerBackend for FailingWorker {
         &mut self,
         _pending: &PendingModel,
         _key: &CacheKey,
-    ) -> Result<RoutedResult, Failure> {
-        Err(Failure {
-            code: self.failure.code,
-            message: self.failure.message.clone(),
-            exit: self.failure.exit,
-            details: self.failure.details.clone(),
+    ) -> Result<RoutedResult, WorkerFailure> {
+        Err(match &self.failure {
+            WorkerFailure::Rejected => WorkerFailure::Rejected,
+            WorkerFailure::Operational(failure) => WorkerFailure::Operational(Failure {
+                code: failure.code,
+                message: failure.message.clone(),
+                exit: failure.exit,
+                details: failure.details.clone(),
+            }),
+        })
+    }
+}
+
+struct RejectAtWorker {
+    position: u32,
+    calls: Arc<AtomicUsize>,
+}
+
+impl WorkerBackend for RejectAtWorker {
+    fn complete(
+        &mut self,
+        pending: &PendingModel,
+        _key: &CacheKey,
+    ) -> Result<RoutedResult, WorkerFailure> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if pending.variant().position().get() == self.position {
+            return Err(WorkerFailure::Rejected);
+        }
+        Ok(RoutedResult::Modeled {
+            variant: pending.variant().clone(),
+            records: Vec::new(),
+            provenance: provenance(),
         })
     }
 }
@@ -204,7 +230,10 @@ struct ProductionBlockingCompletion {
 }
 
 impl ModelCompletion for ProductionBlockingCompletion {
-    fn complete_unfiltered(&mut self, pending: PendingModel) -> Result<RoutedResult, Failure> {
+    fn complete_unfiltered(
+        &mut self,
+        pending: PendingModel,
+    ) -> Result<RoutedResult, ModelFallbackError> {
         let position = pending.variant().position().get();
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.order.lock().expect("order").push(position);
@@ -227,7 +256,10 @@ impl ModelCompletion for ProductionBlockingCompletion {
 }
 
 impl ModelCompletion for BlockingCompletion {
-    fn complete_unfiltered(&mut self, pending: PendingModel) -> Result<RoutedResult, Failure> {
+    fn complete_unfiltered(
+        &mut self,
+        pending: PendingModel,
+    ) -> Result<RoutedResult, ModelFallbackError> {
         let _ = self.entered.send(());
         let (lock, ready) = &*self.release;
         let mut released = lock.lock().expect("release");
@@ -247,7 +279,10 @@ impl ModelCompletion for BlockingCompletion {
 }
 
 impl ModelCompletion for FakeCompletion {
-    fn complete_unfiltered(&mut self, pending: PendingModel) -> Result<RoutedResult, Failure> {
+    fn complete_unfiltered(
+        &mut self,
+        pending: PendingModel,
+    ) -> Result<RoutedResult, ModelFallbackError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         if let Some(path) = &self.lock_probe {
             let connection = rusqlite::Connection::open(path).expect("open lock probe");
@@ -298,15 +333,15 @@ impl WorkerBackend for FailSecondWorker {
         &mut self,
         pending: &PendingModel,
         _key: &CacheKey,
-    ) -> Result<RoutedResult, Failure> {
+    ) -> Result<RoutedResult, WorkerFailure> {
         let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
         if call == 2 {
-            return Err(Failure {
+            return Err(WorkerFailure::Operational(Failure {
                 code: "MODEL_SCORING",
                 message: "test failure".to_owned(),
                 exit: 1,
                 details: None,
-            });
+            }));
         }
         Ok(RoutedResult::Modeled {
             variant: pending.variant().clone(),
@@ -1046,7 +1081,7 @@ async fn worker_panic_fans_out_to_running_and_queued_callers_then_closes_cleanly
     tokio::task::block_in_place(|| state.dispatcher.join_workers());
 }
 
-async fn worker_failure_response(failure: Failure) -> (StatusCode, Vec<u8>) {
+async fn worker_failure_response(failure: WorkerFailure) -> (StatusCode, Vec<u8>) {
     let state = build_state(
         Arc::new(FakeLookup),
         Box::new(EmptyCache),
@@ -1072,13 +1107,7 @@ async fn worker_failure_response(failure: Failure) -> (StatusCode, Vec<u8>) {
 
 #[tokio::test]
 async fn http_reports_model_rejected_worker_failure() {
-    let (status, body) = worker_failure_response(Failure {
-        code: "MODEL_REJECTED",
-        message: "request rejected".to_owned(),
-        exit: 2,
-        details: None,
-    })
-    .await;
+    let (status, body) = worker_failure_response(WorkerFailure::Rejected).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(
         body,
@@ -1088,12 +1117,12 @@ async fn http_reports_model_rejected_worker_failure() {
 
 #[tokio::test]
 async fn http_reports_model_scoring_worker_failure() {
-    let (status, body) = worker_failure_response(Failure {
+    let (status, body) = worker_failure_response(WorkerFailure::Operational(Failure {
         code: "MODEL_SCORING",
         message: "model failed".to_owned(),
         exit: 1,
         details: None,
-    })
+    }))
     .await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(
@@ -1104,18 +1133,197 @@ async fn http_reports_model_scoring_worker_failure() {
 
 #[tokio::test]
 async fn http_reports_model_cache_invalid_worker_failure() {
-    let (status, body) = worker_failure_response(Failure {
+    let (status, body) = worker_failure_response(WorkerFailure::Operational(Failure {
         code: "MODEL_CACHE_INVALID",
         message: "cache invalid".to_owned(),
         exit: 1,
         details: None,
-    })
+    }))
     .await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(
         body,
         b"{\"error\":{\"code\":\"MODEL_CACHE_INVALID\",\"message\":\"scoring failed\"}}\n"
     );
+}
+
+#[tokio::test]
+async fn operational_failure_is_not_reclassified_by_its_public_code() {
+    let (status, body) = worker_failure_response(WorkerFailure::Operational(Failure {
+        code: "MODEL_REJECTED",
+        message: "test operational failure".to_owned(),
+        exit: 1,
+        details: None,
+    }))
+    .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(
+        body,
+        b"{\"error\":{\"code\":\"MODEL_REJECTED\",\"message\":\"scoring failed\"}}\n"
+    );
+}
+
+fn state_with_worker(worker: Box<dyn WorkerBackend>) -> AppState {
+    build_state(
+        Arc::new(FakeLookup),
+        Box::new(EmptyCache),
+        identity(),
+        provenance(),
+        vec![worker],
+        1,
+        2,
+        AssetStatus {
+            snv_bundle_id: "snv".to_owned(),
+            model_bundle_id: "model".to_owned(),
+            reference_bundle_id: "reference".to_owned(),
+            mask_sha256: "mask".to_owned(),
+        },
+    )
+}
+
+#[derive(serde::Deserialize)]
+struct RawScoreOutput {
+    results: Vec<Box<RawValue>>,
+}
+
+#[tokio::test]
+async fn mixed_batch_keeps_precomputed_result_and_orders_typed_rejection() {
+    let state = state_with_worker(Box::new(RejectAtWorker {
+        position: 2,
+        calls: Arc::new(AtomicUsize::new(0)),
+    }));
+    let router = app(state);
+    let normal = router
+        .clone()
+        .oneshot(score_request(1))
+        .await
+        .expect("normal response");
+    let normal_bytes = body(normal).await;
+    let normal: RawScoreOutput = serde_json::from_slice(&normal_bytes).expect("normal JSON");
+    let response = router
+        .oneshot(
+            Request::post("/v1/score")
+                .body(Body::from(
+                    r#"{"variants":["GRCh38:chr1:1:A:C","GRCh38:chr1:2:A:C"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = body(response).await;
+    let raw: RawScoreOutput = serde_json::from_slice(&bytes).expect("raw JSON");
+    assert_eq!(raw.results[0].get(), normal.results[0].get());
+    assert_eq!(
+        raw.results[1].get(),
+        r#"{"assembly":"GRCh38","contig":"chr1","position":2,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"}}"#
+    );
+    let value: Value = serde_json::from_slice(&bytes).expect("JSON");
+    assert!(value["results"][1].get("provenance").is_none());
+}
+
+#[tokio::test]
+async fn mixed_batch_keeps_modeled_not_found_beside_rejection() {
+    let state = state_with_worker(Box::new(RejectAtWorker {
+        position: 3,
+        calls: Arc::new(AtomicUsize::new(0)),
+    }));
+    let response = app(state)
+        .oneshot(
+            Request::post("/v1/score")
+                .body(Body::from(
+                    r#"{"variants":["GRCh38:chr1:2:A:C","GRCh38:chr1:3:A:C"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: Value = serde_json::from_slice(&body(response).await).expect("JSON");
+    assert_eq!(value["results"][0]["status"], "not_found");
+    assert_eq!(value["results"][1]["status"], "rejected");
+}
+
+#[tokio::test]
+async fn batch_with_only_rejections_keeps_request_level_422() {
+    let state = state_with_worker(Box::new(RejectAtWorker {
+        position: 2,
+        calls: Arc::new(AtomicUsize::new(0)),
+    }));
+    let response = app(state)
+        .oneshot(
+            Request::post("/v1/score")
+                .body(Body::from(
+                    r#"{"variants":["GRCh38:chr1:2:A:C","GRCh38:chr1:2:A:C"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        body(response).await,
+        b"{\"error\":{\"code\":\"MODEL_REJECTED\",\"message\":\"scoring failed\"}}\n"
+    );
+}
+
+#[tokio::test]
+async fn mixed_batch_keeps_exact_cache_hit_beside_rejection_without_rescoring() {
+    let temp = tempfile::tempdir().expect("temp");
+    let (_path, mut cache) = private_cache(&temp);
+    let cached = pending_at(2);
+    cache
+        .put(
+            &CacheKey::new(cached.variant(), identity()),
+            &model_records(),
+        )
+        .expect("seed cache");
+    let calls = Arc::new(AtomicUsize::new(0));
+    let state = build_state(
+        Arc::new(FakeLookup),
+        Box::new(cache),
+        identity(),
+        provenance(),
+        vec![Box::new(RejectAtWorker {
+            position: 3,
+            calls: Arc::clone(&calls),
+        })],
+        1,
+        2,
+        AssetStatus {
+            snv_bundle_id: "snv".to_owned(),
+            model_bundle_id: "model".to_owned(),
+            reference_bundle_id: "reference".to_owned(),
+            mask_sha256: "mask".to_owned(),
+        },
+    );
+    let router = app(state);
+    let cached_only = router
+        .clone()
+        .oneshot(score_request(2))
+        .await
+        .expect("cached response");
+    let cached_only = body(cached_only).await;
+    let cached_only: RawScoreOutput = serde_json::from_slice(&cached_only).expect("cached JSON");
+    let mixed = router
+        .oneshot(
+            Request::post("/v1/score")
+                .body(Body::from(
+                    r#"{"variants":["GRCh38:chr1:2:A:C","GRCh38:chr1:3:A:C"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("mixed response");
+    assert_eq!(mixed.status(), StatusCode::OK);
+    let mixed = body(mixed).await;
+    let mixed: RawScoreOutput = serde_json::from_slice(&mixed).expect("mixed JSON");
+    assert_eq!(mixed.results[0].get(), cached_only.results[0].get());
+    assert_eq!(
+        mixed.results[1].get(),
+        r#"{"assembly":"GRCh38","contig":"chr1","position":3,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"}}"#
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

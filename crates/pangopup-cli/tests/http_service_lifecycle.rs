@@ -241,6 +241,45 @@ mod installed_success {
     }
 
     #[test]
+    fn real_executable_preserves_valid_result_beside_model_rejection() {
+        let temp = tempfile::tempdir().expect("temp");
+        let data = temp.path().join("data");
+        let (_profile, profile_path) = install(&data, temp.path());
+        let (mut child, address) = start(&data, &profile_path);
+        let scored = request(
+            &address,
+            "POST",
+            "/v1/score",
+            r#"{"variants":["GRCh38:chr12:6801301:G:A","GRCh38:chr1:5051:A:TC"]}"#,
+        );
+        assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+        assert!(child.wait().expect("service exit").success());
+        assert!(
+            scored.starts_with(b"HTTP/1.1 200 OK\r\n"),
+            "{}",
+            String::from_utf8_lossy(&scored)
+        );
+        let value: Value = serde_json::from_slice(response_body(&scored)).expect("score JSON");
+        assert_eq!(value["results"][0]["status"], "found");
+        assert_eq!(value["results"][0]["position"], 6_801_301);
+        assert_eq!(
+            value["results"][1],
+            serde_json::json!({
+                "assembly": "GRCh38",
+                "contig": "chr1",
+                "position": 5051,
+                "ref": "A",
+                "alt": "TC",
+                "status": "rejected",
+                "records": [],
+                "source_reference_ambiguities": [],
+                "error": {"code": "MODEL_REJECTED", "message": "scoring failed"}
+            })
+        );
+        assert!(value["results"][1].get("provenance").is_none());
+    }
+
+    #[test]
     fn real_executable_second_signal_forces_a_running_model_job() {
         let temp = tempfile::tempdir().expect("temp");
         let data = temp.path().join("data");

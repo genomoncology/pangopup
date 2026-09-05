@@ -19,10 +19,10 @@ use pangopup_assets::{AssetError, open_active_bundle, open_installed_runtime_pro
 use pangopup_assets::{open_test_runtime_profile, parse_runtime_profile};
 use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
 use pangopup_cli::render_result_raw;
-use pangopup_core::{EnsemblGeneId, ModelGeneScoreRecord};
+use pangopup_core::{EnsemblGeneId, Grch38Variant, ModelGeneScoreRecord};
 use pangopup_engine::{
-    ExplicitModelRequest, LookupFirstRouter, ModelFallback, ModelProvenance, RouteDecision,
-    RouteRequest, RoutedResult,
+    ExplicitModelRequest, LookupFirstRouter, ModelFallback, ModelFallbackError, ModelProvenance,
+    RouteDecision, RouteRequest, RoutedResult,
 };
 use pangopup_model::{CpuExecutionMode, CpuPolicy, IntraOpThreads};
 use serde::{Deserialize, Serialize};
@@ -86,24 +86,32 @@ impl CacheReader for ModelResultCache {
 }
 
 trait WorkerBackend: Send {
-    fn complete(&mut self, pending: &PendingModel, key: &CacheKey)
-    -> Result<RoutedResult, Failure>;
+    fn complete(
+        &mut self,
+        pending: &PendingModel,
+        key: &CacheKey,
+    ) -> Result<RoutedResult, WorkerFailure>;
 }
 
 trait ModelCompletion: Send {
-    fn complete_unfiltered(&mut self, pending: PendingModel) -> Result<RoutedResult, Failure>;
+    fn complete_unfiltered(
+        &mut self,
+        pending: PendingModel,
+    ) -> Result<RoutedResult, ModelFallbackError>;
     fn provenance(&self) -> &ModelProvenance;
 }
 
 impl ModelCompletion for ModelFallback {
-    fn complete_unfiltered(&mut self, pending: PendingModel) -> Result<RoutedResult, Failure> {
+    fn complete_unfiltered(
+        &mut self,
+        pending: PendingModel,
+    ) -> Result<RoutedResult, ModelFallbackError> {
         match pending {
             PendingModel::Lookup(request) => ModelFallback::complete_unfiltered(self, request),
             PendingModel::Explicit(request) => {
                 ModelFallback::complete_unfiltered_explicit(self, request)
             }
         }
-        .map_err(map_model_fallback_error)
     }
 
     fn provenance(&self) -> &ModelProvenance {
@@ -121,7 +129,7 @@ impl WorkerBackend for ProductionWorker {
         &mut self,
         pending: &PendingModel,
         key: &CacheKey,
-    ) -> Result<RoutedResult, Failure> {
+    ) -> Result<RoutedResult, WorkerFailure> {
         match self.cache.get(key) {
             Ok(Some(records)) => {
                 return Ok(routed_from_cached(
@@ -131,10 +139,18 @@ impl WorkerBackend for ProductionWorker {
                 ));
             }
             Ok(None) | Err(pangopup_cache::CacheError::Busy) => {}
-            Err(error) => return Err(map_cache_error(error)),
+            Err(error) => return Err(WorkerFailure::Operational(map_cache_error(error))),
         }
         let filter = pending.gene();
-        let modeled = self.fallback.complete_unfiltered(pending.clone())?;
+        let modeled = self
+            .fallback
+            .complete_unfiltered(pending.clone())
+            .map_err(|error| match error {
+                ModelFallbackError::Rejected(_) => WorkerFailure::Rejected,
+                error @ ModelFallbackError::Scoring(_) => {
+                    WorkerFailure::Operational(map_model_fallback_error(error))
+                }
+            })?;
         let RoutedResult::Modeled {
             variant,
             mut records,
@@ -163,8 +179,23 @@ struct JobItem {
 
 struct ModelJob {
     items: Vec<JobItem>,
-    response: oneshot::Sender<Result<Vec<(usize, RoutedResult)>, WorkerReply>>,
+    response: oneshot::Sender<Result<Vec<(usize, ScoreOutcome)>, WorkerReply>>,
     slot: JobSlot,
+}
+
+// Keep ordinary completed values inline. Boxing this variant would add an
+// allocation for every successful item. The uncommon rejection does not
+// justify that cost.
+#[allow(clippy::large_enum_variant)]
+enum ScoreOutcome {
+    Complete(RoutedResult),
+    Rejected(Grch38Variant),
+}
+
+#[derive(Debug)]
+enum WorkerFailure {
+    Rejected,
+    Operational(Failure),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -175,7 +206,7 @@ enum JobSlot {
 }
 
 enum WorkerReply {
-    BackendFailure(&'static str),
+    BackendFailure(Failure),
     Unavailable,
 }
 
@@ -731,16 +762,22 @@ fn spawn_worker(
 fn process_job(
     backend: &mut dyn WorkerBackend,
     job: &ModelJob,
-) -> Result<Vec<(usize, RoutedResult)>, WorkerReply> {
+) -> Result<Vec<(usize, ScoreOutcome)>, WorkerReply> {
     let mut results = Vec::with_capacity(job.items.len());
     for item in &job.items {
         if job.response.is_closed() {
             return Ok(results);
         }
-        let result = backend
-            .complete(&item.pending, &item.key)
-            .map_err(|failure| WorkerReply::BackendFailure(failure.code))?;
-        results.push((item.output_index, result));
+        match backend.complete(&item.pending, &item.key) {
+            Ok(result) => results.push((item.output_index, ScoreOutcome::Complete(result))),
+            Err(WorkerFailure::Rejected) => results.push((
+                item.output_index,
+                ScoreOutcome::Rejected(item.pending.variant().clone()),
+            )),
+            Err(WorkerFailure::Operational(failure)) => {
+                return Err(WorkerReply::BackendFailure(failure));
+            }
+        }
     }
     Ok(results)
 }
@@ -895,7 +932,7 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
             Err(_) => return invalid_request("variant is invalid"),
         }
     }
-    let mut outputs: Vec<Option<RoutedResult>> = (0..variants.len()).map(|_| None).collect();
+    let mut outputs: Vec<Option<ScoreOutcome>> = (0..variants.len()).map(|_| None).collect();
     let mut pending = Vec::new();
     for (index, variant) in variants.into_iter().enumerate() {
         let decision = if input.model_only.unwrap_or(false) {
@@ -918,7 +955,9 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
             }
         };
         match decision {
-            BatchDecision::Authoritative(result) => outputs[index] = Some(result),
+            BatchDecision::Authoritative(result) => {
+                outputs[index] = Some(ScoreOutcome::Complete(result));
+            }
             BatchDecision::Model(required) => {
                 let key = CacheKey::new(required.variant(), state.cache_identity.clone());
                 pending.push(JobItem {
@@ -942,11 +981,11 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
     let mut misses = Vec::new();
     for (item, cached) in pending {
         if let Some(records) = cached {
-            outputs[item.output_index] = Some(routed_from_cached(
+            outputs[item.output_index] = Some(ScoreOutcome::Complete(routed_from_cached(
                 &item.pending,
                 records,
                 state.provenance.clone(),
-            ));
+            )));
         } else {
             misses.push(item);
         }
@@ -1001,13 +1040,12 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
                     outputs[index] = Some(result);
                 }
             }
-            Ok(Err(WorkerReply::BackendFailure(code))) => {
-                let status = if code == "MODEL_REJECTED" {
-                    StatusCode::UNPROCESSABLE_ENTITY
-                } else {
-                    StatusCode::INTERNAL_SERVER_ERROR
-                };
-                return service_error(status, code, "scoring failed");
+            Ok(Err(WorkerReply::BackendFailure(failure))) => {
+                return service_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    failure.code,
+                    "scoring failed",
+                );
             }
             Ok(Err(WorkerReply::Unavailable)) | Err(_) => {
                 return service_error(
@@ -1018,6 +1056,16 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
             }
         }
     }
+    if outputs
+        .iter()
+        .all(|output| matches!(output, Some(ScoreOutcome::Rejected(_))))
+    {
+        return service_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "MODEL_REJECTED",
+            "scoring failed",
+        );
+    }
     let mut results = Vec::with_capacity(outputs.len());
     for output in outputs {
         let Some(output) = output else {
@@ -1027,7 +1075,11 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
                 "scoring failed",
             );
         };
-        match render_result_raw(output) {
+        let rendered: Result<Box<RawValue>, ()> = match output {
+            ScoreOutcome::Complete(result) => render_result_raw(result).map_err(|_| ()),
+            ScoreOutcome::Rejected(variant) => render_rejection_raw(variant),
+        };
+        match rendered {
             Ok(value) => results.push(value),
             Err(_) => {
                 return service_error(
@@ -1039,6 +1091,39 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
         }
     }
     json_response(StatusCode::OK, &ScoreOutput { results })
+}
+
+#[derive(Serialize)]
+struct RejectedScoreOutput {
+    assembly: &'static str,
+    contig: String,
+    position: u32,
+    #[serde(rename = "ref")]
+    reference: String,
+    #[serde(rename = "alt")]
+    alternate: String,
+    status: &'static str,
+    records: [(); 0],
+    source_reference_ambiguities: [(); 0],
+    error: ErrorBody<'static>,
+}
+
+fn render_rejection_raw(variant: Grch38Variant) -> Result<Box<RawValue>, ()> {
+    let value = RejectedScoreOutput {
+        assembly: "GRCh38",
+        contig: variant.contig().to_string(),
+        position: variant.position().get(),
+        reference: variant.reference().to_owned(),
+        alternate: variant.alternate().to_owned(),
+        status: "rejected",
+        records: [],
+        source_reference_ambiguities: [],
+        error: ErrorBody {
+            code: "MODEL_REJECTED",
+            message: "scoring failed",
+        },
+    };
+    serde_json::value::to_raw_value(&value).map_err(|_| ())
 }
 
 async fn handler_cache_hits(

@@ -75,11 +75,7 @@ in-place mmap/model swap.
 
 ## HTTP contract
 
-The first HTTP slice is versioned batch JSON over explicit GRCh38 variants,
-stable typed errors, health/readiness/status endpoints, 64-KiB bodies,
-100-variant batches, a 10-uncached-model-variant limit, backpressure, and
-deterministic ordering. It adds no transcript HGVS, projection, clinical
-interpretation, remote calls, job IDs, polling, or server-side model timeout.
+The first HTTP slice is versioned batch JSON over explicit GRCh38 variants, stable typed errors, health/readiness/status endpoints, 64-KiB bodies, 100-variant batches, a 10-uncached-model-variant limit, backpressure, and deterministic ordering. A model rejection belongs to its input item when the request also produces at least one normal outcome and no operational failure occurs. The response keeps that rejection in input order and returns HTTP 200. HTTP 422 applies only when every input outcome is model-rejected. An authoritative or cached normal outcome therefore keeps a mixed response at HTTP 200. Scoring, cache, worker, and readiness failures invalidate the complete request. They never become item absences or rejections. The HTTP slice adds no transcript HGVS, projection, clinical interpretation, remote calls, job IDs, polling, or server-side model timeout.
 
 The executable CLI's JSONL contract is already shipped and remains useful for
 process-boundary integration and testing. HTTP defines a separate JSON request

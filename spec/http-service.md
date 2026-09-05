@@ -37,20 +37,13 @@ success/error bytes, lookup and SQLite bypass under saturation, FIFO admission,
 429 backpressure, disconnect behavior, worker loss, graceful drain, and the
 HTTP-required empty wire body plus exact representation headers for `HEAD`.
 
-The public route identifies model-rejected input as a client error while
-keeping the generic `scoring failed` message. The miniature installed profile
-exercises that behavior through the real executable and HTTP listener.
+The public route identifies an entirely model-rejected request as a client error and keeps the generic `scoring failed` message. A request with at least one normal outcome and no operational failure returns HTTP 200. The response preserves one ordered outcome for every input. An item that the model rejects has `status: "rejected"`, empty `records` and `source_reference_ambiguities`, no provenance, and the stable generic `MODEL_REJECTED` error. HTTP 422 applies only when every input outcome is model-rejected. The miniature installed profile exercises both behaviors through the real executable and HTTP listener.
 
 ```bash
 cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
-  --test http_service_lifecycle real_executable_answers_model_rejection_with_422 \
+  --test http_service_lifecycle real_executable_ \
   >/dev/null 2>&1
-printf 'MODEL_REJECTED is HTTP 422\n' | mustmatch like 'MODEL_REJECTED is HTTP 422'
+printf 'MODEL_REJECTED is HTTP 422 for an unusable request and an ordered item outcome in a mixed response\n' | mustmatch like 'MODEL_REJECTED is HTTP 422 for an unusable request and an ordered item outcome in a mixed response'
 ```
 
-Backend scoring and unusable-cache failures remain HTTP 500. Their
-machine-readable `error.code` remains `MODEL_SCORING` or
-`MODEL_CACHE_INVALID`. Inside-out service tests inject all three backend
-families and pin their exact status and generic response body. The public
-fixture does not corrupt a production-only model or cache path solely to
-manufacture those server failures.
+Backend scoring and unusable-cache failures invalidate the complete request and remain HTTP 500. Their machine-readable `error.code` remains `MODEL_SCORING` or `MODEL_CACHE_INVALID`. Worker loss and service readiness failures also remain request-level errors. Inside-out service tests inject all backend families and pin their exact status and generic response body. The public fixture does not corrupt a production-only model or cache path solely to manufacture those server failures.
