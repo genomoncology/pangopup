@@ -95,7 +95,7 @@ There is no `make check`. Run all three gates before committing.
   twelve raw channels. Closed v2 contracts and bounded candidate execution are
   retained only for maintainer reproduction. It does not own genomic variant
   construction, post-processing, masking, routing, or a public score provider.
-- `crates/pangopup-engine` owns fixed GRCh38 distance-50 variant construction,
+- `crates/pangopup-engine` owns pre-canonical exact-edit values, conversion to the shared canonical literal variant, fixed GRCh38 distance-50 variant construction,
   ensemble/indel arithmetic, order-sensitive masking, extrema, exact public
   modeled results, and the small lookup-first router/filter boundary. It does
   not own transport, caching, CLI, asset-opening policy, or concurrency policy.

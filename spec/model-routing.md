@@ -106,6 +106,26 @@ The checked synthetic route traverses the real PGRREF01 reader, domains mmap,
 ONNX Runtime CPU kernel, and compatible variant scorer. Exact model provenance
 and the no-annotated-sites warning are present.
 
+The exact insertion grammar reads its left anchor from that same reference. Both lookup-first and model-only paths render the same canonical allele as the equivalent anchored input.
+
+```bash
+for mode in lookup model-only; do
+  if test "$mode" = lookup; then
+    route="--bundle ../tests/fixtures/snv-regression/bundle"
+  else
+    route="--model-only"
+  fi
+  # shellcheck disable=SC2086
+  pangopup lookup $route \
+    --variant GRCh38:chr1:INS:5051:5052:C \
+    --reference-bundle ../tests/fixtures/reference-route-test/bundle \
+    --mask ../tests/fixtures/route-mask/domains.pgm \
+    --model-bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle \
+    | rg -o '"position":5051,"ref":"A","alt":"AC","status":"found"' \
+    | mustmatch like '"position":5051,"ref":"A","alt":"AC","status":"found"'
+done
+```
+
 ```bash
 pangopup lookup \
   --bundle ../tests/fixtures/snv-regression/bundle \

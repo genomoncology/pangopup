@@ -19,10 +19,11 @@ use pangopup_assets::{AssetError, open_active_bundle, open_installed_runtime_pro
 use pangopup_assets::{open_test_runtime_profile, parse_runtime_profile};
 use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
 use pangopup_cli::render_result_raw;
-use pangopup_core::{Grch38Variant, ModelGeneScoreRecord};
+use pangopup_core::{Grch38Variant, ModelGeneScoreRecord, ReferenceProvider};
 use pangopup_engine::{
-    ExplicitModelRequest, LookupFirstRouter, ModelFallback, ModelFallbackError, ModelProvenance,
-    RouteDecision, RouteRequest, RoutedResult,
+    ExactEditConversionError, ExplicitModelRequest, LookupFirstRouter, ModelFallback,
+    ModelFallbackError, ModelProvenance, RouteDecision, RouteRequest, RoutedResult,
+    convert_exact_edit,
 };
 use pangopup_model::{CpuExecutionMode, CpuPolicy, IntraOpThreads};
 use serde::{Deserialize, Serialize};
@@ -350,6 +351,7 @@ struct AppState {
     provenance: ModelProvenance,
     dispatcher: Dispatcher,
     assets: AssetStatus,
+    reference: Option<Arc<dyn ReferenceProvider>>,
 }
 
 #[derive(Deserialize)]
@@ -538,8 +540,7 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
     let (active, bundle) = open_active_bundle(&data)
         .map_err(|error| map_startup_asset_error(error, super::map_lookup_asset_error))?;
     let installed = open_service_runtime(&data, &active.bundle_id)?;
-    let profile = installed.profile().clone();
-    drop(installed);
+    let (profile, _, conversion_reference, _) = installed.into_parts();
     let policy = CpuPolicy::new(
         CpuExecutionMode::Sequential,
         IntraOpThreads::Fixed(NonZeroUsize::new(options.threads).expect("positive threads")),
@@ -604,7 +605,7 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
         reference_bundle_id: profile.reference.bundle_id,
         mask_sha256: profile.mask.member_sha256,
     };
-    let state = build_state(
+    let mut state = build_state(
         Arc::new(LookupFirstRouter::new(bundle)),
         Box::new(handler_cache),
         identity,
@@ -614,6 +615,7 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
         options.queue_capacity,
         assets,
     );
+    state.reference = Some(Arc::new(conversion_reference));
     let listener = tokio::net::TcpListener::bind(options.listen)
         .await
         .map_err(|_| Failure {
@@ -728,6 +730,7 @@ fn build_state(
         provenance,
         dispatcher,
         assets,
+        reference: None,
     }
 }
 
@@ -1113,14 +1116,44 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
     };
     let mut variants = Vec::with_capacity(input.variants.len());
     for value in input.variants {
-        match super::parse_variant(&value) {
-            Ok(variant) => variants.push(variant),
+        match super::parse_variant_input(&value) {
+            Ok(super::VariantInput::Literal(variant)) => variants.push(Ok(variant)),
+            Ok(super::VariantInput::Exact(edit)) => {
+                let Some(reference) = state.reference.as_deref() else {
+                    return service_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "SCORING_FAILED",
+                        "scoring failed",
+                    );
+                };
+                match convert_exact_edit(reference, &edit) {
+                    Ok(variant) => variants.push(Ok(variant)),
+                    Err(ExactEditConversionError::Rejected(variant)) => variants.push(Err(variant)),
+                    Err(ExactEditConversionError::InvalidRequest) => {
+                        return invalid_request("variant is invalid");
+                    }
+                    Err(ExactEditConversionError::ReferenceProvider(_)) => {
+                        return service_error(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "SCORING_FAILED",
+                            "scoring failed",
+                        );
+                    }
+                }
+            }
             Err(_) => return invalid_request("variant is invalid"),
         }
     }
     let mut outputs: Vec<Option<ScoreOutcome>> = (0..variants.len()).map(|_| None).collect();
     let mut pending = Vec::new();
-    for (index, variant) in variants.into_iter().enumerate() {
+    for (index, converted) in variants.into_iter().enumerate() {
+        let variant = match converted {
+            Ok(variant) => variant,
+            Err(variant) => {
+                outputs[index] = Some(ScoreOutcome::Rejected(variant));
+                continue;
+            }
+        };
         let decision = if input.model_only.unwrap_or(false) {
             BatchDecision::Model(PendingModel::Explicit(ExplicitModelRequest::new(
                 RouteRequest::new(variant, gene),

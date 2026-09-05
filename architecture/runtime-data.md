@@ -197,6 +197,8 @@ explicit fallback. Ordinary installed-reference open remains structural and
 cheap: installation authenticated the member once before activation, and
 runtime maps the held installed descriptor without rehashing the dense payload.
 
+Exact-edit conversion reads the same installed GRCh38 reference identity and provider implementation used by model scoring. The HTTP service holds one additional authenticated descriptor and mmap for request-time conversion because model workers own their scorers independently. Conversion finishes before lookup routing, SQLite cache access, queue admission, and inference. Equivalent exact and anchored inputs therefore share the existing literal-variant cache key. Conversion adds no reference source or cache schema.
+
 Successful model fallback now stores complete unfiltered typed records in a
 disposable SQLite cache. Its full key binds the literal variant to every model,
 reference, mask, scoring, window, and CPU-policy identity. A reopened hit still

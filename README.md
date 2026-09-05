@@ -58,7 +58,7 @@ Native macOS uses the same commands after a source install. The Storage and oper
 
 ## Input and output
 
-Variants use `GRCh38:CONTIG:POS:REF:ALT` with a 1-based genomic position. Accepted
+Literal variants use `GRCh38:CONTIG:POS:REF:ALT` with a 1-based genomic position. Accepted
 contigs are `1`–`22`, `X`, `Y`, `M`, `MT`, their `chr` forms, or the corresponding installed
 RefSeq accessions. Alleles must be nonempty uppercase strings containing only A, C, G,
 or T.
@@ -68,6 +68,8 @@ normalize alleles. Insertions and deletions use an anchored form: the REF and AL
 share the first base, and one allele is one base long. Model scoring checks REF against the
 installed GRCh38 reference and accepts at most 100 bases in either allele. Equal-length
 substitutions are also supported.
+
+Exact indels omit padding. `GRCh38:CONTIG:INS:LEFT:RIGHT:SEQUENCE` requires adjacent one-based coordinates. `GRCh38:CONTIG:DEL:START:END:SEQUENCE` uses an inclusive interval with matching sequence length and cannot start at one. Sequences contain 1–99 uppercase A/C/G/T bases. PangoPup reads the left anchor and verifies deletions against its reference before routing and caching.
 
 ```bash
 # Score a batch and render a tab-separated table.
@@ -82,7 +84,8 @@ pangopup lookup --variant GRCh38:chr12:6801301:G:A \
 
 # Bypass the SNV index and run the model explicitly.
 pangopup lookup --model-only \
-  --variant GRCh38:chr12:6801301:G:A
+  --variant GRCh38:chr1:INS:5051:5052:C
+
 ```
 
 JSON Lines is the default format. Each result contains a `status`, zero or more gene
@@ -122,11 +125,12 @@ curl -fsS http://127.0.0.1:8080/v1/score \
 curl -fsS http://127.0.0.1:8080/v1/score \
   -H 'content-type: application/json' \
   --data '{"variants":["GRCh38:chr12:6801301:G:A"],"model_only":true}'
+
 ```
 
 Health and status routes are `/livez`, `/readyz`, and `/v1/status`. `/v1/score` requires exactly one `Content-Type: application/json` field. Media-type spelling is case-insensitive and legal parameters are accepted. Other media types, JSON suffix types, malformed values, missing values, and repeated fields receive HTTP 415. `/v1/score` accepts 1–100 variants per request and at most 10 uncached model variants. A batch with at least one normal outcome and no operational failure returns HTTP 200. The response keeps one outcome in input order for every variant. A model-rejected item has `status: "rejected"`, empty `records` and `source_reference_ambiguities`, no provenance, and `error.code: "MODEL_REJECTED"`. Callers must inspect each item status. A request returns HTTP 422 only when every input outcome is model-rejected. Scoring, cache, worker, and readiness failures invalidate the complete request and return a request-level error. Transient queue saturation returns HTTP 429 with one decimal-seconds `Retry-After`. An overweight request omits the header. The service has no built-in authentication or TLS. Keep it on loopback or place it behind an authenticated TLS reverse proxy with suitable limits. Use Docker, systemd, Kubernetes, or another process manager when the foreground process needs supervised start, stop, and restart behavior.
 
-`--model-queue-capacity` bounds running and queued uncached model variants. The default is 20. Lookup and completed SQLite hits use no units. The status route reports the same `uncached_model_variant` units. A transient HTTP 429 sets `Retry-After` to `ceil((running + queued) × 10.241)` seconds with a one-second minimum. The service captures that work during refusal. It does not divide by worker count because the retained measurements do not prove linear scaling. The 10.241-second value is the slowest retained p50 in `planning/artifacts/022-reference-alternate-batching.md`. The guidance does not guarantee future capacity. A request heavier than total capacity omits it. Configure the bound for the workload.
+`--model-queue-capacity` bounds running and queued uncached model variants and defaults to 20. Lookup and completed SQLite hits use no units. Status reports the same `uncached_model_variant` units. A transient HTTP 429 sets `Retry-After` to `ceil((running + queued) × 10.241)` seconds. This conservative guidance uses the slowest retained p50 and does not promise capacity. An overweight request omits it.
 
 ## Docker
 

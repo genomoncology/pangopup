@@ -24,6 +24,184 @@ const FLANK: u32 = 5_050;
 const CONTEXT_BASES: usize = 10_100;
 const MAX_ALLELE_BASES: usize = 100;
 
+/// One pre-canonical GRCh38 edit whose left anchor must be read from the reference.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum Grch38ExactEdit {
+    Insertion {
+        contig: Grch38Contig,
+        left: GenomicPosition,
+        right: GenomicPosition,
+        inserted: String,
+    },
+    Deletion {
+        contig: Grch38Contig,
+        start: GenomicPosition,
+        end: GenomicPosition,
+        deleted: String,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExactEditError {
+    NonAdjacentInsertion,
+    ReversedDeletion,
+    DeletionAtFirstBase,
+    SequenceLengthMismatch,
+    InvalidSequence,
+}
+
+impl fmt::Display for ExactEditError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::NonAdjacentInsertion => "insertion coordinates must be adjacent",
+            Self::ReversedDeletion => "deletion end must not precede its start",
+            Self::DeletionAtFirstBase => "a deletion requires a left anchor",
+            Self::SequenceLengthMismatch => "deletion sequence length must match its interval",
+            Self::InvalidSequence => {
+                "edit sequence must contain 1 through 99 uppercase A/C/G/T bases"
+            }
+        })
+    }
+}
+
+impl std::error::Error for ExactEditError {}
+
+impl Grch38ExactEdit {
+    pub fn insertion(
+        contig: Grch38Contig,
+        left: GenomicPosition,
+        right: GenomicPosition,
+        inserted: impl Into<String>,
+    ) -> Result<Self, ExactEditError> {
+        let inserted = checked_edit_sequence(inserted.into())?;
+        if left.get().checked_add(1) != Some(right.get()) {
+            return Err(ExactEditError::NonAdjacentInsertion);
+        }
+        Ok(Self::Insertion {
+            contig,
+            left,
+            right,
+            inserted,
+        })
+    }
+
+    pub fn deletion(
+        contig: Grch38Contig,
+        start: GenomicPosition,
+        end: GenomicPosition,
+        deleted: impl Into<String>,
+    ) -> Result<Self, ExactEditError> {
+        let deleted = checked_edit_sequence(deleted.into())?;
+        if start.get() == 1 {
+            return Err(ExactEditError::DeletionAtFirstBase);
+        }
+        let length = end
+            .get()
+            .checked_sub(start.get())
+            .and_then(|span| span.checked_add(1))
+            .ok_or(ExactEditError::ReversedDeletion)?;
+        if usize::try_from(length).ok() != Some(deleted.len()) {
+            return Err(ExactEditError::SequenceLengthMismatch);
+        }
+        Ok(Self::Deletion {
+            contig,
+            start,
+            end,
+            deleted,
+        })
+    }
+}
+
+fn checked_edit_sequence(sequence: String) -> Result<String, ExactEditError> {
+    if !(1..=99).contains(&sequence.len())
+        || !sequence
+            .as_bytes()
+            .iter()
+            .all(|base| matches!(base, b'A' | b'C' | b'G' | b'T'))
+    {
+        return Err(ExactEditError::InvalidSequence);
+    }
+    Ok(sequence)
+}
+
+/// The outcome of constructing a literal allele from an exact edit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExactEditConversionError {
+    InvalidRequest,
+    Rejected(Grch38Variant),
+    ReferenceProvider(ReferenceError),
+}
+
+/// Convert an exact edit to the one canonical literal tuple used by routing and caching.
+pub fn convert_exact_edit(
+    reference: &dyn ReferenceProvider,
+    edit: &Grch38ExactEdit,
+) -> Result<Grch38Variant, ExactEditConversionError> {
+    match edit {
+        Grch38ExactEdit::Insertion {
+            contig,
+            left,
+            inserted,
+            ..
+        } => {
+            let mut adjacent = [0_u8; 2];
+            copy_edit_window(reference, *contig, *left, &mut adjacent)?;
+            let anchor = checked_anchor(adjacent[0])?;
+            let mut alternate = String::with_capacity(inserted.len() + 1);
+            alternate.push(char::from(anchor));
+            alternate.push_str(inserted);
+            Grch38Variant::new(*contig, *left, char::from(anchor).to_string(), alternate)
+                .map_err(|_| ExactEditConversionError::InvalidRequest)
+        }
+        Grch38ExactEdit::Deletion {
+            contig,
+            start,
+            deleted,
+            ..
+        } => {
+            let anchor_position = GenomicPosition::new(start.get() - 1)
+                .expect("exact deletion construction requires a left anchor");
+            let mut observed = vec![0_u8; deleted.len() + 1];
+            copy_edit_window(reference, *contig, anchor_position, &mut observed)?;
+            let anchor = checked_anchor(observed[0])?;
+            let reference_allele = format!("{}{}", char::from(anchor), deleted);
+            let variant = Grch38Variant::new(
+                *contig,
+                anchor_position,
+                reference_allele,
+                char::from(anchor).to_string(),
+            )
+            .expect("validated exact edit and anchor form a literal deletion");
+            if observed[1..] != deleted.as_bytes()[..] {
+                return Err(ExactEditConversionError::Rejected(variant));
+            }
+            Ok(variant)
+        }
+    }
+}
+
+fn copy_edit_window(
+    reference: &dyn ReferenceProvider,
+    contig: Grch38Contig,
+    start: GenomicPosition,
+    destination: &mut [u8],
+) -> Result<(), ExactEditConversionError> {
+    reference
+        .copy_window(contig, start, destination)
+        .map_err(|error| match error {
+            ReferenceError::OutOfBounds | ReferenceError::EmptyWindow => {
+                ExactEditConversionError::InvalidRequest
+            }
+            _ => ExactEditConversionError::ReferenceProvider(error),
+        })
+}
+
+fn checked_anchor(anchor: u8) -> Result<u8, ExactEditConversionError> {
+    matches!(anchor, b'A' | b'C' | b'G' | b'T')
+        .then_some(anchor)
+        .ok_or(ExactEditConversionError::InvalidRequest)
+}
+
 /// Mutable, single-owner composition of the three production providers.
 pub struct VariantScorer {
     engine: ScoringEngine,

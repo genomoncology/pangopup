@@ -241,6 +241,210 @@ struct FixtureReference {
     provenance: ReferenceProvenance,
 }
 
+#[test]
+fn exact_edits_convert_to_left_anchored_literal_variants() {
+    let insertion = Grch38ExactEdit::insertion(
+        Grch38Contig::autosome(1).expect("contig"),
+        GenomicPosition::new(20).expect("position"),
+        GenomicPosition::new(21).expect("position"),
+        "TG",
+    )
+    .expect("insertion");
+    let reference = FixtureReference {
+        contig: Grch38Contig::autosome(1).expect("contig"),
+        start: GenomicPosition::new(20).expect("position"),
+        bases: b"AC".to_vec(),
+        provenance: dummy_provenance(),
+    };
+    assert_eq!(
+        convert_exact_edit(&reference, &insertion).expect("conversion"),
+        Grch38Variant::new(
+            Grch38Contig::autosome(1).expect("contig"),
+            GenomicPosition::new(20).expect("position"),
+            "A",
+            "ATG",
+        )
+        .expect("variant")
+    );
+
+    let deletion = Grch38ExactEdit::deletion(
+        Grch38Contig::autosome(1).expect("contig"),
+        GenomicPosition::new(20).expect("position"),
+        GenomicPosition::new(21).expect("position"),
+        "CG",
+    )
+    .expect("deletion");
+    let reference = FixtureReference {
+        contig: Grch38Contig::autosome(1).expect("contig"),
+        start: GenomicPosition::new(19).expect("position"),
+        bases: b"TCG".to_vec(),
+        provenance: dummy_provenance(),
+    };
+    assert_eq!(
+        convert_exact_edit(&reference, &deletion).expect("conversion"),
+        Grch38Variant::new(
+            Grch38Contig::autosome(1).expect("contig"),
+            GenomicPosition::new(19).expect("position"),
+            "TCG",
+            "T",
+        )
+        .expect("variant")
+    );
+}
+
+#[test]
+fn exact_edit_values_enforce_geometry_and_payload_boundaries() {
+    let contig = Grch38Contig::autosome(1).expect("contig");
+    let position = |value| GenomicPosition::new(value).expect("position");
+    assert!(Grch38ExactEdit::insertion(contig, position(1), position(2), "A").is_ok());
+    assert_eq!(
+        Grch38ExactEdit::insertion(contig, position(u32::MAX), position(1), "A"),
+        Err(ExactEditError::NonAdjacentInsertion)
+    );
+    assert_eq!(
+        Grch38ExactEdit::deletion(contig, position(3), position(2), "A"),
+        Err(ExactEditError::ReversedDeletion)
+    );
+    assert_eq!(
+        Grch38ExactEdit::deletion(contig, position(1), position(1), "A"),
+        Err(ExactEditError::DeletionAtFirstBase)
+    );
+    assert_eq!(
+        Grch38ExactEdit::deletion(contig, position(2), position(3), "A"),
+        Err(ExactEditError::SequenceLengthMismatch)
+    );
+    for invalid in [
+        String::new(),
+        "N".to_owned(),
+        "a".to_owned(),
+        "A".repeat(100),
+    ] {
+        assert_eq!(
+            Grch38ExactEdit::insertion(contig, position(1), position(2), invalid),
+            Err(ExactEditError::InvalidSequence)
+        );
+    }
+    let maximum = Grch38ExactEdit::insertion(contig, position(1), position(2), "A".repeat(99))
+        .expect("maximum insertion");
+    let literal = convert_exact_edit(
+        &EditReference(Ok(b"AC".to_vec()), dummy_provenance()),
+        &maximum,
+    )
+    .expect("maximum conversion");
+    assert_eq!(literal.alternate().len(), 100);
+}
+
+#[test]
+fn exact_deletion_mismatch_returns_the_submitted_literal_tuple() {
+    let edit = Grch38ExactEdit::deletion(
+        Grch38Contig::autosome(1).expect("contig"),
+        GenomicPosition::new(20).expect("position"),
+        GenomicPosition::new(21).expect("position"),
+        "CG",
+    )
+    .expect("deletion");
+    let reference = FixtureReference {
+        contig: Grch38Contig::autosome(1).expect("contig"),
+        start: GenomicPosition::new(19).expect("position"),
+        bases: b"TAA".to_vec(),
+        provenance: dummy_provenance(),
+    };
+    assert!(matches!(
+        convert_exact_edit(&reference, &edit),
+        Err(ExactEditConversionError::Rejected(variant))
+            if variant.position().get() == 19 && variant.reference() == "TCG" && variant.alternate() == "T"
+    ));
+}
+
+struct EditReference(Result<Vec<u8>, ReferenceError>, ReferenceProvenance);
+
+impl ReferenceProvider for EditReference {
+    fn copy_window(
+        &self,
+        _contig: Grch38Contig,
+        _start: GenomicPosition,
+        destination: &mut [u8],
+    ) -> Result<(), ReferenceError> {
+        match &self.0 {
+            Ok(bases) => {
+                assert_eq!(bases.len(), destination.len());
+                destination.copy_from_slice(bases);
+                Ok(())
+            }
+            Err(error) => Err(error.clone()),
+        }
+    }
+
+    fn provenance(&self) -> &ReferenceProvenance {
+        &self.1
+    }
+}
+
+#[test]
+fn exact_edit_reference_boundaries_keep_client_and_provider_failures_distinct() {
+    let contig = Grch38Contig::autosome(1).expect("contig");
+    let first_insertion = Grch38ExactEdit::insertion(
+        contig,
+        GenomicPosition::new(1).expect("left"),
+        GenomicPosition::new(2).expect("right"),
+        "T",
+    )
+    .expect("first insertion");
+    assert_eq!(
+        convert_exact_edit(
+            &EditReference(Ok(b"AC".to_vec()), dummy_provenance()),
+            &first_insertion,
+        )
+        .expect("first insertion conversion")
+        .position()
+        .get(),
+        1
+    );
+    let insertion = Grch38ExactEdit::insertion(
+        contig,
+        GenomicPosition::new(u32::MAX - 1).expect("left"),
+        GenomicPosition::new(u32::MAX).expect("right"),
+        "A",
+    )
+    .expect("insertion geometry");
+    for (outcome, expected) in [
+        (
+            Err(ReferenceError::OutOfBounds),
+            ExactEditConversionError::InvalidRequest,
+        ),
+        (
+            Err(ReferenceError::CorruptProviderData),
+            ExactEditConversionError::ReferenceProvider(ReferenceError::CorruptProviderData),
+        ),
+    ] {
+        assert_eq!(
+            convert_exact_edit(&EditReference(outcome, dummy_provenance()), &insertion),
+            Err(expected)
+        );
+    }
+    assert_eq!(
+        convert_exact_edit(
+            &EditReference(Ok(b"NA".to_vec()), dummy_provenance()),
+            &insertion
+        ),
+        Err(ExactEditConversionError::InvalidRequest)
+    );
+    let final_deletion = Grch38ExactEdit::deletion(
+        contig,
+        GenomicPosition::new(2).expect("start"),
+        GenomicPosition::new(3).expect("end"),
+        "AC",
+    )
+    .expect("deletion geometry");
+    assert_eq!(
+        convert_exact_edit(
+            &EditReference(Err(ReferenceError::OutOfBounds), dummy_provenance()),
+            &final_deletion,
+        ),
+        Err(ExactEditConversionError::InvalidRequest)
+    );
+}
+
 impl ReferenceProvider for FixtureReference {
     fn copy_window(
         &self,

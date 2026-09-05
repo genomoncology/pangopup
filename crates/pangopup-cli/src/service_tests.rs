@@ -1,8 +1,9 @@
 use super::*;
 use axum::http::StatusCode;
 use pangopup_core::{
-    EnsemblGeneId, GencodeGeneId, GeneScoreRecord, LookupProvenance, LookupResult, PangolinScore,
-    PrecomputedProvenance, RelativePosition, ScoreMagnitude,
+    EnsemblGeneId, GencodeGeneId, GeneScoreRecord, GenomicPosition, Grch38Contig, LookupProvenance,
+    LookupResult, PangolinScore, PrecomputedProvenance, ReferenceError, ReferenceProvenance,
+    ReferenceProvider, RelativePosition, ScoreMagnitude,
 };
 use serde_json::Value;
 use std::fs;
@@ -105,8 +106,38 @@ impl CacheReader for EmptyCache {
     }
 }
 
+struct CountingCache {
+    gets: Arc<AtomicUsize>,
+}
+
+impl CacheReader for CountingCache {
+    fn get(
+        &mut self,
+        _key: &CacheKey,
+    ) -> Result<Option<Vec<ModelGeneScoreRecord>>, pangopup_cache::CacheError> {
+        self.gets.fetch_add(1, Ordering::SeqCst);
+        Ok(None)
+    }
+}
+
 struct FakeWorker {
     calls: Arc<AtomicUsize>,
+}
+
+struct RecordWorker;
+
+impl WorkerBackend for RecordWorker {
+    fn complete(
+        &mut self,
+        pending: &PendingModel,
+        _key: &CacheKey,
+    ) -> Result<RoutedResult, WorkerFailure> {
+        Ok(RoutedResult::Modeled {
+            variant: pending.variant().clone(),
+            records: model_records(),
+            provenance: provenance(),
+        })
+    }
 }
 impl WorkerBackend for FakeWorker {
     fn complete(
@@ -1793,6 +1824,142 @@ fn state_with_worker(worker: Box<dyn WorkerBackend>) -> AppState {
             mask_sha256: "mask".to_owned(),
         },
     )
+}
+
+struct ExactEditReference {
+    bases: Vec<u8>,
+    provenance: ReferenceProvenance,
+}
+
+impl ReferenceProvider for ExactEditReference {
+    fn copy_window(
+        &self,
+        _contig: Grch38Contig,
+        start: GenomicPosition,
+        destination: &mut [u8],
+    ) -> Result<(), ReferenceError> {
+        let offset = usize::try_from(start.get() - 1).expect("offset");
+        let source = self
+            .bases
+            .get(offset..offset + destination.len())
+            .ok_or(ReferenceError::OutOfBounds)?;
+        destination.copy_from_slice(source);
+        Ok(())
+    }
+
+    fn provenance(&self) -> &ReferenceProvenance {
+        &self.provenance
+    }
+}
+
+#[tokio::test]
+async fn exact_deletion_mismatch_is_an_ordered_item_rejection() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let cache_gets = Arc::new(AtomicUsize::new(0));
+    let mut state = build_state(
+        Arc::new(FakeLookup),
+        Box::new(CountingCache {
+            gets: Arc::clone(&cache_gets),
+        }),
+        identity(),
+        provenance(),
+        vec![Box::new(FakeWorker {
+            calls: Arc::clone(&calls),
+        })],
+        1,
+        2,
+        AssetStatus {
+            snv_bundle_id: "snv".to_owned(),
+            model_bundle_id: "model".to_owned(),
+            reference_bundle_id: "reference".to_owned(),
+            mask_sha256: "mask".to_owned(),
+        },
+    );
+    state.reference = Some(Arc::new(ExactEditReference {
+        bases: b"AAGT".to_vec(),
+        provenance: provenance().reference().clone(),
+    }));
+    let response = app(state)
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"variants":["GRCh38:chr1:1:A:C","GRCh38:chr1:DEL:3:3:C"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = body(response).await;
+    let output: RawScoreOutput = serde_json::from_slice(&bytes).expect("response JSON");
+    assert_eq!(output.results.len(), 2);
+    assert_eq!(
+        output.results[1].get(),
+        r#"{"assembly":"GRCh38","contig":"chr1","position":2,"ref":"AC","alt":"A","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"}}"#
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "conversion rejection must not reach inference"
+    );
+    assert_eq!(
+        cache_gets.load(Ordering::SeqCst),
+        0,
+        "conversion rejection must not reach cache lookup"
+    );
+}
+
+#[tokio::test]
+async fn exact_edit_anchor_failures_stop_before_lookup_cache_and_inference() {
+    for variant in ["GRCh38:chr1:INS:1:2:A", "GRCh38:chr1:INS:4:5:A"] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut state = state_with_worker(Box::new(FakeWorker {
+            calls: Arc::clone(&calls),
+        }));
+        state.reference = Some(Arc::new(ExactEditReference {
+            bases: b"NAA".to_vec(),
+            provenance: provenance().reference().clone(),
+        }));
+        let response = app(state)
+            .oneshot(
+                Request::post("/v1/score")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(format!(r#"{{"variants":["{variant}"]}}"#)))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[tokio::test]
+async fn successful_exact_deletion_matches_literal_records_and_provenance() {
+    let mut state = state_with_worker(Box::new(RecordWorker));
+    state.reference = Some(Arc::new(ExactEditReference {
+        bases: b"AAGT".to_vec(),
+        provenance: provenance().reference().clone(),
+    }));
+    let router = app(state);
+    let request_for = |variant: &str| {
+        Request::post("/v1/score")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(format!(r#"{{"variants":["{variant}"]}}"#)))
+            .expect("request")
+    };
+    let exact = router
+        .clone()
+        .oneshot(request_for("GRCh38:chr1:DEL:3:3:G"))
+        .await
+        .expect("exact response");
+    let literal = router
+        .oneshot(request_for("GRCh38:chr1:2:AG:A"))
+        .await
+        .expect("literal response");
+    assert_eq!(exact.status(), StatusCode::OK);
+    assert_eq!(body(exact).await, body(literal).await);
 }
 
 #[derive(serde::Deserialize)]

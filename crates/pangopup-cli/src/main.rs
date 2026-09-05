@@ -9,16 +9,17 @@ use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
 use pangopup_cli::{OutputFormat, RenderRequest, render_requests};
 use pangopup_core::{
     DnaBase, EnsemblGeneId, GencodeGeneId, GenomicPosition, Grch38Contig, Grch38Snv, Grch38Variant,
-    ReferenceProvenance, ScoreProvider,
+    ReferenceProvenance, ReferenceProvider, ScoreProvider,
 };
 use pangopup_engine::{
-    ExplicitModelRequest, LookupFirstRouter, ModelFallback, ModelFallbackError, ModelProvenance,
-    ModelRequired, RouteDecision, RouteRequest, RoutedResult, validate_model_request,
+    ExactEditConversionError, ExplicitModelRequest, Grch38ExactEdit, LookupFirstRouter,
+    ModelFallback, ModelFallbackError, ModelProvenance, ModelRequired, RouteDecision, RouteRequest,
+    RoutedResult, convert_exact_edit, validate_model_request,
 };
 use pangopup_index::{
     BundleOpen, IndexError,
     mask::{AdmittedMaskDomains, MaskDomainsOpen},
-    reference::{ReferenceBundleOpen, required_accession},
+    reference::{IdentifiedReferenceBundle, ReferenceBundleOpen, required_accession},
     reference_admission::inspect_reference_admission,
 };
 use pangopup_model::{CpuPolicy, ModelAdmission, ModelKernel, inspect_model_admission};
@@ -76,8 +77,8 @@ const HELP_CATALOG: &[HelpEntry] = &[
     },
     HelpEntry {
         path: &["lookup"],
-        synopsis: "lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]",
-        summary: "Score one or more GRCh38 variants with lookup-first model fallback.",
+        synopsis: "lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant <GRCh38-VARIANT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]",
+        summary: "Score one or more GRCh38 variants with lookup-first model fallback. Forms: GRCh38:CONTIG:POS:REF:ALT; GRCh38:CONTIG:INS:LEFT:RIGHT:SEQUENCE; GRCh38:CONTIG:DEL:START:END:SEQUENCE. Examples: GRCh38:chr1:5051:A:AC; GRCh38:chr1:INS:5051:5052:C; GRCh38:chr1:DEL:5052:5052:A.",
     },
 ];
 
@@ -143,7 +144,7 @@ struct Arguments {
     bundle: Option<PathBuf>,
     data_dir: Option<OsString>,
     model_only: bool,
-    variants: Vec<Grch38Variant>,
+    variants: Vec<VariantInput>,
     gene: Option<EnsemblGeneId>,
     format: OutputFormat,
     fallback: Option<FallbackPaths>,
@@ -175,10 +176,17 @@ enum AdmittedFallbackSource {
     Explicit {
         paths: FallbackPaths,
         mask: AdmittedMaskDomains,
+        reference: Option<Box<IdentifiedReferenceBundle>>,
     },
     Installed(Box<InstalledFallbackInput>),
     #[cfg(test)]
     Test(Box<dyn FnOnce() -> Result<ModelFallback, Failure>>),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum VariantInput {
+    Literal(Grch38Variant),
+    Exact(Grch38ExactEdit),
 }
 
 #[derive(Clone)]
@@ -668,17 +676,17 @@ fn run_lookup_with_runtime_opener(
     let explicit_bundle = arguments.bundle.is_some();
     if explicit_bundle
         && arguments.fallback.is_none()
-        && arguments
-            .variants
-            .iter()
-            .any(|variant| snv_from_variant(variant).is_none())
+        && arguments.variants.iter().any(|variant| match variant {
+            VariantInput::Literal(variant) => snv_from_variant(variant).is_none(),
+            VariantInput::Exact(_) => true,
+        })
     {
-        for variant in arguments
-            .variants
-            .iter()
-            .filter(|variant| snv_from_variant(variant).is_none())
-        {
-            validate_cli_model_request(variant)?;
+        for variant in &arguments.variants {
+            if let VariantInput::Literal(variant) = variant
+                && snv_from_variant(variant).is_none()
+            {
+                validate_cli_model_request(variant)?;
+            }
         }
         return Err(Failure::model_assets_required());
     }
@@ -695,16 +703,31 @@ fn run_lookup_with_runtime_opener(
         implicit_cache_limit,
     } = arguments;
     if model_only {
-        for variant in &variants {
-            validate_cli_model_request(variant)?;
+        for input in &variants {
+            if let VariantInput::Literal(variant) = input {
+                validate_cli_model_request(variant)?;
+            }
         }
-        let admission = match fallback_paths.as_ref() {
-            Some(paths) => admit_model_fallback(paths)?,
+        let has_exact = variants
+            .iter()
+            .any(|input| matches!(input, VariantInput::Exact(_)));
+        let mut admission = match fallback_paths.as_ref() {
+            Some(paths) => {
+                let mut admission = admit_model_fallback(paths)?;
+                if has_exact {
+                    bind_exact_reference(&mut admission)?;
+                }
+                admission
+            }
             None => {
                 let root = data_root(data_dir)?;
                 runtime_opener(&root, None)?
             }
         };
+        let variants = convert_variant_inputs(variants, &mut admission, observer)?;
+        for variant in &variants {
+            validate_cli_model_request(variant)?;
+        }
         let decisions = variants
             .into_iter()
             .map(|variant| {
@@ -736,7 +759,10 @@ fn run_lookup_with_runtime_opener(
     // precomputed `not_found`; only a non-SNV requires model assets.
     if fallback_paths.is_none() && explicit_bundle {
         let mut requests = Vec::with_capacity(variants.len());
-        for variant in variants {
+        for input in variants {
+            let VariantInput::Literal(variant) = input else {
+                unreachable!("exact edits require model assets")
+            };
             let snv = snv_from_variant(&variant).ok_or_else(Failure::model_assets_required)?;
             let (_, length) = bundle
                 .resolve_contig(&variant.contig().to_string())
@@ -758,6 +784,36 @@ fn run_lookup_with_runtime_opener(
     }
 
     let router = LookupFirstRouter::new(bundle);
+    let mut admission = if variants
+        .iter()
+        .any(|variant| matches!(variant, VariantInput::Exact(_)))
+    {
+        Some(match fallback_paths.as_ref() {
+            Some(paths) => {
+                let mut admission = admit_model_fallback(paths)?;
+                bind_exact_reference(&mut admission)?;
+                admission
+            }
+            None => {
+                let (root, snv_bundle_id) = installed_binding
+                    .as_ref()
+                    .expect("implicit route opened an installed SNV bundle");
+                runtime_opener(root, Some(snv_bundle_id))?
+            }
+        })
+    } else {
+        None
+    };
+    let variants = match admission.as_mut() {
+        Some(admission) => convert_variant_inputs(variants, admission, observer)?,
+        None => variants
+            .into_iter()
+            .map(|variant| match variant {
+                VariantInput::Literal(variant) => variant,
+                VariantInput::Exact(_) => unreachable!("exact edits require admitted reference"),
+            })
+            .collect(),
+    };
     let mut decisions = Vec::with_capacity(variants.len());
     let mut needs_model = false;
     for variant in variants {
@@ -776,8 +832,8 @@ fn run_lookup_with_runtime_opener(
         }
     }
 
-    let mut admission = if needs_model {
-        Some(match fallback_paths.as_ref() {
+    if needs_model && admission.is_none() {
+        admission = Some(match fallback_paths.as_ref() {
             Some(paths) => admit_model_fallback(paths)?,
             None => {
                 let (root, snv_bundle_id) = installed_binding
@@ -785,10 +841,8 @@ fn run_lookup_with_runtime_opener(
                     .expect("implicit route opened an installed SNV bundle");
                 runtime_opener(root, Some(snv_bundle_id))?
             }
-        })
-    } else {
-        None
-    };
+        });
+    }
     if let Some(admission) = admission.take() {
         return complete_model_batch(
             decisions,
@@ -808,6 +862,22 @@ fn run_lookup_with_runtime_opener(
         })
         .collect::<Vec<_>>();
     render_lookup_requests(format, &requests)
+}
+
+fn convert_variant_inputs(
+    inputs: Vec<VariantInput>,
+    admission: &mut FallbackAdmission,
+    observer: &mut dyn FnMut(FallbackComponent),
+) -> Result<Vec<Grch38Variant>, Failure> {
+    inputs
+        .into_iter()
+        .map(|input| match input {
+            VariantInput::Literal(variant) => Ok(variant),
+            VariantInput::Exact(edit) => {
+                convert_admitted_edit(admission, &edit, observer).map_err(map_exact_edit_error)
+            }
+        })
+        .collect()
 }
 
 fn validate_cli_model_request(variant: &Grch38Variant) -> Result<(), Failure> {
@@ -1049,6 +1119,7 @@ fn admit_model_fallback(paths: &FallbackPaths) -> Result<FallbackAdmission, Fail
         source: Some(AdmittedFallbackSource::Explicit {
             paths: paths.clone(),
             mask,
+            reference: None,
         }),
     })
 }
@@ -1100,15 +1171,23 @@ fn open_admitted_model_fallback(
         .take()
         .expect("admitted fallback is consumed only for first model miss");
     let fallback = match source {
-        AdmittedFallbackSource::Explicit { paths, mask } => {
+        AdmittedFallbackSource::Explicit {
+            paths,
+            mask,
+            reference,
+        } => {
             observer(FallbackComponent::Reference);
-            let reference =
-                ReferenceBundleOpen::open_identified(&paths.reference).map_err(|_| Failure {
-                    code: "REFERENCE_BUNDLE_INVALID",
-                    message: "reference bundle is invalid".to_owned(),
-                    exit: 1,
-                    details: None,
-                })?;
+            let reference = match reference {
+                Some(reference) => *reference,
+                None => {
+                    ReferenceBundleOpen::open_identified(&paths.reference).map_err(|_| Failure {
+                        code: "REFERENCE_BUNDLE_INVALID",
+                        message: "reference bundle is invalid".to_owned(),
+                        exit: 1,
+                        details: None,
+                    })?
+                }
+            };
             observer(FallbackComponent::Mask);
             let mask = mask.open().map_err(|_| Failure {
                 code: "MASK_INVALID",
@@ -1150,6 +1229,90 @@ fn open_admitted_model_fallback(
         });
     }
     Ok(fallback)
+}
+
+fn convert_admitted_edit(
+    admission: &mut FallbackAdmission,
+    edit: &Grch38ExactEdit,
+    observer: &mut dyn FnMut(FallbackComponent),
+) -> Result<Grch38Variant, ExactEditConversionError> {
+    let reference: &dyn ReferenceProvider = match admission.source.as_mut() {
+        Some(AdmittedFallbackSource::Explicit { reference, .. }) => {
+            observer(FallbackComponent::Reference);
+            &**reference
+                .as_ref()
+                .expect("exact-edit admission retains its verified reference")
+        }
+        Some(AdmittedFallbackSource::Installed(input)) => &input.reference,
+        #[cfg(test)]
+        Some(AdmittedFallbackSource::Test(_)) => {
+            return Err(ExactEditConversionError::ReferenceProvider(
+                pangopup_core::ReferenceError::CorruptProviderData,
+            ));
+        }
+        None => {
+            return Err(ExactEditConversionError::ReferenceProvider(
+                pangopup_core::ReferenceError::CorruptProviderData,
+            ));
+        }
+    };
+    convert_exact_edit(reference, edit)
+}
+
+fn bind_exact_reference(admission: &mut FallbackAdmission) -> Result<(), Failure> {
+    let Some(AdmittedFallbackSource::Explicit {
+        paths, reference, ..
+    }) = admission.source.as_mut()
+    else {
+        return Ok(());
+    };
+    if reference.is_none() {
+        let opened =
+            ReferenceBundleOpen::open_identified(&paths.reference).map_err(|_| Failure {
+                code: "REFERENCE_BUNDLE_INVALID",
+                message: "reference bundle is invalid".to_owned(),
+                exit: 1,
+                details: None,
+            })?;
+        verify_exact_reference_identity(admission.provenance.reference(), &opened)?;
+        *reference = Some(Box::new(opened));
+    }
+    Ok(())
+}
+
+fn verify_exact_reference_identity(
+    expected: &ReferenceProvenance,
+    provider: &dyn ReferenceProvider,
+) -> Result<(), Failure> {
+    if provider.provenance() != expected {
+        return Err(Failure {
+            code: "MODEL_ASSET_IDENTITY_CHANGED",
+            message: "model assets changed after cache admission".to_owned(),
+            exit: 1,
+            details: None,
+        });
+    }
+    Ok(())
+}
+
+fn map_exact_edit_error(error: ExactEditConversionError) -> Failure {
+    match error {
+        ExactEditConversionError::InvalidRequest => {
+            Failure::variant("exact edit cannot be anchored against the installed GRCh38 reference")
+        }
+        ExactEditConversionError::Rejected(_) => Failure {
+            code: "MODEL_REJECTED",
+            message: "reference allele does not match GRCh38".to_owned(),
+            exit: 2,
+            details: None,
+        },
+        ExactEditConversionError::ReferenceProvider(_) => Failure {
+            code: "REFERENCE_BUNDLE_INVALID",
+            message: "reference bundle is invalid".to_owned(),
+            exit: 1,
+            details: None,
+        },
+    }
 }
 
 fn map_cache_error(error: pangopup_cache::CacheError) -> Failure {
@@ -1407,7 +1570,7 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
                     return Err(Failure::usage("--data-dir may be supplied once"));
                 }
             }
-            "--variant" => variants.push(parse_variant(utf8_argument(value)?)?),
+            "--variant" => variants.push(parse_variant_input(utf8_argument(value)?)?),
             "--gene" => {
                 let parsed = parse_gene_filter(utf8_argument(value)?)
                     .map_err(|_| Failure::gene(GENE_FILTER_REQUIREMENT))?;
@@ -1712,6 +1875,45 @@ fn parse_variant(value: &str) -> Result<Grch38Variant, Failure> {
     .map_err(|error| Failure::variant(error.to_string()))
 }
 
+fn parse_variant_input(value: &str) -> Result<VariantInput, Failure> {
+    let fields = value.split(':').collect::<Vec<_>>();
+    if fields
+        .get(2)
+        .is_none_or(|operation| !matches!(*operation, "INS" | "DEL"))
+    {
+        return parse_variant(value).map(VariantInput::Literal);
+    }
+    if fields.len() != 6 {
+        return Err(Failure::variant(
+            "exact edit must be GRCh38:CONTIG:INS:LEFT:RIGHT:SEQUENCE or GRCh38:CONTIG:DEL:START:END:SEQUENCE",
+        ));
+    }
+    if fields[0] != "GRCh38" {
+        return Err(Failure::variant("assembly must be GRCh38"));
+    }
+    let contig =
+        parse_contig(fields[1]).ok_or_else(|| Failure::variant("invalid contig spelling"))?;
+    let coordinate = |value: &str| {
+        value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit())
+            .then(|| value.parse::<u32>().ok())
+            .flatten()
+            .filter(|value| *value != 0)
+            .and_then(|value| GenomicPosition::new(value).ok())
+            .ok_or_else(|| Failure::variant("edit coordinates must be nonzero decimal u32 values"))
+    };
+    let first = coordinate(fields[3])?;
+    let second = coordinate(fields[4])?;
+    let edit = match fields[2] {
+        "INS" => Grch38ExactEdit::insertion(contig, first, second, fields[5]),
+        "DEL" => Grch38ExactEdit::deletion(contig, first, second, fields[5]),
+        _ => unreachable!(),
+    }
+    .map_err(|error| Failure::variant(error.to_string()))?;
+    Ok(VariantInput::Exact(edit))
+}
+
 fn parse_contig(value: &str) -> Option<Grch38Contig> {
     if matches!(value, "MT" | "chrMT") {
         return Some(Grch38Contig::M);
@@ -1778,6 +1980,7 @@ mod tests {
     use std::collections::BTreeSet;
     use std::fs;
     use std::rc::Rc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     const SHIPPED_ROOT_HELP: &str =
         include_str!("../../../tests/fixtures/runtime-cli/root-help.txt");
@@ -1844,7 +2047,7 @@ mod tests {
             ),
             (
                 "lookup",
-                "Score one or more GRCh38 variants with lookup-first model fallback.",
+                "Score one or more GRCh38 variants with lookup-first model fallback. Forms: GRCh38:CONTIG:POS:REF:ALT; GRCh38:CONTIG:INS:LEFT:RIGHT:SEQUENCE; GRCh38:CONTIG:DEL:START:END:SEQUENCE. Examples: GRCh38:chr1:5051:A:AC; GRCh38:chr1:INS:5051:5052:C; GRCh38:chr1:DEL:5052:5052:A.",
             ),
         ];
         assert_eq!(HELP_CATALOG.len(), expected.len());
@@ -2719,6 +2922,139 @@ mod tests {
             assert_eq!(failure.code, "INVALID_VARIANT", "{value}");
             assert_eq!(failure.exit, 2, "{value}");
         }
+    }
+
+    #[test]
+    fn exact_edit_parser_is_strict_and_checks_geometry_without_reference() {
+        for accepted in [
+            "GRCh38:chr1:INS:5051:5052:A",
+            "GRCh38:NC_000001.11:DEL:5052:5053:AC",
+        ] {
+            assert!(
+                matches!(parse_variant_input(accepted), Ok(VariantInput::Exact(_))),
+                "{accepted}"
+            );
+        }
+        for rejected in [
+            "GRCh38:chr1:INS:5051:5053:A",
+            "GRCh38:chr1:INS:4294967295:1:A",
+            "GRCh38:chr1:DEL:1:1:A",
+            "GRCh38:chr1:DEL:3:2:A",
+            "GRCh38:chr1:DEL:2:3:A",
+            "GRCh38:chr1:INS:1:2:",
+            "GRCh38:chr1:INS:1:2:a",
+            "GRCh38:chr1:ins:1:2:A",
+            "GRCh38:chr1:INS:0:1:A",
+            "GRCh38:chr1:INS:1:2:A:EXTRA",
+        ] {
+            assert!(parse_variant_input(rejected).is_err(), "{rejected}");
+        }
+    }
+
+    #[test]
+    fn exact_deletion_and_literal_share_persistent_cache_identity_in_both_directions() {
+        let paths = FallbackPaths {
+            reference: repository_path("tests/fixtures/reference-route-test/bundle"),
+            mask: repository_path("tests/fixtures/route-mask/domains.pgm"),
+            model: repository_path("tests/fixtures/pangolin-model-kernel-mini/bundle"),
+        };
+        for exact_first in [true, false] {
+            let mut admission = admit_model_fallback(&paths).expect("admission");
+            bind_exact_reference(&mut admission).expect("bind reference");
+            let input = parse_variant_input("GRCh38:chr1:DEL:5052:5052:A").expect("exact deletion");
+            let VariantInput::Exact(edit) = input else {
+                panic!("exact edit")
+            };
+            let exact =
+                convert_admitted_edit(&mut admission, &edit, &mut |_| {}).expect("conversion");
+            let literal = parse_variant("GRCh38:chr1:5051:AA:A").expect("literal deletion");
+            assert_eq!(exact, literal);
+            let first = if exact_first { &exact } else { &literal };
+            let second = if exact_first { &literal } else { &exact };
+            let temp = tempfile::tempdir().expect("temp");
+            fs::set_permissions(
+                temp.path(),
+                <fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o700),
+            )
+            .expect("private temp");
+            let mut cache = ModelResultCache::open_explicit(
+                &temp.path().join("cache.sqlite3"),
+                EntryLimit::Unlimited,
+            )
+            .expect("cache");
+            let records = vec![pangopup_core::ModelGeneScoreRecord::new(
+                GencodeGeneId::from_str("ENSG00000000001.1").expect("gene"),
+                pangopup_core::PangolinScore::new(
+                    pangopup_core::ScoreMagnitude::new(12).expect("gain"),
+                    pangopup_core::RelativePosition::new(3).expect("gain position"),
+                    pangopup_core::ScoreMagnitude::new(34).expect("loss"),
+                    pangopup_core::RelativePosition::new(-4).expect("loss position"),
+                ),
+                Vec::new(),
+            )];
+            cache
+                .put(&cache_key(first, &admission).expect("first key"), &records)
+                .expect("put");
+            assert_eq!(
+                cache
+                    .get(&cache_key(second, &admission).expect("second key"))
+                    .expect("get"),
+                Some(records)
+            );
+        }
+    }
+
+    #[test]
+    fn valid_replacement_identity_cannot_escape_as_rejection_or_cache_hit() {
+        struct ReplacementReference {
+            provenance: ReferenceProvenance,
+            reads: AtomicUsize,
+        }
+        impl ReferenceProvider for ReplacementReference {
+            fn copy_window(
+                &self,
+                _contig: Grch38Contig,
+                _start: GenomicPosition,
+                destination: &mut [u8],
+            ) -> Result<(), pangopup_core::ReferenceError> {
+                self.reads.fetch_add(1, Ordering::SeqCst);
+                destination.fill(b'A');
+                Ok(())
+            }
+
+            fn provenance(&self) -> &ReferenceProvenance {
+                &self.provenance
+            }
+        }
+
+        let temp = tempfile::tempdir().expect("temp");
+        let paths = FallbackPaths {
+            reference: repository_path("tests/fixtures/reference-route-test/bundle"),
+            mask: repository_path("tests/fixtures/route-mask/domains.pgm"),
+            model: repository_path("tests/fixtures/pangolin-model-kernel-mini/bundle"),
+        };
+        let admission = admit_model_fallback(&paths).expect("metadata admission");
+        let replacement = ReplacementReference {
+            provenance: ReferenceProvenance::new(
+                "sha256:replacement".to_owned(),
+                "replacement-profile".to_owned(),
+                "replacement-format".to_owned(),
+                "GRCh38.p14".to_owned(),
+                "GCF_000001405.40".to_owned(),
+                "sha256:replacement-sequences".to_owned(),
+            ),
+            reads: AtomicUsize::new(0),
+        };
+        let cache_path = temp.path().join("cache.sqlite3");
+        let failure =
+            verify_exact_reference_identity(admission.provenance.reference(), &replacement)
+                .expect_err("valid replacement identity must fail");
+        assert_eq!(failure.code, "MODEL_ASSET_IDENTITY_CHANGED");
+        assert_eq!(replacement.reads.load(Ordering::SeqCst), 0);
+        assert!(
+            !cache_path.exists(),
+            "identity failure must precede cache access"
+        );
     }
 
     #[test]

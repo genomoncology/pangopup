@@ -160,6 +160,76 @@ fn real_file_backed_model_route_json_table_and_filter_are_exact() {
 }
 
 #[test]
+fn exact_insertion_matches_anchored_form_and_reuses_cache_in_both_directions() {
+    let exact = "GRCh38:chr1:INS:5051:5052:C";
+    let literal = "GRCh38:chr1:5051:A:AC";
+    let exact_output = run(&model_only_args(exact));
+    let literal_output = run(&model_only_args(literal));
+    assert!(
+        exact_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&exact_output.stderr)
+    );
+    assert_eq!(exact_output.stdout, literal_output.stdout);
+    let ordinary_exact = run(&modeled_args(exact));
+    let ordinary_literal = run(&modeled_args(literal));
+    assert!(
+        ordinary_exact.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ordinary_exact.stderr)
+    );
+    assert_eq!(ordinary_exact.stdout, ordinary_literal.stdout);
+
+    for (first, second, name) in [
+        (exact, literal, "exact-first.sqlite3"),
+        (literal, exact, "literal-first.sqlite3"),
+    ] {
+        let temp = tempfile::tempdir().expect("temp");
+        fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o700)).expect("private temp");
+        let cache = temp.path().join(name);
+        let mut first_args = model_only_args(first);
+        first_args.extend(["--model-cache".to_owned(), cache.display().to_string()]);
+        let first_output = run(&first_args);
+        assert!(
+            first_output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&first_output.stderr)
+        );
+        let mut second_args = model_only_args(second);
+        second_args.extend(["--model-cache".to_owned(), cache.display().to_string()]);
+        let second_output = run(&second_args);
+        assert!(
+            second_output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&second_output.stderr)
+        );
+        assert_eq!(first_output.stdout, second_output.stdout);
+        let connection = rusqlite::Connection::open(&cache).expect("open cache");
+        let rows: i64 = connection
+            .query_row("SELECT count(*) FROM entries", [], |row| row.get(0))
+            .expect("cache rows");
+        assert_eq!(rows, 1, "equivalent forms must share one cache identity");
+    }
+}
+
+#[test]
+fn exact_deletion_matches_the_equivalent_anchored_cli_outcome() {
+    let exact = "GRCh38:chr1:DEL:5052:5052:A";
+    let literal = "GRCh38:chr1:5051:AA:A";
+    for arguments in [
+        (model_only_args(exact), model_only_args(literal)),
+        (modeled_args(exact), modeled_args(literal)),
+    ] {
+        let exact_output = run(&arguments.0);
+        let literal_output = run(&arguments.1);
+        assert_eq!(exact_output.status.code(), Some(2));
+        assert_eq!(exact_output.status.code(), literal_output.status.code());
+        assert_eq!(exact_output.stdout, literal_output.stdout);
+        assert_eq!(exact_output.stderr, literal_output.stderr);
+    }
+}
+
+#[test]
 fn explicit_model_only_bypasses_snv_assets_and_reuses_the_exact_cache() {
     let temp = tempfile::tempdir().expect("temp");
     fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o700)).expect("private temp");

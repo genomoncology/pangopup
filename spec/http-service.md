@@ -44,6 +44,8 @@ printf 'HTTP accepts a reported versioned gene filter and matches its stable gen
 
 The public route identifies an entirely model-rejected request as a client error and keeps the generic `scoring failed` message. A request with at least one normal outcome and no operational failure returns HTTP 200. The response preserves one ordered outcome for every input. An item that the model rejects has `status: "rejected"`, empty `records` and `source_reference_ambiguities`, no provenance, and the stable generic `MODEL_REJECTED` error. HTTP 422 applies only when every input outcome is model-rejected. The miniature installed profile exercises both behaviors through the real executable and HTTP listener.
 
+Each `variants[]` value also accepts `GRCh38:CONTIG:INS:LEFT:RIGHT:SEQUENCE` and `GRCh38:CONTIG:DEL:START:END:SEQUENCE`. Coordinates are one-based. Insertion coordinates must be adjacent. A deletion interval is inclusive, must not start at one, and must have the same length as its submitted sequence. Sequences contain 1–99 uppercase A/C/G/T bases. PangoPup reads the left anchor from its installed GRCh38 reference before routing, caching, queue admission, and inference. Equivalent exact and anchored inputs produce the same canonical response allele and cache identity. A deleted-sequence mismatch becomes the existing item rejection when the left anchor is valid. Boundary and anchor failures return request-level `INVALID_REQUEST`. Reference corruption remains a server failure.
+
 ```bash
 cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
   --test http_service_lifecycle real_executable_ \

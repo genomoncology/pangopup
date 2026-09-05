@@ -330,6 +330,56 @@ mod installed_success {
     }
 
     #[test]
+    fn real_executable_converts_exact_indels_before_routing() {
+        let temp = tempfile::tempdir().expect("temp");
+        let data = temp.path().join("data");
+        let (_profile, profile_path) = install(&data, temp.path());
+        let (mut child, address) = start(&data, &profile_path);
+        let exact = request(
+            &address,
+            "POST",
+            "/v1/score",
+            r#"{"variants":["GRCh38:chr1:INS:5051:5052:C"]}"#,
+        );
+        let literal = request(
+            &address,
+            "POST",
+            "/v1/score",
+            r#"{"variants":["GRCh38:chr1:5051:A:AC"]}"#,
+        );
+        assert!(exact.starts_with(b"HTTP/1.1 200 OK\r\n"));
+        assert_eq!(response_body(&exact), response_body(&literal));
+
+        let mixed = request(
+            &address,
+            "POST",
+            "/v1/score",
+            r#"{"variants":["GRCh38:chr12:6801301:G:A","GRCh38:chr1:DEL:5052:5052:C"]}"#,
+        );
+        assert!(mixed.starts_with(b"HTTP/1.1 200 OK\r\n"));
+        let value: Value = serde_json::from_slice(response_body(&mixed)).expect("mixed JSON");
+        assert_eq!(value["results"][0]["status"], "found");
+        assert_eq!(value["results"][1]["status"], "rejected");
+        assert_eq!(value["results"][1]["position"], 5051);
+        assert_eq!(value["results"][1]["ref"], "AC");
+        assert_eq!(value["results"][1]["alt"], "A");
+
+        let invalid = request(
+            &address,
+            "POST",
+            "/v1/score",
+            r#"{"variants":["GRCh38:chr1:DEL:1:1:A"]}"#,
+        );
+        assert!(invalid.starts_with(b"HTTP/1.1 400 Bad Request\r\n"));
+        assert_eq!(
+            response_body(&invalid),
+            b"{\"error\":{\"code\":\"INVALID_REQUEST\",\"message\":\"variant is invalid\"}}\n"
+        );
+        assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+        assert!(child.wait().expect("service exit").success());
+    }
+
+    #[test]
     fn real_executable_second_signal_forces_a_running_model_job() {
         let temp = tempfile::tempdir().expect("temp");
         let data = temp.path().join("data");
