@@ -28,6 +28,8 @@ try:
     original_read = checker_globals["read"]
     cargo = original_read("Cargo.toml")
     lock = original_read("Cargo.lock")
+    compatibility = original_read("architecture/compatibility.md")
+    release_notes = original_read("planning/artifacts/057-release-notes.md")
     candidate = namespace["workspace_version"]()
 
     main()
@@ -70,6 +72,26 @@ try:
                 lock,
                 f'name = "pangopup-assets"\nversion = "{candidate}"',
                 'name = "pangopup-assets"\nversion = "9.9.9"',
+            )
+        },
+    )
+    expect_rejected(
+        "a removed stable-gene shape warning",
+        {
+            "architecture/compatibility.md": compatibility.replace(
+                "`stable_gene` adds one property to every structured JSON score record from the command-line JSONL and HTTP scoring routes.",
+                "",
+                1,
+            )
+        },
+    )
+    expect_rejected(
+        "a removed consumer-first deployment order",
+        {
+            "planning/artifacts/057-release-notes.md": release_notes.replace(
+                "Deploy strict consumer support for `stable_gene` before deploying PangoPup v0.4.0.",
+                "",
+                1,
             )
         },
     )

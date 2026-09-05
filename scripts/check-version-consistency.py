@@ -348,12 +348,46 @@ def check_history() -> None:
         fail("history", "planning/artifacts/053-current-runtime-resources.jsonl", "measured version 0.2.0")
 
 
+def check_stable_gene_compatibility() -> None:
+    require_in_section(
+        "structured compatibility",
+        "architecture/compatibility.md",
+        "## Structured JSON score records",
+        "`stable_gene` adds one property to every structured JSON score record from the command-line JSONL and HTTP scoring routes.",
+    )
+    require_in_section(
+        "structured compatibility",
+        "architecture/compatibility.md",
+        "## Structured JSON score records",
+        "Permissive JSON readers that ignore unknown properties remain compatible.",
+    )
+    require_in_section(
+        "structured compatibility",
+        "architecture/compatibility.md",
+        "## Structured JSON score records",
+        "Strict readers that reject unknown properties must accept `stable_gene` before deploying a PangoPup application revision that emits it.",
+    )
+    require_in_section(
+        "structured compatibility",
+        "architecture/compatibility.md",
+        "## Structured JSON score records",
+        "`stable_gene` is the stable Ensembl grouping and filter key. `gene` remains the source-reported identity. Consumers must retain `gene` when exact version or PAR identity matters.",
+    )
+    require_in_section(
+        "release compatibility",
+        "planning/artifacts/057-release-notes.md",
+        "## Consumer deployment order",
+        "Deploy strict consumer support for `stable_gene` before deploying PangoPup v0.4.0.",
+    )
+
+
 def main() -> None:
     candidate = workspace_version()
     check_candidate(candidate)
     check_current_public()
     check_fixed_fixtures()
     check_history()
+    check_stable_gene_compatibility()
     print(f"version consistency: candidate {candidate}; public {PUBLIC_VERSION}")
 
 

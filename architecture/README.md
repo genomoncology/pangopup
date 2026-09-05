@@ -111,6 +111,8 @@ ADR 0012 defines that descriptive provenance boundary.
   layers.
 - [`service.md`](service.md) — shipped lookup-first HTTP boundary, foreground
   lifecycle, deployment, and operational proof.
+- [`compatibility.md`](compatibility.md) — structured-output compatibility and
+  consumer deployment order.
 - [`decisions/`](decisions/) — accepted cross-cutting decisions.
 
 Current work, unresolved priorities, and hypotheses belong in
