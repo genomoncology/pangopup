@@ -28,18 +28,36 @@ pub const MAX_MODEL_ALLELE_BASES: usize = 100;
 pub const MAX_EXACT_EDIT_SEQUENCE_BASES: usize = MAX_MODEL_ALLELE_BASES - 1;
 
 /// One pre-canonical GRCh38 edit whose left anchor must be read from the reference.
+///
+/// Callers must use [`Grch38ExactEdit::insertion`] or
+/// [`Grch38ExactEdit::deletion`] so invalid geometry cannot bypass validation.
+///
+/// ```compile_fail
+/// use pangopup_core::{GenomicPosition, Grch38Contig};
+/// use pangopup_engine::Grch38ExactEdit;
+///
+/// let contig = Grch38Contig::autosome(1).unwrap();
+/// let first = GenomicPosition::new(1).unwrap();
+/// let edit = Grch38ExactEdit::Deletion {
+///     contig,
+///     start: first,
+///     end: first,
+///     deleted: "A".to_owned(),
+/// };
+/// ```
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum Grch38ExactEdit {
+pub struct Grch38ExactEdit(ExactEditKind);
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum ExactEditKind {
     Insertion {
         contig: Grch38Contig,
         left: GenomicPosition,
-        right: GenomicPosition,
         inserted: String,
     },
     Deletion {
         contig: Grch38Contig,
         start: GenomicPosition,
-        end: GenomicPosition,
         deleted: String,
     },
 }
@@ -80,12 +98,11 @@ impl Grch38ExactEdit {
         if left.get().checked_add(1) != Some(right.get()) {
             return Err(ExactEditError::NonAdjacentInsertion);
         }
-        Ok(Self::Insertion {
+        Ok(Self(ExactEditKind::Insertion {
             contig,
             left,
-            right,
             inserted,
-        })
+        }))
     }
 
     pub fn deletion(
@@ -106,12 +123,11 @@ impl Grch38ExactEdit {
         if usize::try_from(length).ok() != Some(deleted.len()) {
             return Err(ExactEditError::SequenceLengthMismatch);
         }
-        Ok(Self::Deletion {
+        Ok(Self(ExactEditKind::Deletion {
             contig,
             start,
-            end,
             deleted,
-        })
+        }))
     }
 }
 
@@ -140,12 +156,11 @@ pub fn convert_exact_edit(
     reference: &dyn ReferenceProvider,
     edit: &Grch38ExactEdit,
 ) -> Result<Grch38Variant, ExactEditConversionError> {
-    match edit {
-        Grch38ExactEdit::Insertion {
+    match &edit.0 {
+        ExactEditKind::Insertion {
             contig,
             left,
             inserted,
-            ..
         } => {
             let mut adjacent = [0_u8; 2];
             copy_edit_window(reference, *contig, *left, &mut adjacent)?;
@@ -156,14 +171,16 @@ pub fn convert_exact_edit(
             Grch38Variant::new(*contig, *left, char::from(anchor).to_string(), alternate)
                 .map_err(|_| ExactEditConversionError::InvalidRequest)
         }
-        Grch38ExactEdit::Deletion {
+        ExactEditKind::Deletion {
             contig,
             start,
             deleted,
-            ..
         } => {
-            let anchor_position = GenomicPosition::new(start.get() - 1)
-                .expect("exact deletion construction requires a left anchor");
+            let anchor_position = start
+                .get()
+                .checked_sub(1)
+                .and_then(|position| GenomicPosition::new(position).ok())
+                .ok_or(ExactEditConversionError::InvalidRequest)?;
             let mut observed = vec![0_u8; deleted.len() + 1];
             copy_edit_window(reference, *contig, anchor_position, &mut observed)?;
             let anchor = checked_anchor(observed[0])?;
@@ -174,7 +191,7 @@ pub fn convert_exact_edit(
                 reference_allele,
                 char::from(anchor).to_string(),
             )
-            .expect("validated exact edit and anchor form a literal deletion");
+            .map_err(|_| ExactEditConversionError::InvalidRequest)?;
             if observed[1..] != deleted.as_bytes()[..] {
                 return Err(ExactEditConversionError::Rejected(variant));
             }
