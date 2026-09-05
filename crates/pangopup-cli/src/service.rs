@@ -19,7 +19,7 @@ use pangopup_assets::{AssetError, open_active_bundle, open_installed_runtime_pro
 use pangopup_assets::{open_test_runtime_profile, parse_runtime_profile};
 use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
 use pangopup_cli::render_result_raw;
-use pangopup_core::{EnsemblGeneId, Grch38Variant, ModelGeneScoreRecord};
+use pangopup_core::{Grch38Variant, ModelGeneScoreRecord};
 use pangopup_engine::{
     ExplicitModelRequest, LookupFirstRouter, ModelFallback, ModelFallbackError, ModelProvenance,
     RouteDecision, RouteRequest, RoutedResult,
@@ -34,7 +34,6 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     path::PathBuf,
     process::ExitCode,
-    str::FromStr,
     sync::{Arc, Mutex},
     thread::{self, JoinHandle},
     time::Duration,
@@ -1106,9 +1105,9 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
         return invalid_request("variants must contain between 1 and 100 values");
     }
     let gene = match input.gene {
-        Some(gene) => match EnsemblGeneId::from_str(&gene) {
+        Some(gene) => match super::parse_gene_filter(&gene) {
             Ok(gene) => Some(gene),
-            Err(_) => return invalid_request("gene is not a stable Ensembl gene ID"),
+            Err(_) => return invalid_request(super::GENE_FILTER_REQUIREMENT),
         },
         None => None,
     };

@@ -168,11 +168,18 @@ pangopup lookup \
   | mustmatch like '"position":5051,"ref":"A","alt":"C","status":"found","records":[{"gene":"ENSG00000000001.1","gain_score":"0.33","gain_position":-50,"loss_score":"0.00","loss_position":-50,"warnings":["no_annotated_sites"]}],"source_reference_ambiguities":[],"provenance":{"kind":"model"'
 ```
 
-A mixed batch preserves request order and opens one shared fallback. A stable
-gene filter is applied after complete model scoring and can produce a modeled
-miss.
+A mixed batch preserves request order and opens one shared fallback. A gene filter accepts the stable Ensembl form and the versioned GENCODE forms emitted by model results. Every accepted form filters on the stable identity after complete model scoring and can produce a modeled miss. The first command below submits the miniature model's reported gene unchanged and receives the same bytes.
 
 ```bash
+pangopup lookup \
+  --bundle ../tests/fixtures/snv-regression/bundle \
+  --variant GRCh38:chr1:5051:A:AC \
+  --gene ENSG00000000001.1 \
+  --reference-bundle ../tests/fixtures/reference-route-test/bundle \
+  --mask ../tests/fixtures/route-mask/domains.pgm \
+  --model-bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle \
+  | rg -F -o '"status":"found","records":[{"gene":"ENSG00000000001.1"' \
+  | mustmatch like '"status":"found","records":[{"gene":"ENSG00000000001.1"'
 pangopup lookup \
   --bundle ../tests/fixtures/snv-regression/bundle \
   --variant GRCh38:chr12:6801301:G:A \
@@ -193,6 +200,8 @@ pangopup lookup \
   | rg -o '"contig":"chr1".*"status":"not_found","records":\[\].*"kind":"model"' \
   | mustmatch like '"contig":"chr1","position":5051,"ref":"A","alt":"AC","status":"not_found","records":[],"source_reference_ambiguities":[],"provenance":{"kind":"model"'
 ```
+
+The adapter tests also accept the versioned `_PAR_Y` form and reject zero, leading-zero, missing, overflowing, repeated, and unknown suffixes. Rejected CLI filters retain exit 2 and `INVALID_GENE`.
 
 The compact table keeps its original columns and identifies the model bundle.
 

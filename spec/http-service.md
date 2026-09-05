@@ -35,6 +35,13 @@ The inside-out HTTP tests inject miniature providers and exercise the actual rou
 
 The scoring route requires exactly one parsed `application/json` content type. Case does not matter and legal parameters are accepted. Missing, malformed, non-JSON, JSON suffix, and repeated values receive HTTP 415 with `UNSUPPORTED_MEDIA_TYPE`. This validation follows route and method selection. It precedes readiness checks and body reads. The real executable test sends these headers through the HTTP listener and pins the response.
 
+The optional `gene` filter accepts a stable Ensembl identifier, a versioned GENCODE identifier, or a versioned GENCODE identifier ending in `_PAR_Y`. The route normalizes every accepted form to the stable gene before lookup or model-result filtering. It does not change the gene written in a result. Adapter tests submit the model-reported versioned forms and reject zero, leading-zero, missing, overflowing, repeated, and unknown suffixes with HTTP 400 and `INVALID_REQUEST`.
+
+```bash
+cargo test --locked --quiet --package pangopup-cli http_gene_filter_accepts_reported_identity_and_matches_its_stable_gene >/dev/null 2>&1
+printf 'HTTP accepts a reported versioned gene filter and matches its stable gene\n' | mustmatch like 'HTTP accepts a reported versioned gene filter and matches its stable gene'
+```
+
 The public route identifies an entirely model-rejected request as a client error and keeps the generic `scoring failed` message. A request with at least one normal outcome and no operational failure returns HTTP 200. The response preserves one ordered outcome for every input. An item that the model rejects has `status: "rejected"`, empty `records` and `source_reference_ambiguities`, no provenance, and the stable generic `MODEL_REJECTED` error. HTTP 422 applies only when every input outcome is model-rejected. The miniature installed profile exercises both behaviors through the real executable and HTTP listener.
 
 ```bash

@@ -1,7 +1,7 @@
 use super::*;
 use axum::http::StatusCode;
 use pangopup_core::{
-    GencodeGeneId, GeneScoreRecord, LookupProvenance, LookupResult, PangolinScore,
+    EnsemblGeneId, GencodeGeneId, GeneScoreRecord, LookupProvenance, LookupResult, PangolinScore,
     PrecomputedProvenance, RelativePosition, ScoreMagnitude,
 };
 use serde_json::Value;
@@ -9,6 +9,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, mpsc};
 use tower::ServiceExt;
@@ -1144,6 +1145,67 @@ async fn modeled_http_success_is_pinned_as_one_complete_byte_fixture() {
         "4".repeat(64),
     );
     assert_eq!(body(response).await, expected.as_bytes());
+}
+
+#[tokio::test]
+async fn http_gene_filter_accepts_reported_identity_and_matches_its_stable_gene() {
+    let (state, calls) = state();
+    for gene in ["ENSG00000000001.1", "ENSG00000000001.1_PAR_Y"] {
+        let response = score_bytes(
+            &state,
+            &Bytes::from(
+                serde_json::to_vec(&json!({
+                    "variants": ["GRCh38:chr1:1:A:C"],
+                    "gene": gene,
+                }))
+                .expect("JSON"),
+            ),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK, "{gene}");
+        let bytes = body(response).await;
+        assert!(
+            bytes
+                .windows(b"\"gene\":\"ENSG00000000001\"".len())
+                .any(|window| window == b"\"gene\":\"ENSG00000000001\""),
+            "{gene}"
+        );
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn malformed_http_gene_filters_keep_the_stable_error_contract() {
+    let (state, calls) = state();
+    for gene in [
+        "ENSG00000000001.",
+        "ENSG00000000001.0",
+        "ENSG00000000001.01",
+        "ENSG00000000001.4294967296",
+        "ENSG00000000001.1_PAR_X",
+        "ENSG00000000001.1_PAR_Y_PAR_Y",
+        "ENSG00000000001..1",
+        "ENSG00000000001.1.extra",
+    ] {
+        let response = score_bytes(
+            &state,
+            &Bytes::from(
+                serde_json::to_vec(&json!({
+                    "variants": ["GRCh38:chr1:1:A:C"],
+                    "gene": gene,
+                }))
+                .expect("JSON"),
+            ),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{gene}");
+        assert_eq!(
+            body(response).await,
+            b"{\"error\":{\"code\":\"INVALID_REQUEST\",\"message\":\"gene must be ENSG followed by 11 digits, optionally followed by .VERSION or .VERSION_PAR_Y; VERSION must be a nonzero decimal u32 without a leading zero\"}}\n",
+            "{gene}"
+        );
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]

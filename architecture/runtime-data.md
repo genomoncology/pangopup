@@ -187,7 +187,7 @@ shared-array masking and exact hundredth conversion.
 The engine router tries a one-base substitution against the published provider
 first. Any record or source-reference ambiguity is authoritative. With CLI
 fallback enabled, a pure miss or non-SNV consumes one identity-bound scorer;
-the optional stable-gene filter is applied only after all-gene scoring. The CLI
+the optional gene filter accepts a stable Ensembl identifier or the exact versioned GENCODE identifier that a model result reports, with or without `_PAR_Y`. Each accepted form becomes the stable identity before filtering. The filter is applied only after all-gene scoring. The CLI
 reports the exact model/reference identities and the observed SHA-256/length of
 the same descriptor-held mask mmap used by scoring. Explicit fallback also
 hashes the complete bounded `reference.pgr`, verifies the manifest-declared

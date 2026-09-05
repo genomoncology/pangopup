@@ -76,7 +76,7 @@ pangopup lookup \
   --variant GRCh38:chr12:6801303:G:GA \
   --format table
 
-# Keep records for one stable Ensembl gene ID.
+# Keep records for one gene. Versioned GENCODE and `_PAR_Y` forms also work.
 pangopup lookup --variant GRCh38:chr12:6801301:G:A \
   --gene ENSG00000010610
 

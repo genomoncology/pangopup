@@ -8,7 +8,7 @@ use pangopup_assets::{
 use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
 use pangopup_cli::{OutputFormat, RenderRequest, render_requests};
 use pangopup_core::{
-    DnaBase, EnsemblGeneId, GenomicPosition, Grch38Contig, Grch38Snv, Grch38Variant,
+    DnaBase, EnsemblGeneId, GencodeGeneId, GenomicPosition, Grch38Contig, Grch38Snv, Grch38Variant,
     ReferenceProvenance, ScoreProvider,
 };
 use pangopup_engine::{
@@ -33,6 +33,8 @@ use std::{
 
 mod service;
 mod uninstall;
+
+const GENE_FILTER_REQUIREMENT: &str = "gene must be ENSG followed by 11 digits, optionally followed by .VERSION or .VERSION_PAR_Y; VERSION must be a nonzero decimal u32 without a leading zero";
 
 #[derive(Debug, Eq, PartialEq)]
 struct HelpEntry {
@@ -1407,8 +1409,8 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
             }
             "--variant" => variants.push(parse_variant(utf8_argument(value)?)?),
             "--gene" => {
-                let parsed = EnsemblGeneId::from_str(utf8_argument(value)?)
-                    .map_err(|error| Failure::gene(error.to_string()))?;
+                let parsed = parse_gene_filter(utf8_argument(value)?)
+                    .map_err(|_| Failure::gene(GENE_FILTER_REQUIREMENT))?;
                 if gene.replace(parsed).is_some() {
                     return Err(Failure::usage("--gene may be supplied once"));
                 }
@@ -1512,6 +1514,15 @@ fn parse_lookup(raw: &[OsString]) -> Result<Arguments, Failure> {
         implicit_cache_path: model_cache,
         implicit_cache_limit: model_cache_max_entries,
     })
+}
+
+fn parse_gene_filter(value: &str) -> Result<EnsemblGeneId, pangopup_core::ValueError> {
+    match EnsemblGeneId::from_str(value) {
+        Ok(stable) => Ok(stable),
+        Err(stable_error) => GencodeGeneId::from_str(value)
+            .map(GencodeGeneId::stable)
+            .map_err(|_| stable_error),
+    }
 }
 
 fn validate_model_cache_path(path: &Path) -> Result<(), Failure> {
@@ -1913,6 +1924,56 @@ mod tests {
             panic!("lookup command")
         };
         arguments
+    }
+
+    #[test]
+    fn gene_filter_accepts_reported_identities_and_rejects_grammar_boundaries() {
+        for accepted in [
+            "ENSG00000228572",
+            "ENSG00000228572.7",
+            "ENSG00000228572.7_PAR_Y",
+        ] {
+            let arguments = lookup_arguments(&[
+                "lookup".to_owned(),
+                "--variant".to_owned(),
+                "GRCh38:chr1:1:A:C".to_owned(),
+                "--gene".to_owned(),
+                accepted.to_owned(),
+            ]);
+            assert_eq!(
+                arguments.gene.expect("gene filter").to_string(),
+                "ENSG00000228572"
+            );
+        }
+
+        for rejected in [
+            "ENSG00000228572.",
+            "ENSG00000228572.0",
+            "ENSG00000228572.01",
+            "ENSG00000228572.4294967296",
+            "ENSG00000228572.7_PAR_X",
+            "ENSG00000228572.7_PAR_Y_PAR_Y",
+            "ENSG00000228572..7",
+            "ENSG00000228572.7.extra",
+        ] {
+            let Err(failure) = parse_command(&os_args(&[
+                "lookup",
+                "--variant",
+                "GRCh38:chr1:1:A:C",
+                "--gene",
+                rejected,
+            ])) else {
+                panic!("accepted invalid gene filter {rejected}");
+            };
+            assert_eq!(failure.exit, 2, "{rejected}");
+            assert_eq!(failure.code, "INVALID_GENE", "{rejected}");
+            assert_eq!(failure.message, GENE_FILTER_REQUIREMENT, "{rejected}");
+            assert_eq!(
+                failure_json(&failure),
+                b"{\"status\":\"error\",\"code\":\"INVALID_GENE\",\"message\":\"gene must be ENSG followed by 11 digits, optionally followed by .VERSION or .VERSION_PAR_Y; VERSION must be a nonzero decimal u32 without a leading zero\",\"details\":null}\n",
+                "{rejected}"
+            );
+        }
     }
 
     fn fallback_values(cache: &Path) -> Vec<String> {
