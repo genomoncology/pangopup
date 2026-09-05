@@ -46,8 +46,8 @@ Done, observably:
 - An operator can tell a wrong path from a permissions problem by reading the
   message.
 - The message still names which operation was attempted, as it does today.
-- The suite pins at least one such failure by cause, with a case that fails
-  before the change.
+- Every local asset path that translates a caught `io::Error` into `ASSET_IO` uses that caught error directly. A mechanical audit test or check prevents a later caller from returning to ambient `errno`.
+- The suite deterministically produces at least two distinct operating-system failures. Both cases fail before the change, and each resulting message names its own cause.
 
 Boundary: this changes the text a failure carries and nothing about which
 operations fail, when they fail, what error kind or code they report, or what
