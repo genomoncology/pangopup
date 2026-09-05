@@ -16,6 +16,7 @@ use std::{
     rc::Rc,
 };
 
+mod active_identity;
 mod error;
 mod input_audit;
 mod local;
@@ -28,6 +29,9 @@ mod runtime_transport;
 mod snv;
 mod sync;
 
+pub use active_identity::{
+    ACTIVE_SCORING_IDENTITY_SCHEMA, ActiveScoringIdentity, ActiveScoringIdentityPreimage,
+};
 pub use error::{AssetError, AssetErrorKind};
 pub(crate) use input_audit::record_test_input_open;
 #[cfg(any(test, feature = "test-read-audit"))]

@@ -33,6 +33,14 @@ pangopup serve --data-dir "$(pwd)/../target/spec/missing-service-data"
 
 The inside-out HTTP tests inject miniature providers and exercise the actual router without downloading or running the production model. They pin exact success/error bytes, lookup and SQLite bypass under saturation, whole-request FIFO admission by uncached model variant, exact-boundary 429 backpressure with retry guidance, overweight-request refusal without retry guidance, disconnect accounting, worker loss, graceful drain, multi-worker status totals, and the HTTP-required empty wire body plus exact representation headers for `HEAD`.
 
+The status response and every returned score item carry one `scoring_identity`. PangoPup hashes the RFC 8785 canonical `pangopup.active-scoring-identity.v1` preimage over software version, admitted runtime-profile identity, and effective CPU policy. Precomputed, modeled, cached, ambiguous, mixed, and mixed-batch rejected items all carry the same value. Request-level errors have no result item. Detailed route provenance stays unchanged, and standalone CLI output does not gain this service-only field.
+
+```bash
+cargo test --locked --quiet --package pangopup-assets active_identity >/dev/null 2>&1
+cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures --bin pangopup scoring_identity >/dev/null 2>&1
+printf 'status and every returned HTTP item share one canonical active scoring identity\n' | mustmatch like 'status and every returned HTTP item share one canonical active scoring identity'
+```
+
 The scoring route requires exactly one parsed `application/json` content type. Case does not matter and legal parameters are accepted. Missing, malformed, non-JSON, JSON suffix, and repeated values receive HTTP 415 with `UNSUPPORTED_MEDIA_TYPE`. This validation follows route and method selection. It precedes readiness checks and body reads. The real executable test sends these headers through the HTTP listener and pins the response.
 
 The optional `gene` filter accepts a stable Ensembl identifier, a versioned GENCODE identifier, or a versioned GENCODE identifier ending in `_PAR_Y`. The route normalizes every accepted form to the stable gene before lookup or model-result filtering. It does not change the gene written in a result. Adapter tests submit the model-reported versioned forms and reject zero, leading-zero, missing, overflowing, repeated, and unknown suffixes with HTTP 400 and `INVALID_REQUEST`.

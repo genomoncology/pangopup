@@ -14,7 +14,11 @@ use axum::{
     routing::{MethodFilter, on},
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
-use pangopup_assets::{AssetError, open_active_bundle, open_installed_runtime_profile};
+use pangopup_assets::{
+    ActiveScoringIdentity, ActiveScoringIdentityPreimage, AssetError,
+    canonical_runtime_profile_bytes, open_active_bundle, open_installed_runtime_profile,
+    runtime_profile_id,
+};
 #[cfg(feature = "service-test-fixtures")]
 use pangopup_assets::{open_test_runtime_profile, parse_runtime_profile};
 use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
@@ -351,6 +355,7 @@ struct AppState {
     provenance: ModelProvenance,
     dispatcher: Dispatcher,
     assets: AssetStatus,
+    scoring_identity: ActiveScoringIdentity,
     reference: Option<Arc<dyn ReferenceProvider>>,
 }
 
@@ -391,6 +396,7 @@ struct Listening<'a> {
 struct StatusOutput<'a> {
     version: &'static str,
     readiness: &'static str,
+    scoring_identity: &'a str,
     assets: StatusAssets<'a>,
     routes: StatusRoutes,
     model: StatusModel,
@@ -548,6 +554,12 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
     )
     .map_err(|_| Failure::usage("invalid model thread policy"))?;
     let effective_policy = policy.to_string();
+    let profile_bytes =
+        canonical_runtime_profile_bytes(&profile).map_err(|_| Failure::profile_corrupt())?;
+    let profile_id = runtime_profile_id(&profile_bytes).map_err(|_| Failure::profile_corrupt())?;
+    let scoring_identity =
+        ActiveScoringIdentityPreimage::new(env!("CARGO_PKG_VERSION"), &profile_id, policy)
+            .identity();
     let provenance = ModelProvenance::new(
         profile.model.bundle_id.clone(),
         profile.model.profile.clone(),
@@ -614,6 +626,7 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
         options.threads,
         options.queue_capacity,
         assets,
+        scoring_identity,
     );
     state.reference = Some(Arc::new(conversion_reference));
     let listener = tokio::net::TcpListener::bind(options.listen)
@@ -698,6 +711,7 @@ fn build_state(
     threads: usize,
     queue_capacity: usize,
     assets: AssetStatus,
+    scoring_identity: ActiveScoringIdentity,
 ) -> AppState {
     let worker_count = backends.len();
     let (sender, receiver) = bounded(queue_capacity);
@@ -730,6 +744,7 @@ fn build_state(
         provenance,
         dispatcher,
         assets,
+        scoring_identity,
         reference: None,
     }
 }
@@ -893,6 +908,7 @@ async fn status(State(state): State<AppState>) -> Response {
         &StatusOutput {
             version: env!("CARGO_PKG_VERSION"),
             readiness,
+            scoring_identity: state.scoring_identity.as_str(),
             assets: StatusAssets {
                 snv_bundle_id: &state.assets.snv_bundle_id,
                 model_bundle_id: &state.assets.model_bundle_id,
@@ -1307,7 +1323,8 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
         let rendered: Result<Box<RawValue>, ()> = match output {
             ScoreOutcome::Complete(result) => render_result_raw(result).map_err(|_| ()),
             ScoreOutcome::Rejected(variant) => render_rejection_raw(variant),
-        };
+        }
+        .and_then(|value| add_scoring_identity(&value, &state.scoring_identity));
         match rendered {
             Ok(value) => results.push(value),
             Err(_) => {
@@ -1320,6 +1337,20 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
         }
     }
     json_response(StatusCode::OK, &ScoreOutput { results })
+}
+
+fn add_scoring_identity(
+    value: &RawValue,
+    identity: &ActiveScoringIdentity,
+) -> Result<Box<RawValue>, ()> {
+    let mut text = value.get().to_owned();
+    if text.pop() != Some('}') {
+        return Err(());
+    }
+    text.push_str(",\"scoring_identity\":");
+    text.push_str(&serde_json::to_string(identity.as_str()).map_err(|_| ())?);
+    text.push('}');
+    RawValue::from_string(text).map_err(|_| ())
 }
 
 #[derive(Serialize)]

@@ -22,7 +22,7 @@ selection is established. A retained ten-candidate service-partition
 experiment selects host-qualified `1×1`, `1×2`, `1×4`, and `2×4` mappings on
 the retained Ryzen host while preserving portable `1×1` and keeping production
 service mappings. The foreground HTTP service now keeps lookup/cache hits
-outside one fixed bounded FIFO model queue and exposes health/status. Ticket
+outside one fixed bounded FIFO model queue and exposes health/status. It reports one canonical active scoring identity through status and every result while preserving detailed route provenance and standalone CLI output. Ticket
 022 corrected and repeated the
 singleton/zero-padded/paired comparison after code review caught missing v2
 export axes. Both policies were inconclusive from singleton drift and neither

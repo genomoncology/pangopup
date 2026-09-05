@@ -33,6 +33,12 @@ precomputed SNV hit is authoritative and must not be recomputed merely because
 the model is available. Adapters own transport parsing and rendering, not
 scoring, masking, index layout, or model-runtime types.
 
+## Active scoring identity
+
+The HTTP service computes one `pangopup.active-scoring-identity.v1` value during startup. The RFC 8785 canonical JSON preimage contains the running software version, admitted runtime-profile identity, and effective CPU policy. These inputs cover every installed component and active policy that can change an answer. The status route and every returned score item expose the same full SHA-256 value.
+
+Worker count, queue capacity and state, cache configuration and contents, listener address, paths, process and host facts, and request fields do not enter the preimage. Existing route provenance remains authoritative for the component-level audit trail. The concise identity does not enter `RoutedResult`, route provenance, model cache identity, cache keys, or the cache schema. Standalone CLI output remains unchanged because that command can run without a complete service profile.
+
 ## Measured model partition boundary
 
 ADR 0024 retains one host-qualified partition table for the AMD Ryzen 7 5825U
@@ -64,7 +70,7 @@ The service exposes:
 - readiness that becomes successful only after the pinned asset profile opens
   and required providers initialize;
 - `pangopup status` plus a status endpoint that report software version,
-  installed asset identities, enabled routes, readiness, and non-secret
+  installed asset identities, the active scoring identity, enabled routes, readiness, and non-secret
   configuration; and
 - graceful shutdown on ordinary process-manager signals.
 

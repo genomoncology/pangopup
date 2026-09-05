@@ -1,9 +1,9 @@
 use super::*;
 use axum::http::StatusCode;
 use pangopup_core::{
-    EnsemblGeneId, GencodeGeneId, GeneScoreRecord, GenomicPosition, Grch38Contig, LookupProvenance,
-    LookupResult, PangolinScore, PrecomputedProvenance, ReferenceError, ReferenceProvenance,
-    ReferenceProvider, RelativePosition, ScoreMagnitude,
+    DnaBase, EnsemblGeneId, GencodeGeneId, GeneScoreRecord, GenomicPosition, Grch38Contig,
+    LookupProvenance, LookupResult, PangolinScore, PrecomputedProvenance, ReferenceError,
+    ReferenceProvenance, ReferenceProvider, RelativePosition, ScoreMagnitude,
 };
 use serde_json::Value;
 use std::fs;
@@ -47,6 +47,46 @@ impl LookupBackend for FakeLookup {
                 .expect("empty lookup")
                 .model_required(),
         ))
+    }
+}
+
+struct PrecomputedShapeLookup;
+
+impl LookupBackend for PrecomputedShapeLookup {
+    fn inspect(&self, request: RouteRequest) -> Result<RouteDecision, Failure> {
+        let gene = EnsemblGeneId::from_str("ENSG00000000001").expect("gene");
+        let records = (request.variant().position().get() == 12)
+            .then(|| {
+                GeneScoreRecord::new(
+                    gene,
+                    PangolinScore::new(
+                        ScoreMagnitude::new(1).expect("score"),
+                        RelativePosition::new(0).expect("position"),
+                        ScoreMagnitude::new(2).expect("score"),
+                        RelativePosition::new(0).expect("position"),
+                    ),
+                )
+            })
+            .into_iter()
+            .collect();
+        let ambiguities = (request.variant().position().get() >= 11)
+            .then(|| pangopup_core::SourceReferenceAmbiguity::new(gene, DnaBase::A))
+            .into_iter()
+            .collect();
+        Ok(RouteDecision::Authoritative(RoutedResult::Precomputed {
+            variant: request.variant().clone(),
+            result: LookupResult::new(
+                records,
+                ambiguities,
+                LookupProvenance::Precomputed(PrecomputedProvenance::new(
+                    "sha256:test".to_owned(),
+                    "doi:test".to_owned(),
+                    "md5".to_owned(),
+                    true,
+                    50,
+                )),
+            ),
+        }))
     }
 }
 
@@ -415,6 +455,18 @@ fn provenance() -> ModelProvenance {
 
 fn identity() -> CacheIdentity {
     identity_with_policy("sequential:1/1")
+}
+
+fn scoring_identity() -> ActiveScoringIdentity {
+    let profile = pangopup_assets::production_runtime_profile();
+    let bytes = pangopup_assets::canonical_runtime_profile_bytes(&profile).expect("profile bytes");
+    let runtime_id = pangopup_assets::runtime_profile_id(&bytes).expect("runtime identity");
+    ActiveScoringIdentityPreimage::new(
+        env!("CARGO_PKG_VERSION"),
+        &runtime_id,
+        CpuPolicy::SEQUENTIAL_1_1,
+    )
+    .identity()
 }
 
 fn identity_with_policy(policy: &str) -> CacheIdentity {
@@ -811,6 +863,7 @@ fn state() -> (AppState, Arc<AtomicUsize>) {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
+        scoring_identity(),
     );
     (state, calls)
 }
@@ -882,7 +935,7 @@ async fn health_status_and_route_errors_are_exact_json_lines() {
         .expect("response");
     assert_eq!(
             body(response).await,
-            b"{\"version\":\"0.3.0\",\"readiness\":\"ready\",\"assets\":{\"snv_bundle_id\":\"snv\",\"model_bundle_id\":\"model\",\"reference_bundle_id\":\"reference\",\"mask_sha256\":\"mask\"},\"routes\":{\"lookup\":true,\"model\":true,\"model_only\":true},\"model\":{\"effective_cpu_policy\":\"sequential:1/1\",\"workers\":1,\"threads_per_worker\":1,\"running\":0,\"queued\":0,\"queue_capacity\":2,\"work_unit\":\"uncached_model_variant\"}}\n"
+            b"{\"version\":\"0.3.0\",\"readiness\":\"ready\",\"scoring_identity\":\"sha256:c0e2e1fd77821555a868b5f70514769d144a15aeb160e71aea17d6099839328f\",\"assets\":{\"snv_bundle_id\":\"snv\",\"model_bundle_id\":\"model\",\"reference_bundle_id\":\"reference\",\"mask_sha256\":\"mask\"},\"routes\":{\"lookup\":true,\"model\":true,\"model_only\":true},\"model\":{\"effective_cpu_policy\":\"sequential:1/1\",\"workers\":1,\"threads_per_worker\":1,\"running\":0,\"queued\":0,\"queue_capacity\":2,\"work_unit\":\"uncached_model_variant\"}}\n"
         );
     let response = router
         .clone()
@@ -910,6 +963,69 @@ async fn health_status_and_route_errors_are_exact_json_lines() {
         .expect("response");
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     assert!(body(response).await.is_empty());
+}
+
+#[tokio::test]
+async fn status_and_every_returned_score_item_share_one_scoring_identity() {
+    let (state, _) = state();
+    let router = app(state);
+    let status = router
+        .clone()
+        .oneshot(
+            Request::get("/v1/status")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("status response");
+    let status: Value = serde_json::from_slice(&body(status).await).expect("status JSON");
+    let identity = status["scoring_identity"]
+        .as_str()
+        .expect("status scoring identity");
+
+    let scored = router
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"variants":["GRCh38:chr1:1:A:C","GRCh38:chr1:2:A:C"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("score response");
+    let scored: Value = serde_json::from_slice(&body(scored).await).expect("score JSON");
+    assert_eq!(scored["results"][0]["scoring_identity"], identity);
+    assert_eq!(scored["results"][1]["scoring_identity"], identity);
+}
+
+#[tokio::test]
+async fn all_precomputed_status_shapes_carry_the_service_identity() {
+    let (mut state, _) = state();
+    state.lookup = Arc::new(PrecomputedShapeLookup);
+    let expected = state.scoring_identity.as_str().to_owned();
+    let scored = app(state)
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"variants":["GRCh38:chr1:10:A:C","GRCh38:chr1:11:A:C","GRCh38:chr1:12:A:C"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("score response");
+    let scored: Value = serde_json::from_slice(&body(scored).await).expect("score JSON");
+    assert_eq!(scored["results"][0]["status"], "not_found");
+    assert_eq!(scored["results"][1]["status"], "ambiguous_source_reference");
+    assert_eq!(scored["results"][2]["status"], "mixed");
+    assert!(
+        scored["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .all(|result| result["scoring_identity"] == expected)
+    );
 }
 
 #[tokio::test]
@@ -1169,7 +1285,7 @@ async fn modeled_http_success_is_pinned_as_one_complete_byte_fixture() {
         .expect("response");
     assert_eq!(response.status(), StatusCode::OK);
     let expected = format!(
-        "{{\"results\":[{{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":2,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"not_found\",\"records\":[],\"source_reference_ambiguities\":[],\"provenance\":{{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:{}\",\"model_profile\":\"model-v1\",\"effective_cpu_policy\":\"sequential:1/1\",\"reference_bundle_id\":\"sha256:{}\",\"reference_profile\":\"reference-v1\",\"reference_sequence_set_sha256\":\"sha256:{}\",\"mask_bytes\":1,\"mask_sha256\":\"sha256:{}\",\"masked\":true,\"window\":50}}}}]}}\n",
+        "{{\"results\":[{{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":2,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"not_found\",\"records\":[],\"source_reference_ambiguities\":[],\"provenance\":{{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:{}\",\"model_profile\":\"model-v1\",\"effective_cpu_policy\":\"sequential:1/1\",\"reference_bundle_id\":\"sha256:{}\",\"reference_profile\":\"reference-v1\",\"reference_sequence_set_sha256\":\"sha256:{}\",\"mask_bytes\":1,\"mask_sha256\":\"sha256:{}\",\"masked\":true,\"window\":50}},\"scoring_identity\":\"sha256:c0e2e1fd77821555a868b5f70514769d144a15aeb160e71aea17d6099839328f\"}}]}}\n",
         "1".repeat(64),
         "2".repeat(64),
         "3".repeat(64),
@@ -1393,6 +1509,7 @@ async fn configured_workers_report_running_variant_units() {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
+        scoring_identity(),
     );
     let router = app(state.clone());
     let first = tokio::spawn(router.clone().oneshot(score_request_for(&[2, 3])));
@@ -1470,6 +1587,7 @@ async fn request_heavier_than_capacity_has_no_retry_guidance() {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
+        scoring_identity(),
     );
     let response = app(state)
         .oneshot(score_request_for(&[2, 3]))
@@ -1521,6 +1639,7 @@ async fn contended_completed_cache_hit_waits_outside_full_model_capacity() {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
+        scoring_identity(),
     );
     let cache_gate = Arc::clone(&state.cache_gate)
         .acquire_owned()
@@ -1621,6 +1740,7 @@ async fn fixed_worker_and_waiting_capacity_are_fifo_while_lookup_bypasses_them()
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
+        scoring_identity(),
     );
     let router = app(state.clone());
     let first = tokio::spawn(router.clone().oneshot(score_request(2)));
@@ -1690,6 +1810,7 @@ async fn worker_panic_fans_out_to_running_and_queued_callers_then_closes_cleanly
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
+        scoring_identity(),
     );
     let router = app(state.clone());
     let running = tokio::spawn(router.clone().oneshot(score_request(2)));
@@ -1741,6 +1862,7 @@ async fn worker_failure_response(failure: WorkerFailure) -> (StatusCode, Vec<u8>
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
+        scoring_identity(),
     );
     let response = app(state)
         .oneshot(score_request(2))
@@ -1823,6 +1945,7 @@ fn state_with_worker(worker: Box<dyn WorkerBackend>) -> AppState {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
+        scoring_identity(),
     )
 }
 
@@ -1874,6 +1997,7 @@ async fn exact_deletion_mismatch_is_an_ordered_item_rejection() {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
+        scoring_identity(),
     );
     state.reference = Some(Arc::new(ExactEditReference {
         bases: b"AAGT".to_vec(),
@@ -1896,7 +2020,7 @@ async fn exact_deletion_mismatch_is_an_ordered_item_rejection() {
     assert_eq!(output.results.len(), 2);
     assert_eq!(
         output.results[1].get(),
-        r#"{"assembly":"GRCh38","contig":"chr1","position":2,"ref":"AC","alt":"A","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"}}"#
+        r#"{"assembly":"GRCh38","contig":"chr1","position":2,"ref":"AC","alt":"A","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"scoring_identity":"sha256:c0e2e1fd77821555a868b5f70514769d144a15aeb160e71aea17d6099839328f"}"#
     );
     assert_eq!(
         calls.load(Ordering::SeqCst),
@@ -1998,7 +2122,7 @@ async fn mixed_batch_keeps_precomputed_result_and_orders_typed_rejection() {
     assert_eq!(raw.results[0].get(), normal.results[0].get());
     assert_eq!(
         raw.results[1].get(),
-        r#"{"assembly":"GRCh38","contig":"chr1","position":2,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"}}"#
+        r#"{"assembly":"GRCh38","contig":"chr1","position":2,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"scoring_identity":"sha256:c0e2e1fd77821555a868b5f70514769d144a15aeb160e71aea17d6099839328f"}"#
     );
     let value: Value = serde_json::from_slice(&bytes).expect("JSON");
     assert!(value["results"][1].get("provenance").is_none());
@@ -2080,6 +2204,7 @@ async fn mixed_batch_keeps_exact_cache_hit_beside_rejection_without_rescoring() 
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
+        scoring_identity(),
     );
     let router = app(state);
     let cached_only = router
@@ -2106,7 +2231,7 @@ async fn mixed_batch_keeps_exact_cache_hit_beside_rejection_without_rescoring() 
     assert_eq!(mixed.results[0].get(), cached_only.results[0].get());
     assert_eq!(
         mixed.results[1].get(),
-        r#"{"assembly":"GRCh38","contig":"chr1","position":3,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"}}"#
+        r#"{"assembly":"GRCh38","contig":"chr1","position":3,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"scoring_identity":"sha256:c0e2e1fd77821555a868b5f70514769d144a15aeb160e71aea17d6099839328f"}"#
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
@@ -2130,6 +2255,7 @@ async fn model_failure_stops_batch_without_partial_http_result() {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
+        scoring_identity(),
     );
     let response = app(state)
         .oneshot(

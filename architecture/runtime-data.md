@@ -90,6 +90,8 @@ index, singleton model, compiled RefSeq reference, selected GENCODE mask, and
 the closed distance-50 sequential `1/1` scoring policy. Its SHA-256 is computed
 over exact RFC 8785/JCS bytes. The document contains no paths or URLs.
 
+The HTTP service derives `pangopup.active-scoring-identity.v1` from this runtime-profile identity, the running software version, and the effective service CPU policy. The full SHA-256 stays stable across machines and restarts with the same three inputs. It changes when any admitted asset, answer-affecting profile fact, software release, or effective thread policy changes. Operational details such as workers, queue state, cache, paths, listener, process, and host do not enter it. This environment identity gives a consumer one concise version value. Detailed route provenance continues to identify how an individual result was obtained.
+
 The maintainer prepare command authenticates the three model-side members
 through held descriptors. It reads only bounded SNV manifest/notice metadata
 and the held score file's size; it does not scan or hash `scores.pgi`.

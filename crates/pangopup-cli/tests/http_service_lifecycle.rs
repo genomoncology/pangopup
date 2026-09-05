@@ -196,6 +196,12 @@ mod installed_success {
         for path in ["/livez", "/readyz", "/v1/status"] {
             assert!(request(&address, "GET", path, "").starts_with(b"HTTP/1.1 200 OK\r\n"));
         }
+        let status = request(&address, "GET", "/v1/status", "");
+        let status: Value = serde_json::from_slice(response_body(&status)).expect("status JSON");
+        let scoring_identity = status["scoring_identity"]
+            .as_str()
+            .expect("status scoring identity")
+            .to_owned();
         let score_body = r#"{"variants":["GRCh38:chr12:6801301:G:A"]}"#;
         for content_types in [
             &[][..],
@@ -234,6 +240,9 @@ mod installed_success {
             r#"{"variants":["GRCh38:chr12:6801301:G:A"]}"#,
         );
         assert!(lookup.starts_with(b"HTTP/1.1 200 OK\r\n"));
+        let lookup: Value =
+            serde_json::from_slice(response_body(&lookup)).expect("lookup score JSON");
+        assert_eq!(lookup["results"][0]["scoring_identity"], scoring_identity);
 
         let variants = (0..10)
             .map(|_| "\"GRCh38:chr1:5051:A:AC\"".to_owned())
@@ -262,7 +271,27 @@ mod installed_success {
             "{}",
             String::from_utf8_lossy(&scored)
         );
+        let scored: Value =
+            serde_json::from_slice(response_body(&scored)).expect("modeled score JSON");
+        assert!(
+            scored["results"]
+                .as_array()
+                .expect("results")
+                .iter()
+                .all(|result| result["scoring_identity"] == scoring_identity)
+        );
         assert!(child.wait().expect("service exit").success());
+
+        let (mut restarted, restarted_address) = start(&data, &profile_path);
+        let restarted_status = request(&restarted_address, "GET", "/v1/status", "");
+        let restarted_status: Value = serde_json::from_slice(response_body(&restarted_status))
+            .expect("restarted status JSON");
+        assert_eq!(restarted_status["scoring_identity"], scoring_identity);
+        assert_eq!(
+            unsafe { libc::kill(restarted.id() as i32, libc::SIGTERM) },
+            0
+        );
+        assert!(restarted.wait().expect("restarted service exit").success());
     }
 
     #[test]
@@ -312,6 +341,7 @@ mod installed_success {
         let value: Value = serde_json::from_slice(response_body(&scored)).expect("score JSON");
         assert_eq!(value["results"][0]["status"], "found");
         assert_eq!(value["results"][0]["position"], 6_801_301);
+        let scoring_identity = value["results"][0]["scoring_identity"].clone();
         assert_eq!(
             value["results"][1],
             serde_json::json!({
@@ -323,7 +353,8 @@ mod installed_success {
                 "status": "rejected",
                 "records": [],
                 "source_reference_ambiguities": [],
-                "error": {"code": "MODEL_REJECTED", "message": "scoring failed"}
+                "error": {"code": "MODEL_REJECTED", "message": "scoring failed"},
+                "scoring_identity": scoring_identity
             })
         );
         assert!(value["results"][1].get("provenance").is_none());
