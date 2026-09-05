@@ -573,6 +573,32 @@ fn maintenance_window_uses_typed_provider() {
 }
 
 #[test]
+fn maintenance_window_accepts_every_caller_mitochondrial_spelling() {
+    let temp = Temp::new("maintenance-mitochondrial");
+    let bundle = build(&temp, "source.fa", "bundle");
+    for spelling in ["M", "MT", "chrM", "chrMT", "NC_012920.1"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_pangopup-build"))
+            .args([
+                "reference",
+                "window",
+                "--bundle",
+                bundle.to_str().expect("UTF-8 fixture path"),
+                "--contig",
+                spelling,
+                "--start",
+                "1",
+                "--length",
+                "1",
+            ])
+            .output()
+            .expect("run reference window");
+        assert!(output.status.success(), "{spelling}");
+        let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("window JSON");
+        assert_eq!(value["contig"], "chrM", "{spelling}");
+    }
+}
+
+#[test]
 fn production_context_pages_are_predicted_without_payload_bytes() {
     let traces = production_context_dense_pages().expect("predict production pages");
     assert_eq!(traces.len(), 14);

@@ -53,6 +53,22 @@ struct RequestLimits {
     max_uncached_model_variants: usize,
 }
 
+impl RequestLimits {
+    fn variant_count_refusal(self) -> String {
+        format!(
+            "variants must contain between {} and {} values",
+            self.min_variants, self.max_variants
+        )
+    }
+
+    fn model_batch_refusal(self) -> String {
+        format!(
+            "request requires more than {} uncached model variants",
+            self.max_uncached_model_variants
+        )
+    }
+}
+
 const REQUEST_LIMITS: RequestLimits = RequestLimits {
     max_body_bytes: 64 * 1024,
     min_variants: 1,
@@ -506,9 +522,9 @@ fn request_contract() -> RequestContract {
             contigs: (1_u8..=25)
                 .map(|code| Grch38Contig::from_code(code).expect("primary contig code"))
                 .map(|contig| {
-                    let spellings = super::contig_spellings(contig);
+                    let spellings = pangopup_index::reference::caller_contig_spellings(contig);
                     ContigContract {
-                        canonical: spellings.canonical.to_owned(),
+                        canonical: spellings.canonical().to_owned(),
                         accepted: spellings
                             .accepted()
                             .into_iter()
@@ -1028,7 +1044,7 @@ async fn status(State(state): State<AppState>) -> Response {
                 model_only: true,
             },
             model: StatusModel {
-                effective_cpu_policy: format!("sequential:{}/1", state.dispatcher.threads),
+                effective_cpu_policy: state.provenance.effective_cpu_policy().to_owned(),
                 workers: state.dispatcher.workers,
                 threads_per_worker: state.dispatcher.threads,
                 running: snapshot.running,
@@ -1231,7 +1247,7 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
     if input.variants.len() < REQUEST_LIMITS.min_variants
         || input.variants.len() > REQUEST_LIMITS.max_variants
     {
-        return invalid_request("variants must contain between 1 and 100 values");
+        return invalid_request(&REQUEST_LIMITS.variant_count_refusal());
     }
     let gene = match input.gene {
         Some(gene) => match super::parse_gene_filter(&gene) {
@@ -1339,7 +1355,7 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
         return service_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "MODEL_BATCH_TOO_LARGE",
-            "request requires more than 10 uncached model variants",
+            &REQUEST_LIMITS.model_batch_refusal(),
         );
     }
     if !misses.is_empty() {
@@ -1536,11 +1552,11 @@ async fn not_found() -> Response {
     service_error(StatusCode::NOT_FOUND, "NOT_FOUND", "route not found")
 }
 
-fn invalid_request(message: &'static str) -> Response {
+fn invalid_request(message: &str) -> Response {
     service_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST", message)
 }
 
-fn service_error(status: StatusCode, code: &'static str, message: &'static str) -> Response {
+fn service_error(status: StatusCode, code: &'static str, message: &str) -> Response {
     debug_assert!(message.len() <= 256 && !message.contains('\n'));
     json_response(
         status,

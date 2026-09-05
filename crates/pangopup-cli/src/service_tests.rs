@@ -1244,6 +1244,40 @@ async fn status_reports_the_request_contract_from_enforced_boundaries_and_parser
 }
 
 #[tokio::test]
+async fn status_reports_the_effective_policy_bound_to_scoring_provenance() {
+    let (mut state, _) = state();
+    state.provenance = provenance().with_effective_cpu_policy("sequential:2/1");
+    let response = app(state)
+        .oneshot(
+            Request::get("/v1/status")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("status response");
+    let status: Value = serde_json::from_slice(&body(response).await).expect("status JSON");
+    assert_eq!(status["model"]["effective_cpu_policy"], "sequential:2/1");
+}
+
+#[test]
+fn request_limit_refusals_are_rendered_from_the_enforced_values() {
+    let limits = RequestLimits {
+        max_body_bytes: 256,
+        min_variants: 2,
+        max_variants: 7,
+        max_uncached_model_variants: 3,
+    };
+    assert_eq!(
+        limits.variant_count_refusal(),
+        "variants must contain between 2 and 7 values"
+    );
+    assert_eq!(
+        limits.model_batch_refusal(),
+        "request requires more than 3 uncached model variants"
+    );
+}
+
+#[tokio::test]
 async fn request_contract_is_stable_across_service_state_and_queue_occupancy() {
     let (state, _) = state();
     let ready = app(state.clone())
@@ -1710,6 +1744,13 @@ async fn malformed_closed_input_and_limits_fail_before_scoring() {
     )
     .await;
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        body(response).await,
+        format!(
+            "{{\"error\":{{\"code\":\"MODEL_BATCH_TOO_LARGE\",\"message\":\"request requires more than {max_model_items} uncached model variants\"}}}}\n"
+        )
+        .as_bytes()
+    );
 
     let variants = (0..101).map(|_| "GRCh38:chr1:1:A:C").collect::<Vec<_>>();
     let response = score_bytes(
@@ -1801,7 +1842,10 @@ async fn exact_body_and_batch_boundaries_are_pinned() {
     assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
     assert_eq!(
         body(rejected).await,
-        b"{\"error\":{\"code\":\"INVALID_REQUEST\",\"message\":\"variants must contain between 1 and 100 values\"}}\n"
+        format!(
+            "{{\"error\":{{\"code\":\"INVALID_REQUEST\",\"message\":\"variants must contain between 1 and {max_variants} values\"}}}}\n"
+        )
+        .as_bytes()
     );
 }
 

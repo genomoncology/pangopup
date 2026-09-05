@@ -438,7 +438,10 @@ fn reference_command(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
                     2,
                 );
             };
-            let Some(alias) = values[1].to_str().and_then(user_reference_alias) else {
+            let Some(contig) = values[1]
+                .to_str()
+                .and_then(pangopup_index::reference::parse_caller_contig)
+            else {
                 return reference_failure(
                     "reference.window",
                     "CLI_USAGE",
@@ -470,32 +473,14 @@ fn reference_command(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
                     2,
                 );
             };
-            match reference_window(Path::new(values[0]), alias, start, length) {
+            let alias = contig.to_string();
+            match reference_window(Path::new(values[0]), &alias, start, length) {
                 Ok(value) => reference_json(&value, 0),
                 Err(error) => reference_command_error("reference.window", &error),
             }
         }
         _ => unreachable!("reference dispatcher receives reference leaves"),
     }
-}
-
-fn user_reference_alias(value: &str) -> Option<&str> {
-    match value {
-        "MT" | "chrMT" => Some("chrM"),
-        value if valid_reference_alias(value) => Some(value),
-        _ => None,
-    }
-}
-
-fn valid_reference_alias(value: &str) -> bool {
-    if value.parse::<pangopup_core::Grch38Contig>().is_ok() {
-        return true;
-    }
-    (1_u8..=25).any(|code| {
-        pangopup_core::Grch38Contig::from_code(code)
-            .ok()
-            .is_some_and(|contig| pangopup_index::reference::required_accession(contig) == value)
-    })
 }
 
 fn reference_command_error(command: &'static str, error: &CommandError) -> ExitCode {
