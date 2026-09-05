@@ -111,6 +111,35 @@ impl RouteRequest {
     }
 }
 
+/// Validate the parts of a model request that depend only on the submitted
+/// literal variant.
+///
+/// This boundary performs no lookup and touches no reference, mask, or model
+/// provider. Reference-dependent eligibility remains part of scoring.
+pub fn validate_model_request(variant: &Grch38Variant) -> Result<(), ModelRejection> {
+    validate_model_request_shape(variant).map(|_| ())
+}
+
+fn validate_model_request_shape(variant: &Grch38Variant) -> Result<VariantShape, ModelRejection> {
+    let shape = classify(variant)?;
+    let reference_length = variant.reference().len();
+    let alternate_length = variant.alternate().len();
+    if reference_length > MAX_ALLELE_BASES || alternate_length > MAX_ALLELE_BASES {
+        return Err(ModelRejection::AlleleTooLong {
+            reference_length,
+            alternate_length,
+        });
+    }
+    let start_value = variant
+        .position()
+        .get()
+        .checked_sub(FLANK)
+        .ok_or(ModelRejection::InsufficientReferenceContext)?;
+    GenomicPosition::new(start_value)
+        .map(|_| shape)
+        .map_err(|_| ModelRejection::InsufficientReferenceContext)
+}
+
 /// A request that did not have an authoritative precomputed result.
 ///
 /// Values can be created only by [`LookupFirstRouter::inspect`], so model
@@ -624,29 +653,20 @@ struct ScoringEngine {
 impl ScoringEngine {
     fn score(&mut self, variant: &Grch38Variant) -> Result<ModelScoreResult, ModelScoringError> {
         self.last_accounting = InferenceAccounting::default();
-        let shape = match classify(variant) {
+        let shape = match validate_model_request_shape(variant) {
             Ok(shape) => shape,
             Err(rejection) => return Ok(ModelScoreResult::rejected(rejection)),
         };
         let reference_length = variant.reference().len();
         let alternate_length = variant.alternate().len();
-        if reference_length > MAX_ALLELE_BASES || alternate_length > MAX_ALLELE_BASES {
-            return Ok(ModelScoreResult::rejected(ModelRejection::AlleleTooLong {
-                reference_length,
-                alternate_length,
-            }));
-        }
-
-        let Some(start_value) = variant.position().get().checked_sub(FLANK) else {
-            return Ok(ModelScoreResult::rejected(
-                ModelRejection::InsufficientReferenceContext,
-            ));
-        };
-        let Ok(start) = GenomicPosition::new(start_value) else {
-            return Ok(ModelScoreResult::rejected(
-                ModelRejection::InsufficientReferenceContext,
-            ));
-        };
+        let start = GenomicPosition::new(
+            variant
+                .position()
+                .get()
+                .checked_sub(FLANK)
+                .expect("validated model request has a left-context start"),
+        )
+        .expect("validated model request has a nonzero left-context start");
         let mut reference = vec![0_u8; CONTEXT_BASES + reference_length];
         match self
             .reference

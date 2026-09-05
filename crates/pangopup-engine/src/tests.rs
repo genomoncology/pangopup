@@ -1068,6 +1068,61 @@ fn rejection_and_provider_failures_short_circuit_in_frozen_order() {
 }
 
 #[test]
+fn request_only_validation_matches_scoring_rejections_in_frozen_order() {
+    let variants = [
+        Grch38Variant::new(
+            Grch38Contig::autosome(1).expect("chr1"),
+            GenomicPosition::new(5_000).expect("position"),
+            "A".repeat(101),
+            "T",
+        )
+        .expect("unanchored overlength deletion"),
+        Grch38Variant::new(
+            Grch38Contig::autosome(1).expect("chr1"),
+            GenomicPosition::new(6_000).expect("position"),
+            "A",
+            format!("A{}", "C".repeat(100)),
+        )
+        .expect("anchored overlength insertion"),
+        Grch38Variant::new(
+            Grch38Contig::autosome(1).expect("chr1"),
+            GenomicPosition::new(5_000).expect("position"),
+            "A",
+            "AC",
+        )
+        .expect("insufficient-left-context insertion"),
+    ];
+    let expected = [
+        ModelRejection::UnsupportedVariantShape,
+        ModelRejection::AlleleTooLong {
+            reference_length: 1,
+            alternate_length: 101,
+        },
+        ModelRejection::InsufficientReferenceContext,
+    ];
+
+    for (variant, expected) in variants.iter().zip(expected) {
+        assert_eq!(validate_model_request(variant), Err(expected.clone()));
+
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let mut engine = spy_engine(
+            Arc::clone(&events),
+            SpyReferenceOutcome::Error(ReferenceError::CorruptProviderData),
+            Err(ModelScoringError::MaskProvider),
+            Some(0),
+        );
+        assert_eq!(
+            engine
+                .score(variant)
+                .expect("request rejection")
+                .rejection(),
+            Some(&expected)
+        );
+        assert!(events.lock().expect("events").is_empty());
+    }
+}
+
+#[test]
 fn all_six_frozen_rejection_cases_replay_at_the_expected_first_operation() {
     let cases: Vec<_> = corpus_cases()
         .into_iter()
@@ -1388,6 +1443,37 @@ fn router_preserves_authoritative_records_and_ambiguities_without_model() {
         assert_eq!(calls.lock().expect("calls").len(), 1);
         assert_eq!(calls.lock().expect("calls")[0].1, Some(stable));
     }
+}
+
+#[test]
+fn authoritative_snv_does_not_require_model_context() {
+    let stable = EnsemblGeneId::from_str("ENSG00000000001").expect("stable");
+    let score = PangolinScore::new(
+        ScoreMagnitude::new(10).expect("gain"),
+        RelativePosition::new(1).expect("gain position"),
+        ScoreMagnitude::new(20).expect("loss"),
+        RelativePosition::new(-1).expect("loss position"),
+    );
+    let (router, calls) = router_with(vec![GeneScoreRecord::new(stable, score)], Vec::new());
+    let request = RouteRequest::new(
+        Grch38Variant::new(
+            Grch38Contig::autosome(1).expect("chr1"),
+            GenomicPosition::new(1).expect("position"),
+            "A",
+            "C",
+        )
+        .expect("SNV"),
+        None,
+    );
+    assert_eq!(
+        validate_model_request(request.variant()),
+        Err(ModelRejection::InsufficientReferenceContext)
+    );
+    assert!(matches!(
+        router.inspect(request).expect("authoritative lookup"),
+        RouteDecision::Authoritative(RoutedResult::Precomputed { .. })
+    ));
+    assert_eq!(calls.lock().expect("calls").len(), 1);
 }
 
 #[test]

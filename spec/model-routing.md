@@ -54,6 +54,26 @@ pangopup lookup --model-only --bundle /missing/snv --variant GRCh38:chr1:5051:A:
 {"status":"error","code":"CLI_USAGE"
 ```
 
+Request-only model rejections occur before model runtime admission. The engine owns these checks and scoring uses the same boundary. The command retains the existing rejection code, message, and exit status even when every supplied runtime path is missing.
+
+```bash run id=model-only-early-request-rejection exit=2 stream=stderr
+pangopup lookup --model-only --variant GRCh38:chr1:5051:A:TC --reference-bundle /missing/reference --mask /missing/mask --model-bundle /missing/model
+```
+
+```text expect=model-only-early-request-rejection contains
+{"status":"error","code":"MODEL_REJECTED","message":"unsupported variant shape","details":null}
+```
+
+Lookup-first operation may open the SNV bundle to decide whether a variant needs the model. It rejects every model-required variant before it admits model-side assets. The first request-only rejection in input order ends the batch without partial output.
+
+```bash run id=lookup-first-early-request-rejection exit=2 stream=stderr
+pangopup lookup --bundle ../tests/fixtures/snv-regression/bundle --variant GRCh38:chr12:6801301:G:A --variant GRCh38:chr1:5051:A:TC --reference-bundle /missing/reference --mask /missing/mask --model-bundle /missing/model
+```
+
+```text expect=lookup-first-early-request-rejection contains
+{"status":"error","code":"MODEL_REJECTED","message":"unsupported variant shape","details":null}
+```
+
 ```bash run id=model-only-duplicate exit=2 stream=stderr
 pangopup lookup --model-only --model-only --variant GRCh38:chr1:5051:A:C
 ```

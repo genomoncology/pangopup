@@ -13,7 +13,7 @@ use pangopup_core::{
 };
 use pangopup_engine::{
     ExplicitModelRequest, LookupFirstRouter, ModelFallback, ModelFallbackError, ModelProvenance,
-    ModelRequired, RouteDecision, RouteRequest, RoutedResult,
+    ModelRequired, RouteDecision, RouteRequest, RoutedResult, validate_model_request,
 };
 use pangopup_index::{
     BundleOpen, IndexError,
@@ -671,6 +671,13 @@ fn run_lookup_with_runtime_opener(
             .iter()
             .any(|variant| snv_from_variant(variant).is_none())
     {
+        for variant in arguments
+            .variants
+            .iter()
+            .filter(|variant| snv_from_variant(variant).is_none())
+        {
+            validate_cli_model_request(variant)?;
+        }
         return Err(Failure::model_assets_required());
     }
     let Arguments {
@@ -686,6 +693,9 @@ fn run_lookup_with_runtime_opener(
         implicit_cache_limit,
     } = arguments;
     if model_only {
+        for variant in &variants {
+            validate_cli_model_request(variant)?;
+        }
         let admission = match fallback_paths.as_ref() {
             Some(paths) => admit_model_fallback(paths)?,
             None => {
@@ -757,6 +767,7 @@ fn run_lookup_with_runtime_opener(
                 decisions.push(BatchDecision::Authoritative(result));
             }
             RouteDecision::ModelRequired(required) => {
+                validate_cli_model_request(required.variant())?;
                 needs_model = true;
                 decisions.push(BatchDecision::Model(PendingModel::Lookup(required)));
             }
@@ -795,6 +806,12 @@ fn run_lookup_with_runtime_opener(
         })
         .collect::<Vec<_>>();
     render_lookup_requests(format, &requests)
+}
+
+fn validate_cli_model_request(variant: &Grch38Variant) -> Result<(), Failure> {
+    validate_model_request(variant)
+        .map_err(ModelFallbackError::Rejected)
+        .map_err(map_model_fallback_error)
 }
 
 fn complete_model_batch(
@@ -2321,6 +2338,86 @@ mod tests {
             !data.exists(),
             "test route must not synthesize an SNV install"
         );
+    }
+
+    #[test]
+    fn request_only_rejections_precede_model_runtime_admission() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let overlength = format!("GRCh38:chr1:5051:A:A{}", "C".repeat(100));
+        for (variant, message) in [
+            (
+                "GRCh38:chr1:5051:A:TC".to_owned(),
+                "unsupported variant shape".to_owned(),
+            ),
+            (
+                overlength.clone(),
+                "model alleles exceed 100 bases (REF 1, ALT 101)".to_owned(),
+            ),
+            (
+                "GRCh38:chr1:5050:A:AC".to_owned(),
+                "insufficient GRCh38 reference context".to_owned(),
+            ),
+        ] {
+            let model_only = vec![
+                "lookup".to_owned(),
+                "--model-only".to_owned(),
+                "--data-dir".to_owned(),
+                temp.path().join("missing-data").display().to_string(),
+                "--variant".to_owned(),
+                variant,
+            ];
+            let failure = run_lookup_with_runtime_opener(
+                lookup_arguments(&model_only),
+                &mut |_| panic!("request rejection opened a fallback component"),
+                &|_, _| panic!("request rejection admitted the model runtime"),
+            )
+            .expect_err("model-only request rejection");
+            assert_eq!(failure.code, "MODEL_REJECTED");
+            assert_eq!(failure.message, message);
+            assert_eq!(failure.exit, 2);
+        }
+
+        let ordered = vec![
+            "lookup".to_owned(),
+            "--model-only".to_owned(),
+            "--data-dir".to_owned(),
+            temp.path().join("missing-data").display().to_string(),
+            "--variant".to_owned(),
+            overlength,
+            "--variant".to_owned(),
+            "GRCh38:chr1:5051:A:TC".to_owned(),
+        ];
+        let failure = run_lookup_with_runtime_opener(
+            lookup_arguments(&ordered),
+            &mut |_| panic!("request rejection opened a fallback component"),
+            &|_, _| panic!("request rejection admitted the model runtime"),
+        )
+        .expect_err("ordered model-only request rejection");
+        assert_eq!(
+            failure.message,
+            "model alleles exceed 100 bases (REF 1, ALT 101)"
+        );
+
+        let data = temp.path().join("data");
+        install_mini_snv(&data, temp.path());
+        let lookup_first = vec![
+            "lookup".to_owned(),
+            "--data-dir".to_owned(),
+            data.display().to_string(),
+            "--variant".to_owned(),
+            "GRCh38:chr12:6801301:G:A".to_owned(),
+            "--variant".to_owned(),
+            "GRCh38:chr1:5051:A:TC".to_owned(),
+        ];
+        let failure = run_lookup_with_runtime_opener(
+            lookup_arguments(&lookup_first),
+            &mut |_| panic!("request rejection opened a fallback component"),
+            &|_, _| panic!("request rejection admitted the model runtime"),
+        )
+        .expect_err("lookup-first request rejection");
+        assert_eq!(failure.code, "MODEL_REJECTED");
+        assert_eq!(failure.message, "unsupported variant shape");
+        assert_eq!(failure.exit, 2);
     }
 
     #[test]

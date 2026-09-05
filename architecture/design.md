@@ -281,6 +281,8 @@ CLI inference and the HTTP adapter are shipped. Service startup performs no
 sync; it holds the already-installed immutable members for the process
 lifetime. A replacement profile requires a new process.
 
+The engine owns one request-only model validator. It rejects unsupported variant shapes, alleles longer than 100 bases, and positions without the fixed left context in the same order used by scoring. `--model-only` validates every variant before admitting reference, mask, or model assets. Lookup-first operation opens the SNV bundle first, preserves an authoritative SNV result even when that variant lacks model context, and validates every model-required route before admitting model-side assets. The first request-only rejection in input order ends the complete CLI batch without partial output. REF matching, retrieved reference symbols, right-contig context, gene-mask eligibility, and model checks remain inside scoring because those decisions require providers.
+
 The installed flow checks transport and reconstructed hashes while streaming
 once. Ordinary startup performs cheap receipt, identity, version, size, and
 structural checks so it does not page through every multi-gigabyte member. The
