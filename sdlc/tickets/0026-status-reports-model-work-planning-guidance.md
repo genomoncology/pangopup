@@ -10,16 +10,16 @@ The service holds that factor as a private constant and uses it for `Retry-After
 
 Tickets 0012, 0018, and 0021 established the same shared-source principle for other service facts. This ticket applies that principle to the retained planning measurement.
 
-Report the planning factor and the conservative full-capacity planning estimate in the status model object, computed from the same value that produces `Retry-After`. Do not divide the estimate by worker count because the retained measurements do not prove linear scaling. A caller can then choose its timeout and safety margin from the deployment it is talking to without copying a number out of documentation. Say in the same place that these values come from a retained measurement and do not guarantee latency, matching the wording the executable already uses.
+Report `planning_millis_per_unit` as a JSON integer in the status `model` object. Its unit is milliseconds per `uncached_model_variant`, and its value preserves the measured factor exactly. Report `full_capacity_planning_seconds` beside it as a JSON integer. Compute it as `ceil(queue_capacity × planning_millis_per_unit / 1000)` with a one-second minimum, using the same arithmetic as `Retry-After`. The default capacity of twenty therefore reports 205 seconds. Do not divide the estimate by worker count because the retained measurements do not prove linear scaling. A caller can then choose its timeout and safety margin from the deployment it is talking to without copying a number out of documentation. Say in the same place that these values come from a retained measurement and do not guarantee latency, matching the wording the executable already uses.
 
 Done, observably:
 
-- `/v1/status` reports the per-unit planning seconds and the planning estimate for a full queue.
-- Both reported values derive from the same constant that computes `Retry-After`, so a saturation header and the reported estimate can never disagree.
-- Changing `--model-queue-capacity` changes the reported full-capacity estimate and leaves the per-unit factor unchanged.
+- `/v1/status` reports `model.planning_millis_per_unit` as an integer and `model.full_capacity_planning_seconds` as an integer.
+- A `Retry-After` value for N admitted units and `full_capacity_planning_seconds` at `queue_capacity` use the same upward-rounded formula and the same per-unit factor.
+- Changing `--model-queue-capacity` changes `full_capacity_planning_seconds` and leaves `planning_millis_per_unit` unchanged.
 - The reported values carry clear units and are documented as planning guidance rather than a guarantee or timeout recommendation.
 - The values do not enter `scoring_identity`, because they do not change a score.
-- The reported estimate matches the number `serve --help` states for the default capacity.
+- The default status reports `planning_millis_per_unit: 10241` and `full_capacity_planning_seconds: 205`, matching the arithmetic stated by `serve --help`.
 - Compatibility notes state that strict JSON consumers must adopt the added status fields before deployment.
 - `make lint`, `make test`, and `make spec` pass without reducing specification coverage.
 
