@@ -54,6 +54,11 @@ struct RequestLimits {
 }
 
 impl RequestLimits {
+    fn constrained_by_queue_capacity(mut self, queue_capacity: usize) -> Self {
+        self.max_uncached_model_variants = self.max_uncached_model_variants.min(queue_capacity);
+        self
+    }
+
     fn variant_count_refusal(self) -> String {
         format!(
             "variants must contain between {} and {} values",
@@ -500,16 +505,16 @@ struct ModelOnlyContract {
     optional: bool,
 }
 
-fn request_contract() -> RequestContract {
+fn request_contract(limits: RequestLimits) -> RequestContract {
     RequestContract {
         api_version: "v1",
         route: "/v1/score",
         content_type: "application/json",
-        max_body_bytes: REQUEST_LIMITS.max_body_bytes,
+        max_body_bytes: limits.max_body_bytes,
         variants: VariantContract {
-            min_items: REQUEST_LIMITS.min_variants,
-            max_items: REQUEST_LIMITS.max_variants,
-            max_uncached_model_items: REQUEST_LIMITS.max_uncached_model_variants,
+            min_items: limits.min_variants,
+            max_items: limits.max_variants,
+            max_uncached_model_items: limits.max_uncached_model_variants,
             model_work_unit: "uncached_model_variant",
             assembly: "GRCh38",
             max_model_allele_bases: MAX_MODEL_ALLELE_BASES,
@@ -1021,6 +1026,8 @@ async fn readyz(State(state): State<AppState>) -> Response {
 
 async fn status(State(state): State<AppState>) -> Response {
     let snapshot = state.dispatcher.snapshot();
+    let request_limits =
+        REQUEST_LIMITS.constrained_by_queue_capacity(state.dispatcher.queue_capacity);
     let readiness = match snapshot.readiness {
         READY => "ready",
         DRAINING => "draining",
@@ -1052,7 +1059,7 @@ async fn status(State(state): State<AppState>) -> Response {
                 queue_capacity: state.dispatcher.queue_capacity,
                 work_unit: "uncached_model_variant",
             },
-            request_contract: request_contract(),
+            request_contract: request_contract(request_limits),
         },
     )
 }
@@ -1351,11 +1358,13 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
             misses.push(item);
         }
     }
-    if misses.len() > REQUEST_LIMITS.max_uncached_model_variants {
+    let request_limits =
+        REQUEST_LIMITS.constrained_by_queue_capacity(state.dispatcher.queue_capacity);
+    if misses.len() > request_limits.max_uncached_model_variants {
         return service_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "MODEL_BATCH_TOO_LARGE",
-            &REQUEST_LIMITS.model_batch_refusal(),
+            &request_limits.model_batch_refusal(),
         );
     }
     if !misses.is_empty() {

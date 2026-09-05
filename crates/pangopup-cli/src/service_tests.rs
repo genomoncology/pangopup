@@ -846,6 +846,10 @@ fn production_worker_running_disconnect_still_writes_through_sqlite() {
 }
 
 fn state() -> (AppState, Arc<AtomicUsize>) {
+    state_with_capacity(2)
+}
+
+fn state_with_capacity(capacity: usize) -> (AppState, Arc<AtomicUsize>) {
     let calls = Arc::new(AtomicUsize::new(0));
     let state = build_state(
         Arc::new(FakeLookup),
@@ -856,7 +860,7 @@ fn state() -> (AppState, Arc<AtomicUsize>) {
             calls: Arc::clone(&calls),
         })],
         1,
-        2,
+        capacity,
         AssetStatus {
             snv_bundle_id: "snv".to_owned(),
             model_bundle_id: "model".to_owned(),
@@ -1014,7 +1018,7 @@ async fn status_and_every_returned_score_item_share_one_scoring_identity() {
 
 #[tokio::test]
 async fn status_reports_the_request_contract_from_enforced_boundaries_and_parsers() {
-    let (state, _) = state();
+    let (state, _) = state_with_capacity(20);
     let response = app(state.clone())
         .oneshot(
             Request::get("/v1/status")
@@ -1241,6 +1245,44 @@ async fn status_reports_the_request_contract_from_enforced_boundaries_and_parser
         )
         .is_err()
     );
+}
+
+#[tokio::test]
+async fn request_contract_matches_effective_idle_capacity_and_permanent_limit() {
+    for (capacity, expected_limit) in [(5, 5), (20, 10)] {
+        let (state, calls) = state_with_capacity(capacity);
+        let router = app(state);
+        let status = router
+            .clone()
+            .oneshot(
+                Request::get("/v1/status")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("status response");
+        let status: Value = serde_json::from_slice(&body(status).await).expect("status JSON");
+        assert_eq!(
+            status["request_contract"]["variants"]["max_uncached_model_items"],
+            expected_limit
+        );
+
+        let positions = (2..=(2 + expected_limit as u32)).collect::<Vec<_>>();
+        let response = router
+            .oneshot(score_request_for(&positions))
+            .await
+            .expect("score response");
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(!response.headers().contains_key(header::RETRY_AFTER));
+        assert_eq!(
+            body(response).await,
+            format!(
+                "{{\"error\":{{\"code\":\"MODEL_BATCH_TOO_LARGE\",\"message\":\"request requires more than {expected_limit} uncached model variants\"}}}}\n"
+            )
+            .as_bytes()
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
 }
 
 #[tokio::test]
@@ -1733,7 +1775,7 @@ async fn malformed_closed_input_and_limits_fail_before_scoring() {
         &Bytes::from(serde_json::to_vec(&json!({"variants": at_model_limit})).expect("JSON")),
     )
     .await;
-    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.status(), StatusCode::OK);
 
     let variants = (2..=(2 + max_model_items))
         .map(|position| format!("GRCh38:chr1:{position}:A:C"))
@@ -1962,7 +2004,7 @@ async fn configured_workers_report_running_variant_units() {
 }
 
 #[tokio::test]
-async fn request_heavier_than_capacity_has_no_retry_guidance() {
+async fn request_heavier_than_reported_limit_is_a_permanent_rejection() {
     let state = build_state(
         Arc::new(FakeLookup),
         Box::new(EmptyCache),
@@ -1986,11 +2028,11 @@ async fn request_heavier_than_capacity_has_no_retry_guidance() {
         .await
         .expect("response");
 
-    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     assert!(!response.headers().contains_key(header::RETRY_AFTER));
     assert_eq!(
         body(response).await,
-        b"{\"error\":{\"code\":\"MODEL_QUEUE_FULL\",\"message\":\"model queue is full\"}}\n"
+        b"{\"error\":{\"code\":\"MODEL_BATCH_TOO_LARGE\",\"message\":\"request requires more than 1 uncached model variants\"}}\n"
     );
 }
 
