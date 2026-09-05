@@ -2,7 +2,7 @@
 
 Pangopup ships a foreground HTTP server, signal lifecycle, and thin non-root
 Docker image through one native AMD64/ARM64 GHCR index. The public index
-currently identifies application v0.2.0; the repository prepares v0.3.0 as one
+currently identifies application v0.3.0; the repository prepares v0.4.0 as one
 coherent executable/container candidate without changing service behavior or
 assets. It does not yet ship a systemd example or metrics. The CLI interface remains
 `pangopup lookup`; its typed

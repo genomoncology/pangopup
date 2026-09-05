@@ -129,7 +129,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         values = {
             "/livez": {"status":"live"},
             "/readyz": {"status":"ready"},
-            "/v1/status": {"version":"0.3.0","readiness":"ready"},
+            "/v1/status": {"version":"0.4.0","readiness":"ready"},
         }
         self.emit(values[self.path])
     def do_POST(self):
@@ -263,7 +263,7 @@ fi
 grep -Fxq 'model-only SNV oracle mismatch' "$root/model-only.err"
 
 cp -a "$root/output" "$root/http-output"
-sed -i 's/"version":"0.3.0"/"version":"9.9.9"/' "$root/http-output/http-status.txt"
+sed -i 's/"version":"0.4.0"/"version":"9.9.9"/' "$root/http-output/http-status.txt"
 if "$repo/scripts/check-production-qualification.py" "$root/http-output" "$repo" >"$root/http.out" 2>"$root/http.err"; then
   printf 'checker accepted changed HTTP status version\n' >&2
   exit 1

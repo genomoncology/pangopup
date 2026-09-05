@@ -286,7 +286,7 @@ def main() -> None:
     model_only_value = json.loads(model_only_expected.read_bytes())
     if live != {"status": "live"} or not isinstance(ready, dict) or ready.get("status") != "ready":
         fail("HTTP health response mismatch")
-    if not isinstance(status, dict) or status.get("version") != "0.3.0" or status.get("readiness") != "ready":
+    if not isinstance(status, dict) or status.get("version") != "0.4.0" or status.get("readiness") != "ready":
         fail("HTTP status response mismatch")
     automatic_expected = json.loads(
         (source / "tests/fixtures/snv-regression/expected/ENSG00000010610.jsonl")
