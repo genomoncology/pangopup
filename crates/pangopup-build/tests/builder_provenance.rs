@@ -6,6 +6,7 @@ use pangopup_index::{BundleManifest, BundleOpen, reference::ReferenceBundleOpen}
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -62,6 +63,42 @@ fn copy_bundle_members(source: &Path, destination: &Path, members: &[&str]) {
     }
 }
 
+fn remove_additive_stable_gene_fields(text: &str, relative: &str) -> Vec<u8> {
+    let mut normalized = String::new();
+    for line in text.lines() {
+        let value: Value = serde_json::from_str(line).expect("expected JSON object");
+        let records = value["records"].as_array().expect("expected records array");
+        let mut occurrences = BTreeMap::<&str, usize>::new();
+        for record in records {
+            let gene = record["gene"].as_str().expect("expected record gene");
+            assert_eq!(
+                record["stable_gene"].as_str(),
+                Some(gene),
+                "{relative} stable gene must match its precomputed gene"
+            );
+            *occurrences.entry(gene).or_default() += 1;
+        }
+
+        let mut legacy_line = line.to_owned();
+        for (gene, expected_count) in occurrences {
+            let pair = format!("\"gene\":\"{gene}\",\"stable_gene\":\"{gene}\"");
+            assert_eq!(
+                legacy_line.matches(&pair).count(),
+                expected_count,
+                "{relative} stable gene placement"
+            );
+            legacy_line = legacy_line.replace(&pair, &format!("\"gene\":\"{gene}\""));
+        }
+        assert!(
+            !legacy_line.contains("\"stable_gene\""),
+            "{relative} has a stable gene outside a score record"
+        );
+        normalized.push_str(&legacy_line);
+        normalized.push('\n');
+    }
+    normalized.into_bytes()
+}
+
 #[test]
 fn source_fingerprint_migration_is_limited_to_snv_bundle_provenance() {
     let migration = migration();
@@ -114,12 +151,13 @@ fn source_fingerprint_migration_is_limited_to_snv_bundle_provenance() {
     {
         let relative = file["path"].as_str().expect("expected path");
         let bytes = fs::read(root.join(relative)).expect("expected JSONL");
-        assert_eq!(
-            sha256(&bytes),
-            file["migrated_sha256"].as_str().expect("migrated hash"),
-            "{relative}"
-        );
         let text = std::str::from_utf8(&bytes).expect("expected JSONL UTF-8");
+        let provenance_contract = remove_additive_stable_gene_fields(text, relative);
+        assert_eq!(
+            sha256(&provenance_contract),
+            file["migrated_sha256"].as_str().expect("migrated hash"),
+            "{relative} changes beyond the additive stable gene field"
+        );
         let lines: Vec<_> = text.lines().collect();
         assert_eq!(
             lines.len() as u64,
@@ -135,7 +173,9 @@ fn source_fingerprint_migration_is_limited_to_snv_bundle_provenance() {
             }),
             "{relative} migrated bundle IDs"
         );
-        let incumbent = text.replace(&new_bundle_id, &old_bundle_id);
+        let provenance_contract =
+            std::str::from_utf8(&provenance_contract).expect("normalized JSONL UTF-8");
+        let incumbent = provenance_contract.replace(&new_bundle_id, &old_bundle_id);
         assert_eq!(
             incumbent.matches(&old_bundle_id).count(),
             lines.len(),
