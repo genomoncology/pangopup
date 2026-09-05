@@ -131,6 +131,30 @@ fn miniature_build_reader_and_provenance_are_exact() {
 }
 
 #[test]
+fn stored_reference_contig_names_remain_canonical() {
+    let temp = Temp::new("stored-contig-name");
+    let source = build(&temp, "source.fa", "source");
+    for spelling in ["MT", "chrMT"] {
+        let bundle = temp.0.join(spelling);
+        copy_bundle(&source, &bundle);
+        let mut manifest: ReferenceManifest = serde_json::from_slice(
+            &fs::read(bundle.join("manifest.json")).expect("manifest bytes"),
+        )
+        .expect("manifest JSON");
+        manifest.sequences.aliases[24].contig = spelling.to_owned();
+        fs::write(
+            bundle.join("manifest.json"),
+            canonical_reference_manifest_bytes(&manifest).expect("canonical JSON"),
+        )
+        .expect("mutated manifest");
+        let Err(error) = ReferenceBundleOpen::open(&bundle) else {
+            panic!("stored alias must be rejected: {spelling}");
+        };
+        assert!(error.to_string().contains("manifest aliases"), "{error}");
+    }
+}
+
+#[test]
 fn v2_miniature_preserves_the_independent_current_v1_byte_oracle() {
     const V1_SOURCE: &str =
         "sha256:4bc0e93b83b28e235a7d0f498976bfe1e97b39d13e4f8c940d4c03cfd3d641bf";

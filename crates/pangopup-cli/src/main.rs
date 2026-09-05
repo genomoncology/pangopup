@@ -1685,6 +1685,9 @@ fn parse_variant(value: &str) -> Result<Grch38Variant, Failure> {
 }
 
 fn parse_contig(value: &str) -> Option<Grch38Contig> {
+    if matches!(value, "MT" | "chrMT") {
+        return Some(Grch38Contig::M);
+    }
     value.parse::<Grch38Contig>().ok().or_else(|| {
         (1_u8..=25).find_map(|code| {
             let contig = Grch38Contig::from_code(code).ok()?;
@@ -2530,8 +2533,13 @@ mod tests {
             "GRCh38:chr1:5051:A:AC",
             "GRCh38:1:5051:AA:A",
             "GRCh38:NC_000001.11:5051:A:C",
+            "GRCh38:MT:5051:A:C",
+            "GRCh38:chrMT:5051:A:C",
         ] {
-            assert!(parse_variant(value).is_ok(), "{value}");
+            let variant = parse_variant(value).unwrap_or_else(|_| panic!("{value}"));
+            if value.contains(":MT:") || value.contains(":chrMT:") {
+                assert_eq!(variant.contig().to_string(), "chrM", "{value}");
+            }
         }
         for value in [
             "GRCh37:chr1:5051:A:C",

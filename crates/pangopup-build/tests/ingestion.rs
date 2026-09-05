@@ -309,7 +309,7 @@ fn accepts_mitochondrial_source_rows() {
 
 #[test]
 fn source_adapter_requires_canonical_contig_spelling() {
-    for noncanonical in ["1", "chr01"] {
+    for noncanonical in ["1", "chr01", "MT", "chrMT"] {
         let temp = TempSource::new();
         temp.gzip(
             "ENSG00000000001.tsv.gz",

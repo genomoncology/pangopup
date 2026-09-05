@@ -59,7 +59,7 @@ Native macOS uses the same commands after a source install. The Storage and oper
 ## Input and output
 
 Variants use `GRCh38:CONTIG:POS:REF:ALT` with a 1-based genomic position. Accepted
-contigs are `1`–`22`, `X`, `Y`, `M`, their `chr` forms, or the corresponding installed
+contigs are `1`–`22`, `X`, `Y`, `M`, `MT`, their `chr` forms, or the corresponding installed
 RefSeq accessions. Alleles must be nonempty uppercase strings containing only A, C, G,
 or T.
 

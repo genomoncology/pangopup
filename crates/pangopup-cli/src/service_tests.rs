@@ -845,6 +845,28 @@ async fn score_requires_one_parsed_application_json_content_type_before_service_
     }
 }
 
+#[tokio::test]
+async fn score_accepts_mitochondrial_aliases_and_reports_canonical_contigs() {
+    let (state, calls) = state();
+    let response = app(state)
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"variants":["GRCh38:MT:1:A:C","GRCh38:chrMT:1:A:C"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: Value = serde_json::from_slice(&body(response).await).expect("JSON");
+    assert_eq!(value["results"].as_array().expect("results").len(), 2);
+    assert_eq!(value["results"][0]["contig"], "chrM");
+    assert_eq!(value["results"][1]["contig"], "chrM");
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
 #[test]
 fn strict_http_media_type_grammar_handles_quoted_and_invalid_bytes() {
     for value in [

@@ -438,10 +438,7 @@ fn reference_command(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
                     2,
                 );
             };
-            let Some(alias) = values[1]
-                .to_str()
-                .filter(|value| valid_reference_alias(value))
-            else {
+            let Some(alias) = values[1].to_str().and_then(user_reference_alias) else {
                 return reference_failure(
                     "reference.window",
                     "CLI_USAGE",
@@ -479,6 +476,14 @@ fn reference_command(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
             }
         }
         _ => unreachable!("reference dispatcher receives reference leaves"),
+    }
+}
+
+fn user_reference_alias(value: &str) -> Option<&str> {
+    match value {
+        "MT" | "chrMT" => Some("chrM"),
+        value if valid_reference_alias(value) => Some(value),
+        _ => None,
     }
 }
 

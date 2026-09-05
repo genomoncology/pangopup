@@ -14,24 +14,17 @@ manifest.json
 reference.pgr"
 ```
 
-The window command accepts a versioned RefSeq accession, resolves it to the
-canonical contig, and returns exact uppercase IUPAC bases with bundle
-provenance.
+The window command accepts a versioned RefSeq accession and all four mitochondrial caller spellings. It resolves each spelling to the canonical contig and returns exact uppercase IUPAC bases with bundle provenance.
 
 ```bash
 pangopup-build reference window --bundle ../target/spec/reference-production/bundle --contig NC_000001.11 --start 1 --length 15 | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/g' | mustmatch like '{"bases":"ACGTRYSWKMBDHVN","command":"reference.window","contig":"chr1","length":15,"ok":true,"provenance":{"assembly":"synthetic-mini","assembly_accession":"pangopup-reference-mini-v1","bundle_id":"sha256:<digest>","format":"pangopup.reference.acgt2-rle.v1","profile":"pangopup-reference-mini-v1","sequence_set_sha256":"sha256:<digest>"},"start":1}'
+for spelling in M MT chrM chrMT; do
+  pangopup-build reference window --bundle ../target/spec/reference-production/bundle --contig "$spelling" --start 1 --length 9 | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/g' | mustmatch like '{"bases":"ACGTNACGT","command":"reference.window","contig":"chrM","length":9,"ok":true,"provenance":{"assembly":"synthetic-mini","assembly_accession":"pangopup-reference-mini-v1","bundle_id":"sha256:<digest>","format":"pangopup.reference.acgt2-rle.v1","profile":"pangopup-reference-mini-v1","sequence_set_sha256":"sha256:<digest>"},"start":1}'
+done
 ```
 
 Usage and operational failures both emit one canonical JSON line on standard
 output, leave standard error empty, and do not disclose supplied paths.
-
-```bash run id=reference-window-usage exit=2 stream=stdout
-pangopup-build reference window --bundle ../target/spec/reference-production/bundle --contig chrMT --start 1 --length 10
-```
-
-```text expect=reference-window-usage exact
-{"command":"reference.window","error":{"code":"CLI_USAGE","message":"reference contig is invalid"},"ok":false}
-```
 
 ```bash run id=reference-window-range exit=1 stream=stdout
 pangopup-build reference window --bundle ../target/spec/reference-production/bundle --contig chrM --start 8 --length 3

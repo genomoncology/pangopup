@@ -92,7 +92,7 @@ for number in $(seq 1 22); do
     pangopup lookup --bundle "$bundle" --variant "GRCh38:$spelling:1:A:C" | rg -q "\"contig\":\"chr$number\""
   done
 done
-for pair in X=chrX chrX=chrX Y=chrY chrY=chrY M=chrM chrM=chrM; do
+for pair in X=chrX chrX=chrX Y=chrY chrY=chrY M=chrM MT=chrM chrM=chrM chrMT=chrM; do
   spelling=${pair%%=*}; normalized=${pair#*=}
   pangopup lookup --bundle "$bundle" --variant "GRCh38:$spelling:1:A:C" | rg -q "\"contig\":\"$normalized\""
 done
@@ -109,7 +109,7 @@ for pair in \
 done
 pangopup lookup --bundle "$bundle" --variant GRCh38:chr1:106:A:C >/dev/null
 pangopup lookup --bundle "$bundle" --variant GRCh38:NC_000017.11:7686072:G:T >/dev/null
-for invalid in chr01 chrx chrMT MT Chr1 NC_000001.1 ' chr1' 'chr1 '; do
+for invalid in chr01 chrx Chr1 NC_000001.1 ' chr1' 'chr1 '; do
   if output=$(pangopup lookup --bundle "$bundle" --variant "GRCh38:$invalid:1:A:C" 2>&1); then exit 1; else status=$?; fi
   test "$status" -eq 2
   printf '%s' "$output" | rg -q '"code":"INVALID_VARIANT"'
