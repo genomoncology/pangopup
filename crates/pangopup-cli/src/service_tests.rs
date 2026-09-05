@@ -601,6 +601,24 @@ fn retry_delay_uses_admitted_units_and_rounds_up_without_worker_scaling() {
     assert_eq!(retry_after_seconds(20), 205);
 }
 
+#[tokio::test]
+async fn status_planning_guidance_uses_retry_arithmetic_and_configured_capacity() {
+    for (capacity, expected_seconds) in [(1, 11), (5, 52), (20, 205), (1024, 10_487)] {
+        let (state, _) = state_with_capacity(capacity);
+        let response = status(State(state)).await;
+        let value: Value = serde_json::from_slice(&body(response).await).expect("status JSON");
+        assert_eq!(
+            value["model"]["planning_millis_per_unit"],
+            SLOWEST_RETAINED_P50_MILLIS
+        );
+        assert_eq!(
+            value["model"]["full_capacity_planning_seconds"],
+            expected_seconds
+        );
+        assert_eq!(expected_seconds, retry_after_seconds(capacity));
+    }
+}
+
 #[test]
 fn ordinary_errors_do_not_claim_queue_retry_guidance() {
     for (status, code, message) in [
@@ -951,7 +969,7 @@ async fn health_status_and_route_errors_are_exact_json_lines() {
             "scoring_identity": "sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd",
             "assets": {"snv_bundle_id":"snv","model_bundle_id":"model","reference_bundle_id":"reference","mask_sha256":"mask"},
             "routes": {"lookup":true,"model":true,"model_only":true},
-            "model": {"effective_cpu_policy":"sequential:1/1","workers":1,"threads_per_worker":1,"running":0,"queued":0,"queue_capacity":2,"work_unit":"uncached_model_variant"}
+            "model": {"effective_cpu_policy":"sequential:1/1","workers":1,"threads_per_worker":1,"running":0,"queued":0,"queue_capacity":2,"work_unit":"uncached_model_variant","planning_millis_per_unit":10241,"full_capacity_planning_seconds":21}
         })
     );
     let response = router
@@ -1998,6 +2016,7 @@ async fn configured_workers_report_running_variant_units() {
     assert_eq!(status["model"]["queued"], 0);
     assert_eq!(status["model"]["queue_capacity"], 5);
     assert_eq!(status["model"]["work_unit"], "uncached_model_variant");
+    assert_eq!(status["model"]["full_capacity_planning_seconds"], 52);
     let refused = router
         .oneshot(score_request(7))
         .await

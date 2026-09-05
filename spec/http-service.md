@@ -37,6 +37,8 @@ The status response and every returned score item carry one `scoring_identity`. 
 
 The status response also carries `request_contract`. This machine-readable object reports the `/v1/score` API version, media type, body and item limits, uncached model-work units, assembly, model allele and exact-edit limits, all accepted variant and gene forms, and every accepted primary-contig spelling. Clients should consume this object instead of copying those values from prose. It stays identical across readiness and queue states. It contains no host or request details and does not enter `scoring_identity`.
 
+The status `model` object reports `planning_millis_per_unit: 10241` from the slowest retained p50 and `full_capacity_planning_seconds` as `ceil(queue_capacity × planning_millis_per_unit / 1000)` with a one-second minimum. The default capacity reports 205 seconds. The same factor and upward-rounded arithmetic produce `Retry-After` from admitted units. Worker count does not divide either value. These retained measurements provide planning guidance. They do not guarantee latency or recommend a client timeout. Strict JSON status consumers must adopt both additive fields before deployment.
+
 ```bash
 cargo test --locked --quiet --package pangopup-assets active_identity >/dev/null 2>&1
 cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures --bin pangopup scoring_identity >/dev/null 2>&1

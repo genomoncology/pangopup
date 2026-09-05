@@ -533,6 +533,8 @@ struct StatusModel {
     queued: usize,
     queue_capacity: usize,
     work_unit: &'static str,
+    planning_millis_per_unit: usize,
+    full_capacity_planning_seconds: usize,
 }
 
 #[derive(Serialize)]
@@ -1132,6 +1134,10 @@ async fn status(State(state): State<AppState>) -> Response {
                 queued: snapshot.queued,
                 queue_capacity: state.dispatcher.queue_capacity,
                 work_unit: "uncached_model_variant",
+                planning_millis_per_unit: SLOWEST_RETAINED_P50_MILLIS,
+                full_capacity_planning_seconds: retry_after_seconds(
+                    state.dispatcher.queue_capacity,
+                ),
             },
             request_contract: request_contract(request_limits),
         },
