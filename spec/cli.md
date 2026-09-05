@@ -5,8 +5,8 @@ benchmarked without a network layer. The walking skeleton identifies the exact
 binary under test:
 
 ```bash
-pangopup --version | mustmatch like "pangopup 0.3.0"
-pangopup -V | mustmatch like "pangopup 0.3.0"
+pangopup --version | mustmatch like "pangopup 0.4.0"
+pangopup -V | mustmatch like "pangopup 0.4.0"
 ```
 
 Root help exposes the exact local-assets and lookup grammar, while every
@@ -26,7 +26,7 @@ pangopup --help | rg -F 'pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_
 pangopup lookup --help | head -1 | mustmatch like 'Usage: pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant <GRCh38-VARIANT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]'
 pangopup lookup --help | rg -F 'Forms: GRCh38:CONTIG:POS:REF:ALT; GRCh38:CONTIG:INS:LEFT:RIGHT:SEQUENCE; GRCh38:CONTIG:DEL:START:END:SEQUENCE.' | mustmatch like 'Forms: GRCh38:CONTIG:POS:REF:ALT; GRCh38:CONTIG:INS:LEFT:RIGHT:SEQUENCE; GRCh38:CONTIG:DEL:START:END:SEQUENCE.'
 pangopup lookup --help | rg -F 'Examples: GRCh38:chr1:5051:A:AC; GRCh38:chr1:INS:5051:5052:C; GRCh38:chr1:DEL:5052:5052:A.' | mustmatch like 'Examples: GRCh38:chr1:5051:A:AC; GRCh38:chr1:INS:5051:5052:C; GRCh38:chr1:DEL:5052:5052:A.'
-pangopup lookup --version | mustmatch like "pangopup 0.3.0"
+pangopup lookup --version | mustmatch like "pangopup 0.4.0"
 ```
 
 The nine non-root leaf and namespace paths accept both conventional help

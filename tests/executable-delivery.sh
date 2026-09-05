@@ -17,7 +17,7 @@ cat >"$smoke_bin/pangopup" <<'EOF'
 set -euo pipefail
 printf '%s\n' "$*" >>"$SMOKE_LOG"
 if [[ "${1:-}" == --version ]]; then
-  printf 'pangopup 0.3.0\n'
+  printf 'pangopup %s\n' "$SMOKE_APPLICATION_VERSION"
 elif [[ " $* " == *' --help '* ]]; then
   printf 'usage: pangopup\n'
 elif [[ "${1:-}" == status ]]; then
@@ -46,6 +46,7 @@ fake_cache_parent="/tmp/pangopup-smoke-fake-$PPID-$$"
 [[ ! -e "$fake_cache_parent" && ! -L "$fake_cache_parent" ]]
 SMOKE_LOG="$smoke_log" SMOKE_SCRIPT="$repo/scripts/smoke-linux-release.sh" \
   SMOKE_PANGOPUP="$smoke_bin/pangopup" \
+  SMOKE_APPLICATION_VERSION="$version" \
   SMOKE_SOURCE="$repo" SMOKE_DATA="$root/smoke-data" \
   SMOKE_CACHE="$fake_cache_parent" PATH="$smoke_bin:$PATH" \
   docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
@@ -66,6 +67,7 @@ chmod +x "$changed_smoke"
 
 if SMOKE_LOG="$smoke_log" SMOKE_SCRIPT="$changed_smoke" \
   SMOKE_PANGOPUP="$smoke_bin/pangopup" SMOKE_SOURCE="$repo" \
+  SMOKE_APPLICATION_VERSION="$version" \
   SMOKE_DATA="$root/smoke-data" SMOKE_CACHE="$fake_cache_parent" \
   PATH="$smoke_bin:$PATH" \
   docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \

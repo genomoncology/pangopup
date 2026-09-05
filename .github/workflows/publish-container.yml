@@ -29,7 +29,7 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/genomoncology/pangopup
-  VERSION: 0.3.0
+  VERSION: 0.4.0
   PREVIOUS_INDEX: sha256:ad1aa8c27cc61d107310f609cd63f8fcbaf591a4f9760db475384a0a71049de4
 
 jobs:

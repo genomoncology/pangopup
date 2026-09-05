@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 root=$repo/target/production-release-qualification-test
+version=$(grep -m1 '^version = ' "$repo/Cargo.toml" | cut -d'"' -f2)
+[[ -n "$version" ]]
 chmod -R u+w "$root" 2>/dev/null || true
 rm -rf "$root"
 install -d -m 700 "$root/bin"
@@ -110,9 +112,10 @@ case "$command" in
     cat "$QUALIFICATION_SOURCE/tests/fixtures/snv-regression/expected/$group.jsonl"
     ;;
   serve)
-    exec python3 - "$QUALIFICATION_SOURCE" <<'PY'
+    exec python3 - "$QUALIFICATION_SOURCE" "$QUALIFICATION_APPLICATION_VERSION" <<'PY'
 import http.server, json, pathlib, sys
 source = pathlib.Path(sys.argv[1])
+application_version = sys.argv[2]
 model = json.loads((source / "tests/fixtures/executable-release/m09.jsonl").read_bytes())
 model_only_snv = json.loads((source / "tests/fixtures/executable-release/model-only-snv.jsonl").read_bytes())
 automatic_snv = json.loads((source / "tests/fixtures/snv-regression/expected/ENSG00000010610.jsonl").read_text().splitlines()[0])
@@ -129,7 +132,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         values = {
             "/livez": {"status":"live"},
             "/readyz": {"status":"ready"},
-            "/v1/status": {"version":"0.3.0","readiness":"ready"},
+            "/v1/status": {"version":application_version,"readiness":"ready"},
         }
         self.emit(values[self.path])
     def do_POST(self):
@@ -159,6 +162,7 @@ jq -S -c . "$repo/tests/fixtures/executable-release/model-only-snv.jsonl" \
 cmp "$root/derived-model-only-snv.json" "$root/checked-model-only-snv.json"
 
 export QUALIFICATION_SOURCE=$repo
+export QUALIFICATION_APPLICATION_VERSION=$version
 export QUALIFICATION_EXPECTED_HOME=$root/output/home
 export QUALIFICATION_EXPECTED_DATA=$root/data
 export QUALIFICATION_EXPECTED_CACHE=$root/cache
@@ -263,7 +267,7 @@ fi
 grep -Fxq 'model-only SNV oracle mismatch' "$root/model-only.err"
 
 cp -a "$root/output" "$root/http-output"
-sed -i 's/"version":"0.3.0"/"version":"9.9.9"/' "$root/http-output/http-status.txt"
+sed -i "s/\"version\":\"$version\"/\"version\":\"9.9.9\"/" "$root/http-output/http-status.txt"
 if "$repo/scripts/check-production-qualification.py" "$root/http-output" "$repo" >"$root/http.out" 2>"$root/http.err"; then
   printf 'checker accepted changed HTTP status version\n' >&2
   exit 1
@@ -296,6 +300,7 @@ grep -Fxq 'SNV oracle mismatch: ENSG00000010610' "$root/tamper.err"
 
 fixture=$root/substituted-source/tests/fixtures
 install -d -m 700 "$fixture/snv-regression/expected" "$fixture/executable-release"
+cp "$repo/Cargo.toml" "$root/substituted-source/Cargo.toml"
 cp "$repo/tests/fixtures/snv-regression/requests.tsv" "$fixture/snv-regression/requests.tsv"
 cp "$repo/tests/fixtures/snv-regression/expected/"*.jsonl "$fixture/snv-regression/expected/"
 cp "$repo/tests/fixtures/executable-release/m09.jsonl" "$fixture/executable-release/m09.jsonl"

@@ -70,6 +70,22 @@ def read_json(path: pathlib.Path) -> object:
         fail(f"invalid JSON: {path.name}: {error}")
 
 
+def workspace_version(source: pathlib.Path) -> str:
+    try:
+        content = (source / "Cargo.toml").read_text(encoding="utf-8")
+    except OSError as error:
+        fail(f"cannot read workspace version: {error}")
+    section = re.search(
+        r"(?ms)^\[workspace\.package\]\s*$\n(.*?)(?=^\[|\Z)", content
+    )
+    matches = [] if section is None else re.findall(
+        r'(?m)^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"\s*$', section.group(1)
+    )
+    if len(matches) != 1:
+        fail("workspace application version is missing or ambiguous")
+    return matches[0]
+
+
 def closed_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     value: dict[str, object] = {}
     for key, item in pairs:
@@ -225,6 +241,7 @@ def main() -> None:
     source = pathlib.Path(sys.argv[2])
     if not output.is_dir() or output.is_symlink() or not source.is_dir() or source.is_symlink():
         fail("qualification directories are unsafe")
+    expected_version = workspace_version(source)
 
     require_fixture_identities(source)
 
@@ -286,7 +303,7 @@ def main() -> None:
     model_only_value = json.loads(model_only_expected.read_bytes())
     if live != {"status": "live"} or not isinstance(ready, dict) or ready.get("status") != "ready":
         fail("HTTP health response mismatch")
-    if not isinstance(status, dict) or status.get("version") != "0.3.0" or status.get("readiness") != "ready":
+    if not isinstance(status, dict) or status.get("version") != expected_version or status.get("readiness") != "ready":
         fail("HTTP status response mismatch")
     automatic_expected = json.loads(
         (source / "tests/fixtures/snv-regression/expected/ENSG00000010610.jsonl")

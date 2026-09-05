@@ -23,6 +23,7 @@ PORTABLE_QUALIFICATION := tests/ci-platform-support.sh tests/ci-test-failure-evi
 
 
 lint:          ## static analysis: rustfmt + clippy + dependency policy
+	./scripts/check-version-categories.py
 	cargo fmt --all --check
 	cargo clippy --locked $(WORKSPACE_TESTS) --all-targets -- -D warnings
 	cargo deny check advisories bans licenses sources --warn unmaintained
