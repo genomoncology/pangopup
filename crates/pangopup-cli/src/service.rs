@@ -8,7 +8,7 @@ use axum::{
     Router,
     body::{Body, Bytes, to_bytes},
     extract::State,
-    http::{HeaderValue, Method, Request, StatusCode, header},
+    http::{HeaderMap, HeaderValue, Method, Request, StatusCode, header},
     middleware::{Next, from_fn},
     response::Response,
     routing::{MethodFilter, on},
@@ -880,6 +880,13 @@ async fn status(State(state): State<AppState>) -> Response {
 }
 
 async fn score(State(state): State<AppState>, request: Request<Body>) -> Response {
+    if !has_json_content_type(request.headers()) {
+        return service_error(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "UNSUPPORTED_MEDIA_TYPE",
+            "content-type must be application/json",
+        );
+    }
     match state.dispatcher.snapshot().readiness {
         READY => {}
         FAILED => {
@@ -908,6 +915,150 @@ async fn score(State(state): State<AppState>, request: Request<Body>) -> Respons
         }
     };
     score_bytes(&state, &bytes).await
+}
+
+fn has_json_content_type(headers: &HeaderMap) -> bool {
+    let mut values = headers.get_all(header::CONTENT_TYPE).iter();
+    let Some(value) = values.next() else {
+        return false;
+    };
+    if values.next().is_some() {
+        return false;
+    }
+    is_application_json(value.as_bytes())
+}
+
+fn is_application_json(value: &[u8]) -> bool {
+    // Apply RFC 9110's media-type, token, quoted-string, quoted-pair, and optional-whitespace productions. This route's stricter contract requires every semicolon to introduce a parameter.
+    let value = trim_optional_whitespace(value);
+    let Some(type_end) = token_end(value, 0) else {
+        return false;
+    };
+    if value.get(type_end) != Some(&b'/') {
+        return false;
+    }
+    let subtype_start = type_end + 1;
+    let Some(subtype_end) = token_end(value, subtype_start) else {
+        return false;
+    };
+    if !value[..type_end].eq_ignore_ascii_case(b"application")
+        || !value[subtype_start..subtype_end].eq_ignore_ascii_case(b"json")
+    {
+        return false;
+    }
+    has_valid_media_type_parameters(value, subtype_end)
+}
+
+fn has_valid_media_type_parameters(value: &[u8], mut offset: usize) -> bool {
+    loop {
+        offset = skip_optional_whitespace(value, offset);
+        if offset == value.len() {
+            return true;
+        }
+        if value.get(offset) != Some(&b';') {
+            return false;
+        }
+        offset = skip_optional_whitespace(value, offset + 1);
+        let Some(name_end) = token_end(value, offset) else {
+            return false;
+        };
+        if value.get(name_end) != Some(&b'=') {
+            return false;
+        }
+        offset = name_end + 1;
+        if value.get(offset) == Some(&b'"') {
+            let Some(end) = quoted_string_end(value, offset + 1) else {
+                return false;
+            };
+            offset = end;
+        } else {
+            let Some(end) = token_end(value, offset) else {
+                return false;
+            };
+            offset = end;
+        }
+    }
+}
+
+fn quoted_string_end(value: &[u8], mut offset: usize) -> Option<usize> {
+    while let Some(&byte) = value.get(offset) {
+        match byte {
+            b'"' => return Some(offset + 1),
+            b'\\' => {
+                let &quoted = value.get(offset + 1)?;
+                if !is_quoted_pair_byte(quoted) {
+                    return None;
+                }
+                offset += 2;
+            }
+            _ if is_quoted_text_byte(byte) => offset += 1,
+            _ => return None,
+        }
+    }
+    None
+}
+
+fn token_end(value: &[u8], start: usize) -> Option<usize> {
+    let mut end = start;
+    while value.get(end).is_some_and(|byte| is_token_byte(*byte)) {
+        end += 1;
+    }
+    (end > start).then_some(end)
+}
+
+fn is_token_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric()
+        || matches!(
+            byte,
+            b'!' | b'#'
+                | b'$'
+                | b'%'
+                | b'&'
+                | b'\''
+                | b'*'
+                | b'+'
+                | b'-'
+                | b'.'
+                | b'^'
+                | b'_'
+                | b'`'
+                | b'|'
+                | b'~'
+        )
+}
+
+fn is_quoted_text_byte(byte: u8) -> bool {
+    matches!(byte, b'\t' | b' ' | b'!' | 0x23..=0x5b | 0x5d..=0x7e | 0x80..=0xff)
+}
+
+fn is_quoted_pair_byte(byte: u8) -> bool {
+    matches!(byte, b'\t' | b' ' | 0x21..=0x7e | 0x80..=0xff)
+}
+
+fn trim_optional_whitespace(mut value: &[u8]) -> &[u8] {
+    while value
+        .first()
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+    {
+        value = &value[1..];
+    }
+    while value
+        .last()
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+    {
+        value = &value[..value.len() - 1];
+    }
+    value
+}
+
+fn skip_optional_whitespace(value: &[u8], mut offset: usize) -> usize {
+    while value
+        .get(offset)
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+    {
+        offset += 1;
+    }
+    offset
 }
 
 async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {

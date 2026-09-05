@@ -31,11 +31,9 @@ pangopup serve --data-dir "$(pwd)/../target/spec/missing-service-data"
 {"status":"error","code":"ASSETS_MISSING","message":"required assets are missing; run pangopup sync","details":null}
 ```
 
-The inside-out HTTP tests inject miniature providers and exercise the actual
-router without downloading or running the production model. They pin exact
-success/error bytes, lookup and SQLite bypass under saturation, FIFO admission,
-429 backpressure, disconnect behavior, worker loss, graceful drain, and the
-HTTP-required empty wire body plus exact representation headers for `HEAD`.
+The inside-out HTTP tests inject miniature providers and exercise the actual router without downloading or running the production model. They pin exact success/error bytes, lookup and SQLite bypass under saturation, FIFO admission, 429 backpressure, disconnect behavior, worker loss, graceful drain, and the HTTP-required empty wire body plus exact representation headers for `HEAD`.
+
+The scoring route requires exactly one parsed `application/json` content type. Case does not matter and legal parameters are accepted. Missing, malformed, non-JSON, JSON suffix, and repeated values receive HTTP 415 with `UNSUPPORTED_MEDIA_TYPE`. This validation follows route and method selection. It precedes readiness checks and body reads. The real executable test sends these headers through the HTTP listener and pins the response.
 
 The public route identifies an entirely model-rejected request as a client error and keeps the generic `scoring failed` message. A request with at least one normal outcome and no operational failure returns HTTP 200. The response preserves one ordered outcome for every input. An item that the model rejects has `status: "rejected"`, empty `records` and `source_reference_ambiguities`, no provenance, and the stable generic `MODEL_REJECTED` error. HTTP 422 applies only when every input outcome is model-rejected. The miniature installed profile exercises both behaviors through the real executable and HTTP listener.
 

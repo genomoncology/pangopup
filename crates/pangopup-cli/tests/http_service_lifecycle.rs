@@ -148,13 +148,32 @@ mod installed_success {
     }
 
     fn request(address: &str, method: &str, path: &str, body: &str) -> Vec<u8> {
+        let content_types = if path == "/v1/score" {
+            &["application/json"][..]
+        } else {
+            &[][..]
+        };
+        request_with_content_types(address, method, path, body, content_types)
+    }
+
+    fn request_with_content_types(
+        address: &str,
+        method: &str,
+        path: &str,
+        body: &str,
+        content_types: &[&str],
+    ) -> Vec<u8> {
         let mut stream = TcpStream::connect(address).expect("connect");
         write!(
             stream,
-            "{method} {path} HTTP/1.1\r\nHost: test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            "{method} {path} HTTP/1.1\r\nHost: test\r\nContent-Length: {}\r\n",
             body.len()
         )
         .expect("write");
+        for content_type in content_types {
+            write!(stream, "Content-Type: {content_type}\r\n").expect("write content type");
+        }
+        write!(stream, "Connection: close\r\n\r\n{body}").expect("write body");
         let mut response = Vec::new();
         stream.read_to_end(&mut response).expect("read");
         response
@@ -177,6 +196,37 @@ mod installed_success {
         for path in ["/livez", "/readyz", "/v1/status"] {
             assert!(request(&address, "GET", path, "").starts_with(b"HTTP/1.1 200 OK\r\n"));
         }
+        let score_body = r#"{"variants":["GRCh38:chr12:6801301:G:A"]}"#;
+        for content_types in [
+            &[][..],
+            &["text/plain"][..],
+            &["application/json", "application/json"][..],
+        ] {
+            let response = request_with_content_types(
+                &address,
+                "POST",
+                "/v1/score",
+                score_body,
+                content_types,
+            );
+            assert!(
+                response.starts_with(b"HTTP/1.1 415 Unsupported Media Type\r\n"),
+                "{}",
+                String::from_utf8_lossy(&response)
+            );
+            assert_eq!(
+                response_body(&response),
+                b"{\"error\":{\"code\":\"UNSUPPORTED_MEDIA_TYPE\",\"message\":\"content-type must be application/json\"}}\n"
+            );
+        }
+        let parameterized = request_with_content_types(
+            &address,
+            "POST",
+            "/v1/score",
+            score_body,
+            &["Application/JSON; charset=utf-8"],
+        );
+        assert!(parameterized.starts_with(b"HTTP/1.1 200 OK\r\n"));
         let lookup = request(
             &address,
             "POST",

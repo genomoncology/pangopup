@@ -726,6 +726,145 @@ async fn health_status_and_route_errors_are_exact_json_lines() {
 }
 
 #[tokio::test]
+async fn score_requires_one_parsed_application_json_content_type_before_service_state() {
+    let valid_body = r#"{"variants":["GRCh38:chr1:1:A:C"]}"#;
+    for content_type in [
+        "application/json",
+        "Application/JSON",
+        "application/json; charset=utf-8",
+        "application/json; p=\"\"",
+    ] {
+        let (state, _) = state();
+        let response = app(state)
+            .oneshot(
+                Request::post("/v1/score")
+                    .header(header::CONTENT_TYPE, content_type)
+                    .body(Body::from(valid_body))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK, "{content_type}");
+    }
+
+    for content_type in [
+        None,
+        Some("application"),
+        Some("application/json;"),
+        Some("application/json;   "),
+        Some("application/json; charset="),
+        Some("text/plain"),
+        Some("application/json-patch+json"),
+    ] {
+        let (state, _) = state();
+        let mut request = Request::post("/v1/score");
+        if let Some(value) = content_type {
+            request = request.header(header::CONTENT_TYPE, value);
+        }
+        let response = app(state)
+            .oneshot(request.body(Body::from(valid_body)).expect("request"))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        assert_eq!(
+            body(response).await,
+            b"{\"error\":{\"code\":\"UNSUPPORTED_MEDIA_TYPE\",\"message\":\"content-type must be application/json\"}}\n"
+        );
+    }
+
+    for second in ["application/json", "text/plain"] {
+        let (state, _) = state();
+        let mut request = Request::post("/v1/score")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(valid_body))
+            .expect("request");
+        request.headers_mut().append(
+            header::CONTENT_TYPE,
+            HeaderValue::from_str(second).expect("header"),
+        );
+        let response = app(state).oneshot(request).await.expect("response");
+        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    }
+
+    let (route_state, _) = state();
+    let response = app(route_state.clone())
+        .oneshot(
+            Request::get("/v1/score")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+    let response = app(route_state)
+        .oneshot(
+            Request::post("/missing")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let (draining_state, _) = state();
+    draining_state.dispatcher.stop_admission();
+    let response = app(draining_state)
+        .oneshot(
+            Request::post("/v1/score")
+                .body(Body::from(vec![b' '; MAX_BODY + 1]))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+
+    let (failed_state, _) = state();
+    failed_state
+        .dispatcher
+        .state
+        .lock()
+        .expect("dispatcher state")
+        .readiness = FAILED;
+    let response = app(failed_state)
+        .oneshot(
+            Request::post("/v1/score")
+                .body(Body::from(valid_body))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+
+    let (health_state, _) = state();
+    for uri in ["/livez", "/readyz", "/v1/status"] {
+        let response = app(health_state.clone())
+            .oneshot(Request::get(uri).body(Body::empty()).expect("request"))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+    }
+}
+
+#[test]
+fn strict_http_media_type_grammar_handles_quoted_and_invalid_bytes() {
+    for value in [
+        br#"application/json; p="a\"b\\c""#.as_slice(),
+        b"application/json; p=\"\x80\"".as_slice(),
+    ] {
+        assert!(is_application_json(value), "{value:?}");
+    }
+    for value in [
+        b"application/json; p=\"a\\".as_slice(),
+        b"application/json; p=\"\0\"".as_slice(),
+        b"application/json; p=\"\x1f\"".as_slice(),
+        b"application/json; p=\"\x7f\"".as_slice(),
+        b"application/\x80json".as_slice(),
+    ] {
+        assert!(!is_application_json(value), "{value:?}");
+    }
+}
+
+#[tokio::test]
 async fn draining_keeps_liveness_and_status_but_stops_score_admission() {
     let (state, calls) = state();
     state.dispatcher.stop_admission();
@@ -776,6 +915,7 @@ async fn score_preserves_order_and_model_only_bypasses_lookup() {
     let response = app(state)
         .oneshot(
             Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     r#"{"variants":["GRCh38:chr1:1:A:C","GRCh38:chr1:2:A:C"],"model_only":true}"#,
                 ))
@@ -808,6 +948,7 @@ async fn modeled_http_success_is_pinned_as_one_complete_byte_fixture() {
     let response = app(state)
         .oneshot(
             Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     r#"{"variants":["GRCh38:chr1:2:A:C"],"model_only":true}"#,
                 ))
@@ -865,6 +1006,7 @@ async fn request_body_is_bounded_before_json_parsing() {
     let response = app(state)
         .oneshot(
             Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(vec![b' '; MAX_BODY + 1]))
                 .expect("request"),
         )
@@ -887,6 +1029,7 @@ async fn exact_body_and_batch_boundaries_are_pinned() {
     let accepted = app(state.clone())
         .oneshot(
             Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(at_limit))
                 .expect("request"),
         )
@@ -897,6 +1040,7 @@ async fn exact_body_and_batch_boundaries_are_pinned() {
     let one_over = app(state.clone())
         .oneshot(
             Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(vec![b' '; MAX_BODY + 1]))
                 .expect("request"),
         )
@@ -927,6 +1071,7 @@ async fn exact_body_and_batch_boundaries_are_pinned() {
 
 fn score_request(position: u32) -> Request<Body> {
     Request::post("/v1/score")
+        .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(format!(
             "{{\"variants\":[\"GRCh38:chr1:{position}:A:C\"]}}"
         )))
@@ -1203,6 +1348,7 @@ async fn mixed_batch_keeps_precomputed_result_and_orders_typed_rejection() {
     let response = router
         .oneshot(
             Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     r#"{"variants":["GRCh38:chr1:1:A:C","GRCh38:chr1:2:A:C"]}"#,
                 ))
@@ -1231,6 +1377,7 @@ async fn mixed_batch_keeps_modeled_not_found_beside_rejection() {
     let response = app(state)
         .oneshot(
             Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     r#"{"variants":["GRCh38:chr1:2:A:C","GRCh38:chr1:3:A:C"]}"#,
                 ))
@@ -1253,6 +1400,7 @@ async fn batch_with_only_rejections_keeps_request_level_422() {
     let response = app(state)
         .oneshot(
             Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     r#"{"variants":["GRCh38:chr1:2:A:C","GRCh38:chr1:2:A:C"]}"#,
                 ))
@@ -1308,6 +1456,7 @@ async fn mixed_batch_keeps_exact_cache_hit_beside_rejection_without_rescoring() 
     let mixed = router
         .oneshot(
             Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     r#"{"variants":["GRCh38:chr1:2:A:C","GRCh38:chr1:3:A:C"]}"#,
                 ))
@@ -1349,6 +1498,7 @@ async fn model_failure_stops_batch_without_partial_http_result() {
     let response = app(state)
         .oneshot(
             Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     r#"{"variants":["GRCh38:chr1:2:A:C","GRCh38:chr1:3:A:C"]}"#,
                 ))
