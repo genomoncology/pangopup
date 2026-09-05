@@ -31,7 +31,7 @@ pangopup serve --data-dir "$(pwd)/../target/spec/missing-service-data"
 {"status":"error","code":"ASSETS_MISSING","message":"required assets are missing; run pangopup sync","details":null}
 ```
 
-The inside-out HTTP tests inject miniature providers and exercise the actual router without downloading or running the production model. They pin exact success/error bytes, lookup and SQLite bypass under saturation, whole-request FIFO admission by uncached model variant, exact-boundary 429 backpressure, disconnect accounting, worker loss, graceful drain, multi-worker status totals, and the HTTP-required empty wire body plus exact representation headers for `HEAD`.
+The inside-out HTTP tests inject miniature providers and exercise the actual router without downloading or running the production model. They pin exact success/error bytes, lookup and SQLite bypass under saturation, whole-request FIFO admission by uncached model variant, exact-boundary 429 backpressure with retry guidance, overweight-request refusal without retry guidance, disconnect accounting, worker loss, graceful drain, multi-worker status totals, and the HTTP-required empty wire body plus exact representation headers for `HEAD`.
 
 The scoring route requires exactly one parsed `application/json` content type. Case does not matter and legal parameters are accepted. Missing, malformed, non-JSON, JSON suffix, and repeated values receive HTTP 415 with `UNSUPPORTED_MEDIA_TYPE`. This validation follows route and method selection. It precedes readiness checks and body reads. The real executable test sends these headers through the HTTP listener and pins the response.
 

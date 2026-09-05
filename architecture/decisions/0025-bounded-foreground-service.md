@@ -10,6 +10,8 @@ The portable defaults are one worker, one ONNX intra-op thread, and 20 admitted 
 
 The default uses the slowest retained p50 for the portable `sequential:1/1` policy. That measurement is 10.241 seconds per variant in `planning/artifacts/022-reference-alternate-batching.md`. The 20-unit bound gives one worker a planning estimate of about 205 seconds. This estimate does not guarantee latency. A cheaper workload can shed work sooner than necessary. This is the accepted cost of choosing the slowest retained p50 instead of the median. Operators can change the capacity for a different workload.
 
+A rejected request that could fit on an empty service receives one decimal `Retry-After` field. The dispatcher derives the delay from the admitted work captured under the same lock as the refusal. It calculates `ceil((running + queued) × 10.241)` seconds with a one-second minimum. The calculation does not divide by worker count because the retained evidence does not prove linear scaling. The delay may be early or late and does not reserve future capacity. A request whose own weight exceeds capacity receives no retry guidance. Other errors do not receive queue retry guidance. This behavior does not change the status schema.
+
 Queued work whose HTTP receiver has closed is discarded. Started inference is
 allowed to finish and may populate SQLite. SIGINT and SIGTERM stop score
 admission and drain accepted work; a second signal forces exit. Unexpected

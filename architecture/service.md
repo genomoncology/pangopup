@@ -47,6 +47,8 @@ The measurement also proves that the separately opened SNV mmap stays fast while
 
 The slowest retained p50 for the portable `sequential:1/1` policy is 10.241 seconds per variant in `planning/artifacts/022-reference-alternate-batching.md`. Twenty units therefore give one sequential worker a planning estimate of about 205 seconds. Variant costs differ by more than a factor of two, so this estimate does not guarantee retirement time. Operators adjust the capacity for their workload.
 
+A 429 refusal captures `running + queued` under the admission lock. When the rejected request could fit on an empty service, the response carries one decimal `Retry-After` delay of `ceil((running + queued) × 10.241)` seconds with a one-second minimum. The calculation rounds upward and does not divide by worker count because retained measurements do not prove linear worker scaling. The delay does not guarantee that capacity will exist. A request whose own weight exceeds capacity receives no retry guidance because waiting cannot make it fit. Other errors receive no queue retry guidance. The status schema does not expose this snapshot.
+
 ## Foreground lifecycle
 
 ADR 0025 records the fixed-worker, bounded-FIFO, and drain choices below.

@@ -44,6 +44,7 @@ use tokio::sync::{Semaphore, mpsc, oneshot};
 const MAX_BODY: usize = 64 * 1024;
 const MAX_VARIANTS: usize = 100;
 const MAX_MODEL_MISSES: usize = 10;
+const SLOWEST_RETAINED_P50_MILLIS: usize = 10_241;
 const READY: u8 = 0;
 const DRAINING: u8 = 1;
 const FAILED: u8 = 2;
@@ -258,8 +259,13 @@ impl Dispatcher {
             _ => return Err(AdmissionError::Draining),
         }
         let weight = job.weight();
-        if state.running + state.queued + weight > self.queue_capacity {
-            return Err(AdmissionError::Full);
+        let admitted = state.running + state.queued;
+        if admitted + weight > self.queue_capacity {
+            let retry_after_seconds =
+                (weight <= self.queue_capacity).then(|| retry_after_seconds(admitted));
+            return Err(AdmissionError::Full {
+                retry_after_seconds,
+            });
         }
         let slot = if state.running_jobs < self.workers && state.queued == 0 {
             state.running_jobs += 1;
@@ -317,9 +323,15 @@ impl Dispatcher {
 }
 
 enum AdmissionError {
-    Full,
+    Full { retry_after_seconds: Option<usize> },
     Draining,
     Unavailable,
+}
+
+fn retry_after_seconds(admitted: usize) -> usize {
+    (admitted * SLOWEST_RETAINED_P50_MILLIS)
+        .div_ceil(1_000)
+        .max(1)
 }
 
 #[derive(Clone)]
@@ -1180,12 +1192,22 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
             slot: JobSlot::Unassigned,
         }) {
             Ok(()) => {}
-            Err(AdmissionError::Full) => {
-                return service_error(
+            Err(AdmissionError::Full {
+                retry_after_seconds,
+            }) => {
+                let mut response = service_error(
                     StatusCode::TOO_MANY_REQUESTS,
                     "MODEL_QUEUE_FULL",
                     "model queue is full",
                 );
+                if let Some(seconds) = retry_after_seconds {
+                    response.headers_mut().insert(
+                        header::RETRY_AFTER,
+                        HeaderValue::from_str(&seconds.to_string())
+                            .expect("bounded retry delay is a valid header"),
+                    );
+                }
+                return response;
             }
             Err(AdmissionError::Draining) => {
                 return service_error(

@@ -446,7 +446,7 @@ fn admission_counts_running_and_queued_variant_units_at_the_exact_boundary() {
     assert!(dispatcher.admit(model_job(&[9, 10, 11])).is_ok());
     assert!(matches!(
         dispatcher.admit(model_job(&[12])),
-        Err(AdmissionError::Full)
+        Err(AdmissionError::Full { .. })
     ));
     let snapshot = dispatcher.snapshot();
     assert_eq!(snapshot.running, 7);
@@ -469,7 +469,7 @@ fn equal_model_work_has_equal_admission_across_request_groupings() {
     );
     assert!(matches!(
         grouped.admit(model_job(&[12])),
-        Err(AdmissionError::Full)
+        Err(AdmissionError::Full { .. })
     ));
 
     let (split, split_receiver) = idle_dispatcher(1, 10);
@@ -478,7 +478,7 @@ fn equal_model_work_has_equal_admission_across_request_groupings() {
     assert!(split.admit(model_job(&[7, 8, 9, 10, 11])).is_ok());
     assert!(matches!(
         split.admit(model_job(&[12])),
-        Err(AdmissionError::Full)
+        Err(AdmissionError::Full { .. })
     ));
     assert_eq!(grouped.snapshot().running + grouped.snapshot().queued, 10);
     assert_eq!(split.snapshot().running + split.snapshot().queued, 10);
@@ -504,9 +504,42 @@ fn default_model_capacity_is_twenty_uncached_variants() {
     );
     assert!(matches!(
         dispatcher.admit(model_job(&[22])),
-        Err(AdmissionError::Full)
+        Err(AdmissionError::Full { .. })
     ));
     drop(receiver);
+}
+
+#[test]
+fn retry_delay_uses_admitted_units_and_rounds_up_without_worker_scaling() {
+    assert_eq!(retry_after_seconds(0), 1);
+    assert_eq!(retry_after_seconds(1), 11);
+    assert_eq!(retry_after_seconds(5), 52);
+    assert_eq!(retry_after_seconds(20), 205);
+}
+
+#[test]
+fn ordinary_errors_do_not_claim_queue_retry_guidance() {
+    for (status, code, message) in [
+        (
+            StatusCode::BAD_REQUEST,
+            "INVALID_REQUEST",
+            "invalid request",
+        ),
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "MODEL_REJECTED",
+            "scoring failed",
+        ),
+        (StatusCode::NOT_FOUND, "NOT_FOUND", "route not found"),
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "SCORING_FAILED",
+            "scoring failed",
+        ),
+    ] {
+        let response = service_error(status, code, message);
+        assert!(!response.headers().contains_key(header::RETRY_AFTER));
+    }
 }
 
 #[test]
@@ -1298,6 +1331,15 @@ async fn configured_workers_report_running_variant_units() {
         .await
         .expect("refused response");
     assert_eq!(refused.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(refused.headers()[header::RETRY_AFTER], "52");
+    assert_eq!(
+        refused
+            .headers()
+            .get_all(header::RETRY_AFTER)
+            .iter()
+            .count(),
+        1
+    );
     assert_eq!(
         body(refused).await,
         b"{\"error\":{\"code\":\"MODEL_QUEUE_FULL\",\"message\":\"model queue is full\"}}\n"
@@ -1315,6 +1357,38 @@ async fn configured_workers_report_running_variant_units() {
         StatusCode::OK
     );
     assert_eq!(calls.load(Ordering::SeqCst), 5);
+}
+
+#[tokio::test]
+async fn request_heavier_than_capacity_has_no_retry_guidance() {
+    let state = build_state(
+        Arc::new(FakeLookup),
+        Box::new(EmptyCache),
+        identity(),
+        provenance(),
+        vec![Box::new(FakeWorker {
+            calls: Arc::new(AtomicUsize::new(0)),
+        })],
+        1,
+        1,
+        AssetStatus {
+            snv_bundle_id: "snv".to_owned(),
+            model_bundle_id: "model".to_owned(),
+            reference_bundle_id: "reference".to_owned(),
+            mask_sha256: "mask".to_owned(),
+        },
+    );
+    let response = app(state)
+        .oneshot(score_request_for(&[2, 3]))
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(!response.headers().contains_key(header::RETRY_AFTER));
+    assert_eq!(
+        body(response).await,
+        b"{\"error\":{\"code\":\"MODEL_QUEUE_FULL\",\"message\":\"model queue is full\"}}\n"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
