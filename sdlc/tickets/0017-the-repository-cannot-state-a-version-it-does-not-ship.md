@@ -25,3 +25,7 @@ Done, observably:
 - `make lint`, `make test`, and `make spec` pass without reducing specification coverage.
 
 Boundary: do not create a Git tag, GitHub release, container tag, or moving `latest` tag. Do not finalize or publish an image. Do not claim that 0.4.0 is public. Do not rewrite publication records, release notes, prior-release documentation, or fixed-version test inputs. Do not change scoring, assets, the scoring-identity algorithm, or any public request or response shape beyond the expected application version and resulting identity value.
+
+## Review
+
+- Design review: accepted on current main `f9f3769`. The reviewer verified every version premise, the single 0.4.0 candidate goal, a red observable path, mechanical drift enforcement, preserved 0.3.0 publication evidence, and the no-publication boundary.
