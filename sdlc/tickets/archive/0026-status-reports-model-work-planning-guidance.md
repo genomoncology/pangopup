@@ -28,4 +28,4 @@ Boundary: do not change the measured constant, the `Retry-After` formula, admiss
 ## Review
 
 - Design review: approved after remediation at content SHA-256 `31cd7c7da87013336bf19e3a194d5f46f710b45347ea4783bb43d43497f7aa10`. The reviewer verified the retained 10.241-second factor and 205-second default arithmetic. The revision corrects the shared-source precedent, permits only the two required status additions, and requires coordinated adoption by strict JSON consumers.
-- Code review: pending.
+- Code review: accepted after capacity-boundary and worker-count-independence tests were added.
