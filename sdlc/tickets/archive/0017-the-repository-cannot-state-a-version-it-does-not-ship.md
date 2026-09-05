@@ -29,3 +29,4 @@ Boundary: do not create a Git tag, GitHub release, container tag, or moving `lat
 ## Review
 
 - Design review: accepted on current main `f9f3769`. The reviewer verified every version premise, the single 0.4.0 candidate goal, a red observable path, mechanical drift enforcement, preserved 0.3.0 publication evidence, and the no-publication boundary.
+- Code review: accepted at exact reviewed candidate `a4d0b466648fa36d6c50fdf612350133dd52f08c` with no findings. Root applied every reviewed path unchanged onto current main through `62160d1c2ad85388f383bbff4429e12dbc12e212`.
