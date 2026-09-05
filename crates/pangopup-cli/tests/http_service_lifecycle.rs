@@ -295,7 +295,7 @@ mod installed_success {
     }
 
     #[test]
-    fn real_executable_answers_model_rejection_with_422() {
+    fn real_executable_reports_a_single_model_rejection_as_an_item() {
         let temp = tempfile::tempdir().expect("temp");
         let data = temp.path().join("data");
         let (_profile, profile_path) = install(&data, temp.path());
@@ -309,14 +309,14 @@ mod installed_success {
         assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
         assert!(child.wait().expect("service exit").success());
         assert!(
-            rejected.starts_with(b"HTTP/1.1 422 Unprocessable Entity\r\n"),
+            rejected.starts_with(b"HTTP/1.1 200 OK\r\n"),
             "{}",
             String::from_utf8_lossy(&rejected)
         );
-        assert_eq!(
-            response_body(&rejected),
-            b"{\"error\":{\"code\":\"MODEL_REJECTED\",\"message\":\"scoring failed\"}}\n"
-        );
+        let value: Value =
+            serde_json::from_slice(response_body(&rejected)).expect("rejection JSON");
+        assert_eq!(value["results"][0]["status"], "rejected");
+        assert_eq!(value["results"][0]["error"]["code"], "MODEL_REJECTED");
     }
 
     #[test]
@@ -401,11 +401,11 @@ mod installed_success {
             "/v1/score",
             r#"{"variants":["GRCh38:chr1:DEL:1:1:A"]}"#,
         );
-        assert!(invalid.starts_with(b"HTTP/1.1 400 Bad Request\r\n"));
-        assert_eq!(
-            response_body(&invalid),
-            b"{\"error\":{\"code\":\"INVALID_REQUEST\",\"message\":\"variant is invalid\"}}\n"
-        );
+        assert!(invalid.starts_with(b"HTTP/1.1 200 OK\r\n"));
+        let value: Value = serde_json::from_slice(response_body(&invalid)).expect("invalid JSON");
+        assert_eq!(value["results"][0]["input"], "GRCh38:chr1:DEL:1:1:A");
+        assert_eq!(value["results"][0]["status"], "rejected");
+        assert_eq!(value["results"][0]["error"]["code"], "INVALID_VARIANT");
         assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
         assert!(child.wait().expect("service exit").success());
     }

@@ -1742,7 +1742,7 @@ async fn malformed_http_gene_filters_keep_the_stable_error_contract() {
 }
 
 #[tokio::test]
-async fn malformed_closed_input_and_limits_fail_before_scoring() {
+async fn malformed_envelopes_shared_options_and_limits_fail_before_scoring() {
     let (boundary_state, _) = state();
     let (state, calls) = state();
     let status = app(state.clone())
@@ -1759,7 +1759,7 @@ async fn malformed_closed_input_and_limits_fail_before_scoring() {
         .expect("model item limit") as u32;
     for bytes in [
         br#"{"variants":[],"extra":true}"#.as_slice(),
-        br#"{"variants":["bad"]}"#.as_slice(),
+        br#"{"variants":[1]}"#.as_slice(),
         br#"{"variants":["GRCh38:chr1:1:A:C"],"variants":[]}"#.as_slice(),
         br#"{"variants":["GRCh38:chr1:1:A:C"],"gene":null}"#.as_slice(),
         br#"{"variants":["GRCh38:chr1:1:A:C"],"model_only":null}"#.as_slice(),
@@ -2307,13 +2307,13 @@ async fn worker_failure_response(failure: WorkerFailure) -> (StatusCode, Vec<u8>
 }
 
 #[tokio::test]
-async fn http_reports_model_rejected_worker_failure() {
+async fn http_reports_model_rejection_as_a_completed_item() {
     let (status, body) = worker_failure_response(WorkerFailure::Rejected).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(
-        body,
-        b"{\"error\":{\"code\":\"MODEL_REJECTED\",\"message\":\"scoring failed\"}}\n"
-    );
+    assert_eq!(status, StatusCode::OK);
+    let value: Value = serde_json::from_slice(&body).expect("JSON");
+    assert_eq!(value["results"][0]["status"], "rejected");
+    assert_eq!(value["results"][0]["error"]["code"], "MODEL_REJECTED");
+    assert_eq!(value["results"][0]["error"]["message"], "scoring failed");
 }
 
 #[tokio::test]
@@ -2469,7 +2469,7 @@ async fn exact_deletion_mismatch_is_an_ordered_item_rejection() {
 }
 
 #[tokio::test]
-async fn exact_edit_anchor_failures_stop_before_lookup_cache_and_inference() {
+async fn exact_edit_anchor_failures_are_ordered_item_rejections_before_inference() {
     for variant in ["GRCh38:chr1:INS:1:2:A", "GRCh38:chr1:INS:4:5:A"] {
         let calls = Arc::new(AtomicUsize::new(0));
         let mut state = state_with_worker(Box::new(FakeWorker {
@@ -2488,9 +2488,54 @@ async fn exact_edit_anchor_failures_stop_before_lookup_cache_and_inference() {
             )
             .await
             .expect("response");
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response.status(), StatusCode::OK);
+        let value: Value = serde_json::from_slice(&body(response).await).expect("JSON");
+        assert_invalid_item(&value["results"][0], variant);
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
+}
+
+struct CorruptExactEditReference {
+    provenance: ReferenceProvenance,
+}
+
+impl ReferenceProvider for CorruptExactEditReference {
+    fn copy_window(
+        &self,
+        _contig: Grch38Contig,
+        _start: GenomicPosition,
+        _destination: &mut [u8],
+    ) -> Result<(), ReferenceError> {
+        Err(ReferenceError::CorruptProviderData)
+    }
+
+    fn provenance(&self) -> &ReferenceProvenance {
+        &self.provenance
+    }
+}
+
+#[tokio::test]
+async fn exact_edit_reference_provider_failure_remains_request_level() {
+    let mut state = state_with_worker(Box::new(RecordWorker));
+    state.reference = Some(Arc::new(CorruptExactEditReference {
+        provenance: provenance().reference().clone(),
+    }));
+    let response = app(state)
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"variants":["bad","GRCh38:chr1:INS:1:2:A"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(
+        body(response).await,
+        b"{\"error\":{\"code\":\"SCORING_FAILED\",\"message\":\"scoring failed\"}}\n"
+    );
 }
 
 #[tokio::test]
@@ -2523,6 +2568,17 @@ async fn successful_exact_deletion_matches_literal_records_and_provenance() {
 #[derive(serde::Deserialize)]
 struct RawScoreOutput {
     results: Vec<Box<RawValue>>,
+}
+
+fn assert_invalid_item(value: &Value, input: &str) {
+    assert_eq!(value["input"], input);
+    assert_eq!(value["status"], "rejected");
+    assert_eq!(value["records"], json!([]));
+    assert_eq!(value["source_reference_ambiguities"], json!([]));
+    assert_eq!(value["error"]["code"], "INVALID_VARIANT");
+    assert_eq!(value["error"]["message"], "variant is invalid");
+    assert!(value.get("provenance").is_none());
+    assert_eq!(value["scoring_identity"], scoring_identity().as_str());
 }
 
 #[tokio::test]
@@ -2586,27 +2642,117 @@ async fn mixed_batch_keeps_modeled_not_found_beside_rejection() {
 }
 
 #[tokio::test]
-async fn batch_with_only_rejections_keeps_request_level_422() {
-    let state = state_with_worker(Box::new(RejectAtWorker {
-        position: 2,
-        calls: Arc::new(AtomicUsize::new(0)),
+async fn batch_with_only_model_rejections_reports_every_item() {
+    let state = state_with_worker(Box::new(FailingWorker {
+        failure: WorkerFailure::Rejected,
     }));
     let response = app(state)
         .oneshot(
             Request::post("/v1/score")
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
-                    r#"{"variants":["GRCh38:chr1:2:A:C","GRCh38:chr1:2:A:C"]}"#,
+                    r#"{"variants":["GRCh38:chr1:2:A:C","GRCh38:chr1:3:A:C"]}"#,
                 ))
                 .expect("request"),
         )
         .await
         .expect("response");
-    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(
-        body(response).await,
-        b"{\"error\":{\"code\":\"MODEL_REJECTED\",\"message\":\"scoring failed\"}}\n"
-    );
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: Value = serde_json::from_slice(&body(response).await).expect("JSON");
+    assert_eq!(value["results"].as_array().expect("results").len(), 2);
+    assert_eq!(value["results"][0]["status"], "rejected");
+    assert_eq!(value["results"][1]["status"], "rejected");
+    assert_eq!(value["results"][0]["assembly"], "GRCh38");
+    assert_eq!(value["results"][0]["position"], 2);
+    assert_eq!(value["results"][0]["error"]["code"], "MODEL_REJECTED");
+    assert_eq!(value["results"][1]["assembly"], "GRCh38");
+    assert_eq!(value["results"][1]["position"], 3);
+    assert_eq!(value["results"][1]["error"]["code"], "MODEL_REJECTED");
+}
+
+#[tokio::test]
+async fn singleton_invalid_variant_is_a_completed_item_outcome() {
+    let (state, calls) = state();
+    let response = app(state)
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"variants":["GRCh38:chr0:1:A:C"]}"#))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: Value = serde_json::from_slice(&body(response).await).expect("JSON");
+    assert_invalid_item(&value["results"][0], "GRCh38:chr0:1:A:C");
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn mixed_and_all_invalid_batches_preserve_order_and_valid_neighbors() {
+    let (state, calls) = state();
+    let router = app(state);
+    let mixed = router
+        .clone()
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"variants":["bad","GRCh38:chr1:1:A:C","GRCh38:chr0:2:A:C"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("mixed response");
+    assert_eq!(mixed.status(), StatusCode::OK);
+    let mixed: Value = serde_json::from_slice(&body(mixed).await).expect("mixed JSON");
+    assert_invalid_item(&mixed["results"][0], "bad");
+    assert_eq!(mixed["results"][1]["status"], "found");
+    assert_invalid_item(&mixed["results"][2], "GRCh38:chr0:2:A:C");
+
+    let invalid = router
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"variants":["bad","also-bad"]}"#))
+                .expect("request"),
+        )
+        .await
+        .expect("invalid response");
+    assert_eq!(invalid.status(), StatusCode::OK);
+    let invalid: Value = serde_json::from_slice(&body(invalid).await).expect("invalid JSON");
+    assert_invalid_item(&invalid["results"][0], "bad");
+    assert_invalid_item(&invalid["results"][1], "also-bad");
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn exact_edit_boundary_failure_preserves_a_valid_neighbor() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut state = state_with_worker(Box::new(FakeWorker {
+        calls: Arc::clone(&calls),
+    }));
+    state.reference = Some(Arc::new(ExactEditReference {
+        bases: b"NAA".to_vec(),
+        provenance: provenance().reference().clone(),
+    }));
+    let response = app(state)
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"variants":["GRCh38:chr1:1:A:C","GRCh38:chr1:INS:4:5:A"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: Value = serde_json::from_slice(&body(response).await).expect("JSON");
+    assert_eq!(value["results"][0]["status"], "found");
+    assert_eq!(value["results"][1]["input"], "GRCh38:chr1:INS:4:5:A");
+    assert_eq!(value["results"][1]["error"]["code"], "INVALID_VARIANT");
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
