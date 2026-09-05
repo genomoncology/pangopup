@@ -1656,6 +1656,29 @@ async fn score_preserves_order_and_model_only_bypasses_lookup() {
 }
 
 #[tokio::test]
+async fn http_records_report_source_and_stable_gene_identity_on_both_routes() {
+    let response = app(state_with_worker(Box::new(RecordWorker)))
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"variants":["GRCh38:chr1:1:A:C","GRCh38:chr1:2:A:C"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: Value = serde_json::from_slice(&body(response).await).expect("JSON response");
+    let precomputed = &value["results"][0]["records"][0];
+    assert_eq!(precomputed["gene"], "ENSG00000000001");
+    assert_eq!(precomputed["stable_gene"], "ENSG00000000001");
+    let modeled = &value["results"][1]["records"][0];
+    assert_eq!(modeled["gene"], "ENSG00000000001.1");
+    assert_eq!(modeled["stable_gene"], "ENSG00000000001");
+}
+
+#[tokio::test]
 async fn modeled_http_success_is_pinned_as_one_complete_byte_fixture() {
     let (state, _) = state();
     let response = app(state)
@@ -1702,6 +1725,11 @@ async fn http_gene_filter_accepts_reported_identity_and_matches_its_stable_gene(
                 .windows(b"\"gene\":\"ENSG00000000001\"".len())
                 .any(|window| window == b"\"gene\":\"ENSG00000000001\""),
             "{gene}"
+        );
+        let result: Value = serde_json::from_slice(&bytes).expect("JSON response");
+        assert_eq!(
+            result["results"][0]["records"][0]["stable_gene"],
+            "ENSG00000000001"
         );
     }
     assert_eq!(calls.load(Ordering::SeqCst), 0);

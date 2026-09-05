@@ -32,16 +32,16 @@ GROUP_COUNTS = {
     "unfiltered": 24,
 }
 REQUESTS_SHA256 = "042fcc0e550f7dfccad742a6a2e6a89b0c4e245673b0222bcefb7d42b1ffe52d"
-M09_SHA256 = "f7e2d7f207ff28d2dff32a033754d395eb9e9fd1bcbb9c5b56b85ce27a8720c9"
-MODEL_ONLY_SNV_SHA256 = "49664b7eddbcefe34d1d3035ee964837318666e44db655295116c0bc7309d20a"
+M09_SHA256 = "672af56707925ce071c808ab3dbef78cad39610efd5c20b10a2304425409c3ee"
+MODEL_ONLY_SNV_SHA256 = "30dd2df1d4753f3c7f781ec4c6dc4d801f4672e2561e63174bc904a2c5101df3"
 EXPECTED_SHA256 = {
-    "ENSG00000010610": "83e3aac1fe5feaefddeb3d4419e7dbb36cbb1566e0e8b6d49327e2dcdfccf183",
-    "ENSG00000141499": "4ec3696e837b56c9fa1f7711c7ec7ed4bddbe9574c464f93b6677eb0cd6948ed",
-    "ENSG00000141510": "a36503fd551ee6421c2384bca6edd82dc614cf0844016cb4cd94c7ed5ada9dc0",
-    "ENSG00000169129": "9b54aaf6de9f9bb0c70bb9f9acb1ad5f7d5c46f3e666e1a6e10c9c27915c0bca",
-    "ENSG00000175727": "c8e4625fc7253f36844bde07796dbf3adb0934a7e36bc607dc73920e3e2d9055",
-    "ENSG00000185974": "65f5cfe6740d501d767597e9d9a3f560d34cabf08a7789918ccd274bb0cc39ec",
-    "unfiltered": "f70408edb9503e39788274cadc32a3b6a17cf29dc2950b6af25ca6dd8e1c2e1d",
+    "ENSG00000010610": "4d1cb8886326e7cda154ffd0f694e230bdc686bd6888b5fcf9f426ae8bd06202",
+    "ENSG00000141499": "57c816ccd474cacd4002ce8cd9c4020512f16d9d9c0f910674b33977ecbd7180",
+    "ENSG00000141510": "80ba6cd7e1f716ab782a6dd28d6f4a33dde2e4d63b03cf1810ac9fe95eb8d40e",
+    "ENSG00000169129": "8bff19032e3f7d1d5815f591074195a83ceaacf1da3b1ab95187abf798ff1e16",
+    "ENSG00000175727": "3feed9aea064990b05120e3559af4ab63fc085f49e1f0aeef88ef1f846a8a3d5",
+    "ENSG00000185974": "8d40ca2809c0e04c847fc7d12c2b49557b0a9394128a39d89b730a52ab801d3f",
+    "unfiltered": "3d70dab863439ab57c2702dcde7af36732dac763844085687506b9ca25294a58",
 }
 BUNDLE_FIELD = re.compile(br',"bundle_id":"sha256:[0-9a-f]{64}"')
 TRANSFER = re.compile(
@@ -293,6 +293,9 @@ def main() -> None:
         .read_text(encoding="utf-8")
         .splitlines()[0]
     )
+    if automatic_expected["records"][0]["stable_gene"] \
+       != model_only_value["records"][0]["stable_gene"]:
+        fail("automatic and forced routes disagree on stable gene")
     if not isinstance(snv, dict) or len(snv.get("results", [])) != 1 \
        or without_bundle_identity(snv["results"][0]) != without_bundle_identity(automatic_expected):
         fail("HTTP SNV response mismatch")

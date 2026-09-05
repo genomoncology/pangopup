@@ -186,6 +186,7 @@ struct JsonModeledResult<'a> {
 #[derive(Serialize)]
 struct JsonRecord {
     gene: String,
+    stable_gene: String,
     gain_score: String,
     gain_position: i16,
     loss_score: String,
@@ -197,6 +198,7 @@ impl From<&GeneScoreRecord> for JsonRecord {
         let score = value.score();
         Self {
             gene: value.gene().to_string(),
+            stable_gene: value.gene().to_string(),
             gain_score: score.gain().to_string(),
             gain_position: score.gain_position().get(),
             loss_score: score.loss_text().to_string(),
@@ -208,6 +210,7 @@ impl From<&GeneScoreRecord> for JsonRecord {
 #[derive(Serialize)]
 struct JsonModelRecord {
     gene: String,
+    stable_gene: String,
     gain_score: String,
     gain_position: i16,
     loss_score: String,
@@ -220,6 +223,7 @@ impl From<&ModelGeneScoreRecord> for JsonModelRecord {
         let score = value.score();
         Self {
             gene: value.gene().to_string(),
+            stable_gene: value.gene().stable().to_string(),
             gain_score: score.gain().to_string(),
             gain_position: score.gain_position().get(),
             loss_score: score.loss_text().to_string(),
@@ -478,9 +482,9 @@ mod tests {
     #[test]
     fn jsonl_is_byte_exact_for_every_status_and_multiplicity() {
         let expected = concat!(
-            "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":1,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"found\",\"records\":[{\"gene\":\"ENSG00000000001\",\"gain_score\":\"0.35\",\"gain_position\":25,\"loss_score\":\"0.00\",\"loss_position\":-50},{\"gene\":\"ENSG00000000002\",\"gain_score\":\"0.00\",\"gain_position\":-50,\"loss_score\":\"0.00\",\"loss_position\":-50}],\"source_reference_ambiguities\":[],\"provenance\":{\"kind\":\"precomputed\",\"bundle_id\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"source_doi\":\"10.5281/zenodo.15649338\",\"source_archive_md5\":\"679ef0b50e511b6102b4b88fbf811108\",\"masked\":true,\"window\":50}}\n",
+            "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":1,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"found\",\"records\":[{\"gene\":\"ENSG00000000001\",\"stable_gene\":\"ENSG00000000001\",\"gain_score\":\"0.35\",\"gain_position\":25,\"loss_score\":\"0.00\",\"loss_position\":-50},{\"gene\":\"ENSG00000000002\",\"stable_gene\":\"ENSG00000000002\",\"gain_score\":\"0.00\",\"gain_position\":-50,\"loss_score\":\"0.00\",\"loss_position\":-50}],\"source_reference_ambiguities\":[],\"provenance\":{\"kind\":\"precomputed\",\"bundle_id\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"source_doi\":\"10.5281/zenodo.15649338\",\"source_archive_md5\":\"679ef0b50e511b6102b4b88fbf811108\",\"masked\":true,\"window\":50}}\n",
             "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":2,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"ambiguous_source_reference\",\"records\":[],\"source_reference_ambiguities\":[{\"gene\":\"ENSG00000000003\",\"source_ref\":\"N\",\"published_alts\":[\"C\",\"G\",\"T\"],\"omitted_alt\":\"A\"}],\"provenance\":{\"kind\":\"precomputed\",\"bundle_id\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"source_doi\":\"10.5281/zenodo.15649338\",\"source_archive_md5\":\"679ef0b50e511b6102b4b88fbf811108\",\"masked\":true,\"window\":50}}\n",
-            "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":3,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"mixed\",\"records\":[{\"gene\":\"ENSG00000000004\",\"gain_score\":\"0.00\",\"gain_position\":-50,\"loss_score\":\"-0.10\",\"loss_position\":2}],\"source_reference_ambiguities\":[{\"gene\":\"ENSG00000000005\",\"source_ref\":\"N\",\"published_alts\":[\"A\",\"C\",\"G\"],\"omitted_alt\":\"T\"}],\"provenance\":{\"kind\":\"precomputed\",\"bundle_id\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"source_doi\":\"10.5281/zenodo.15649338\",\"source_archive_md5\":\"679ef0b50e511b6102b4b88fbf811108\",\"masked\":true,\"window\":50}}\n",
+            "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":3,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"mixed\",\"records\":[{\"gene\":\"ENSG00000000004\",\"stable_gene\":\"ENSG00000000004\",\"gain_score\":\"0.00\",\"gain_position\":-50,\"loss_score\":\"-0.10\",\"loss_position\":2}],\"source_reference_ambiguities\":[{\"gene\":\"ENSG00000000005\",\"source_ref\":\"N\",\"published_alts\":[\"A\",\"C\",\"G\"],\"omitted_alt\":\"T\"}],\"provenance\":{\"kind\":\"precomputed\",\"bundle_id\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"source_doi\":\"10.5281/zenodo.15649338\",\"source_archive_md5\":\"679ef0b50e511b6102b4b88fbf811108\",\"masked\":true,\"window\":50}}\n",
             "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":4,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"not_found\",\"records\":[],\"source_reference_ambiguities\":[],\"provenance\":{\"kind\":\"precomputed\",\"bundle_id\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"source_doi\":\"10.5281/zenodo.15649338\",\"source_archive_md5\":\"679ef0b50e511b6102b4b88fbf811108\",\"masked\":true,\"window\":50}}\n",
         );
         assert_eq!(
@@ -522,6 +526,24 @@ mod tests {
             score(35, 25, 10, 2),
             vec![ModelWarning::NoAnnotatedSites],
         )
+    }
+
+    #[test]
+    fn structured_records_report_source_and_stable_gene_identity() {
+        let precomputed = GeneScoreRecord::new(gene("ENSG00000157764"), score(35, 25, 0, -50));
+        let precomputed =
+            serde_json::to_value(JsonRecord::from(&precomputed)).expect("precomputed JSON");
+        assert_eq!(precomputed["gene"], "ENSG00000157764");
+        assert_eq!(precomputed["stable_gene"], "ENSG00000157764");
+
+        let modeled = ModelGeneScoreRecord::new(
+            GencodeGeneId::from_str("ENSG00000157764.14_PAR_Y").expect("GENCODE gene"),
+            score(35, 25, 10, 2),
+            Vec::new(),
+        );
+        let modeled = serde_json::to_value(JsonModelRecord::from(&modeled)).expect("modeled JSON");
+        assert_eq!(modeled["gene"], "ENSG00000157764.14_PAR_Y");
+        assert_eq!(modeled["stable_gene"], "ENSG00000157764");
     }
 
     fn synthetic_json_provenance() -> JsonModelProvenance<'static> {
@@ -573,7 +595,7 @@ mod tests {
         serde_json::to_writer(&mut actual, &miss_line).expect("miss JSON");
         actual.push(b'\n');
         let expected = concat!(
-            "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":5051,\"ref\":\"A\",\"alt\":\"AC\",\"status\":\"found\",\"records\":[{\"gene\":\"ENSG00000000001.1\",\"gain_score\":\"0.35\",\"gain_position\":25,\"loss_score\":\"-0.10\",\"loss_position\":2,\"warnings\":[\"no_annotated_sites\"]}],\"source_reference_ambiguities\":[],\"provenance\":{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"model_profile\":\"pangopup-model-kernel-mini-v1\",\"effective_cpu_policy\":\"sequential:1/1\",\"reference_bundle_id\":\"sha256:2222222222222222222222222222222222222222222222222222222222222222\",\"reference_profile\":\"pangopup-reference-route-test-v1\",\"reference_sequence_set_sha256\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"mask_bytes\":512,\"mask_sha256\":\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"masked\":true,\"window\":50}}\n",
+            "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":5051,\"ref\":\"A\",\"alt\":\"AC\",\"status\":\"found\",\"records\":[{\"gene\":\"ENSG00000000001.1\",\"stable_gene\":\"ENSG00000000001\",\"gain_score\":\"0.35\",\"gain_position\":25,\"loss_score\":\"-0.10\",\"loss_position\":2,\"warnings\":[\"no_annotated_sites\"]}],\"source_reference_ambiguities\":[],\"provenance\":{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"model_profile\":\"pangopup-model-kernel-mini-v1\",\"effective_cpu_policy\":\"sequential:1/1\",\"reference_bundle_id\":\"sha256:2222222222222222222222222222222222222222222222222222222222222222\",\"reference_profile\":\"pangopup-reference-route-test-v1\",\"reference_sequence_set_sha256\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"mask_bytes\":512,\"mask_sha256\":\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"masked\":true,\"window\":50}}\n",
             "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":5052,\"ref\":\"A\",\"alt\":\"AG\",\"status\":\"not_found\",\"records\":[],\"source_reference_ambiguities\":[],\"provenance\":{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"model_profile\":\"pangopup-model-kernel-mini-v1\",\"effective_cpu_policy\":\"sequential:1/1\",\"reference_bundle_id\":\"sha256:2222222222222222222222222222222222222222222222222222222222222222\",\"reference_profile\":\"pangopup-reference-route-test-v1\",\"reference_sequence_set_sha256\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"mask_bytes\":512,\"mask_sha256\":\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"masked\":true,\"window\":50}}\n",
         );
         assert_eq!(actual, expected.as_bytes());

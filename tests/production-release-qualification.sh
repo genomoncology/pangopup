@@ -151,7 +151,7 @@ esac
 SH
 chmod 755 "$root/bin/pangopup"
 
-jq -S -c '.results[0] + {provenance:.provenance}' \
+jq -S -c '(.provenance) as $provenance | .results[0] | .records |= map(. + {stable_gene: (.gene | sub("\\..*$"; ""))}) | . + {provenance:$provenance}' \
   "$repo/tests/fixtures/container-qualification/production-model-oracle.json" \
   >"$root/derived-model-only-snv.json"
 jq -S -c . "$repo/tests/fixtures/executable-release/model-only-snv.jsonl" \

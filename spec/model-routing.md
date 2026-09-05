@@ -4,6 +4,8 @@ The existing SNV bundle remains authoritative even when all explicitly
 supplied fallback paths do not exist. No fallback component is opened on this
 path.
 
+Structured JSON records report the source identity under `gene` and the stable grouping and filtering identity under `stable_gene`. Precomputed records report the same stable identifier in both fields. Model records retain the exact GENCODE version and `_PAR_Y` identity under `gene`. Consumers must retain `gene` when exact version or PAR identity matters. The human-readable table remains unchanged.
+
 ```bash
 pangopup lookup \
   --bundle ../tests/fixtures/snv-regression/bundle \
@@ -24,7 +26,7 @@ pangopup lookup \
   --bundle ../tests/fixtures/snv-regression/bundle \
   --variant GRCh38:chr12:6801301:G:A \
   | rg -o '"position":6801301.*"kind":"precomputed"' \
-  | mustmatch like '"position":6801301,"ref":"G","alt":"A","status":"found","records":[{"gene":"ENSG00000010610","gain_score":"0.00","gain_position":-50,"loss_score":"0.00","loss_position":-50}],"source_reference_ambiguities":[],"provenance":{"kind":"precomputed"'
+  | mustmatch like '"position":6801301,"ref":"G","alt":"A","status":"found","records":[{"gene":"ENSG00000010610","stable_gene":"ENSG00000010610","gain_score":"0.00","gain_position":-50,"loss_score":"0.00","loss_position":-50}],"source_reference_ambiguities":[],"provenance":{"kind":"precomputed"'
 pangopup lookup \
   --model-only \
   --variant GRCh38:chr1:5051:A:C \
@@ -32,7 +34,7 @@ pangopup lookup \
   --mask ../tests/fixtures/route-mask/domains.pgm \
   --model-bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle \
   | rg -o '"position":5051,"ref":"A","alt":"C","status":"found".*"kind":"model"' \
-  | mustmatch like '"position":5051,"ref":"A","alt":"C","status":"found","records":[{"gene":"ENSG00000000001.1","gain_score":"0.33","gain_position":-50,"loss_score":"0.00","loss_position":-50,"warnings":["no_annotated_sites"]}],"source_reference_ambiguities":[],"provenance":{"kind":"model"'
+  | mustmatch like '"position":5051,"ref":"A","alt":"C","status":"found","records":[{"gene":"ENSG00000000001.1","stable_gene":"ENSG00000000001","gain_score":"0.33","gain_position":-50,"loss_score":"0.00","loss_position":-50,"warnings":["no_annotated_sites"]}],"source_reference_ambiguities":[],"provenance":{"kind":"model"'
 pangopup lookup \
   --model-only \
   --variant GRCh38:chr1:5051:A:C \
@@ -134,7 +136,7 @@ pangopup lookup \
   --mask ../tests/fixtures/route-mask/domains.pgm \
   --model-bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle \
   | rg -o '"status":"found".*"gene":"ENSG00000000001.1".*"warnings":\["no_annotated_sites"\].*"kind":"model".*"scoring_semantics":"pangopup-variant-score-v1".*"reference_profile":"pangopup-reference-route-test-v1".*"mask_bytes":260.*"window":50' \
-  | mustmatch like '"status":"found","records":[{"gene":"ENSG00000000001.1","gain_score":"0.33","gain_position":-50,"loss_score":"0.00","loss_position":-50,"warnings":["no_annotated_sites"]}],"source_reference_ambiguities":[],"provenance":{"kind":"model","scoring_semantics":"pangopup-variant-score-v1","model_bundle_id":"sha256:aba3f0a07075f24cc5c3c59eb4312176bae4f2886db8946500280b19e686edca","model_profile":"pangopup-model-kernel-mini-v1","effective_cpu_policy":"sequential:1/1","reference_bundle_id":"sha256:6773713ad79462b8bfb2bce7f194041e85a0804b38f68282c965adc5f43f9493","reference_profile":"pangopup-reference-route-test-v1","reference_sequence_set_sha256":"sha256:afb720dad5979f65694dab6ae80a497ef56db434d7d346e79cdcb0e7da97e0b3","mask_bytes":260,"mask_sha256":"sha256:004f9f95be50b92fd5c67ca44a785e950c20e5455a903ad9350b68c91566f827","masked":true,"window":50'
+  | mustmatch like '"status":"found","records":[{"gene":"ENSG00000000001.1","stable_gene":"ENSG00000000001","gain_score":"0.33","gain_position":-50,"loss_score":"0.00","loss_position":-50,"warnings":["no_annotated_sites"]}],"source_reference_ambiguities":[],"provenance":{"kind":"model","scoring_semantics":"pangopup-variant-score-v1","model_bundle_id":"sha256:aba3f0a07075f24cc5c3c59eb4312176bae4f2886db8946500280b19e686edca","model_profile":"pangopup-model-kernel-mini-v1","effective_cpu_policy":"sequential:1/1","reference_bundle_id":"sha256:6773713ad79462b8bfb2bce7f194041e85a0804b38f68282c965adc5f43f9493","reference_profile":"pangopup-reference-route-test-v1","reference_sequence_set_sha256":"sha256:afb720dad5979f65694dab6ae80a497ef56db434d7d346e79cdcb0e7da97e0b3","mask_bytes":260,"mask_sha256":"sha256:004f9f95be50b92fd5c67ca44a785e950c20e5455a903ad9350b68c91566f827","masked":true,"window":50'
 ```
 
 Successful model results persist across CLI processes and retain byte-identical
@@ -185,7 +187,7 @@ pangopup lookup \
   --mask ../tests/fixtures/route-mask/domains.pgm \
   --model-bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle \
   | rg -o '"position":5051,"ref":"A","alt":"C","status":"found".*"kind":"model"' \
-  | mustmatch like '"position":5051,"ref":"A","alt":"C","status":"found","records":[{"gene":"ENSG00000000001.1","gain_score":"0.33","gain_position":-50,"loss_score":"0.00","loss_position":-50,"warnings":["no_annotated_sites"]}],"source_reference_ambiguities":[],"provenance":{"kind":"model"'
+  | mustmatch like '"position":5051,"ref":"A","alt":"C","status":"found","records":[{"gene":"ENSG00000000001.1","stable_gene":"ENSG00000000001","gain_score":"0.33","gain_position":-50,"loss_score":"0.00","loss_position":-50,"warnings":["no_annotated_sites"]}],"source_reference_ambiguities":[],"provenance":{"kind":"model"'
 ```
 
 A mixed batch preserves request order and opens one shared fallback. A gene filter accepts the stable Ensembl form and the versioned GENCODE forms emitted by model results. Every accepted form filters on the stable identity after complete model scoring and can produce a modeled miss. The first command below submits the miniature model's reported gene unchanged and receives the same bytes.
@@ -198,8 +200,8 @@ pangopup lookup \
   --reference-bundle ../tests/fixtures/reference-route-test/bundle \
   --mask ../tests/fixtures/route-mask/domains.pgm \
   --model-bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle \
-  | rg -F -o '"status":"found","records":[{"gene":"ENSG00000000001.1"' \
-  | mustmatch like '"status":"found","records":[{"gene":"ENSG00000000001.1"'
+  | rg -F -o '"status":"found","records":[{"gene":"ENSG00000000001.1","stable_gene":"ENSG00000000001"' \
+  | mustmatch like '"status":"found","records":[{"gene":"ENSG00000000001.1","stable_gene":"ENSG00000000001"'
 pangopup lookup \
   --bundle ../tests/fixtures/snv-regression/bundle \
   --variant GRCh38:chr12:6801301:G:A \
