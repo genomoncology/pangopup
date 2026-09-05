@@ -2181,7 +2181,10 @@ mod tests {
     #[test]
     fn one_component_mount_crossing_is_rejected() {
         let temp = tempfile::TempDir::new().expect("temp");
-        let root = open_root(temp.path(), false)
+        let data = temp.path().join("data");
+        fs::create_dir(&data).expect("data root");
+        fs::set_permissions(&data, fs::Permissions::from_mode(ROOT_MODE)).expect("root mode");
+        let root = open_root(&data, false)
             .expect("open root")
             .expect("existing root");
         let mismatched_device = root.dir.dev.wrapping_add(1);
