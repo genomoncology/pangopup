@@ -77,6 +77,7 @@ struct JsonResult<'a> {
 #[derive(Serialize)]
 struct JsonRecord {
     gene: String,
+    stable_gene: String,
     gain_score: String,
     gain_position: i8,
     loss_score: String,
@@ -496,6 +497,7 @@ fn direct_expected(
         .map(|row| {
             Ok(JsonRecord {
                 gene: row.gene.clone(),
+                stable_gene: row.gene.clone(),
                 gain_score: format_score(exact_centi(&row.fields[4], false)?, false),
                 gain_position: row.fields[5].parse()?,
                 loss_score: format_score(exact_centi(&row.fields[6], true)?, true),
