@@ -23,11 +23,11 @@ use pangopup_assets::{
 use pangopup_assets::{open_test_runtime_profile, parse_runtime_profile};
 use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
 use pangopup_cli::render_result_raw;
-use pangopup_core::{Grch38Variant, ModelGeneScoreRecord, ReferenceProvider};
+use pangopup_core::{Grch38Contig, Grch38Variant, ModelGeneScoreRecord, ReferenceProvider};
 use pangopup_engine::{
-    ExactEditConversionError, ExplicitModelRequest, LookupFirstRouter, ModelFallback,
-    ModelFallbackError, ModelProvenance, RouteDecision, RouteRequest, RoutedResult,
-    convert_exact_edit,
+    ExactEditConversionError, ExplicitModelRequest, LookupFirstRouter,
+    MAX_EXACT_EDIT_SEQUENCE_BASES, MAX_MODEL_ALLELE_BASES, ModelFallback, ModelFallbackError,
+    ModelProvenance, RouteDecision, RouteRequest, RoutedResult, convert_exact_edit,
 };
 use pangopup_model::{CpuExecutionMode, CpuPolicy, IntraOpThreads};
 use serde::{Deserialize, Serialize};
@@ -45,9 +45,20 @@ use std::{
 };
 use tokio::sync::{Semaphore, mpsc, oneshot};
 
-const MAX_BODY: usize = 64 * 1024;
-const MAX_VARIANTS: usize = 100;
-const MAX_MODEL_MISSES: usize = 10;
+#[derive(Clone, Copy)]
+struct RequestLimits {
+    max_body_bytes: usize,
+    min_variants: usize,
+    max_variants: usize,
+    max_uncached_model_variants: usize,
+}
+
+const REQUEST_LIMITS: RequestLimits = RequestLimits {
+    max_body_bytes: 64 * 1024,
+    min_variants: 1,
+    max_variants: 100,
+    max_uncached_model_variants: 10,
+};
 const SLOWEST_RETAINED_P50_MILLIS: usize = 10_241;
 const READY: u8 = 0;
 const DRAINING: u8 = 1;
@@ -400,6 +411,7 @@ struct StatusOutput<'a> {
     assets: StatusAssets<'a>,
     routes: StatusRoutes,
     model: StatusModel,
+    request_contract: RequestContract,
 }
 
 #[derive(Serialize)]
@@ -426,6 +438,101 @@ struct StatusModel {
     queued: usize,
     queue_capacity: usize,
     work_unit: &'static str,
+}
+
+#[derive(Serialize)]
+struct RequestContract {
+    api_version: &'static str,
+    route: &'static str,
+    content_type: &'static str,
+    max_body_bytes: usize,
+    variants: VariantContract,
+    gene_filter: GeneFilterContract,
+    model_only: ModelOnlyContract,
+}
+
+#[derive(Serialize)]
+struct VariantContract {
+    min_items: usize,
+    max_items: usize,
+    max_uncached_model_items: usize,
+    model_work_unit: &'static str,
+    assembly: &'static str,
+    max_model_allele_bases: usize,
+    max_exact_edit_sequence_bases: usize,
+    forms: [&'static str; 3],
+    contigs: Vec<ContigContract>,
+}
+
+#[derive(Serialize)]
+struct ContigContract {
+    canonical: String,
+    accepted: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct GeneFilterContract {
+    accepted_forms: [&'static str; 3],
+    version_minimum: u32,
+    version_maximum: u32,
+    version_allows_leading_zero: bool,
+}
+
+#[derive(Serialize)]
+struct ModelOnlyContract {
+    r#type: &'static str,
+    optional: bool,
+}
+
+fn request_contract() -> RequestContract {
+    RequestContract {
+        api_version: "v1",
+        route: "/v1/score",
+        content_type: "application/json",
+        max_body_bytes: REQUEST_LIMITS.max_body_bytes,
+        variants: VariantContract {
+            min_items: REQUEST_LIMITS.min_variants,
+            max_items: REQUEST_LIMITS.max_variants,
+            max_uncached_model_items: REQUEST_LIMITS.max_uncached_model_variants,
+            model_work_unit: "uncached_model_variant",
+            assembly: "GRCh38",
+            max_model_allele_bases: MAX_MODEL_ALLELE_BASES,
+            max_exact_edit_sequence_bases: MAX_EXACT_EDIT_SEQUENCE_BASES,
+            forms: [
+                "GRCh38:CONTIG:POS:REF:ALT",
+                "GRCh38:CONTIG:INS:LEFT:RIGHT:SEQUENCE",
+                "GRCh38:CONTIG:DEL:START:END:SEQUENCE",
+            ],
+            contigs: (1_u8..=25)
+                .map(|code| Grch38Contig::from_code(code).expect("primary contig code"))
+                .map(|contig| {
+                    let spellings = super::contig_spellings(contig);
+                    ContigContract {
+                        canonical: spellings.canonical.to_owned(),
+                        accepted: spellings
+                            .accepted()
+                            .into_iter()
+                            .map(str::to_owned)
+                            .collect(),
+                    }
+                })
+                .collect(),
+        },
+        gene_filter: GeneFilterContract {
+            accepted_forms: [
+                "ENSG###########",
+                "ENSG###########.VERSION",
+                "ENSG###########.VERSION_PAR_Y",
+            ],
+            version_minimum: 1,
+            version_maximum: u32::MAX,
+            version_allows_leading_zero: false,
+        },
+        model_only: ModelOnlyContract {
+            r#type: "boolean",
+            optional: true,
+        },
+    }
 }
 
 #[derive(Serialize)]
@@ -929,6 +1036,7 @@ async fn status(State(state): State<AppState>) -> Response {
                 queue_capacity: state.dispatcher.queue_capacity,
                 work_unit: "uncached_model_variant",
             },
+            request_contract: request_contract(),
         },
     )
 }
@@ -958,7 +1066,7 @@ async fn score(State(state): State<AppState>, request: Request<Body>) -> Respons
             );
         }
     }
-    let bytes = match to_bytes(request.into_body(), MAX_BODY).await {
+    let bytes = match to_bytes(request.into_body(), REQUEST_LIMITS.max_body_bytes).await {
         Ok(bytes) => bytes,
         Err(_) => {
             return service_error(
@@ -1120,7 +1228,9 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
         Ok(input) => input,
         Err(_) => return invalid_request("request JSON is invalid"),
     };
-    if input.variants.is_empty() || input.variants.len() > MAX_VARIANTS {
+    if input.variants.len() < REQUEST_LIMITS.min_variants
+        || input.variants.len() > REQUEST_LIMITS.max_variants
+    {
         return invalid_request("variants must contain between 1 and 100 values");
     }
     let gene = match input.gene {
@@ -1225,7 +1335,7 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
             misses.push(item);
         }
     }
-    if misses.len() > MAX_MODEL_MISSES {
+    if misses.len() > REQUEST_LIMITS.max_uncached_model_variants {
         return service_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "MODEL_BATCH_TOO_LARGE",

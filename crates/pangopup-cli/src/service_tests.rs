@@ -933,10 +933,23 @@ async fn health_status_and_route_errors_are_exact_json_lines() {
         )
         .await
         .expect("response");
+    let mut status: Value = serde_json::from_slice(&body(response).await).expect("status JSON");
+    assert!(status.get("request_contract").is_some());
+    status
+        .as_object_mut()
+        .expect("status object")
+        .remove("request_contract");
     assert_eq!(
-            body(response).await,
-            b"{\"version\":\"0.3.0\",\"readiness\":\"ready\",\"scoring_identity\":\"sha256:c0e2e1fd77821555a868b5f70514769d144a15aeb160e71aea17d6099839328f\",\"assets\":{\"snv_bundle_id\":\"snv\",\"model_bundle_id\":\"model\",\"reference_bundle_id\":\"reference\",\"mask_sha256\":\"mask\"},\"routes\":{\"lookup\":true,\"model\":true,\"model_only\":true},\"model\":{\"effective_cpu_policy\":\"sequential:1/1\",\"workers\":1,\"threads_per_worker\":1,\"running\":0,\"queued\":0,\"queue_capacity\":2,\"work_unit\":\"uncached_model_variant\"}}\n"
-        );
+        status,
+        json!({
+            "version": "0.3.0",
+            "readiness": "ready",
+            "scoring_identity": "sha256:c0e2e1fd77821555a868b5f70514769d144a15aeb160e71aea17d6099839328f",
+            "assets": {"snv_bundle_id":"snv","model_bundle_id":"model","reference_bundle_id":"reference","mask_sha256":"mask"},
+            "routes": {"lookup":true,"model":true,"model_only":true},
+            "model": {"effective_cpu_policy":"sequential:1/1","workers":1,"threads_per_worker":1,"running":0,"queued":0,"queue_capacity":2,"work_unit":"uncached_model_variant"}
+        })
+    );
     let response = router
         .clone()
         .oneshot(
@@ -997,6 +1010,303 @@ async fn status_and_every_returned_score_item_share_one_scoring_identity() {
     let scored: Value = serde_json::from_slice(&body(scored).await).expect("score JSON");
     assert_eq!(scored["results"][0]["scoring_identity"], identity);
     assert_eq!(scored["results"][1]["scoring_identity"], identity);
+}
+
+#[tokio::test]
+async fn status_reports_the_request_contract_from_enforced_boundaries_and_parsers() {
+    let (state, _) = state();
+    let response = app(state.clone())
+        .oneshot(
+            Request::get("/v1/status")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("status response");
+    let status: Value = serde_json::from_slice(&body(response).await).expect("status JSON");
+    let contract = &status["request_contract"];
+    assert_eq!(contract["api_version"], "v1");
+    assert_eq!(contract["route"], "/v1/score");
+    assert_eq!(contract["content_type"], "application/json");
+    assert_eq!(contract["max_body_bytes"], REQUEST_LIMITS.max_body_bytes);
+    assert_eq!(contract["variants"]["min_items"], 1);
+    assert_eq!(
+        contract["variants"]["max_items"],
+        REQUEST_LIMITS.max_variants
+    );
+    assert_eq!(
+        contract["variants"]["max_uncached_model_items"],
+        REQUEST_LIMITS.max_uncached_model_variants
+    );
+    assert_eq!(
+        contract["variants"]["max_model_allele_bases"],
+        pangopup_engine::MAX_MODEL_ALLELE_BASES
+    );
+    assert_eq!(
+        contract["variants"]["max_exact_edit_sequence_bases"],
+        pangopup_engine::MAX_EXACT_EDIT_SEQUENCE_BASES
+    );
+    assert_eq!(
+        contract["variants"]["forms"],
+        json!([
+            "GRCh38:CONTIG:POS:REF:ALT",
+            "GRCh38:CONTIG:INS:LEFT:RIGHT:SEQUENCE",
+            "GRCh38:CONTIG:DEL:START:END:SEQUENCE"
+        ])
+    );
+    let contigs = contract["variants"]["contigs"]
+        .as_array()
+        .expect("contig descriptors");
+    assert_eq!(contigs.len(), 25);
+    for descriptor in contigs {
+        let canonical = descriptor["canonical"].as_str().expect("canonical contig");
+        let expected = crate::parse_contig(canonical).expect("canonical parses");
+        for accepted in descriptor["accepted"]
+            .as_array()
+            .expect("accepted spellings")
+        {
+            assert_eq!(
+                crate::parse_contig(accepted.as_str().expect("contig spelling")),
+                Some(expected)
+            );
+        }
+    }
+    assert_eq!(
+        contigs.last().expect("mitochondrial descriptor"),
+        &json!({
+            "canonical": "chrM",
+            "accepted": ["M", "MT", "chrM", "chrMT", "NC_012920.1"]
+        })
+    );
+    assert_eq!(
+        contract["gene_filter"],
+        json!({
+            "accepted_forms": [
+                "ENSG###########",
+                "ENSG###########.VERSION",
+                "ENSG###########.VERSION_PAR_Y"
+            ],
+            "version_minimum": 1,
+            "version_maximum": u32::MAX,
+            "version_allows_leading_zero": false
+        })
+    );
+    assert_eq!(
+        contract["model_only"],
+        json!({"type": "boolean", "optional": true})
+    );
+
+    let accessions = [
+        "NC_000001.11",
+        "NC_000002.12",
+        "NC_000003.12",
+        "NC_000004.12",
+        "NC_000005.10",
+        "NC_000006.12",
+        "NC_000007.14",
+        "NC_000008.11",
+        "NC_000009.12",
+        "NC_000010.11",
+        "NC_000011.10",
+        "NC_000012.12",
+        "NC_000013.11",
+        "NC_000014.9",
+        "NC_000015.10",
+        "NC_000016.10",
+        "NC_000017.11",
+        "NC_000018.10",
+        "NC_000019.10",
+        "NC_000020.11",
+        "NC_000021.9",
+        "NC_000022.11",
+        "NC_000023.11",
+        "NC_000024.10",
+    ];
+    let mut expected_contigs = accessions
+        .iter()
+        .enumerate()
+        .map(|(index, accession)| {
+            let bare = if index < 22 {
+                (index + 1).to_string()
+            } else if index == 22 {
+                "X".to_owned()
+            } else {
+                "Y".to_owned()
+            };
+            json!({
+                "canonical": format!("chr{bare}"),
+                "accepted": [bare.clone(), format!("chr{bare}"), accession]
+            })
+        })
+        .collect::<Vec<_>>();
+    expected_contigs.push(json!({
+        "canonical": "chrM",
+        "accepted": ["M", "MT", "chrM", "chrMT", "NC_012920.1"]
+    }));
+    assert_eq!(
+        contract,
+        &json!({
+            "api_version": "v1",
+            "route": "/v1/score",
+            "content_type": "application/json",
+            "max_body_bytes": 65536,
+            "variants": {
+                "min_items": 1,
+                "max_items": 100,
+                "max_uncached_model_items": 10,
+                "model_work_unit": "uncached_model_variant",
+                "assembly": "GRCh38",
+                "max_model_allele_bases": 100,
+                "max_exact_edit_sequence_bases": 99,
+                "forms": [
+                    "GRCh38:CONTIG:POS:REF:ALT",
+                    "GRCh38:CONTIG:INS:LEFT:RIGHT:SEQUENCE",
+                    "GRCh38:CONTIG:DEL:START:END:SEQUENCE"
+                ],
+                "contigs": expected_contigs
+            },
+            "gene_filter": {
+                "accepted_forms": [
+                    "ENSG###########",
+                    "ENSG###########.VERSION",
+                    "ENSG###########.VERSION_PAR_Y"
+                ],
+                "version_minimum": 1,
+                "version_maximum": 4294967295_u64,
+                "version_allows_leading_zero": false
+            },
+            "model_only": {"type": "boolean", "optional": true}
+        })
+    );
+
+    for value in [
+        "GRCh38:chr1:5051:A:C",
+        "GRCh38:chr1:INS:5051:5052:A",
+        "GRCh38:chr1:DEL:5051:5051:A",
+    ] {
+        assert!(crate::parse_variant_input(value).is_ok(), "{value}");
+    }
+    for value in [
+        "ENSG00000000001",
+        "ENSG00000000001.1",
+        "ENSG00000000001.4294967295_PAR_Y",
+    ] {
+        assert!(crate::parse_gene_filter(value).is_ok(), "{value}");
+    }
+
+    let contig = Grch38Contig::autosome(1).expect("contig");
+    let position = GenomicPosition::new(5_051).expect("position");
+    let maximum_model = Grch38Variant::new(
+        contig,
+        position,
+        "A",
+        format!(
+            "A{}",
+            "C".repeat(
+                contract["variants"]["max_model_allele_bases"]
+                    .as_u64()
+                    .expect("model allele limit") as usize
+                    - 1
+            )
+        ),
+    )
+    .expect("maximum model allele");
+    assert!(pangopup_engine::validate_model_request(&maximum_model).is_ok());
+    let over_model = Grch38Variant::new(
+        contig,
+        position,
+        "A",
+        format!("A{}", "C".repeat(MAX_MODEL_ALLELE_BASES)),
+    )
+    .expect("over-limit literal remains parseable");
+    assert!(pangopup_engine::validate_model_request(&over_model).is_err());
+    let exact_limit = contract["variants"]["max_exact_edit_sequence_bases"]
+        .as_u64()
+        .expect("exact edit limit") as usize;
+    assert!(
+        pangopup_engine::Grch38ExactEdit::insertion(
+            contig,
+            position,
+            GenomicPosition::new(5_052).expect("right"),
+            "A".repeat(exact_limit),
+        )
+        .is_ok()
+    );
+    assert!(
+        pangopup_engine::Grch38ExactEdit::insertion(
+            contig,
+            position,
+            GenomicPosition::new(5_052).expect("right"),
+            "A".repeat(exact_limit + 1),
+        )
+        .is_err()
+    );
+}
+
+#[tokio::test]
+async fn request_contract_is_stable_across_service_state_and_queue_occupancy() {
+    let (state, _) = state();
+    let ready = app(state.clone())
+        .oneshot(
+            Request::get("/v1/status")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("ready status");
+    let ready: Value = serde_json::from_slice(&body(ready).await).expect("ready JSON");
+    let expected = ready["request_contract"].clone();
+
+    {
+        let mut dispatch = state
+            .dispatcher
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        dispatch.running = 1;
+        dispatch.queued = 1;
+    }
+    let occupied = app(state.clone())
+        .oneshot(
+            Request::get("/v1/status")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("occupied status");
+    let occupied: Value = serde_json::from_slice(&body(occupied).await).expect("occupied JSON");
+    assert_eq!(occupied["request_contract"], expected);
+
+    state.dispatcher.stop_admission();
+    let draining = app(state.clone())
+        .oneshot(
+            Request::get("/v1/status")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("draining status");
+    let draining: Value = serde_json::from_slice(&body(draining).await).expect("draining JSON");
+    assert_eq!(draining["readiness"], "draining");
+    assert_eq!(draining["request_contract"], expected);
+
+    state
+        .dispatcher
+        .state
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .readiness = FAILED;
+    let failed = app(state)
+        .oneshot(
+            Request::get("/v1/status")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("failed status");
+    let failed: Value = serde_json::from_slice(&body(failed).await).expect("failed JSON");
+    assert_eq!(failed["readiness"], "failed");
+    assert_eq!(failed["request_contract"], expected);
 }
 
 #[tokio::test]
@@ -1114,7 +1424,7 @@ async fn score_requires_one_parsed_application_json_content_type_before_service_
     let response = app(draining_state)
         .oneshot(
             Request::post("/v1/score")
-                .body(Body::from(vec![b' '; MAX_BODY + 1]))
+                .body(Body::from(vec![b' '; REQUEST_LIMITS.max_body_bytes + 1]))
                 .expect("request"),
         )
         .await
@@ -1357,7 +1667,20 @@ async fn malformed_http_gene_filters_keep_the_stable_error_contract() {
 
 #[tokio::test]
 async fn malformed_closed_input_and_limits_fail_before_scoring() {
+    let (boundary_state, _) = state();
     let (state, calls) = state();
+    let status = app(state.clone())
+        .oneshot(
+            Request::get("/v1/status")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("status response");
+    let status: Value = serde_json::from_slice(&body(status).await).expect("status JSON");
+    let max_model_items = status["request_contract"]["variants"]["max_uncached_model_items"]
+        .as_u64()
+        .expect("model item limit") as u32;
     for bytes in [
         br#"{"variants":[],"extra":true}"#.as_slice(),
         br#"{"variants":["bad"]}"#.as_slice(),
@@ -1368,7 +1691,17 @@ async fn malformed_closed_input_and_limits_fail_before_scoring() {
         let response = score_bytes(&state, &Bytes::copy_from_slice(bytes)).await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
-    let variants = (2..=12)
+    let at_model_limit = (2..(2 + max_model_items))
+        .map(|position| format!("GRCh38:chr1:{position}:A:C"))
+        .collect::<Vec<_>>();
+    let response = score_bytes(
+        &boundary_state,
+        &Bytes::from(serde_json::to_vec(&json!({"variants": at_model_limit})).expect("JSON")),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    let variants = (2..=(2 + max_model_items))
         .map(|position| format!("GRCh38:chr1:{position}:A:C"))
         .collect::<Vec<_>>();
     let response = score_bytes(
@@ -1395,7 +1728,7 @@ async fn request_body_is_bounded_before_json_parsing() {
         .oneshot(
             Request::post("/v1/score")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(vec![b' '; MAX_BODY + 1]))
+                .body(Body::from(vec![b' '; REQUEST_LIMITS.max_body_bytes + 1]))
                 .expect("request"),
         )
         .await
@@ -1411,9 +1744,24 @@ async fn request_body_is_bounded_before_json_parsing() {
 #[tokio::test]
 async fn exact_body_and_batch_boundaries_are_pinned() {
     let (state, _) = state();
+    let status = app(state.clone())
+        .oneshot(
+            Request::get("/v1/status")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("status response");
+    let status: Value = serde_json::from_slice(&body(status).await).expect("status JSON");
+    let max_body = status["request_contract"]["max_body_bytes"]
+        .as_u64()
+        .expect("body limit") as usize;
+    let max_variants = status["request_contract"]["variants"]["max_items"]
+        .as_u64()
+        .expect("variant limit") as usize;
     let valid = br#"{"variants":["GRCh38:chr1:1:A:C"]}"#;
     let mut at_limit = valid.to_vec();
-    at_limit.extend(std::iter::repeat_n(b' ', MAX_BODY - valid.len()));
+    at_limit.extend(std::iter::repeat_n(b' ', max_body - valid.len()));
     let accepted = app(state.clone())
         .oneshot(
             Request::post("/v1/score")
@@ -1429,14 +1777,14 @@ async fn exact_body_and_batch_boundaries_are_pinned() {
         .oneshot(
             Request::post("/v1/score")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(vec![b' '; MAX_BODY + 1]))
+                .body(Body::from(vec![b' '; max_body + 1]))
                 .expect("request"),
         )
         .await
         .expect("response");
     assert_eq!(one_over.status(), StatusCode::PAYLOAD_TOO_LARGE);
 
-    let hundred = std::iter::repeat_n("GRCh38:chr1:1:A:C", MAX_VARIANTS).collect::<Vec<_>>();
+    let hundred = std::iter::repeat_n("GRCh38:chr1:1:A:C", max_variants).collect::<Vec<_>>();
     let accepted = score_bytes(
         &state,
         &Bytes::from(serde_json::to_vec(&json!({"variants": hundred})).expect("JSON")),
@@ -1444,7 +1792,7 @@ async fn exact_body_and_batch_boundaries_are_pinned() {
     .await;
     assert_eq!(accepted.status(), StatusCode::OK);
     let hundred_one =
-        std::iter::repeat_n("GRCh38:chr1:1:A:C", MAX_VARIANTS + 1).collect::<Vec<_>>();
+        std::iter::repeat_n("GRCh38:chr1:1:A:C", max_variants + 1).collect::<Vec<_>>();
     let rejected = score_bytes(
         &state,
         &Bytes::from(serde_json::to_vec(&json!({"variants": hundred_one})).expect("JSON")),

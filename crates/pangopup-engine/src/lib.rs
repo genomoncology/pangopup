@@ -22,7 +22,10 @@ use std::{collections::BTreeSet, fmt};
 const DISTANCE: i16 = 50;
 const FLANK: u32 = 5_050;
 const CONTEXT_BASES: usize = 10_100;
-const MAX_ALLELE_BASES: usize = 100;
+/// Largest reference or alternate allele eligible for model scoring.
+pub const MAX_MODEL_ALLELE_BASES: usize = 100;
+/// Largest exact-edit payload. Conversion adds one left anchor base.
+pub const MAX_EXACT_EDIT_SEQUENCE_BASES: usize = MAX_MODEL_ALLELE_BASES - 1;
 
 /// One pre-canonical GRCh38 edit whose left anchor must be read from the reference.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -113,7 +116,7 @@ impl Grch38ExactEdit {
 }
 
 fn checked_edit_sequence(sequence: String) -> Result<String, ExactEditError> {
-    if !(1..=99).contains(&sequence.len())
+    if !(1..=MAX_EXACT_EDIT_SEQUENCE_BASES).contains(&sequence.len())
         || !sequence
             .as_bytes()
             .iter()
@@ -302,7 +305,7 @@ fn validate_model_request_shape(variant: &Grch38Variant) -> Result<VariantShape,
     let shape = classify(variant)?;
     let reference_length = variant.reference().len();
     let alternate_length = variant.alternate().len();
-    if reference_length > MAX_ALLELE_BASES || alternate_length > MAX_ALLELE_BASES {
+    if reference_length > MAX_MODEL_ALLELE_BASES || alternate_length > MAX_MODEL_ALLELE_BASES {
         return Err(ModelRejection::AlleleTooLong {
             reference_length,
             alternate_length,

@@ -35,9 +35,12 @@ The inside-out HTTP tests inject miniature providers and exercise the actual rou
 
 The status response and every returned score item carry one `scoring_identity`. PangoPup hashes the RFC 8785 canonical `pangopup.active-scoring-identity.v1` preimage over software version, admitted runtime-profile identity, and effective CPU policy. Precomputed, modeled, cached, ambiguous, mixed, and mixed-batch rejected items all carry the same value. Request-level errors have no result item. Detailed route provenance stays unchanged, and standalone CLI output does not gain this service-only field.
 
+The status response also carries `request_contract`. This machine-readable object reports the `/v1/score` API version, media type, body and item limits, uncached model-work units, assembly, model allele and exact-edit limits, all accepted variant and gene forms, and every accepted primary-contig spelling. Clients should consume this object instead of copying those values from prose. It stays identical across readiness and queue states. It contains no host or request details and does not enter `scoring_identity`.
+
 ```bash
 cargo test --locked --quiet --package pangopup-assets active_identity >/dev/null 2>&1
 cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures --bin pangopup scoring_identity >/dev/null 2>&1
+cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures --bin pangopup request_contract >/dev/null 2>&1
 printf 'status and every returned HTTP item share one canonical active scoring identity\n' | mustmatch like 'status and every returned HTTP item share one canonical active scoring identity'
 ```
 

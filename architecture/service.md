@@ -70,8 +70,8 @@ The service exposes:
 - readiness that becomes successful only after the pinned asset profile opens
   and required providers initialize;
 - `pangopup status` plus a status endpoint that report software version,
-  installed asset identities, the active scoring identity, enabled routes, readiness, and non-secret
-  configuration; and
+  installed asset identities, the active scoring identity, enabled routes, readiness, non-secret
+  configuration, and the active public request contract; and
 - graceful shutdown on ordinary process-manager signals.
 
 Readiness consumes the established canonical four-asset runtime profile
@@ -84,6 +84,8 @@ in-place mmap/model swap.
 ## HTTP contract
 
 The first HTTP slice is versioned batch JSON over explicit GRCh38 variants, stable typed errors, health/readiness/status endpoints, 64-KiB bodies, 100-variant batches, a 10-uncached-model-variant limit, backpressure, and deterministic ordering. Each `variants[]` value accepts the literal grammar or the strict exact-edit insertion and deletion grammar documented by the CLI. The service converts exact edits before routing and admission. A deleted-sequence mismatch with a valid anchor becomes the existing ordered item rejection. A boundary or anchor failure that cannot form a literal tuple returns request-level `INVALID_REQUEST`. Reference corruption remains a server failure. A model rejection belongs to its input item when the request also produces at least one normal outcome and no operational failure occurs. The response keeps that rejection in input order and returns HTTP 200. HTTP 422 applies only when every input outcome is model-rejected. An authoritative or cached normal outcome therefore keeps a mixed response at HTTP 200. Scoring, cache, worker, and readiness failures invalidate the complete request. They never become item absences or rejections. The HTTP slice adds no transcript HGVS, projection, clinical interpretation, remote calls, job IDs, polling, or server-side model timeout.
+
+`/v1/status.request_contract` serializes this enforced request boundary for clients. One service definition owns the body, variant-count, and uncached-model-work limits. The scoring handler and status output consume it. Engine-owned constants likewise bind model allele and exact-edit sequence reporting to validation. One adapter contig-spelling descriptor serves both parsing and status generation. The fixed contract does not vary with readiness, queue occupancy, assets, paths, listener, host, or request data. It does not enter the active scoring identity because it does not change a score.
 
 The executable CLI's JSONL contract is already shipped and remains useful for
 process-boundary integration and testing. HTTP defines a separate JSON request
