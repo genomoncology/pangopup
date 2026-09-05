@@ -7,7 +7,6 @@ import json
 import pathlib
 import re
 import sys
-import tomllib
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -57,13 +56,67 @@ def require_in_section(category: str, path: str, heading: str, claim: str) -> No
         fail(category, path, f"{claim!r} in {heading}")
 
 
+def simple_quoted_value(line: str, key: str) -> str | None:
+    match = re.fullmatch(rf'{re.escape(key)}\s*=\s*"([^"\\]*)"', line.strip())
+    return None if match is None else match.group(1)
+
+
+def workspace_version() -> str:
+    in_workspace_package = False
+    versions = []
+    for line in read("Cargo.toml").splitlines():
+        stripped = line.strip()
+        if stripped == "[workspace.package]":
+            in_workspace_package = True
+            continue
+        if stripped.startswith("["):
+            in_workspace_package = False
+            continue
+        if in_workspace_package:
+            version = simple_quoted_value(stripped, "version")
+            if version is not None:
+                versions.append(version)
+    if len(versions) != 1:
+        fail("candidate", "Cargo.toml", "one simple quoted workspace package version")
+    return versions[0]
+
+
+def locked_package_versions() -> dict[str, str]:
+    locked = {}
+    package = None
+
+    def record_package() -> None:
+        if package is None:
+            return
+        name = package.get("name")
+        version = package.get("version")
+        if name not in PACKAGES:
+            return
+        if version is None or name in locked:
+            fail("candidate", "Cargo.lock", f"one simple quoted version for {name}")
+        locked[name] = version
+
+    for line in read("Cargo.lock").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            record_package()
+            package = {} if stripped == "[[package]]" else None
+            continue
+        if package is None:
+            continue
+        for key in ("name", "version"):
+            value = simple_quoted_value(stripped, key)
+            if value is not None:
+                if key in package:
+                    fail("candidate", "Cargo.lock", f"one simple quoted {key} per package")
+                package[key] = value
+                break
+    record_package()
+    return locked
+
+
 def check_candidate(candidate: str) -> None:
-    lock = tomllib.loads(read("Cargo.lock"))
-    locked = {
-        package["name"]: package["version"]
-        for package in lock["package"]
-        if package["name"] in PACKAGES
-    }
+    locked = locked_package_versions()
     if set(locked) != PACKAGES:
         fail("candidate", "Cargo.lock", f"the eight PangoPup packages {sorted(PACKAGES)}")
     for package in sorted(PACKAGES):
@@ -296,8 +349,7 @@ def check_history() -> None:
 
 
 def main() -> None:
-    cargo = tomllib.loads(read("Cargo.toml"))
-    candidate = cargo["workspace"]["package"]["version"]
+    candidate = workspace_version()
     check_candidate(candidate)
     check_current_public()
     check_fixed_fixtures()
