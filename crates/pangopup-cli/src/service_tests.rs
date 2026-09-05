@@ -1638,7 +1638,7 @@ async fn score_preserves_order_and_model_only_bypasses_lookup() {
     let bytes = body(response).await;
     assert!(
         bytes.starts_with(
-            b"{\"results\":[{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":1"
+            b"{\"results\":[{\"input\":\"GRCh38:chr1:1:A:C\",\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":1"
         )
     );
     assert!(bytes.ends_with(b"]}\n"));
@@ -1671,7 +1671,7 @@ async fn modeled_http_success_is_pinned_as_one_complete_byte_fixture() {
         .expect("response");
     assert_eq!(response.status(), StatusCode::OK);
     let expected = format!(
-        "{{\"results\":[{{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":2,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"not_found\",\"records\":[],\"source_reference_ambiguities\":[],\"provenance\":{{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:{}\",\"model_profile\":\"model-v1\",\"effective_cpu_policy\":\"sequential:1/1\",\"reference_bundle_id\":\"sha256:{}\",\"reference_profile\":\"reference-v1\",\"reference_sequence_set_sha256\":\"sha256:{}\",\"mask_bytes\":1,\"mask_sha256\":\"sha256:{}\",\"masked\":true,\"window\":50}},\"scoring_identity\":\"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd\"}}]}}\n",
+        "{{\"results\":[{{\"input\":\"GRCh38:chr1:2:A:C\",\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":2,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"not_found\",\"records\":[],\"source_reference_ambiguities\":[],\"provenance\":{{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:{}\",\"model_profile\":\"model-v1\",\"effective_cpu_policy\":\"sequential:1/1\",\"reference_bundle_id\":\"sha256:{}\",\"reference_profile\":\"reference-v1\",\"reference_sequence_set_sha256\":\"sha256:{}\",\"mask_bytes\":1,\"mask_sha256\":\"sha256:{}\",\"masked\":true,\"window\":50}},\"scoring_identity\":\"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd\"}}]}}\n",
         "1".repeat(64),
         "2".repeat(64),
         "3".repeat(64),
@@ -2454,7 +2454,7 @@ async fn exact_deletion_mismatch_is_an_ordered_item_rejection() {
     assert_eq!(output.results.len(), 2);
     assert_eq!(
         output.results[1].get(),
-        r#"{"assembly":"GRCh38","contig":"chr1","position":2,"ref":"AC","alt":"A","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"scoring_identity":"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd"}"#
+        r#"{"input":"GRCh38:chr1:DEL:3:3:C","assembly":"GRCh38","contig":"chr1","position":2,"ref":"AC","alt":"A","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"scoring_identity":"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd"}"#
     );
     assert_eq!(
         calls.load(Ordering::SeqCst),
@@ -2562,7 +2562,23 @@ async fn successful_exact_deletion_matches_literal_records_and_provenance() {
         .await
         .expect("literal response");
     assert_eq!(exact.status(), StatusCode::OK);
-    assert_eq!(body(exact).await, body(literal).await);
+    let mut exact: Value = serde_json::from_slice(&body(exact).await).expect("exact JSON");
+    let mut literal: Value = serde_json::from_slice(&body(literal).await).expect("literal JSON");
+    assert_eq!(
+        exact["results"][0]
+            .as_object_mut()
+            .expect("exact item")
+            .remove("input"),
+        Some(json!("GRCh38:chr1:DEL:3:3:G"))
+    );
+    assert_eq!(
+        literal["results"][0]
+            .as_object_mut()
+            .expect("literal item")
+            .remove("input"),
+        Some(json!("GRCh38:chr1:2:AG:A"))
+    );
+    assert_eq!(exact, literal);
 }
 
 #[derive(serde::Deserialize)]
@@ -2579,6 +2595,50 @@ fn assert_invalid_item(value: &Value, input: &str) {
     assert_eq!(value["error"]["message"], "variant is invalid");
     assert!(value.get("provenance").is_none());
     assert_eq!(value["scoring_identity"], scoring_identity().as_str());
+}
+
+#[tokio::test]
+async fn every_item_preserves_its_exact_submitted_string() {
+    let mut state = state_with_worker(Box::new(RejectAtWorker {
+        position: 2,
+        calls: Arc::new(AtomicUsize::new(0)),
+    }));
+    state.reference = Some(Arc::new(ExactEditReference {
+        bases: b"AAA".to_vec(),
+        provenance: provenance().reference().clone(),
+    }));
+    let submitted = [
+        "GRCh38:7:1:A:C",
+        "GRCh38:NC_000007.14:1:A:C",
+        "GRCh38:chr1:INS:1:2:C",
+        "GRCh38:chr1:2:A:C",
+        "bad",
+        "GRCh38:7:1:A:C",
+    ];
+    let response = app(state)
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"variants": submitted})).expect("JSON"),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: Value = serde_json::from_slice(&body(response).await).expect("JSON");
+    let results = value["results"].as_array().expect("results");
+    assert_eq!(results.len(), submitted.len());
+    for (result, expected) in results.iter().zip(submitted) {
+        assert_eq!(result["input"], expected);
+    }
+    assert_eq!(results[0]["status"], "found");
+    assert_eq!(results[1]["status"], "found");
+    assert_eq!(results[2]["status"], "found");
+    assert_eq!(results[3]["error"]["code"], "MODEL_REJECTED");
+    assert_eq!(results[4]["error"]["code"], "INVALID_VARIANT");
+    assert_eq!(results[5]["input"], results[0]["input"]);
 }
 
 #[tokio::test]
@@ -2612,7 +2672,7 @@ async fn mixed_batch_keeps_precomputed_result_and_orders_typed_rejection() {
     assert_eq!(raw.results[0].get(), normal.results[0].get());
     assert_eq!(
         raw.results[1].get(),
-        r#"{"assembly":"GRCh38","contig":"chr1","position":2,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"scoring_identity":"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd"}"#
+        r#"{"input":"GRCh38:chr1:2:A:C","assembly":"GRCh38","contig":"chr1","position":2,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"scoring_identity":"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd"}"#
     );
     let value: Value = serde_json::from_slice(&bytes).expect("JSON");
     assert!(value["results"][1].get("provenance").is_none());
@@ -2811,7 +2871,7 @@ async fn mixed_batch_keeps_exact_cache_hit_beside_rejection_without_rescoring() 
     assert_eq!(mixed.results[0].get(), cached_only.results[0].get());
     assert_eq!(
         mixed.results[1].get(),
-        r#"{"assembly":"GRCh38","contig":"chr1","position":3,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"scoring_identity":"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd"}"#
+        r#"{"input":"GRCh38:chr1:3:A:C","assembly":"GRCh38","contig":"chr1","position":3,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"scoring_identity":"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd"}"#
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }

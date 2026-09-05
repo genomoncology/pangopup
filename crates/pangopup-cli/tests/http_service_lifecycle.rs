@@ -315,6 +315,7 @@ mod installed_success {
         );
         let value: Value =
             serde_json::from_slice(response_body(&rejected)).expect("rejection JSON");
+        assert_eq!(value["results"][0]["input"], "GRCh38:chr1:5051:A:TC");
         assert_eq!(value["results"][0]["status"], "rejected");
         assert_eq!(value["results"][0]["error"]["code"], "MODEL_REJECTED");
     }
@@ -339,12 +340,14 @@ mod installed_success {
             String::from_utf8_lossy(&scored)
         );
         let value: Value = serde_json::from_slice(response_body(&scored)).expect("score JSON");
+        assert_eq!(value["results"][0]["input"], "GRCh38:chr12:6801301:G:A");
         assert_eq!(value["results"][0]["status"], "found");
         assert_eq!(value["results"][0]["position"], 6_801_301);
         let scoring_identity = value["results"][0]["scoring_identity"].clone();
         assert_eq!(
             value["results"][1],
             serde_json::json!({
+                "input": "GRCh38:chr1:5051:A:TC",
                 "assembly": "GRCh38",
                 "contig": "chr1",
                 "position": 5051,
@@ -379,7 +382,24 @@ mod installed_success {
             r#"{"variants":["GRCh38:chr1:5051:A:AC"]}"#,
         );
         assert!(exact.starts_with(b"HTTP/1.1 200 OK\r\n"));
-        assert_eq!(response_body(&exact), response_body(&literal));
+        let mut exact: Value = serde_json::from_slice(response_body(&exact)).expect("exact JSON");
+        let mut literal: Value =
+            serde_json::from_slice(response_body(&literal)).expect("literal JSON");
+        assert_eq!(
+            exact["results"][0]
+                .as_object_mut()
+                .expect("exact item")
+                .remove("input"),
+            Some(serde_json::json!("GRCh38:chr1:INS:5051:5052:C"))
+        );
+        assert_eq!(
+            literal["results"][0]
+                .as_object_mut()
+                .expect("literal item")
+                .remove("input"),
+            Some(serde_json::json!("GRCh38:chr1:5051:A:AC"))
+        );
+        assert_eq!(exact, literal);
 
         let mixed = request(
             &address,
@@ -389,6 +409,8 @@ mod installed_success {
         );
         assert!(mixed.starts_with(b"HTTP/1.1 200 OK\r\n"));
         let value: Value = serde_json::from_slice(response_body(&mixed)).expect("mixed JSON");
+        assert_eq!(value["results"][0]["input"], "GRCh38:chr12:6801301:G:A");
+        assert_eq!(value["results"][1]["input"], "GRCh38:chr1:DEL:5052:5052:C");
         assert_eq!(value["results"][0]["status"], "found");
         assert_eq!(value["results"][1]["status"], "rejected");
         assert_eq!(value["results"][1]["position"], 5051);

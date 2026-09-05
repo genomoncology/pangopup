@@ -233,7 +233,7 @@ impl ModelJob {
 enum ScoreOutcome {
     Complete(RoutedResult),
     Rejected(Grch38Variant),
-    Invalid(String),
+    Invalid,
 }
 
 #[derive(Debug)]
@@ -1267,12 +1267,12 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
     enum PreparedVariant {
         Ready(Grch38Variant),
         Rejected(Grch38Variant),
-        Invalid(String),
+        Invalid,
     }
 
     let mut variants = Vec::with_capacity(input.variants.len());
-    for value in input.variants {
-        match super::parse_variant_input(&value) {
+    for value in &input.variants {
+        match super::parse_variant_input(value) {
             Ok(super::VariantInput::Literal(variant)) => {
                 variants.push(PreparedVariant::Ready(variant));
             }
@@ -1290,7 +1290,7 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
                         variants.push(PreparedVariant::Rejected(variant));
                     }
                     Err(ExactEditConversionError::InvalidRequest) => {
-                        variants.push(PreparedVariant::Invalid(value));
+                        variants.push(PreparedVariant::Invalid);
                     }
                     Err(ExactEditConversionError::ReferenceProvider(_)) => {
                         return service_error(
@@ -1301,7 +1301,7 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
                     }
                 }
             }
-            Err(_) => variants.push(PreparedVariant::Invalid(value)),
+            Err(_) => variants.push(PreparedVariant::Invalid),
         }
     }
     let mut outputs: Vec<Option<ScoreOutcome>> = (0..variants.len()).map(|_| None).collect();
@@ -1313,8 +1313,8 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
                 outputs[index] = Some(ScoreOutcome::Rejected(variant));
                 continue;
             }
-            PreparedVariant::Invalid(input) => {
-                outputs[index] = Some(ScoreOutcome::Invalid(input));
+            PreparedVariant::Invalid => {
+                outputs[index] = Some(ScoreOutcome::Invalid);
                 continue;
             }
         };
@@ -1452,7 +1452,14 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
         }
     }
     let mut results = Vec::with_capacity(outputs.len());
-    for output in outputs {
+    for (index, output) in outputs.into_iter().enumerate() {
+        let Some(submitted) = input.variants.get(index) else {
+            return service_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "SCORING_FAILED",
+                "scoring failed",
+            );
+        };
         let Some(output) = output else {
             return service_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -1463,9 +1470,9 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
         let rendered: Result<Box<RawValue>, ()> = match output {
             ScoreOutcome::Complete(result) => render_result_raw(result).map_err(|_| ()),
             ScoreOutcome::Rejected(variant) => render_rejection_raw(variant),
-            ScoreOutcome::Invalid(input) => render_invalid_variant_raw(input),
+            ScoreOutcome::Invalid => render_invalid_variant_raw(),
         }
-        .and_then(|value| add_scoring_identity(&value, &state.scoring_identity));
+        .and_then(|value| add_service_fields(&value, submitted, &state.scoring_identity));
         match rendered {
             Ok(value) => results.push(value),
             Err(_) => {
@@ -1480,14 +1487,23 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
     json_response(StatusCode::OK, &ScoreOutput { results })
 }
 
-fn add_scoring_identity(
+fn add_service_fields(
     value: &RawValue,
+    input: &str,
     identity: &ActiveScoringIdentity,
 ) -> Result<Box<RawValue>, ()> {
-    let mut text = value.get().to_owned();
-    if text.pop() != Some('}') {
+    let Some(fields) = value
+        .get()
+        .strip_prefix('{')
+        .and_then(|value| value.strip_suffix('}'))
+    else {
         return Err(());
-    }
+    };
+    let mut text = String::with_capacity(value.get().len() + input.len() + 64);
+    text.push_str("{\"input\":");
+    text.push_str(&serde_json::to_string(input).map_err(|_| ())?);
+    text.push(',');
+    text.push_str(fields);
     text.push_str(",\"scoring_identity\":");
     text.push_str(&serde_json::to_string(identity.as_str()).map_err(|_| ())?);
     text.push('}');
@@ -1529,16 +1545,14 @@ fn render_rejection_raw(variant: Grch38Variant) -> Result<Box<RawValue>, ()> {
 
 #[derive(Serialize)]
 struct InvalidVariantScoreOutput {
-    input: String,
     status: &'static str,
     records: [(); 0],
     source_reference_ambiguities: [(); 0],
     error: ErrorBody<'static>,
 }
 
-fn render_invalid_variant_raw(input: String) -> Result<Box<RawValue>, ()> {
+fn render_invalid_variant_raw() -> Result<Box<RawValue>, ()> {
     let value = InvalidVariantScoreOutput {
-        input,
         status: "rejected",
         records: [],
         source_reference_ambiguities: [],
