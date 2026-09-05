@@ -60,7 +60,7 @@ const HELP_CATALOG: &[HelpEntry] = &[
     HelpEntry {
         path: &["serve"],
         synopsis: "serve [--listen <ADDRESS>] [--data-dir <ABSOLUTE_PATH>] [--model-workers <1..8>] [--model-threads <1..8>] [--model-queue-capacity <1..1024>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]",
-        summary: "Run the foreground HTTP scoring service.",
+        summary: "Run the foreground HTTP scoring service. --model-queue-capacity counts running and queued uncached model variants and defaults to 20. With one worker, that default gives a planning estimate of about 205 seconds from the slowest retained p50. The estimate is not a latency guarantee.",
     },
     HelpEntry {
         path: &["assets", "install"],
@@ -1802,7 +1802,10 @@ mod tests {
                 "status",
                 "Report the combined installed SNV and model-side runtime state.",
             ),
-            ("serve", "Run the foreground HTTP scoring service."),
+            (
+                "serve",
+                "Run the foreground HTTP scoring service. --model-queue-capacity counts running and queued uncached model variants and defaults to 20. With one worker, that default gives a planning estimate of about 205 seconds from the slowest retained p50. The estimate is not a latency guarantee.",
+            ),
             (
                 "assets install",
                 "Install a caller-supplied SNV transport into the local asset store.",

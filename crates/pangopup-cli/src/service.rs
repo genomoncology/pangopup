@@ -183,6 +183,12 @@ struct ModelJob {
     slot: JobSlot,
 }
 
+impl ModelJob {
+    fn weight(&self) -> usize {
+        self.items.len()
+    }
+}
+
 // Keep ordinary completed values inline. Boxing this variant would add an
 // allocation for every successful item. The uncommon rejection does not
 // justify that cost.
@@ -213,6 +219,7 @@ enum WorkerReply {
 struct DispatchState {
     sender: Option<Sender<ModelJob>>,
     readiness: u8,
+    running_jobs: usize,
     running: usize,
     queued: usize,
 }
@@ -250,14 +257,17 @@ impl Dispatcher {
             FAILED => return Err(AdmissionError::Unavailable),
             _ => return Err(AdmissionError::Draining),
         }
-        let slot = if state.running < self.workers && state.queued == 0 {
-            state.running += 1;
-            JobSlot::Running
-        } else if state.queued < self.queue_capacity {
-            state.queued += 1;
-            JobSlot::Queued
-        } else {
+        let weight = job.weight();
+        if state.running + state.queued + weight > self.queue_capacity {
             return Err(AdmissionError::Full);
+        }
+        let slot = if state.running_jobs < self.workers && state.queued == 0 {
+            state.running_jobs += 1;
+            state.running += weight;
+            JobSlot::Running
+        } else {
+            state.queued += weight;
+            JobSlot::Queued
         };
         job.slot = slot;
         let send = state
@@ -267,8 +277,11 @@ impl Dispatcher {
             .try_send(job);
         if send.is_err() {
             match slot {
-                JobSlot::Running => state.running -= 1,
-                JobSlot::Queued => state.queued -= 1,
+                JobSlot::Running => {
+                    state.running_jobs -= 1;
+                    state.running -= weight;
+                }
+                JobSlot::Queued => state.queued -= weight,
                 JobSlot::Unassigned => unreachable!(),
             }
             state.readiness = FAILED;
@@ -393,6 +406,7 @@ struct StatusModel {
     running: usize,
     queued: usize,
     queue_capacity: usize,
+    work_unit: &'static str,
 }
 
 #[derive(Serialize)]
@@ -436,7 +450,7 @@ fn parse_options(raw: &[OsString]) -> Result<ServeOptions, Failure> {
     let mut data_dir = None;
     let mut workers = 1_usize;
     let mut threads = 1_usize;
-    let mut queue_capacity = 16_usize;
+    let mut queue_capacity = 20_usize;
     let mut cache_path = None;
     let mut cache_limit = None;
     let mut seen = std::collections::BTreeSet::new();
@@ -673,11 +687,12 @@ fn build_state(
     assets: AssetStatus,
 ) -> AppState {
     let worker_count = backends.len();
-    let (sender, receiver) = bounded(worker_count + queue_capacity);
+    let (sender, receiver) = bounded(queue_capacity);
     let dispatcher = Dispatcher {
         state: Arc::new(Mutex::new(DispatchState {
             sender: Some(sender),
             readiness: READY,
+            running_jobs: 0,
             running: 0,
             queued: 0,
         })),
@@ -718,18 +733,21 @@ fn spawn_worker(
             };
             {
                 let mut status = state.lock().unwrap_or_else(|error| error.into_inner());
+                let weight = job.weight();
                 match job.slot {
                     JobSlot::Running => {}
                     JobSlot::Queued => {
-                        status.queued -= 1;
-                        status.running += 1;
+                        status.queued -= weight;
+                        status.running += weight;
+                        status.running_jobs += 1;
                     }
                     JobSlot::Unassigned => unreachable!("only admitted jobs reach workers"),
                 }
             }
             if job.response.is_closed() {
                 let mut status = state.lock().unwrap_or_else(|error| error.into_inner());
-                status.running -= 1;
+                status.running_jobs -= 1;
+                status.running -= job.weight();
                 continue;
             }
             #[cfg(feature = "service-test-fixtures")]
@@ -743,7 +761,8 @@ fn spawn_worker(
             let result = catch_unwind(AssertUnwindSafe(|| process_job(&mut *backend, &job)));
             {
                 let mut status = state.lock().unwrap_or_else(|error| error.into_inner());
-                status.running -= 1;
+                status.running_jobs -= 1;
+                status.running -= job.weight();
             }
             match result {
                 Ok(reply) => {
@@ -787,9 +806,13 @@ fn fail_workers(receiver: &Receiver<ModelJob>, state: &Arc<Mutex<DispatchState>>
     status.readiness = FAILED;
     status.sender.take();
     while let Ok(job) = receiver.try_recv() {
+        let weight = job.weight();
         match job.slot {
-            JobSlot::Running => status.running -= 1,
-            JobSlot::Queued => status.queued -= 1,
+            JobSlot::Running => {
+                status.running_jobs -= 1;
+                status.running -= weight;
+            }
+            JobSlot::Queued => status.queued -= weight,
             JobSlot::Unassigned => unreachable!("only admitted jobs reach workers"),
         }
         let _sent = job.response.send(Err(WorkerReply::Unavailable));
@@ -874,6 +897,7 @@ async fn status(State(state): State<AppState>) -> Response {
                 running: snapshot.running,
                 queued: snapshot.queued,
                 queue_capacity: state.dispatcher.queue_capacity,
+                work_unit: "uncached_model_variant",
             },
         },
     )
@@ -1281,15 +1305,14 @@ async fn handler_cache_hits(
     state: &AppState,
     items: Vec<JobItem>,
 ) -> Result<Vec<(JobItem, Option<Vec<ModelGeneScoreRecord>>)>, Failure> {
-    let Ok(permit) = Arc::clone(&state.cache_gate).try_acquire_owned() else {
-        return Ok(items.into_iter().map(|item| (item, None)).collect());
-    };
+    let permit = Arc::clone(&state.cache_gate)
+        .acquire_owned()
+        .await
+        .map_err(|_| cache_task_failure())?;
     let cache = Arc::clone(&state.handler_cache);
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        let Ok(mut cache) = cache.lock() else {
-            return Ok(items.into_iter().map(|item| (item, None)).collect());
-        };
+        let mut cache = cache.lock().unwrap_or_else(|error| error.into_inner());
         let mut results = Vec::with_capacity(items.len());
         for item in items {
             let value = match cache.get(&item.key) {
@@ -1302,7 +1325,16 @@ async fn handler_cache_hits(
         Ok(results)
     })
     .await
-    .unwrap_or_else(|_| Ok(Vec::new()))
+    .map_err(|_| cache_task_failure())?
+}
+
+fn cache_task_failure() -> Failure {
+    Failure {
+        code: "MODEL_CACHE_INVALID",
+        message: "model cache task failed".to_owned(),
+        exit: 1,
+        details: None,
+    }
 }
 
 async fn not_found() -> Response {

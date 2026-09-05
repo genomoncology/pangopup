@@ -41,11 +41,11 @@ budgets 1, 2, 4, and 8. The portable ordinary policy remains `1×1`; the service
 must not extrapolate the table from logical CPU count, cgroup quota, or an
 unmatched CPU identity.
 
-The measurement also proves that the separately opened SNV mmap stays fast
-while a model batch is in flight. The service keeps lookup outside model queue
-admission. It uses fixed workers, a bounded FIFO waiting line, immediate 429
-backpressure, one handler SQLite connection, and one SQLite connection per
-worker. It deliberately does not coalesce in-flight work.
+The measurement also proves that the separately opened SNV mmap stays fast while a model batch is in flight. The service keeps lookup and completed SQLite hits outside model admission. It uses fixed workers, whole-request FIFO dispatch, immediate 429 backpressure, one handler SQLite connection, and one SQLite connection per worker. It deliberately does not coalesce in-flight work.
+
+`--model-queue-capacity` bounds running plus queued uncached model variants. The default is 20 units. Admission reserves every remaining miss in one request or refuses the whole request. The public status fields `running`, `queued`, and `queue_capacity` use this unit and identify it as `uncached_model_variant`. The dispatcher separately counts running jobs to assign fixed workers. That internal count does not change the public work totals.
+
+The slowest retained p50 for the portable `sequential:1/1` policy is 10.241 seconds per variant in `planning/artifacts/022-reference-alternate-batching.md`. Twenty units therefore give one sequential worker a planning estimate of about 205 seconds. Variant costs differ by more than a factor of two, so this estimate does not guarantee retirement time. Operators adjust the capacity for their workload.
 
 ## Foreground lifecycle
 

@@ -48,6 +48,19 @@ impl LookupBackend for FakeLookup {
     }
 }
 
+struct SignalingLookup {
+    inspected: mpsc::Sender<u32>,
+}
+
+impl LookupBackend for SignalingLookup {
+    fn inspect(&self, request: RouteRequest) -> Result<RouteDecision, Failure> {
+        self.inspected
+            .send(request.variant().position().get())
+            .expect("inspection observer");
+        FakeLookup.inspect(request)
+    }
+}
+
 struct EmptyProvider;
 impl pangopup_core::ScoreProvider for EmptyProvider {
     fn lookup(
@@ -387,47 +400,154 @@ fn identity_with_policy(policy: &str) -> CacheIdentity {
     .expect("identity")
 }
 
-#[test]
-fn admission_capacity_is_workers_plus_waiting_before_any_worker_receives() {
-    let (sender, receiver) = bounded(3);
+fn model_job(positions: &[u32]) -> ModelJob {
+    let (response, _waiting) = oneshot::channel();
+    ModelJob {
+        items: positions
+            .iter()
+            .enumerate()
+            .map(|(output_index, position)| {
+                let pending = pending_at(*position);
+                JobItem {
+                    output_index,
+                    key: CacheKey::new(pending.variant(), identity()),
+                    pending,
+                }
+            })
+            .collect(),
+        response,
+        slot: JobSlot::Unassigned,
+    }
+}
+
+fn idle_dispatcher(workers: usize, capacity: usize) -> (Dispatcher, Receiver<ModelJob>) {
+    let (sender, receiver) = bounded(capacity);
     let dispatcher = Dispatcher {
         state: Arc::new(Mutex::new(DispatchState {
             sender: Some(sender),
             readiness: READY,
+            running_jobs: 0,
             running: 0,
             queued: 0,
         })),
         joins: Arc::new(Mutex::new(Vec::new())),
-        workers: 2,
+        workers,
         threads: 1,
-        queue_capacity: 1,
+        queue_capacity: capacity,
     };
-    let job = |position| {
-        let (response, _waiting) = oneshot::channel();
-        let pending = pending_at(position);
-        ModelJob {
-            items: vec![JobItem {
-                output_index: 0,
-                key: CacheKey::new(pending.variant(), identity()),
-                pending,
-            }],
-            response,
-            slot: JobSlot::Unassigned,
-        }
-    };
-    assert!(dispatcher.admit(job(2)).is_ok());
-    assert!(dispatcher.admit(job(3)).is_ok());
-    assert!(dispatcher.admit(job(4)).is_ok());
+    (dispatcher, receiver)
+}
+
+#[test]
+fn admission_counts_running_and_queued_variant_units_at_the_exact_boundary() {
+    let (dispatcher, receiver) = idle_dispatcher(2, 10);
+    assert!(dispatcher.admit(model_job(&[2, 3, 4, 5])).is_ok());
+    assert!(dispatcher.admit(model_job(&[6, 7, 8])).is_ok());
+    assert!(dispatcher.admit(model_job(&[9, 10, 11])).is_ok());
     assert!(matches!(
-        dispatcher.admit(job(5)),
+        dispatcher.admit(model_job(&[12])),
         Err(AdmissionError::Full)
     ));
     let snapshot = dispatcher.snapshot();
-    assert_eq!(snapshot.running, 2);
-    assert_eq!(snapshot.queued, 1);
-    assert!(snapshot.running <= dispatcher.workers);
-    assert!(snapshot.queued <= dispatcher.queue_capacity);
+    assert_eq!(snapshot.running, 7);
+    assert_eq!(snapshot.queued, 3);
+    assert_eq!(
+        snapshot.running + snapshot.queued,
+        dispatcher.queue_capacity
+    );
+    assert_eq!(dispatcher.state.lock().expect("state").running_jobs, 2);
     drop(receiver);
+}
+
+#[test]
+fn equal_model_work_has_equal_admission_across_request_groupings() {
+    let (grouped, grouped_receiver) = idle_dispatcher(1, 10);
+    assert!(
+        grouped
+            .admit(model_job(&[2, 3, 4, 5, 6, 7, 8, 9, 10, 11]))
+            .is_ok()
+    );
+    assert!(matches!(
+        grouped.admit(model_job(&[12])),
+        Err(AdmissionError::Full)
+    ));
+
+    let (split, split_receiver) = idle_dispatcher(1, 10);
+    assert!(split.admit(model_job(&[2, 3])).is_ok());
+    assert!(split.admit(model_job(&[4, 5, 6])).is_ok());
+    assert!(split.admit(model_job(&[7, 8, 9, 10, 11])).is_ok());
+    assert!(matches!(
+        split.admit(model_job(&[12])),
+        Err(AdmissionError::Full)
+    ));
+    assert_eq!(grouped.snapshot().running + grouped.snapshot().queued, 10);
+    assert_eq!(split.snapshot().running + split.snapshot().queued, 10);
+    drop(grouped_receiver);
+    drop(split_receiver);
+}
+
+#[test]
+fn default_model_capacity_is_twenty_uncached_variants() {
+    let options = parse_options(&[]).expect("default options");
+    assert_eq!(options.queue_capacity, 20);
+
+    let (dispatcher, receiver) = idle_dispatcher(1, options.queue_capacity);
+    assert!(
+        dispatcher
+            .admit(model_job(&[2, 3, 4, 5, 6, 7, 8, 9, 10, 11]))
+            .is_ok()
+    );
+    assert!(
+        dispatcher
+            .admit(model_job(&[12, 13, 14, 15, 16, 17, 18, 19, 20, 21]))
+            .is_ok()
+    );
+    assert!(matches!(
+        dispatcher.admit(model_job(&[22])),
+        Err(AdmissionError::Full)
+    ));
+    drop(receiver);
+}
+
+#[test]
+fn failed_send_releases_the_exact_job_weight() {
+    let (dispatcher, receiver) = idle_dispatcher(1, 3);
+    drop(receiver);
+    assert!(matches!(
+        dispatcher.admit(model_job(&[2, 3, 4])),
+        Err(AdmissionError::Unavailable)
+    ));
+    let snapshot = dispatcher.snapshot();
+    assert_eq!(snapshot.readiness, FAILED);
+    assert_eq!(snapshot.running, 0);
+    assert_eq!(snapshot.queued, 0);
+    assert_eq!(dispatcher.state.lock().expect("state").running_jobs, 0);
+}
+
+#[test]
+fn worker_loss_releases_every_drained_job_weight() {
+    let (sender, receiver) = bounded(5);
+    let mut running = model_job(&[2, 3, 4]);
+    running.slot = JobSlot::Running;
+    let mut queued = model_job(&[5, 6]);
+    queued.slot = JobSlot::Queued;
+    sender.send(running).expect("running slot");
+    sender.send(queued).expect("queued slot");
+    let state = Arc::new(Mutex::new(DispatchState {
+        sender: Some(sender),
+        readiness: READY,
+        running_jobs: 1,
+        running: 3,
+        queued: 2,
+    }));
+
+    fail_workers(&receiver, &state);
+
+    let state = state.lock().expect("state");
+    assert_eq!(state.readiness, FAILED);
+    assert_eq!(state.running_jobs, 0);
+    assert_eq!(state.running, 0);
+    assert_eq!(state.queued, 0);
 }
 
 #[test]
@@ -503,6 +623,7 @@ fn queued_production_job_rechecks_sqlite_after_admission_before_inference() {
     let state = Arc::new(Mutex::new(DispatchState {
         sender: Some(sender.clone()),
         readiness: READY,
+        running_jobs: 0,
         running: 0,
         queued: 1,
     }));
@@ -574,6 +695,7 @@ fn production_worker_running_disconnect_still_writes_through_sqlite() {
     let state = Arc::new(Mutex::new(DispatchState {
         sender: Some(sender.clone()),
         readiness: READY,
+        running_jobs: 0,
         running: 0,
         queued: 1,
     }));
@@ -617,7 +739,7 @@ fn state() -> (AppState, Arc<AtomicUsize>) {
             calls: Arc::clone(&calls),
         })],
         1,
-        1,
+        2,
         AssetStatus {
             snv_bundle_id: "snv".to_owned(),
             model_bundle_id: "model".to_owned(),
@@ -695,7 +817,7 @@ async fn health_status_and_route_errors_are_exact_json_lines() {
         .expect("response");
     assert_eq!(
             body(response).await,
-            b"{\"version\":\"0.3.0\",\"readiness\":\"ready\",\"assets\":{\"snv_bundle_id\":\"snv\",\"model_bundle_id\":\"model\",\"reference_bundle_id\":\"reference\",\"mask_sha256\":\"mask\"},\"routes\":{\"lookup\":true,\"model\":true,\"model_only\":true},\"model\":{\"effective_cpu_policy\":\"sequential:1/1\",\"workers\":1,\"threads_per_worker\":1,\"running\":0,\"queued\":0,\"queue_capacity\":1}}\n"
+            b"{\"version\":\"0.3.0\",\"readiness\":\"ready\",\"assets\":{\"snv_bundle_id\":\"snv\",\"model_bundle_id\":\"model\",\"reference_bundle_id\":\"reference\",\"mask_sha256\":\"mask\"},\"routes\":{\"lookup\":true,\"model\":true,\"model_only\":true},\"model\":{\"effective_cpu_policy\":\"sequential:1/1\",\"workers\":1,\"threads_per_worker\":1,\"running\":0,\"queued\":0,\"queue_capacity\":2,\"work_unit\":\"uncached_model_variant\"}}\n"
         );
     let response = router
         .clone()
@@ -934,7 +1056,7 @@ async fn draining_keeps_liveness_and_status_but_stops_score_admission() {
 #[tokio::test]
 async fn score_preserves_order_and_model_only_bypasses_lookup() {
     let (state, calls) = state();
-    let response = app(state)
+    let response = app(state.clone())
         .oneshot(
             Request::post("/v1/score")
                 .header(header::CONTENT_TYPE, "application/json")
@@ -962,6 +1084,8 @@ async fn score_preserves_order_and_model_only_bypasses_lookup() {
     assert_eq!(value["results"][0]["position"], 1);
     assert_eq!(value["results"][1]["position"], 2);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(state.dispatcher.snapshot().running, 0);
+    assert_eq!(state.dispatcher.snapshot().queued, 0);
 }
 
 #[tokio::test]
@@ -1100,6 +1224,193 @@ fn score_request(position: u32) -> Request<Body> {
         .expect("request")
 }
 
+fn score_request_for(positions: &[u32]) -> Request<Body> {
+    let variants = positions
+        .iter()
+        .map(|position| format!("GRCh38:chr1:{position}:A:C"))
+        .collect::<Vec<_>>();
+    Request::post("/v1/score")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({"variants": variants})).expect("JSON"),
+        ))
+        .expect("request")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn configured_workers_report_running_variant_units() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let release = Arc::new((Mutex::new(false), Condvar::new()));
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let backends = (0..2)
+        .map(|_| {
+            Box::new(BlockingWorker {
+                calls: Arc::clone(&calls),
+                entered: entered_tx.clone(),
+                release: Arc::clone(&release),
+                order: Arc::clone(&order),
+            }) as Box<dyn WorkerBackend>
+        })
+        .collect();
+    let state = build_state(
+        Arc::new(FakeLookup),
+        Box::new(EmptyCache),
+        identity(),
+        provenance(),
+        backends,
+        1,
+        5,
+        AssetStatus {
+            snv_bundle_id: "snv".to_owned(),
+            model_bundle_id: "model".to_owned(),
+            reference_bundle_id: "reference".to_owned(),
+            mask_sha256: "mask".to_owned(),
+        },
+    );
+    let router = app(state.clone());
+    let first = tokio::spawn(router.clone().oneshot(score_request_for(&[2, 3])));
+    let second = tokio::spawn(router.clone().oneshot(score_request_for(&[4, 5, 6])));
+    tokio::task::spawn_blocking(move || {
+        entered_rx.recv().expect("first worker entered");
+        entered_rx.recv().expect("second worker entered");
+    })
+    .await
+    .expect("entered join");
+
+    let status = router
+        .clone()
+        .oneshot(
+            Request::get("/v1/status")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("status");
+    let status: Value = serde_json::from_slice(&body(status).await).expect("status JSON");
+    assert_eq!(status["model"]["workers"], 2);
+    assert_eq!(status["model"]["running"], 5);
+    assert_eq!(status["model"]["queued"], 0);
+    assert_eq!(status["model"]["queue_capacity"], 5);
+    assert_eq!(status["model"]["work_unit"], "uncached_model_variant");
+    let refused = router
+        .oneshot(score_request(7))
+        .await
+        .expect("refused response");
+    assert_eq!(refused.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        body(refused).await,
+        b"{\"error\":{\"code\":\"MODEL_QUEUE_FULL\",\"message\":\"model queue is full\"}}\n"
+    );
+
+    let (lock, ready) = &*release;
+    *lock.lock().expect("release") = true;
+    ready.notify_all();
+    assert_eq!(
+        first.await.expect("join").expect("response").status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        second.await.expect("join").expect("response").status(),
+        StatusCode::OK
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 5);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn contended_completed_cache_hit_waits_outside_full_model_capacity() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let release = Arc::new((Mutex::new(false), Condvar::new()));
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (inspected_tx, inspected_rx) = mpsc::channel();
+    let temp = tempfile::tempdir().expect("temp");
+    let (_path, mut handler_cache) = private_cache(&temp);
+    let cached = pending_at(3);
+    handler_cache
+        .put(
+            &CacheKey::new(cached.variant(), identity()),
+            &model_records(),
+        )
+        .expect("seed completed cache hit");
+    let state = build_state(
+        Arc::new(SignalingLookup {
+            inspected: inspected_tx,
+        }),
+        Box::new(handler_cache),
+        identity(),
+        provenance(),
+        vec![Box::new(BlockingWorker {
+            calls: Arc::clone(&calls),
+            entered: entered_tx,
+            release: Arc::clone(&release),
+            order,
+        })],
+        1,
+        1,
+        AssetStatus {
+            snv_bundle_id: "snv".to_owned(),
+            model_bundle_id: "model".to_owned(),
+            reference_bundle_id: "reference".to_owned(),
+            mask_sha256: "mask".to_owned(),
+        },
+    );
+    let cache_gate = Arc::clone(&state.cache_gate)
+        .acquire_owned()
+        .await
+        .expect("cache gate");
+    let (reply, waiting) = oneshot::channel();
+    let pending = pending_at(2);
+    assert!(
+        state
+            .dispatcher
+            .admit(ModelJob {
+                items: vec![JobItem {
+                    output_index: 0,
+                    key: CacheKey::new(pending.variant(), identity()),
+                    pending,
+                }],
+                response: reply,
+                slot: JobSlot::Unassigned,
+            })
+            .is_ok(),
+        "fill capacity"
+    );
+    tokio::task::spawn_blocking(move || entered_rx.recv().expect("worker entered"))
+        .await
+        .expect("entered join");
+    assert_eq!(state.dispatcher.snapshot().running, 1);
+
+    let cached_response = tokio::spawn(app(state.clone()).oneshot(score_request(3)));
+    tokio::task::spawn_blocking(move || inspected_rx.recv().expect("request inspected"))
+        .await
+        .expect("inspection join");
+    assert_eq!(state.dispatcher.snapshot().running, 1);
+    assert!(
+        !cached_response.is_finished(),
+        "cache lookup waits for its gate"
+    );
+    drop(cache_gate);
+    let cached_response = cached_response
+        .await
+        .expect("cached join")
+        .expect("cached response");
+    assert_eq!(cached_response.status(), StatusCode::OK);
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "completed cache hit does not run inference"
+    );
+    assert_eq!(state.dispatcher.snapshot().running, 1);
+
+    let (lock, ready) = &*release;
+    *lock.lock().expect("release") = true;
+    ready.notify_all();
+    assert!(waiting.await.expect("worker response").is_ok());
+    state.dispatcher.close();
+    tokio::task::block_in_place(|| state.dispatcher.join_workers());
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fixed_worker_and_waiting_capacity_are_fifo_while_lookup_bypasses_them() {
     let calls = Arc::new(AtomicUsize::new(0));
@@ -1136,7 +1447,7 @@ async fn fixed_worker_and_waiting_capacity_are_fifo_while_lookup_bypasses_them()
             cache: worker_cache,
         })],
         1,
-        1,
+        2,
         AssetStatus {
             snv_bundle_id: "snv".to_owned(),
             model_bundle_id: "model".to_owned(),
@@ -1205,7 +1516,7 @@ async fn worker_panic_fans_out_to_running_and_queued_callers_then_closes_cleanly
             release: Arc::clone(&release),
         })],
         1,
-        2,
+        3,
         AssetStatus {
             snv_bundle_id: "snv".to_owned(),
             model_bundle_id: "model".to_owned(),
@@ -1539,39 +1850,24 @@ async fn model_failure_stops_batch_without_partial_http_result() {
 #[test]
 fn queued_disconnect_is_discarded_before_inference() {
     let calls = Arc::new(AtomicUsize::new(0));
-    let (sender, receiver) = bounded(1);
+    let (sender, receiver) = bounded(2);
     let state = Arc::new(Mutex::new(DispatchState {
         sender: Some(sender.clone()),
         readiness: READY,
+        running_jobs: 0,
         running: 0,
-        queued: 1,
+        queued: 2,
     }));
     let dispatcher = Dispatcher {
         state: Arc::clone(&state),
         joins: Arc::new(Mutex::new(Vec::new())),
         workers: 1,
         threads: 1,
-        queue_capacity: 1,
+        queue_capacity: 2,
     };
-    let (reply, waiting) = oneshot::channel();
-    drop(waiting);
-    sender
-        .send(ModelJob {
-            items: vec![JobItem {
-                output_index: 0,
-                pending: PendingModel::Explicit(ExplicitModelRequest::new(RouteRequest::new(
-                    super::super::parse_variant("GRCh38:chr1:2:A:C").expect("variant"),
-                    None,
-                ))),
-                key: CacheKey::new(
-                    &super::super::parse_variant("GRCh38:chr1:2:A:C").expect("variant"),
-                    identity(),
-                ),
-            }],
-            response: reply,
-            slot: JobSlot::Queued,
-        })
-        .expect("queue");
+    let mut job = model_job(&[2, 3]);
+    job.slot = JobSlot::Queued;
+    sender.send(job).expect("queue");
     let join = spawn_worker(
         Box::new(FakeWorker {
             calls: Arc::clone(&calls),
@@ -1579,9 +1875,14 @@ fn queued_disconnect_is_discarded_before_inference() {
         receiver,
         state,
     );
-    while dispatcher.snapshot().queued != 0 {
+    while {
+        let snapshot = dispatcher.snapshot();
+        snapshot.running + snapshot.queued != 0
+    } {
         thread::yield_now();
     }
+    assert_eq!(dispatcher.snapshot().running, 0);
+    assert_eq!(dispatcher.state.lock().expect("state").running_jobs, 0);
     dispatcher.close();
     drop(sender);
     join.join().expect("worker joins");
@@ -1594,32 +1895,38 @@ fn running_disconnect_does_not_interrupt_started_inference() {
     let release = Arc::new((Mutex::new(false), Condvar::new()));
     let order = Arc::new(Mutex::new(Vec::new()));
     let (entered_tx, entered_rx) = mpsc::channel();
-    let (sender, receiver) = bounded(1);
+    let (sender, receiver) = bounded(2);
     let state = Arc::new(Mutex::new(DispatchState {
         sender: Some(sender.clone()),
         readiness: READY,
+        running_jobs: 0,
         running: 0,
-        queued: 1,
+        queued: 2,
     }));
     let dispatcher = Dispatcher {
         state: Arc::clone(&state),
         joins: Arc::new(Mutex::new(Vec::new())),
         workers: 1,
         threads: 1,
-        queue_capacity: 1,
+        queue_capacity: 2,
     };
-    let variant = super::super::parse_variant("GRCh38:chr1:2:A:C").expect("variant");
     let (reply, waiting) = oneshot::channel();
+    let first = pending_at(2);
+    let second = pending_at(3);
     sender
         .send(ModelJob {
-            items: vec![JobItem {
-                output_index: 0,
-                pending: PendingModel::Explicit(ExplicitModelRequest::new(RouteRequest::new(
-                    variant.clone(),
-                    None,
-                ))),
-                key: CacheKey::new(&variant, identity()),
-            }],
+            items: vec![
+                JobItem {
+                    output_index: 0,
+                    key: CacheKey::new(first.variant(), identity()),
+                    pending: first,
+                },
+                JobItem {
+                    output_index: 1,
+                    key: CacheKey::new(second.variant(), identity()),
+                    pending: second,
+                },
+            ],
             response: reply,
             slot: JobSlot::Queued,
         })
@@ -1642,6 +1949,8 @@ fn running_disconnect_does_not_interrupt_started_inference() {
     while dispatcher.snapshot().running != 0 {
         thread::yield_now();
     }
+    assert_eq!(dispatcher.snapshot().queued, 0);
+    assert_eq!(dispatcher.state.lock().expect("state").running_jobs, 0);
     dispatcher.close();
     drop(sender);
     join.join().expect("worker joins");
@@ -1669,6 +1978,7 @@ async fn persistent_signal_stream_forces_running_drain_on_actual_second_signal()
         state: Arc::new(Mutex::new(DispatchState {
             sender: Some(sender),
             readiness: READY,
+            running_jobs: 1,
             running: 1,
             queued: 0,
         })),
