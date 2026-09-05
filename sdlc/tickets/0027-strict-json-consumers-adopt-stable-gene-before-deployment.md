@@ -24,3 +24,8 @@ Done, observably:
 - `make lint`, `make test`, and `make spec` pass without reducing specification coverage.
 
 Boundary: do not change structured output, the human-readable table, scoring, routing, filtering, caching, assets, identities, versions, or release state. Do not publish, deploy, or require access to a downstream codebase. Do not edit any archived ticket, existing completion record, or historical release note. Do not name a private consumer.
+
+## Review
+
+- Design review: approved at exact draft revision `7179f2ffec0895b7119312ae6c4232cbe4f59a1c` and unchanged content SHA-256 `1f1b67ec5c7fca1a8e2631bdf255df8f8fc8e94c4efb3edafba70f62650666b7`. The reviewer verified the missing compatibility warning, distinct scope from ticket 0026, append-only correction path, mechanical guard, public-repository boundary, and exclusions with no findings.
+- Code review: pending.
