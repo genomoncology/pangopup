@@ -214,7 +214,12 @@ impl Drop for ProvisioningLock {
 }
 
 pub fn install_transport(transport: &Path, data_root: &Path) -> Result<InstallOutcome, AssetError> {
-    let root = open_root(data_root, true)?.ok_or_else(|| asset_io("create data root"))?;
+    let root = open_root(data_root, true)?.ok_or_else(|| {
+        asset_io(
+            "create data root",
+            io::Error::other("data root is missing after creation"),
+        )
+    })?;
     let _lock = acquire_install_lock(&root)?;
     let active_before = read_active_optional_for_install(&root)?;
     let transport = open_held_directory(
@@ -229,7 +234,12 @@ pub(crate) fn install_transport_handle(
     transport: File,
     data_root: &Path,
 ) -> Result<InstallOutcome, AssetError> {
-    let root = open_root(data_root, true)?.ok_or_else(|| asset_io("create data root"))?;
+    let root = open_root(data_root, true)?.ok_or_else(|| {
+        asset_io(
+            "create data root",
+            io::Error::other("data root is missing after creation"),
+        )
+    })?;
     let _lock = acquire_install_lock(&root)?;
     let active_before = read_active_optional_for_install(&root)?;
     let transport = held_directory_from_file(
@@ -407,7 +417,7 @@ fn install_new(
         crash_at!(ScoreSync);
         score
             .sync_all()
-            .map_err(|_| asset_io("sync installed scores.pgi"))?;
+            .map_err(|error| asset_io("sync installed scores.pgi", error))?;
         #[cfg(test)]
         super::install_audit::record(super::install_audit::Event::ScoreWriteComplete(
             pangopup_index::test_score_read_bytes(),
@@ -416,24 +426,24 @@ fn install_new(
         let mut notice = create_file(&bundle, "NOTICE", MEMBER_MODE, root)?;
         notice
             .write_all(&verified.notice)
-            .map_err(|_| asset_io("write installed NOTICE"))?;
+            .map_err(|error| asset_io("write installed NOTICE", error))?;
         crash_at!(NoticeChmod);
         set_mode(&notice, MEMBER_MODE)?;
         crash_at!(NoticeSync);
         notice
             .sync_all()
-            .map_err(|_| asset_io("sync installed NOTICE"))?;
+            .map_err(|error| asset_io("sync installed NOTICE", error))?;
 
         let mut manifest = create_file(&bundle, "manifest.json", MEMBER_MODE, root)?;
         manifest
             .write_all(&verified.bundle_manifest_bytes)
-            .map_err(|_| asset_io("write installed manifest"))?;
+            .map_err(|error| asset_io("write installed manifest", error))?;
         crash_at!(ManifestChmod);
         set_mode(&manifest, MEMBER_MODE)?;
         crash_at!(ManifestSync);
         manifest
             .sync_all()
-            .map_err(|_| asset_io("sync installed manifest"))?;
+            .map_err(|error| asset_io("sync installed manifest", error))?;
 
         let receipt = receipt_for(&verified);
         let receipt_bytes = canonical(&receipt, AssetErrorKind::AssetIo, "serialize receipt")?;
@@ -449,7 +459,7 @@ fn install_new(
         crash_at!(ReceiptSync);
         receipt_file
             .sync_all()
-            .map_err(|_| asset_io("sync install receipt"))?;
+            .map_err(|error| asset_io("sync install receipt", error))?;
 
         crash_at!(BundleChmod);
         set_mode(&bundle.file, BUNDLE_MODE)?;
@@ -457,22 +467,22 @@ fn install_new(
         bundle
             .file
             .sync_all()
-            .map_err(|_| asset_io("sync staged bundle"))?;
+            .map_err(|error| asset_io("sync staged bundle", error))?;
         crash_at!(WrapperSync);
         staged_bundle
             .file
             .sync_all()
-            .map_err(|_| asset_io("sync staged bundle wrapper"))?;
+            .map_err(|error| asset_io("sync staged bundle wrapper", error))?;
         crash_at!(PayloadSync);
         payload
             .file
             .sync_all()
-            .map_err(|_| asset_io("sync staged payload"))?;
+            .map_err(|error| asset_io("sync staged payload", error))?;
         crash_at!(PrepublishStageSync);
         stage
             .file
             .sync_all()
-            .map_err(|_| asset_io("sync staged active candidate"))?;
+            .map_err(|error| asset_io("sync staged active candidate", error))?;
 
         let notice_read = open_required_file(
             &bundle,
@@ -504,12 +514,12 @@ fn install_new(
         staged_bundle
             .file
             .sync_all()
-            .map_err(|_| asset_io("sync published bundle wrapper"))?;
+            .map_err(|error| asset_io("sync published bundle wrapper", error))?;
         crash_at!(BundlesSync);
         bundles
             .file
             .sync_all()
-            .map_err(|_| asset_io("sync bundles directory"))?;
+            .map_err(|error| asset_io("sync bundles directory", error))?;
 
         let active = ActiveBundle {
             bundle_id: bundle_id.clone(),
@@ -522,7 +532,7 @@ fn install_new(
         root.dir
             .file
             .sync_all()
-            .map_err(|_| asset_io("sync data root"))?;
+            .map_err(|error| asset_io("sync data root", error))?;
 
         // The active rename plus root fsync is the durable commit point. Cleanup
         // failures after it are intentionally deferred to reconciliation.
@@ -549,7 +559,7 @@ fn activate_existing(root: &Root, staging: &Dir, active: &ActiveBundle) -> Resul
         root.dir
             .file
             .sync_all()
-            .map_err(|_| asset_io("sync data root"))?;
+            .map_err(|error| asset_io("sync data root", error))?;
         let _ = cleanup_committed_stage(staging, &nonce, root);
         Ok(())
     })();
@@ -712,7 +722,7 @@ fn validate_installed(
     )?;
     let score_metadata = scores
         .metadata()
-        .map_err(|_| asset_io("inspect scores.pgi"))?;
+        .map_err(|error| asset_io("inspect scores.pgi", error))?;
     if score_metadata.len() != receipt.members[2].size
         || score_metadata.len() > MAX_FIXED11_BYTES
         || sha256(&notice) != receipt.members[0].sha256
@@ -818,17 +828,17 @@ fn write_candidate(stage: &Dir, bundle_id: &str, root: &Root) -> Result<(), Asse
     )?;
     let mut file = create_file(stage, "active.candidate.json", METADATA_MODE, root)?;
     file.write_all(&bytes)
-        .map_err(|_| asset_io("write active candidate"))?;
+        .map_err(|error| asset_io("write active candidate", error))?;
     crash_at!(CandidateChmod);
     set_mode(&file, METADATA_MODE)?;
     crash_at!(CandidateSync);
     file.sync_all()
-        .map_err(|_| asset_io("sync active candidate"))?;
+        .map_err(|error| asset_io("sync active candidate", error))?;
     crash_at!(CandidateStageSync);
     stage
         .file
         .sync_all()
-        .map_err(|_| asset_io("sync active candidate directory"))?;
+        .map_err(|error| asset_io("sync active candidate directory", error))?;
     Ok(())
 }
 
@@ -854,37 +864,40 @@ fn create_stage(
                 let mut marker_file = create_file(&stage, "marker.json", STAGE_MARKER_MODE, root)?;
                 marker_file
                     .write_all(&bytes)
-                    .map_err(|_| asset_io("write stage marker"))?;
+                    .map_err(|error| asset_io("write stage marker", error))?;
                 crash_at!(MarkerChmod);
                 set_mode(&marker_file, STAGE_MARKER_MODE)?;
                 crash_at!(MarkerSync);
                 marker_file
                     .sync_all()
-                    .map_err(|_| asset_io("sync stage marker file"))?;
+                    .map_err(|error| asset_io("sync stage marker file", error))?;
                 crash_at!(StageSync);
                 stage
                     .file
                     .sync_all()
-                    .map_err(|_| asset_io("sync stage marker"))?;
+                    .map_err(|error| asset_io("sync stage marker", error))?;
                 crash_at!(StagingSync);
                 staging
                     .file
                     .sync_all()
-                    .map_err(|_| asset_io("sync staging directory"))?;
+                    .map_err(|error| asset_io("sync staging directory", error))?;
                 return Ok((nonce, stage));
             }
             Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
-            Err(_) => return Err(asset_io("create install stage")),
+            Err(error) => return Err(asset_io("create install stage", error)),
         }
     }
-    Err(asset_io("create unique install stage"))
+    Err(asset_io(
+        "create unique install stage",
+        io::Error::other("no unique staging name was available"),
+    ))
 }
 
 fn random_nonce() -> Result<String, AssetError> {
     let mut random = [0_u8; 16];
     File::open("/dev/urandom")
         .and_then(|mut file| file.read_exact(&mut random))
-        .map_err(|_| asset_io("obtain staging randomness"))?;
+        .map_err(|error| asset_io("obtain staging randomness", error))?;
     Ok(random.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
@@ -1023,12 +1036,12 @@ fn reconcile_staging(
                 .wrapper
                 .file
                 .sync_all()
-                .map_err(|_| asset_io("sync recovered bundle wrapper"))?;
+                .map_err(|error| asset_io("sync recovered bundle wrapper", error))?;
             crash_at!(BundlesSync);
             bundles
                 .file
                 .sync_all()
-                .map_err(|_| asset_io("sync recovered bundles directory"))?;
+                .map_err(|error| asset_io("sync recovered bundles directory", error))?;
         }
     }
 
@@ -1045,7 +1058,7 @@ fn reconcile_staging(
         root.dir
             .file
             .sync_all()
-            .map_err(|_| asset_io("sync recovered active profile"))?;
+            .map_err(|error| asset_io("sync recovered active profile", error))?;
 
         // The root fsync above is the sole recovered commit point. Every later
         // cleanup is best effort and cannot turn a committed reuse into error.
@@ -1062,7 +1075,7 @@ fn reconcile_staging(
     staging
         .file
         .sync_all()
-        .map_err(|_| asset_io("sync staging directory"))?;
+        .map_err(|error| asset_io("sync staging directory", error))?;
     Ok(false)
 }
 
@@ -1086,7 +1099,10 @@ fn validate_candidate(stage: &Dir, bundle_id: &str, root: &Root) -> Result<(), A
 fn cleanup_committed_stage(staging: &Dir, nonce: &str, root: &Root) -> Result<(), AssetError> {
     #[cfg(test)]
     if super::install_audit::fail(super::install_audit::FaultPoint::CleanupAfterCommit) {
-        return Err(asset_io("injected committed-stage cleanup failure"));
+        return Err(asset_io(
+            "injected committed-stage cleanup failure",
+            io::Error::other("injected failure"),
+        ));
     }
     let stage = open_required_dir(staging, nonce, root, Some(PRIVATE_DIR_MODE))?;
     if file_exists(&stage, "payload")? {
@@ -1094,14 +1110,15 @@ fn cleanup_committed_stage(staging: &Dir, nonce: &str, root: &Root) -> Result<()
         if !read_names(&payload)?.is_empty() {
             return Err(staging_invalid("committed stage payload is not empty"));
         }
-        remove_dir_at(&stage, "payload").map_err(|_| asset_io("remove empty stage payload"))?;
+        remove_dir_at(&stage, "payload")
+            .map_err(|error| asset_io("remove empty stage payload", error))?;
     }
     unlink_file(&stage, "marker.json")?;
-    remove_dir_at(staging, nonce).map_err(|_| asset_io("remove stage wrapper"))?;
+    remove_dir_at(staging, nonce).map_err(|error| asset_io("remove stage wrapper", error))?;
     staging
         .file
         .sync_all()
-        .map_err(|_| asset_io("sync staging cleanup"))
+        .map_err(|error| asset_io("sync staging cleanup", error))
 }
 
 fn cleanup_failed_stage(staging: &Dir, nonce: &str, root: &Root) -> Result<(), AssetError> {
@@ -1117,11 +1134,11 @@ fn cleanup_failed_stage(staging: &Dir, nonce: &str, root: &Root) -> Result<(), A
     if file_exists(&stage, "marker.json")? {
         unlink_file(&stage, "marker.json")?;
     }
-    remove_dir_at(staging, nonce).map_err(|_| asset_io("remove staging wrapper"))?;
+    remove_dir_at(staging, nonce).map_err(|error| asset_io("remove staging wrapper", error))?;
     staging
         .file
         .sync_all()
-        .map_err(|_| asset_io("sync staging cleanup"))
+        .map_err(|error| asset_io("sync staging cleanup", error))
 }
 
 fn validate_tree(dir: &Dir, root: &Root) -> Result<(), AssetError> {
@@ -1130,7 +1147,7 @@ fn validate_tree(dir: &Dir, root: &Root) -> Result<(), AssetError> {
             Ok(file) => {
                 let metadata = file
                     .metadata()
-                    .map_err(|_| asset_io("inspect staging entry"))?;
+                    .map_err(|error| asset_io("inspect staging entry", error))?;
                 validate_owned_metadata(&metadata, root, AssetErrorKind::StagingInvalid)?;
                 if metadata.file_type().is_dir() {
                     validate_tree(&dir_from_file(file)?, root)?;
@@ -1154,7 +1171,7 @@ fn remove_tree_entry(dir: &Dir, name: &str, root: &Root) -> Result<(), AssetErro
     let file = open_any_nofollow(dir, name).map_err(|_| staging_invalid("unsafe staging entry"))?;
     let metadata = file
         .metadata()
-        .map_err(|_| asset_io("inspect staging cleanup entry"))?;
+        .map_err(|error| asset_io("inspect staging cleanup entry", error))?;
     validate_owned_metadata(&metadata, root, AssetErrorKind::StagingInvalid)?;
     if metadata.file_type().is_dir() {
         let child = dir_from_file(file)?;
@@ -1162,7 +1179,7 @@ fn remove_tree_entry(dir: &Dir, name: &str, root: &Root) -> Result<(), AssetErro
         for nested in read_names(&child)? {
             remove_tree_entry(&child, &nested, root)?;
         }
-        remove_dir_at(dir, name).map_err(|_| asset_io("remove staging directory"))
+        remove_dir_at(dir, name).map_err(|error| asset_io("remove staging directory", error))
     } else if metadata.file_type().is_file() {
         unlink_file(dir, name)
     } else {
@@ -1218,7 +1235,7 @@ pub(crate) fn open_root(path: &Path, create: bool) -> Result<Option<Root>, Asset
     let existed = match fs::symlink_metadata(path) {
         Ok(_) => true,
         Err(error) if error.kind() == ErrorKind::NotFound => false,
-        Err(_) => return Err(asset_io("inspect data root")),
+        Err(error) => return Err(asset_io("inspect data root", error)),
     };
     if !existed {
         if !create {
@@ -1229,15 +1246,15 @@ pub(crate) fn open_root(path: &Path, create: bool) -> Result<Option<Root>, Asset
         builder.mode(ROOT_MODE).recursive(true);
         builder
             .create(path)
-            .map_err(|_| asset_io("create data root"))?;
+            .map_err(|error| asset_io("create data root", error))?;
         fs::set_permissions(path, fs::Permissions::from_mode(ROOT_MODE))
-            .map_err(|_| asset_io("set data root mode"))?;
+            .map_err(|error| asset_io("set data root mode", error))?;
     }
     let file = open_path_directory(path)
         .map_err(|_| state_invalid("data root is not a real directory"))?;
     let metadata = file
         .metadata()
-        .map_err(|_| asset_io("inspect opened data root"))?;
+        .map_err(|error| asset_io("inspect opened data root", error))?;
     let euid = effective_uid();
     if metadata.uid() != euid || metadata.mode() & 0o022 != 0 {
         return Err(state_invalid(
@@ -1267,13 +1284,16 @@ fn acquire_install_lock(root: &Root) -> Result<InstallLock, AssetError> {
     let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     if result == 0 {
         Ok(InstallLock(file))
-    } else if io::Error::last_os_error().kind() == ErrorKind::WouldBlock {
-        Err(AssetError::new(
-            AssetErrorKind::AssetLocked,
-            "another asset installation is in progress",
-        ))
     } else {
-        Err(asset_io("lock asset store"))
+        let error = io::Error::last_os_error();
+        if error.kind() == ErrorKind::WouldBlock {
+            Err(AssetError::new(
+                AssetErrorKind::AssetLocked,
+                "another asset installation is in progress",
+            ))
+        } else {
+            Err(asset_io("lock asset store", error))
+        }
     }
 }
 
@@ -1298,7 +1318,12 @@ pub(crate) enum InstallObservation {
 }
 
 pub(crate) fn acquire_shared_install_lock(data_root: &Path) -> Result<LockedRoot, AssetError> {
-    let root = open_root(data_root, true)?.ok_or_else(|| asset_io("create data root"))?;
+    let root = open_root(data_root, true)?.ok_or_else(|| {
+        asset_io(
+            "create data root",
+            io::Error::other("data root is missing after creation"),
+        )
+    })?;
     let lock = acquire_install_lock(&root)?;
     Ok(LockedRoot { root, _lock: lock })
 }
@@ -1326,31 +1351,42 @@ pub(crate) fn acquire_install_observation(
             root,
             _lock: InstallLock(file),
         }))
-    } else if io::Error::last_os_error().kind() == ErrorKind::WouldBlock {
-        Err(AssetError::new(
-            AssetErrorKind::AssetLocked,
-            "another asset installation is in progress",
-        ))
     } else {
-        Err(asset_io("observe asset store"))
+        let error = io::Error::last_os_error();
+        if error.kind() == ErrorKind::WouldBlock {
+            Err(AssetError::new(
+                AssetErrorKind::AssetLocked,
+                "another asset installation is in progress",
+            ))
+        } else {
+            Err(asset_io("observe asset store", error))
+        }
     }
 }
 
 pub(crate) fn acquire_provisioning_lock(data_root: &Path) -> Result<ProvisioningLock, AssetError> {
-    let root = open_root(data_root, true)?.ok_or_else(|| asset_io("create data root"))?;
+    let root = open_root(data_root, true)?.ok_or_else(|| {
+        asset_io(
+            "create data root",
+            io::Error::other("data root is missing after creation"),
+        )
+    })?;
     let file = open_or_create_file(&root.dir, ".sync.lock", METADATA_MODE, &root)?;
     set_mode(&file, METADATA_MODE)?;
     // SAFETY: flock acts on the live descriptor and does not retain pointers.
     let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     if result == 0 {
         Ok(ProvisioningLock(file))
-    } else if io::Error::last_os_error().kind() == ErrorKind::WouldBlock {
-        Err(AssetError::new(
-            AssetErrorKind::AssetLocked,
-            "another Pangopup synchronization is in progress",
-        ))
     } else {
-        Err(asset_io("lock Pangopup synchronization"))
+        let error = io::Error::last_os_error();
+        if error.kind() == ErrorKind::WouldBlock {
+            Err(AssetError::new(
+                AssetErrorKind::AssetLocked,
+                "another Pangopup synchronization is in progress",
+            ))
+        } else {
+            Err(asset_io("lock Pangopup synchronization", error))
+        }
     }
 }
 
@@ -1374,10 +1410,13 @@ pub(crate) fn probe_provisioning_lock(data_root: &Path) -> Result<bool, AssetErr
         // SAFETY: descriptor is live and owned here.
         unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
         Ok(false)
-    } else if io::Error::last_os_error().kind() == ErrorKind::WouldBlock {
-        Ok(true)
     } else {
-        Err(asset_io("probe Pangopup synchronization"))
+        let error = io::Error::last_os_error();
+        if error.kind() == ErrorKind::WouldBlock {
+            Ok(true)
+        } else {
+            Err(asset_io("probe Pangopup synchronization", error))
+        }
     }
 }
 
@@ -1398,10 +1437,13 @@ pub(crate) fn probe_install_lock(root: &Root) -> Result<bool, AssetError> {
         // SAFETY: descriptor is live and owned here.
         unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
         Ok(false)
-    } else if io::Error::last_os_error().kind() == ErrorKind::WouldBlock {
-        Ok(true)
     } else {
-        Err(asset_io("probe install lock"))
+        let error = io::Error::last_os_error();
+        if error.kind() == ErrorKind::WouldBlock {
+            Ok(true)
+        } else {
+            Err(asset_io("probe install lock", error))
+        }
     }
 }
 
@@ -1409,7 +1451,7 @@ pub(crate) fn ensure_private_dir(parent: &Dir, name: &str, root: &Root) -> Resul
     match mkdir_at(parent, name, PRIVATE_DIR_MODE) {
         Ok(()) => {}
         Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
-        Err(_) => return Err(asset_io("create asset-store directory")),
+        Err(error) => return Err(asset_io("create asset-store directory", error)),
     }
     open_required_dir(parent, name, root, Some(PRIVATE_DIR_MODE))
 }
@@ -1465,10 +1507,10 @@ pub(crate) fn named_identity_matches(
     })?;
     let observed_metadata = observed
         .metadata()
-        .map_err(|_| asset_io("inspect runtime entry"))?;
+        .map_err(|error| asset_io("inspect runtime entry", error))?;
     let expected_metadata = expected
         .metadata()
-        .map_err(|_| asset_io("inspect held runtime entry"))?;
+        .map_err(|error| asset_io("inspect held runtime entry", error))?;
     if observed_metadata.dev() != expected_metadata.dev()
         || observed_metadata.ino() != expected_metadata.ino()
         || observed_metadata.file_type() != expected_metadata.file_type()
@@ -1494,7 +1536,7 @@ pub(crate) fn remove_owned_tree_bounded(
     let parent_metadata = parent
         .file
         .metadata()
-        .map_err(|_| asset_io("inspect staging parent"))?;
+        .map_err(|error| asset_io("inspect staging parent", error))?;
     let mut count = 0;
     remove_owned_tree_entry(
         &parent,
@@ -1534,7 +1576,7 @@ fn remove_owned_tree_entry(
     })?;
     let metadata = file
         .metadata()
-        .map_err(|_| asset_io("inspect runtime staging"))?;
+        .map_err(|error| asset_io("inspect runtime staging", error))?;
     if metadata.dev() != device || metadata.uid() != euid {
         return Err(AssetError::new(
             AssetErrorKind::BundleInvalid,
@@ -1556,7 +1598,8 @@ fn remove_owned_tree_entry(
                 count,
             )?;
         }
-        remove_dir_at(parent, name).map_err(|_| asset_io("remove runtime staging directory"))
+        remove_dir_at(parent, name)
+            .map_err(|error| asset_io("remove runtime staging directory", error))
     } else if metadata.file_type().is_file() {
         set_mode(&file, METADATA_MODE)?;
         unlink_file(parent, name)
@@ -1578,7 +1621,7 @@ pub(crate) fn create_owned_dir(
 }
 
 fn create_dir(parent: &Dir, name: &str, mode: u32, root: &Root) -> Result<Dir, AssetError> {
-    mkdir_at(parent, name, mode).map_err(|_| asset_io("create staged directory"))?;
+    mkdir_at(parent, name, mode).map_err(|error| asset_io("create staged directory", error))?;
     open_required_dir(parent, name, root, Some(mode))
 }
 
@@ -1607,7 +1650,9 @@ fn open_dir_optional(parent: &Dir, name: &str, root: &Root) -> Result<Option<Dir
         0,
     ) {
         Ok(file) => {
-            let metadata = file.metadata().map_err(|_| asset_io("inspect directory"))?;
+            let metadata = file
+                .metadata()
+                .map_err(|error| asset_io("inspect directory", error))?;
             validate_owned_metadata(&metadata, root, AssetErrorKind::AssetStateInvalid)?;
             if !metadata.file_type().is_dir() {
                 return Err(state_invalid("asset-store entry is not a directory"));
@@ -1627,7 +1672,7 @@ fn open_dir_optional(parent: &Dir, name: &str, root: &Root) -> Result<Option<Dir
 fn dir_from_file(file: File) -> Result<Dir, AssetError> {
     let metadata = file
         .metadata()
-        .map_err(|_| asset_io("inspect directory handle"))?;
+        .map_err(|error| asset_io("inspect directory handle", error))?;
     Ok(Dir {
         file,
         dev: metadata.dev(),
@@ -1772,7 +1817,7 @@ fn read_required_bounded_file(
 fn read_bounded_handle(file: File, cap: u64, kind: AssetErrorKind) -> Result<Vec<u8>, AssetError> {
     let metadata = file
         .metadata()
-        .map_err(|_| asset_io("inspect metadata file"))?;
+        .map_err(|error| asset_io("inspect metadata file", error))?;
     if metadata.len() > cap {
         return Err(AssetError::new(
             kind,
@@ -1782,7 +1827,7 @@ fn read_bounded_handle(file: File, cap: u64, kind: AssetErrorKind) -> Result<Vec
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
     file.take(cap + 1)
         .read_to_end(&mut bytes)
-        .map_err(|_| asset_io("read metadata file"))?;
+        .map_err(|error| asset_io("read metadata file", error))?;
     if bytes.len() as u64 > cap {
         return Err(AssetError::new(
             kind,
@@ -1799,7 +1844,7 @@ pub(crate) fn read_bounded_handle_ref(
 ) -> Result<Vec<u8>, AssetError> {
     let duplicate = file
         .try_clone()
-        .map_err(|_| asset_io("duplicate metadata file handle"))?;
+        .map_err(|error| asset_io("duplicate metadata file handle", error))?;
     read_bounded_handle(duplicate, cap, kind)
 }
 
@@ -1830,7 +1875,7 @@ fn open_optional_file(
         Ok(file) => {
             let metadata = file
                 .metadata()
-                .map_err(|_| asset_io("inspect regular file"))?;
+                .map_err(|error| asset_io("inspect regular file", error))?;
             validate_owned_metadata(&metadata, root, kind)?;
             if !metadata.file_type().is_file() || metadata.mode() & 0o777 != mode {
                 return Err(AssetError::new(
@@ -1861,7 +1906,9 @@ fn open_or_create_file(
         mode,
     ) {
         Ok(file) => {
-            let metadata = file.metadata().map_err(|_| asset_io("inspect lock file"))?;
+            let metadata = file
+                .metadata()
+                .map_err(|error| asset_io("inspect lock file", error))?;
             validate_owned_metadata(&metadata, root, AssetErrorKind::AssetStateInvalid)?;
             if !metadata.file_type().is_file() {
                 return Err(state_invalid("install lock is not a regular file"));
@@ -1890,10 +1937,10 @@ fn create_file(parent: &Dir, name: &str, mode: u32, root: &Root) -> Result<File,
         libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
         mode,
     )
-    .map_err(|_| asset_io("create staged file"))?;
+    .map_err(|error| asset_io("create staged file", error))?;
     let metadata = file
         .metadata()
-        .map_err(|_| asset_io("inspect staged file"))?;
+        .map_err(|error| asset_io("inspect staged file", error))?;
     validate_owned_metadata(&metadata, root, AssetErrorKind::AssetIo)?;
     Ok(file)
 }
@@ -1907,7 +1954,7 @@ fn write_new_file(
 ) -> Result<File, AssetError> {
     let mut file = create_file(parent, name, mode, root)?;
     file.write_all(bytes)
-        .map_err(|_| asset_io("write staged file"))?;
+        .map_err(|error| asset_io("write staged file", error))?;
     set_mode(&file, mode)?;
     Ok(file)
 }
@@ -1917,14 +1964,14 @@ pub(crate) fn set_mode(file: &File, mode: u32) -> Result<(), AssetError> {
     if unsafe { libc::fchmod(file.as_raw_fd(), mode as libc::mode_t) } == 0 {
         Ok(())
     } else {
-        Err(asset_io("set asset-store mode"))
+        Err(asset_io("set asset-store mode", io::Error::last_os_error()))
     }
 }
 
 fn file_mode(file: &File) -> Result<u32, AssetError> {
     file.metadata()
         .map(|metadata| metadata.mode() & 0o777)
-        .map_err(|_| asset_io("inspect file mode"))
+        .map_err(|error| asset_io("inspect file mode", error))
 }
 
 fn file_exists(parent: &Dir, name: &str) -> Result<bool, AssetError> {
@@ -1999,12 +2046,15 @@ fn remove_dir_at(parent: &Dir, name: &str) -> io::Result<()> {
 }
 
 fn unlink_file(parent: &Dir, name: &str) -> Result<(), AssetError> {
-    let name = component(name).map_err(|_| asset_io("invalid asset-store component"))?;
+    let name = component(name).map_err(|error| asset_io("invalid asset-store component", error))?;
     // SAFETY: name and descriptor are valid for this call.
     if unsafe { libc::unlinkat(parent.file.as_raw_fd(), name.as_ptr(), 0) } == 0 {
         Ok(())
     } else {
-        Err(asset_io("unlink asset-store file"))
+        Err(asset_io(
+            "unlink asset-store file",
+            io::Error::last_os_error(),
+        ))
     }
 }
 
@@ -2073,11 +2123,14 @@ fn read_names(dir: &Dir) -> Result<Vec<String>, AssetError> {
 }
 
 pub(crate) fn read_names_bounded(dir: &Dir, maximum: usize) -> Result<Vec<String>, AssetError> {
-    let entries =
-        rustix::fs::Dir::read_from(&dir.file).map_err(|_| asset_io("open directory cursor"))?;
+    let entries = rustix::fs::Dir::read_from(&dir.file)
+        .map_err(io::Error::from)
+        .map_err(|error| asset_io("open directory cursor", error))?;
     let mut names = Vec::new();
     for entry in entries {
-        let entry = entry.map_err(|_| asset_io("read asset-store directory entry"))?;
+        let entry = entry
+            .map_err(io::Error::from)
+            .map_err(|error| asset_io("read asset-store directory entry", error))?;
         let bytes = entry.file_name().to_bytes();
         if bytes == b"." || bytes == b".." {
             continue;
@@ -2110,11 +2163,8 @@ fn staging_invalid(message: impl Into<String>) -> AssetError {
     AssetError::new(AssetErrorKind::StagingInvalid, message)
 }
 
-fn asset_io(action: &str) -> AssetError {
-    AssetError::new(
-        AssetErrorKind::AssetIo,
-        format!("{action}: {}", io::Error::last_os_error()),
-    )
+fn asset_io(action: &str, error: io::Error) -> AssetError {
+    AssetError::new(AssetErrorKind::AssetIo, format!("{action}: {error}"))
 }
 
 #[cfg(test)]
@@ -2125,6 +2175,57 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static SERIAL: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn local_asset_io_reports_the_error_from_each_failed_call() {
+        let temp = tempfile::TempDir::new().expect("temp");
+
+        let regular_parent = temp.path().join("regular-parent");
+        fs::write(&regular_parent, b"not a directory").expect("regular parent");
+        let not_a_directory = regular_parent.join("data");
+        let expected_not_a_directory = fs::symlink_metadata(&not_a_directory)
+            .expect_err("regular parent must reject a child")
+            .to_string();
+        let not_a_directory_error =
+            local_status(&not_a_directory).expect_err("regular parent must fail");
+
+        let loop_parent = temp.path().join("loop-parent");
+        std::os::unix::fs::symlink("loop-parent", &loop_parent).expect("symlink loop");
+        let too_many_links = loop_parent.join("data");
+        let expected_too_many_links = fs::symlink_metadata(&too_many_links)
+            .expect_err("symlink loop must reject a child")
+            .to_string();
+        let too_many_links_error =
+            local_status(&too_many_links).expect_err("symlink loop must fail");
+
+        assert_eq!(not_a_directory_error.kind(), AssetErrorKind::AssetIo);
+        assert_eq!(too_many_links_error.kind(), AssetErrorKind::AssetIo);
+        assert_eq!(
+            not_a_directory_error.to_string(),
+            format!("inspect data root: {expected_not_a_directory}")
+        );
+        assert_eq!(
+            too_many_links_error.to_string(),
+            format!("inspect data root: {expected_too_many_links}")
+        );
+        assert_ne!(
+            not_a_directory_error.to_string(),
+            too_many_links_error.to_string()
+        );
+    }
+
+    #[test]
+    fn local_asset_io_translation_cannot_discard_the_caught_error() {
+        let source = include_str!("local.rs");
+        let discarded_map = ["map_err(|_", "| asset_io"].concat();
+        let discarded_match = ["Err(_)", " => return Err(asset_io"].concat();
+        let ambient_errno = ["format!(\"{action}: {}\", io::Error::", "last_os_error())"].concat();
+
+        assert!(source.contains("fn asset_io(action: &str, error: io::Error)"));
+        assert!(!source.contains(&discarded_map));
+        assert!(!source.contains(&discarded_match));
+        assert!(!source.contains(&ambient_errno));
+    }
 
     #[test]
     fn held_regular_open_classifies_only_terminal_symlinks_as_invalid() {
