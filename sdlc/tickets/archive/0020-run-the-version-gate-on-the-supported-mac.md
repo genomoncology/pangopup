@@ -18,3 +18,8 @@ Done, observably:
 - Linux behavior remains unchanged.
 
 Boundary: do not change any application, package, public-release, historical, or fixture version. Do not weaken or remove a ticket 0017 version check. Do not add a package manager, virtual environment, network step, vendored parser, or third-party Python dependency. Do not change scoring, assets, requests, responses, release tags, images, or publication state.
+
+## Review
+
+- Design review: accepted at `5e2894ea4b2a797bbc758fa3969f7c0933a22d02` after the reviewer reproduced the Python 3.9 failure on the supported Apple Silicon Mac and verified the narrow parser boundary.
+- Code review: accepted at exact candidate `78b86f6acc7ea50b4c18022d80939201a74e41d4` with no findings. The reviewer exercised missing, duplicate, escaped, non-string, decoy, and changed workspace and lockfile facts under Python 3.9. The complete lint, test, and specification gates passed.
