@@ -1002,7 +1002,12 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
                 }
             }
             Ok(Err(WorkerReply::BackendFailure(code))) => {
-                return service_error(StatusCode::INTERNAL_SERVER_ERROR, code, "scoring failed");
+                let status = if code == "MODEL_REJECTED" {
+                    StatusCode::UNPROCESSABLE_ENTITY
+                } else {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                };
+                return service_error(status, code, "scoring failed");
             }
             Ok(Err(WorkerReply::Unavailable)) | Err(_) => {
                 return service_error(

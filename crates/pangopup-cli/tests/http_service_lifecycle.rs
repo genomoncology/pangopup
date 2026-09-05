@@ -160,6 +160,14 @@ mod installed_success {
         response
     }
 
+    fn response_body(response: &[u8]) -> &[u8] {
+        let split = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .expect("HTTP separator");
+        &response[split + 4..]
+    }
+
     #[test]
     fn real_executable_serves_all_routes_and_drains_accepted_model_work_on_sigterm() {
         let temp = tempfile::tempdir().expect("temp");
@@ -205,6 +213,31 @@ mod installed_success {
             String::from_utf8_lossy(&scored)
         );
         assert!(child.wait().expect("service exit").success());
+    }
+
+    #[test]
+    fn real_executable_answers_model_rejection_with_422() {
+        let temp = tempfile::tempdir().expect("temp");
+        let data = temp.path().join("data");
+        let (_profile, profile_path) = install(&data, temp.path());
+        let (mut child, address) = start(&data, &profile_path);
+        let rejected = request(
+            &address,
+            "POST",
+            "/v1/score",
+            r#"{"variants":["GRCh38:chr1:5051:A:TC"]}"#,
+        );
+        assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+        assert!(child.wait().expect("service exit").success());
+        assert!(
+            rejected.starts_with(b"HTTP/1.1 422 Unprocessable Entity\r\n"),
+            "{}",
+            String::from_utf8_lossy(&rejected)
+        );
+        assert_eq!(
+            response_body(&rejected),
+            b"{\"error\":{\"code\":\"MODEL_REJECTED\",\"message\":\"scoring failed\"}}\n"
+        );
     }
 
     #[test]

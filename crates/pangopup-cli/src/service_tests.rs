@@ -1046,7 +1046,7 @@ async fn worker_panic_fans_out_to_running_and_queued_callers_then_closes_cleanly
     tokio::task::block_in_place(|| state.dispatcher.join_workers());
 }
 
-async fn worker_failure_code(failure: Failure) -> String {
+async fn worker_failure_response(failure: Failure) -> (StatusCode, Vec<u8>) {
     let state = build_state(
         Arc::new(FakeLookup),
         Box::new(EmptyCache),
@@ -1066,47 +1066,56 @@ async fn worker_failure_code(failure: Failure) -> String {
         .oneshot(score_request(2))
         .await
         .expect("response");
-    let value: Value = serde_json::from_slice(&body(response).await).expect("error JSON");
-    value["error"]["code"]
-        .as_str()
-        .expect("error code")
-        .to_owned()
+    let status = response.status();
+    (status, body(response).await)
 }
 
 #[tokio::test]
 async fn http_reports_model_rejected_worker_failure() {
-    let code = worker_failure_code(Failure {
+    let (status, body) = worker_failure_response(Failure {
         code: "MODEL_REJECTED",
         message: "request rejected".to_owned(),
         exit: 2,
         details: None,
     })
     .await;
-    assert_eq!(code, "MODEL_REJECTED");
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        body,
+        b"{\"error\":{\"code\":\"MODEL_REJECTED\",\"message\":\"scoring failed\"}}\n"
+    );
 }
 
 #[tokio::test]
 async fn http_reports_model_scoring_worker_failure() {
-    let code = worker_failure_code(Failure {
+    let (status, body) = worker_failure_response(Failure {
         code: "MODEL_SCORING",
         message: "model failed".to_owned(),
         exit: 1,
         details: None,
     })
     .await;
-    assert_eq!(code, "MODEL_SCORING");
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(
+        body,
+        b"{\"error\":{\"code\":\"MODEL_SCORING\",\"message\":\"scoring failed\"}}\n"
+    );
 }
 
 #[tokio::test]
 async fn http_reports_model_cache_invalid_worker_failure() {
-    let code = worker_failure_code(Failure {
+    let (status, body) = worker_failure_response(Failure {
         code: "MODEL_CACHE_INVALID",
         message: "cache invalid".to_owned(),
         exit: 1,
         details: None,
     })
     .await;
-    assert_eq!(code, "MODEL_CACHE_INVALID");
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(
+        body,
+        b"{\"error\":{\"code\":\"MODEL_CACHE_INVALID\",\"message\":\"scoring failed\"}}\n"
+    );
 }
 
 #[tokio::test]
