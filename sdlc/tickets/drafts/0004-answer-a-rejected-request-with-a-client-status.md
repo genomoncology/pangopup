@@ -48,12 +48,7 @@ Done, observably:
 - A caller can tell those two situations apart from the status line alone,
   without reading the response body.
 - The message text carried in a failure reply is the generic one sent today.
-- The spec suite pins each family's status with a case that fails before the
-  change.
+- Service-level tests pin the status for every backend failure family. At least one model-rejection case fails before the change.
+- The executable specification pins every failure family that a caller can reach through the public route. It does not require a production-only corruption path solely to manufacture an otherwise unreachable failure.
 
-Boundary: do not change which failure family the backend decides, the failure
-codes already carried in the response body, the message text those replies
-carry, the response shape, or anything on
-the success path. Do not change how the `lookup` command reports or what it
-exits with. Do not add or remove a failure family. The 400 answer for an
-unparseable variant string stays as it is.
+Boundary: do not change which failure family the backend decides, the failure codes already carried in the response body, the message text those replies carry, the response shape, or anything on the success path. Do not change how the `lookup` command reports or what it exits with. Do not add or remove a failure family. The 400 answer for an unparseable variant string stays as it is.
