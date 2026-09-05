@@ -318,6 +318,7 @@ mod installed_success {
         assert_eq!(value["results"][0]["input"], "GRCh38:chr1:5051:A:TC");
         assert_eq!(value["results"][0]["status"], "rejected");
         assert_eq!(value["results"][0]["error"]["code"], "MODEL_REJECTED");
+        assert_eq!(value["results"][0]["reason"], "unsupported_variant_shape");
     }
 
     #[test]
@@ -357,6 +358,7 @@ mod installed_success {
                 "records": [],
                 "source_reference_ambiguities": [],
                 "error": {"code": "MODEL_REJECTED", "message": "scoring failed"},
+                "reason": "unsupported_variant_shape",
                 "scoring_identity": scoring_identity
             })
         );
@@ -428,6 +430,7 @@ mod installed_success {
         assert_eq!(value["results"][0]["input"], "GRCh38:chr1:DEL:1:1:A");
         assert_eq!(value["results"][0]["status"], "rejected");
         assert_eq!(value["results"][0]["error"]["code"], "INVALID_VARIANT");
+        assert_eq!(value["results"][0]["reason"], "invalid_exact_edit_geometry");
         assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
         assert!(child.wait().expect("service exit").success());
     }

@@ -260,7 +260,7 @@ impl WorkerBackend for FailingWorker {
         _key: &CacheKey,
     ) -> Result<RoutedResult, WorkerFailure> {
         Err(match &self.failure {
-            WorkerFailure::Rejected => WorkerFailure::Rejected,
+            WorkerFailure::Rejected(reason) => WorkerFailure::Rejected(reason.clone()),
             WorkerFailure::Operational(failure) => WorkerFailure::Operational(Failure {
                 code: failure.code,
                 message: failure.message.clone(),
@@ -284,7 +284,7 @@ impl WorkerBackend for RejectAtWorker {
     ) -> Result<RoutedResult, WorkerFailure> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         if pending.variant().position().get() == self.position {
-            return Err(WorkerFailure::Rejected);
+            return Err(WorkerFailure::Rejected(ModelRejection::NotInGene));
         }
         Ok(RoutedResult::Modeled {
             variant: pending.variant().clone(),
@@ -2308,12 +2308,63 @@ async fn worker_failure_response(failure: WorkerFailure) -> (StatusCode, Vec<u8>
 
 #[tokio::test]
 async fn http_reports_model_rejection_as_a_completed_item() {
-    let (status, body) = worker_failure_response(WorkerFailure::Rejected).await;
+    let (status, body) =
+        worker_failure_response(WorkerFailure::Rejected(ModelRejection::NotInGene)).await;
     assert_eq!(status, StatusCode::OK);
     let value: Value = serde_json::from_slice(&body).expect("JSON");
     assert_eq!(value["results"][0]["status"], "rejected");
     assert_eq!(value["results"][0]["error"]["code"], "MODEL_REJECTED");
     assert_eq!(value["results"][0]["error"]["message"], "scoring failed");
+    assert_eq!(value["results"][0]["reason"], "not_in_annotated_gene");
+}
+
+#[tokio::test]
+async fn model_rejection_reasons_use_the_closed_public_vocabulary() {
+    for (rejection, expected) in [
+        (
+            ModelRejection::UnsupportedVariantShape,
+            "unsupported_variant_shape",
+        ),
+        (
+            ModelRejection::AlleleTooLong {
+                reference_length: 101,
+                alternate_length: 202,
+            },
+            "allele_too_long",
+        ),
+        (
+            ModelRejection::InsufficientReferenceContext,
+            "reference_context_unavailable",
+        ),
+        (ModelRejection::ReferenceMismatch, "reference_mismatch"),
+        (
+            ModelRejection::UnsupportedReferenceSymbol {
+                offset: 17,
+                symbol: b'Z',
+            },
+            "unsupported_reference_symbol",
+        ),
+        (ModelRejection::NotInGene, "not_in_annotated_gene"),
+    ] {
+        let (status, body) = worker_failure_response(WorkerFailure::Rejected(rejection)).await;
+        assert_eq!(status, StatusCode::OK);
+        let value: Value = serde_json::from_slice(&body).expect("JSON");
+        let result = &value["results"][0];
+        assert_eq!(result["status"], "rejected");
+        assert_eq!(result["error"]["code"], "MODEL_REJECTED");
+        assert_eq!(result["error"]["message"], "scoring failed");
+        assert_eq!(result["reason"], expected);
+        assert!(!expected.bytes().any(|byte| byte.is_ascii_digit()));
+    }
+}
+
+#[test]
+fn every_rejection_reason_is_published_in_the_http_contract() {
+    let contract = include_str!("../../../spec/http-service.md");
+    for reason in RejectionReason::PUBLISHED {
+        let documented = format!("`{}`", reason.as_str());
+        assert!(contract.contains(&documented), "missing {documented}");
+    }
 }
 
 #[tokio::test]
@@ -2454,7 +2505,7 @@ async fn exact_deletion_mismatch_is_an_ordered_item_rejection() {
     assert_eq!(output.results.len(), 2);
     assert_eq!(
         output.results[1].get(),
-        r#"{"input":"GRCh38:chr1:DEL:3:3:C","assembly":"GRCh38","contig":"chr1","position":2,"ref":"AC","alt":"A","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"scoring_identity":"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd"}"#
+        r#"{"input":"GRCh38:chr1:DEL:3:3:C","assembly":"GRCh38","contig":"chr1","position":2,"ref":"AC","alt":"A","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"reason":"reference_mismatch","scoring_identity":"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd"}"#
     );
     assert_eq!(
         calls.load(Ordering::SeqCst),
@@ -2469,8 +2520,11 @@ async fn exact_deletion_mismatch_is_an_ordered_item_rejection() {
 }
 
 #[tokio::test]
-async fn exact_edit_anchor_failures_are_ordered_item_rejections_before_inference() {
-    for variant in ["GRCh38:chr1:INS:1:2:A", "GRCh38:chr1:INS:4:5:A"] {
+async fn exact_edit_reference_rejections_preserve_their_cause_before_inference() {
+    for (variant, reason) in [
+        ("GRCh38:chr1:INS:1:2:A", "unsupported_reference_symbol"),
+        ("GRCh38:chr1:INS:4:5:A", "reference_context_unavailable"),
+    ] {
         let calls = Arc::new(AtomicUsize::new(0));
         let mut state = state_with_worker(Box::new(FakeWorker {
             calls: Arc::clone(&calls),
@@ -2490,7 +2544,7 @@ async fn exact_edit_anchor_failures_are_ordered_item_rejections_before_inference
             .expect("response");
         assert_eq!(response.status(), StatusCode::OK);
         let value: Value = serde_json::from_slice(&body(response).await).expect("JSON");
-        assert_invalid_item(&value["results"][0], variant);
+        assert_invalid_item(&value["results"][0], variant, reason);
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 }
@@ -2586,15 +2640,37 @@ struct RawScoreOutput {
     results: Vec<Box<RawValue>>,
 }
 
-fn assert_invalid_item(value: &Value, input: &str) {
+fn assert_invalid_item(value: &Value, input: &str, reason: &str) {
     assert_eq!(value["input"], input);
     assert_eq!(value["status"], "rejected");
     assert_eq!(value["records"], json!([]));
     assert_eq!(value["source_reference_ambiguities"], json!([]));
     assert_eq!(value["error"]["code"], "INVALID_VARIANT");
     assert_eq!(value["error"]["message"], "variant is invalid");
+    assert_eq!(value["reason"], reason);
     assert!(value.get("provenance").is_none());
     assert_eq!(value["scoring_identity"], scoring_identity().as_str());
+}
+
+#[tokio::test]
+async fn invalid_items_report_stable_rejection_reasons() {
+    let (state, _) = state();
+    let response = app(state)
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"variants":["bad","GRCh37:chr1:1:A:C","GRCh38:chr1:INS:1:3:A"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: Value = serde_json::from_slice(&body(response).await).expect("JSON");
+    assert_eq!(value["results"][0]["reason"], "malformed_variant");
+    assert_eq!(value["results"][1]["reason"], "unsupported_genomic_value");
+    assert_eq!(value["results"][2]["reason"], "invalid_exact_edit_geometry");
 }
 
 #[tokio::test]
@@ -2672,7 +2748,7 @@ async fn mixed_batch_keeps_precomputed_result_and_orders_typed_rejection() {
     assert_eq!(raw.results[0].get(), normal.results[0].get());
     assert_eq!(
         raw.results[1].get(),
-        r#"{"input":"GRCh38:chr1:2:A:C","assembly":"GRCh38","contig":"chr1","position":2,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"scoring_identity":"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd"}"#
+        r#"{"input":"GRCh38:chr1:2:A:C","assembly":"GRCh38","contig":"chr1","position":2,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"reason":"not_in_annotated_gene","scoring_identity":"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd"}"#
     );
     let value: Value = serde_json::from_slice(&bytes).expect("JSON");
     assert!(value["results"][1].get("provenance").is_none());
@@ -2704,7 +2780,7 @@ async fn mixed_batch_keeps_modeled_not_found_beside_rejection() {
 #[tokio::test]
 async fn batch_with_only_model_rejections_reports_every_item() {
     let state = state_with_worker(Box::new(FailingWorker {
-        failure: WorkerFailure::Rejected,
+        failure: WorkerFailure::Rejected(ModelRejection::NotInGene),
     }));
     let response = app(state)
         .oneshot(
@@ -2744,7 +2820,11 @@ async fn singleton_invalid_variant_is_a_completed_item_outcome() {
         .expect("response");
     assert_eq!(response.status(), StatusCode::OK);
     let value: Value = serde_json::from_slice(&body(response).await).expect("JSON");
-    assert_invalid_item(&value["results"][0], "GRCh38:chr0:1:A:C");
+    assert_invalid_item(
+        &value["results"][0],
+        "GRCh38:chr0:1:A:C",
+        "unsupported_genomic_value",
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
@@ -2766,9 +2846,13 @@ async fn mixed_and_all_invalid_batches_preserve_order_and_valid_neighbors() {
         .expect("mixed response");
     assert_eq!(mixed.status(), StatusCode::OK);
     let mixed: Value = serde_json::from_slice(&body(mixed).await).expect("mixed JSON");
-    assert_invalid_item(&mixed["results"][0], "bad");
+    assert_invalid_item(&mixed["results"][0], "bad", "malformed_variant");
     assert_eq!(mixed["results"][1]["status"], "found");
-    assert_invalid_item(&mixed["results"][2], "GRCh38:chr0:2:A:C");
+    assert_invalid_item(
+        &mixed["results"][2],
+        "GRCh38:chr0:2:A:C",
+        "unsupported_genomic_value",
+    );
 
     let invalid = router
         .oneshot(
@@ -2781,8 +2865,8 @@ async fn mixed_and_all_invalid_batches_preserve_order_and_valid_neighbors() {
         .expect("invalid response");
     assert_eq!(invalid.status(), StatusCode::OK);
     let invalid: Value = serde_json::from_slice(&body(invalid).await).expect("invalid JSON");
-    assert_invalid_item(&invalid["results"][0], "bad");
-    assert_invalid_item(&invalid["results"][1], "also-bad");
+    assert_invalid_item(&invalid["results"][0], "bad", "malformed_variant");
+    assert_invalid_item(&invalid["results"][1], "also-bad", "malformed_variant");
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
@@ -2871,7 +2955,7 @@ async fn mixed_batch_keeps_exact_cache_hit_beside_rejection_without_rescoring() 
     assert_eq!(mixed.results[0].get(), cached_only.results[0].get());
     assert_eq!(
         mixed.results[1].get(),
-        r#"{"input":"GRCh38:chr1:3:A:C","assembly":"GRCh38","contig":"chr1","position":3,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"scoring_identity":"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd"}"#
+        r#"{"input":"GRCh38:chr1:3:A:C","assembly":"GRCh38","contig":"chr1","position":3,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"reason":"not_in_annotated_gene","scoring_identity":"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd"}"#
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }

@@ -147,6 +147,8 @@ fn checked_edit_sequence(sequence: String) -> Result<String, ExactEditError> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExactEditConversionError {
     InvalidRequest,
+    ReferenceContextUnavailable,
+    UnsupportedReferenceSymbol,
     Rejected(Grch38Variant),
     ReferenceProvider(ReferenceError),
 }
@@ -210,7 +212,7 @@ fn copy_edit_window(
         .copy_window(contig, start, destination)
         .map_err(|error| match error {
             ReferenceError::OutOfBounds | ReferenceError::EmptyWindow => {
-                ExactEditConversionError::InvalidRequest
+                ExactEditConversionError::ReferenceContextUnavailable
             }
             _ => ExactEditConversionError::ReferenceProvider(error),
         })
@@ -219,7 +221,7 @@ fn copy_edit_window(
 fn checked_anchor(anchor: u8) -> Result<u8, ExactEditConversionError> {
     matches!(anchor, b'A' | b'C' | b'G' | b'T')
         .then_some(anchor)
-        .ok_or(ExactEditConversionError::InvalidRequest)
+        .ok_or(ExactEditConversionError::UnsupportedReferenceSymbol)
 }
 
 /// Mutable, single-owner composition of the three production providers.

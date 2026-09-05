@@ -410,7 +410,7 @@ fn exact_edit_reference_boundaries_keep_client_and_provider_failures_distinct() 
     for (outcome, expected) in [
         (
             Err(ReferenceError::OutOfBounds),
-            ExactEditConversionError::InvalidRequest,
+            ExactEditConversionError::ReferenceContextUnavailable,
         ),
         (
             Err(ReferenceError::CorruptProviderData),
@@ -427,7 +427,7 @@ fn exact_edit_reference_boundaries_keep_client_and_provider_failures_distinct() 
             &EditReference(Ok(b"NA".to_vec()), dummy_provenance()),
             &insertion
         ),
-        Err(ExactEditConversionError::InvalidRequest)
+        Err(ExactEditConversionError::UnsupportedReferenceSymbol)
     );
     let final_deletion = Grch38ExactEdit::deletion(
         contig,
@@ -441,7 +441,7 @@ fn exact_edit_reference_boundaries_keep_client_and_provider_failures_distinct() 
             &EditReference(Err(ReferenceError::OutOfBounds), dummy_provenance()),
             &final_deletion,
         ),
-        Err(ExactEditConversionError::InvalidRequest)
+        Err(ExactEditConversionError::ReferenceContextUnavailable)
     );
 }
 

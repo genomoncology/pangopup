@@ -23,7 +23,9 @@ use pangopup_assets::{
 use pangopup_assets::{open_test_runtime_profile, parse_runtime_profile};
 use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
 use pangopup_cli::render_result_raw;
-use pangopup_core::{Grch38Contig, Grch38Variant, ModelGeneScoreRecord, ReferenceProvider};
+use pangopup_core::{
+    Grch38Contig, Grch38Variant, ModelGeneScoreRecord, ModelRejection, ReferenceProvider,
+};
 use pangopup_engine::{
     ExactEditConversionError, ExplicitModelRequest, LookupFirstRouter,
     MAX_EXACT_EDIT_SEQUENCE_BASES, MAX_MODEL_ALLELE_BASES, ModelFallback, ModelFallbackError,
@@ -183,7 +185,7 @@ impl WorkerBackend for ProductionWorker {
             .fallback
             .complete_unfiltered(pending.clone())
             .map_err(|error| match error {
-                ModelFallbackError::Rejected(_) => WorkerFailure::Rejected,
+                ModelFallbackError::Rejected(reason) => WorkerFailure::Rejected(reason),
                 error @ ModelFallbackError::Scoring(_) => {
                     WorkerFailure::Operational(map_model_fallback_error(error))
                 }
@@ -232,14 +234,85 @@ impl ModelJob {
 #[allow(clippy::large_enum_variant)]
 enum ScoreOutcome {
     Complete(RoutedResult),
-    Rejected(Grch38Variant),
-    Invalid,
+    Rejected(Grch38Variant, RejectionReason),
+    Invalid(RejectionReason),
 }
 
 #[derive(Debug)]
 enum WorkerFailure {
-    Rejected,
+    Rejected(ModelRejection),
     Operational(Failure),
+}
+
+#[derive(Clone, Copy)]
+enum RejectionReason {
+    NotInAnnotatedGene,
+    ReferenceMismatch,
+    ReferenceContextUnavailable,
+    AlleleTooLong,
+    UnsupportedVariantShape,
+    UnsupportedReferenceSymbol,
+    MalformedVariant,
+    UnsupportedGenomicValue,
+    InvalidExactEditGeometry,
+    OtherModelRejection,
+}
+
+impl RejectionReason {
+    #[cfg(test)]
+    const PUBLISHED: [Self; 10] = [
+        Self::NotInAnnotatedGene,
+        Self::ReferenceMismatch,
+        Self::ReferenceContextUnavailable,
+        Self::AlleleTooLong,
+        Self::UnsupportedVariantShape,
+        Self::UnsupportedReferenceSymbol,
+        Self::MalformedVariant,
+        Self::UnsupportedGenomicValue,
+        Self::InvalidExactEditGeometry,
+        Self::OtherModelRejection,
+    ];
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotInAnnotatedGene => "not_in_annotated_gene",
+            Self::ReferenceMismatch => "reference_mismatch",
+            Self::ReferenceContextUnavailable => "reference_context_unavailable",
+            Self::AlleleTooLong => "allele_too_long",
+            Self::UnsupportedVariantShape => "unsupported_variant_shape",
+            Self::UnsupportedReferenceSymbol => "unsupported_reference_symbol",
+            Self::MalformedVariant => "malformed_variant",
+            Self::UnsupportedGenomicValue => "unsupported_genomic_value",
+            Self::InvalidExactEditGeometry => "invalid_exact_edit_geometry",
+            Self::OtherModelRejection => "other_model_rejection",
+        }
+    }
+}
+
+impl From<ModelRejection> for RejectionReason {
+    fn from(reason: ModelRejection) -> Self {
+        match reason {
+            ModelRejection::UnsupportedVariantShape => Self::UnsupportedVariantShape,
+            ModelRejection::AlleleTooLong { .. } => Self::AlleleTooLong,
+            ModelRejection::InsufficientReferenceContext => Self::ReferenceContextUnavailable,
+            ModelRejection::ReferenceMismatch => Self::ReferenceMismatch,
+            ModelRejection::UnsupportedReferenceSymbol { .. } => Self::UnsupportedReferenceSymbol,
+            ModelRejection::NotInGene => Self::NotInAnnotatedGene,
+            _ => Self::OtherModelRejection,
+        }
+    }
+}
+
+impl From<super::VariantInputErrorKind> for RejectionReason {
+    fn from(kind: super::VariantInputErrorKind) -> Self {
+        match kind {
+            super::VariantInputErrorKind::Malformed => Self::MalformedVariant,
+            super::VariantInputErrorKind::UnsupportedGenomicValue => Self::UnsupportedGenomicValue,
+            super::VariantInputErrorKind::InvalidExactEditGeometry => {
+                Self::InvalidExactEditGeometry
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -947,9 +1020,9 @@ fn process_job(
         }
         match backend.complete(&item.pending, &item.key) {
             Ok(result) => results.push((item.output_index, ScoreOutcome::Complete(result))),
-            Err(WorkerFailure::Rejected) => results.push((
+            Err(WorkerFailure::Rejected(reason)) => results.push((
                 item.output_index,
-                ScoreOutcome::Rejected(item.pending.variant().clone()),
+                ScoreOutcome::Rejected(item.pending.variant().clone(), reason.into()),
             )),
             Err(WorkerFailure::Operational(failure)) => {
                 return Err(WorkerReply::BackendFailure(failure));
@@ -1266,13 +1339,13 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
     };
     enum PreparedVariant {
         Ready(Grch38Variant),
-        Rejected(Grch38Variant),
-        Invalid,
+        Rejected(Grch38Variant, RejectionReason),
+        Invalid(RejectionReason),
     }
 
     let mut variants = Vec::with_capacity(input.variants.len());
     for value in &input.variants {
-        match super::parse_variant_input(value) {
+        match super::parse_variant_input_with_kind(value) {
             Ok(super::VariantInput::Literal(variant)) => {
                 variants.push(PreparedVariant::Ready(variant));
             }
@@ -1287,10 +1360,25 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
                 match convert_exact_edit(reference, &edit) {
                     Ok(variant) => variants.push(PreparedVariant::Ready(variant)),
                     Err(ExactEditConversionError::Rejected(variant)) => {
-                        variants.push(PreparedVariant::Rejected(variant));
+                        variants.push(PreparedVariant::Rejected(
+                            variant,
+                            RejectionReason::ReferenceMismatch,
+                        ));
                     }
                     Err(ExactEditConversionError::InvalidRequest) => {
-                        variants.push(PreparedVariant::Invalid);
+                        variants.push(PreparedVariant::Invalid(
+                            RejectionReason::InvalidExactEditGeometry,
+                        ));
+                    }
+                    Err(ExactEditConversionError::ReferenceContextUnavailable) => {
+                        variants.push(PreparedVariant::Invalid(
+                            RejectionReason::ReferenceContextUnavailable,
+                        ));
+                    }
+                    Err(ExactEditConversionError::UnsupportedReferenceSymbol) => {
+                        variants.push(PreparedVariant::Invalid(
+                            RejectionReason::UnsupportedReferenceSymbol,
+                        ));
                     }
                     Err(ExactEditConversionError::ReferenceProvider(_)) => {
                         return service_error(
@@ -1301,7 +1389,7 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
                     }
                 }
             }
-            Err(_) => variants.push(PreparedVariant::Invalid),
+            Err(error) => variants.push(PreparedVariant::Invalid(error.kind.into())),
         }
     }
     let mut outputs: Vec<Option<ScoreOutcome>> = (0..variants.len()).map(|_| None).collect();
@@ -1309,12 +1397,12 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
     for (index, converted) in variants.into_iter().enumerate() {
         let variant = match converted {
             PreparedVariant::Ready(variant) => variant,
-            PreparedVariant::Rejected(variant) => {
-                outputs[index] = Some(ScoreOutcome::Rejected(variant));
+            PreparedVariant::Rejected(variant, reason) => {
+                outputs[index] = Some(ScoreOutcome::Rejected(variant, reason));
                 continue;
             }
-            PreparedVariant::Invalid => {
-                outputs[index] = Some(ScoreOutcome::Invalid);
+            PreparedVariant::Invalid(reason) => {
+                outputs[index] = Some(ScoreOutcome::Invalid(reason));
                 continue;
             }
         };
@@ -1469,8 +1557,8 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
         };
         let rendered: Result<Box<RawValue>, ()> = match output {
             ScoreOutcome::Complete(result) => render_result_raw(result).map_err(|_| ()),
-            ScoreOutcome::Rejected(variant) => render_rejection_raw(variant),
-            ScoreOutcome::Invalid => render_invalid_variant_raw(),
+            ScoreOutcome::Rejected(variant, reason) => render_rejection_raw(variant, reason),
+            ScoreOutcome::Invalid(reason) => render_invalid_variant_raw(reason),
         }
         .and_then(|value| add_service_fields(&value, submitted, &state.scoring_identity));
         match rendered {
@@ -1523,9 +1611,13 @@ struct RejectedScoreOutput {
     records: [(); 0],
     source_reference_ambiguities: [(); 0],
     error: ErrorBody<'static>,
+    reason: &'static str,
 }
 
-fn render_rejection_raw(variant: Grch38Variant) -> Result<Box<RawValue>, ()> {
+fn render_rejection_raw(
+    variant: Grch38Variant,
+    reason: RejectionReason,
+) -> Result<Box<RawValue>, ()> {
     let value = RejectedScoreOutput {
         assembly: "GRCh38",
         contig: variant.contig().to_string(),
@@ -1539,6 +1631,7 @@ fn render_rejection_raw(variant: Grch38Variant) -> Result<Box<RawValue>, ()> {
             code: "MODEL_REJECTED",
             message: "scoring failed",
         },
+        reason: reason.as_str(),
     };
     serde_json::value::to_raw_value(&value).map_err(|_| ())
 }
@@ -1549,9 +1642,10 @@ struct InvalidVariantScoreOutput {
     records: [(); 0],
     source_reference_ambiguities: [(); 0],
     error: ErrorBody<'static>,
+    reason: &'static str,
 }
 
-fn render_invalid_variant_raw() -> Result<Box<RawValue>, ()> {
+fn render_invalid_variant_raw(reason: RejectionReason) -> Result<Box<RawValue>, ()> {
     let value = InvalidVariantScoreOutput {
         status: "rejected",
         records: [],
@@ -1560,6 +1654,7 @@ fn render_invalid_variant_raw() -> Result<Box<RawValue>, ()> {
             code: "INVALID_VARIANT",
             message: "variant is invalid",
         },
+        reason: reason.as_str(),
     };
     serde_json::value::to_raw_value(&value).map_err(|_| ())
 }

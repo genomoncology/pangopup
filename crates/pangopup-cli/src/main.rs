@@ -189,6 +189,27 @@ enum VariantInput {
     Exact(Grch38ExactEdit),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum VariantInputErrorKind {
+    Malformed,
+    UnsupportedGenomicValue,
+    InvalidExactEditGeometry,
+}
+
+struct VariantInputError {
+    kind: VariantInputErrorKind,
+    failure: Failure,
+}
+
+impl VariantInputError {
+    fn new(kind: VariantInputErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            failure: Failure::variant(message),
+        }
+    }
+}
+
 #[derive(Clone)]
 enum PendingModel {
     Lookup(ModelRequired),
@@ -1297,7 +1318,9 @@ fn verify_exact_reference_identity(
 
 fn map_exact_edit_error(error: ExactEditConversionError) -> Failure {
     match error {
-        ExactEditConversionError::InvalidRequest => {
+        ExactEditConversionError::InvalidRequest
+        | ExactEditConversionError::ReferenceContextUnavailable
+        | ExactEditConversionError::UnsupportedReferenceSymbol => {
             Failure::variant("exact edit cannot be anchored against the installed GRCh38 reference")
         }
         ExactEditConversionError::Rejected(_) => Failure {
@@ -1841,7 +1864,12 @@ fn map_lookup_asset_error(error: AssetError) -> Failure {
     }
 }
 
+#[cfg(test)]
 fn parse_variant(value: &str) -> Result<Grch38Variant, Failure> {
+    parse_literal_variant(value).map_err(|error| error.failure)
+}
+
+fn parse_literal_variant(value: &str) -> Result<Grch38Variant, VariantInputError> {
     let mut fields = value.split(':');
     let (Some(assembly), Some(contig), Some(position), Some(reference), Some(alternate), None) = (
         fields.next(),
@@ -1851,48 +1879,84 @@ fn parse_variant(value: &str) -> Result<Grch38Variant, Failure> {
         fields.next(),
         fields.next(),
     ) else {
-        return Err(Failure::variant(
+        return Err(VariantInputError::new(
+            VariantInputErrorKind::Malformed,
             "variant must be GRCh38:CONTIG:POS:REF:ALT",
         ));
     };
     if assembly != "GRCh38" {
-        return Err(Failure::variant("assembly must be GRCh38"));
+        return Err(VariantInputError::new(
+            VariantInputErrorKind::UnsupportedGenomicValue,
+            "assembly must be GRCh38",
+        ));
     }
-    let contig = parse_contig(contig).ok_or_else(|| Failure::variant("invalid contig spelling"))?;
+    let contig = parse_contig(contig).ok_or_else(|| {
+        VariantInputError::new(
+            VariantInputErrorKind::UnsupportedGenomicValue,
+            "invalid contig spelling",
+        )
+    })?;
     let position = position
         .bytes()
         .all(|byte| byte.is_ascii_digit())
         .then(|| position.parse::<u32>().ok())
         .flatten()
         .filter(|value| *value != 0)
-        .ok_or_else(|| Failure::variant("position must be a nonzero decimal u32"))?;
+        .ok_or_else(|| {
+            VariantInputError::new(
+                VariantInputErrorKind::UnsupportedGenomicValue,
+                "position must be a nonzero decimal u32",
+            )
+        })?;
     Grch38Variant::new(
         contig,
-        GenomicPosition::new(position).map_err(|error| Failure::variant(error.to_string()))?,
+        GenomicPosition::new(position).map_err(|error| {
+            VariantInputError::new(
+                VariantInputErrorKind::UnsupportedGenomicValue,
+                error.to_string(),
+            )
+        })?,
         reference,
         alternate,
     )
-    .map_err(|error| Failure::variant(error.to_string()))
+    .map_err(|error| {
+        VariantInputError::new(
+            VariantInputErrorKind::UnsupportedGenomicValue,
+            error.to_string(),
+        )
+    })
 }
 
 fn parse_variant_input(value: &str) -> Result<VariantInput, Failure> {
+    parse_variant_input_with_kind(value).map_err(|error| error.failure)
+}
+
+fn parse_variant_input_with_kind(value: &str) -> Result<VariantInput, VariantInputError> {
     let fields = value.split(':').collect::<Vec<_>>();
     if fields
         .get(2)
         .is_none_or(|operation| !matches!(*operation, "INS" | "DEL"))
     {
-        return parse_variant(value).map(VariantInput::Literal);
+        return parse_literal_variant(value).map(VariantInput::Literal);
     }
     if fields.len() != 6 {
-        return Err(Failure::variant(
+        return Err(VariantInputError::new(
+            VariantInputErrorKind::Malformed,
             "exact edit must be GRCh38:CONTIG:INS:LEFT:RIGHT:SEQUENCE or GRCh38:CONTIG:DEL:START:END:SEQUENCE",
         ));
     }
     if fields[0] != "GRCh38" {
-        return Err(Failure::variant("assembly must be GRCh38"));
+        return Err(VariantInputError::new(
+            VariantInputErrorKind::UnsupportedGenomicValue,
+            "assembly must be GRCh38",
+        ));
     }
-    let contig =
-        parse_contig(fields[1]).ok_or_else(|| Failure::variant("invalid contig spelling"))?;
+    let contig = parse_contig(fields[1]).ok_or_else(|| {
+        VariantInputError::new(
+            VariantInputErrorKind::UnsupportedGenomicValue,
+            "invalid contig spelling",
+        )
+    })?;
     let coordinate = |value: &str| {
         value
             .bytes()
@@ -1901,7 +1965,12 @@ fn parse_variant_input(value: &str) -> Result<VariantInput, Failure> {
             .flatten()
             .filter(|value| *value != 0)
             .and_then(|value| GenomicPosition::new(value).ok())
-            .ok_or_else(|| Failure::variant("edit coordinates must be nonzero decimal u32 values"))
+            .ok_or_else(|| {
+                VariantInputError::new(
+                    VariantInputErrorKind::InvalidExactEditGeometry,
+                    "edit coordinates must be nonzero decimal u32 values",
+                )
+            })
     };
     let first = coordinate(fields[3])?;
     let second = coordinate(fields[4])?;
@@ -1910,7 +1979,12 @@ fn parse_variant_input(value: &str) -> Result<VariantInput, Failure> {
         "DEL" => Grch38ExactEdit::deletion(contig, first, second, fields[5]),
         _ => unreachable!(),
     }
-    .map_err(|error| Failure::variant(error.to_string()))?;
+    .map_err(|error| {
+        VariantInputError::new(
+            VariantInputErrorKind::InvalidExactEditGeometry,
+            error.to_string(),
+        )
+    })?;
     Ok(VariantInput::Exact(edit))
 }
 
