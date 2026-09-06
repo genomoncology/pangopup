@@ -26,11 +26,12 @@ try:
     main = namespace["main"]
     checker_globals = main.__globals__
     original_read = checker_globals["read"]
-    required_public_executable_version = "0.4.0"
-    required_public_executable_release_id = "383614742"
-    required_public_executable_commit = "ea4438e50762e32f09052b364060c89201ed78bc"
-    required_public_container_version = "0.3.0"
-    required_public_container_index = "sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0"
+    required_public_executable_version = "0.4.1"
+    required_public_executable_release_id = "383676522"
+    required_public_executable_commit = "ba8b62180ecd5750a575944d2070f83ca585f4ed"
+    required_public_container_version = "0.4.1"
+    required_public_container_index = "sha256:2177c02fc045136a2ef066dbbfa669f59d56dc15e44765e7b7bfbbc9969a6eb8"
+    required_v041_release_notes_sha256 = "a2e481810f3e9095c5a06437fc47b96162c79f6c66147d08b3c0f2711e5e1abe"
     required_frontier_updated_date = "2026-09-06"
     if checker_globals.get("PUBLIC_EXECUTABLE_VERSION") != required_public_executable_version:
         raise AssertionError("checker does not pin the public executable version")
@@ -44,6 +45,22 @@ try:
         raise AssertionError("checker does not pin the public container index")
     if checker_globals.get("FRONTIER_UPDATED_DATE") != required_frontier_updated_date:
         raise AssertionError("checker does not pin the current frontier update date")
+    if checker_globals.get("V041_RELEASE_NOTES_SHA256") != required_v041_release_notes_sha256:
+        raise AssertionError("checker does not pin the immutable v0.4.1 release body")
+    required_current_state_documents = (
+        "architecture/delivery.md",
+        "architecture/service.md",
+        "planning/faq.md",
+        "planning/frontier.md",
+    )
+    required_forbidden_current_claims = (
+        "public container remains v0.3.0",
+        "prepares v0.4.1",
+    )
+    if tuple(checker_globals.get("CURRENT_STATE_DOCUMENTS", ())) != required_current_state_documents:
+        raise AssertionError("checker current-state documents differ from the independent required set")
+    if tuple(checker_globals.get("FORBIDDEN_CURRENT_STATE_CLAIMS", ())) != required_forbidden_current_claims:
+        raise AssertionError("checker stale current-state claims differ from the independent required set")
     required_documents = (
         (
             "architecture/compatibility.md",
@@ -118,9 +135,12 @@ try:
     citation = original_read("CITATION.cff")
     citation_test = original_read("crates/pangopup-cli/tests/citation.rs")
     delivery = original_read("architecture/delivery.md")
+    service = original_read("architecture/service.md")
+    frontier = original_read("planning/frontier.md")
     v040_release_notes = original_read("planning/artifacts/057-release-notes.md")
     v040_publication_record = original_read("planning/artifacts/058-public-v0.4.0.md")
-    frontier = original_read("planning/frontier.md")
+    v041_publication_record = original_read("planning/artifacts/060-public-v0.4.1.md")
+    v041_release_notes = original_read("planning/artifacts/059-release-notes.md")
     candidate = namespace["workspace_version"]()
     required_candidate_release_date = "2026-09-06"
     if checker_globals["CANDIDATE_RELEASE_DATE"] != required_candidate_release_date:
@@ -226,6 +246,10 @@ try:
         },
     )
     expect_rejected(
+        "changed immutable v0.4.1 release-note bytes",
+        {"planning/artifacts/059-release-notes.md": v041_release_notes + "\nmutation\n"},
+    )
+    expect_rejected(
         "a stale current frontier update date",
         {
             "planning/frontier.md": replace_once(
@@ -235,6 +259,48 @@ try:
             )
         },
     )
+    current_transition = "The immutable public executable and native container identify application v0.4.1 from one exact source commit"
+    expect_rejected(
+        "a stale candidate transition in current service architecture",
+        {
+            "architecture/service.md": replace_once(
+                service,
+                current_transition,
+                "The public executable identifies application v0.4.0; the public container remains v0.3.0; the repository prepares v0.4.1 as one coherent executable/container candidate",
+            )
+        },
+    )
+    current_frontier = f"GitHub Latest is immutable executable v{required_public_executable_version} release ID `{required_public_executable_release_id}` at commit `{required_public_executable_commit}`."
+    expect_rejected(
+        "a stale split predecessor in the current frontier",
+        {
+            "planning/frontier.md": replace_once(
+                frontier,
+                current_frontier,
+                "GitHub Latest is immutable executable v0.4.0 release ID `383614742` at commit `ea4438e50762e32f09052b364060c89201ed78bc`.",
+            )
+        },
+    )
+    expect_rejected(
+        "a prepared v0.4.1 publication record after publication",
+        {
+            "planning/artifacts/060-public-v0.4.1.md": replace_once(
+                v041_publication_record,
+                "State: **COMPLETE — immutable v0.4.1 executable and native container are public and qualified.**",
+                "State: **PREPARED — no v0.4.1 tag, release, or container alias exists.**",
+            )
+        },
+    )
+    for path in required_current_state_documents:
+        current_text = original_read(path)
+        expect_rejected(
+            f"an appended stale v0.4.0/v0.3.0 split in {path}",
+            {path: current_text + "\nThe public executable is v0.4.0 and the public container remains v0.3.0.\n"},
+        )
+        expect_rejected(
+            f"an appended stale v0.4.1 preparation claim in {path}",
+            {path: current_text + "\nThe repository prepares v0.4.1.\n"},
+        )
     for path, schema_target in required_documents:
         for scope, action, fields in required_inventory:
             line = f"- {scope}: {action} {fields}."

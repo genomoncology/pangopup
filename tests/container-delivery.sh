@@ -20,13 +20,14 @@ publish_workflow=.github/workflows/publish-container.yml
 [[ -f "$publish_workflow" ]]
 candidate_publication_record=planning/artifacts/060-public-v0.4.1.md
 [[ -f "$candidate_publication_record" ]]
-grep -Fq 'Before every public effect, require GHCR `latest`, `0.3.0`, and `v0.3.0` to remain OCI index `sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0`.' "$candidate_publication_record"
-grep -Fq 'Require GHCR `0.4.1` and `v0.4.1` to return the canonical anonymous `MANIFEST_UNKNOWN` response.' "$candidate_publication_record"
-grep -Fq 'The absent historical `0.4.0` and `v0.4.0` container aliases are recorded in `planning/artifacts/058-public-v0.4.0.md`' "$candidate_publication_record"
-stage_record_line=$(grep -nF '## 2. Stage and admit native container leaves' "$candidate_publication_record" | cut -d: -f1)
-finalize_record_line=$(grep -nF '## 6. Finalize and verify the container index' "$candidate_publication_record" | cut -d: -f1)
+grep -Fxq 'State: **COMPLETE — immutable v0.4.1 executable and native container are public and qualified.**' "$candidate_publication_record"
+grep -Fq 'Fresh anonymous reads show `0.4.1`, `v0.4.1`, and `latest` resolving to OCI index `sha256:2177c02fc045136a2ef066dbbfa669f59d56dc15e44765e7b7bfbbc9969a6eb8`.' "$candidate_publication_record"
+grep -Fq 'AMD64 leaf `sha256:6da7aa07432fe5d24166ce0157bad266ccee42804b8600fb4501de7f4c9b4852`' "$candidate_publication_record"
+grep -Fq 'ARM64 leaf `sha256:4d6a025f65416289b5fce865fb369d401161bd4e4f02b7abf9b16eaeb04afb91`' "$candidate_publication_record"
+stage_record_line=$(grep -nF '## Commit-bound qualification' "$candidate_publication_record" | cut -d: -f1)
+finalize_record_line=$(grep -nF '## Public container' "$candidate_publication_record" | cut -d: -f1)
 [[ -n "$stage_record_line" && -n "$finalize_record_line" && "$stage_record_line" -lt "$finalize_record_line" ]]
-grep -Fq 'Only after the public executable and installer checks pass, dispatch `.github/workflows/publish-container.yml` with `mode=finalize`' "$candidate_publication_record"
+grep -Fq 'Finalize run `34051969820` succeeded.' "$candidate_publication_record"
 grep -Fxq '  workflow_dispatch:' "$publish_workflow"
 if grep -Eq '^  (push|pull_request|schedule):' "$publish_workflow"; then
   printf 'container publication workflow must be manually dispatched only\n' >&2

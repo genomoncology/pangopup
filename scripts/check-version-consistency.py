@@ -11,14 +11,25 @@ import sys
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-PUBLIC_EXECUTABLE_VERSION = "0.4.0"
-PUBLIC_EXECUTABLE_RELEASE_ID = "383614742"
-PUBLIC_EXECUTABLE_COMMIT = "ea4438e50762e32f09052b364060c89201ed78bc"
-PUBLIC_CONTAINER_VERSION = "0.3.0"
-PUBLIC_CONTAINER_INDEX = "sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0"
+PUBLIC_EXECUTABLE_VERSION = "0.4.1"
+PUBLIC_EXECUTABLE_RELEASE_ID = "383676522"
+PUBLIC_EXECUTABLE_COMMIT = "ba8b62180ecd5750a575944d2070f83ca585f4ed"
+PUBLIC_CONTAINER_VERSION = "0.4.1"
+PUBLIC_CONTAINER_INDEX = "sha256:2177c02fc045136a2ef066dbbfa669f59d56dc15e44765e7b7bfbbc9969a6eb8"
 CANDIDATE_RELEASE_DATE = "2026-09-06"
 FRONTIER_UPDATED_DATE = "2026-09-06"
 V040_RELEASE_NOTES_SHA256 = "729fa6ed9ddb641501f2abdf5e63cd2fd9861154a46f02967bea7ff408ce4aa9"
+V041_RELEASE_NOTES_SHA256 = "a2e481810f3e9095c5a06437fc47b96162c79f6c66147d08b3c0f2711e5e1abe"
+CURRENT_STATE_DOCUMENTS = (
+    "architecture/delivery.md",
+    "architecture/service.md",
+    "planning/faq.md",
+    "planning/frontier.md",
+)
+FORBIDDEN_CURRENT_STATE_CLAIMS = (
+    "public container remains v0.3.0",
+    "prepares v0.4.1",
+)
 PACKAGES = {
     "pangopup-assets",
     "pangopup-build",
@@ -266,9 +277,8 @@ def check_candidate(candidate: str) -> None:
 
     service = re.sub(r"\s+", " ", markdown_section("architecture/service.md", "# Service Boundary"))
     transition = (
-        f"public executable identifies application v{PUBLIC_EXECUTABLE_VERSION}; the public "
-        f"container remains v{PUBLIC_CONTAINER_VERSION}; the repository prepares v{candidate} "
-        "as one coherent executable/container candidate"
+        "immutable public executable and native container identify application "
+        f"v{candidate} from one exact source commit"
     )
     if transition not in service:
         fail("candidate/public transition", "architecture/service.md", transition)
@@ -282,7 +292,13 @@ def check_current_public() -> None:
     require_in_section("current-public-executable", "planning/faq.md", "### How will users install the executable?", f"[`v{PUBLIC_EXECUTABLE_VERSION}`](https://github.com/genomoncology/pangopup/releases/tag/v{PUBLIC_EXECUTABLE_VERSION})")
     require_in_section("current-public-executable", "planning/faq.md", "### How will users install the executable?", f"The public v{PUBLIC_EXECUTABLE_VERSION} release passed a clean isolated Linux run")
     require_in_section("current-state", "planning/frontier.md", "## Current release state", f"GitHub Latest is immutable executable v{PUBLIC_EXECUTABLE_VERSION} release ID `{PUBLIC_EXECUTABLE_RELEASE_ID}` at commit `{PUBLIC_EXECUTABLE_COMMIT}`.")
-    require_in_section("current-state", "planning/frontier.md", "## Current release state", f"GHCR `latest`, `{PUBLIC_CONTAINER_VERSION}`, and `v{PUBLIC_CONTAINER_VERSION}` remain at `{PUBLIC_CONTAINER_INDEX}`.")
+    require_in_section("current-state", "planning/frontier.md", "## Current release state", f"GHCR `latest`, `{PUBLIC_CONTAINER_VERSION}`, and `v{PUBLIC_CONTAINER_VERSION}` resolve to native AMD64/ARM64 OCI index `{PUBLIC_CONTAINER_INDEX}` from the same source commit.")
+    require_in_section("current-state", "planning/artifacts/060-public-v0.4.1.md", "# PangoPup v0.4.1 publication record", "State: **COMPLETE — immutable v0.4.1 executable and native container are public and qualified.**")
+    for path in CURRENT_STATE_DOCUMENTS:
+        normalized = re.sub(r"\s+", " ", read(path)).lower()
+        for stale_claim in FORBIDDEN_CURRENT_STATE_CLAIMS:
+            if stale_claim in normalized:
+                fail("current-state", path, f"absence of stale claim {stale_claim!r}")
 
 
 def check_fixed_fixtures() -> None:
@@ -412,6 +428,11 @@ def check_history() -> None:
             "v0.4.0 executable-only publication state",
             r"^State: \*\*PARTIAL — immutable v0\.4\.0 executable public; v0\.4\.0 container aliases absent\.\*\*$",
         ),
+        (
+            "planning/artifacts/060-public-v0.4.1.md",
+            "v0.4.1 complete publication state",
+            r"^State: \*\*COMPLETE — immutable v0\.4\.1 executable and native container are public and qualified\.\*\*$",
+        ),
     )
     for path, claim, pattern in claims:
         require("history", path, claim, pattern)
@@ -421,6 +442,12 @@ def check_history() -> None:
     ).hexdigest()
     if release_notes_digest != V040_RELEASE_NOTES_SHA256:
         fail("history", "planning/artifacts/057-release-notes.md", "the immutable v0.4.0 release body")
+
+    v041_release_notes_digest = hashlib.sha256(
+        read("planning/artifacts/059-release-notes.md").encode()
+    ).hexdigest()
+    if v041_release_notes_digest != V041_RELEASE_NOTES_SHA256:
+        fail("history", "planning/artifacts/059-release-notes.md", "the immutable v0.4.1 release body")
 
     resources = [
         json.loads(line)
@@ -494,7 +521,7 @@ def main() -> None:
     check_history()
     check_response_shape_compatibility()
     print(
-        f"version consistency: candidate {candidate}; public executable "
+        f"version consistency: current {candidate}; public executable "
         f"{PUBLIC_EXECUTABLE_VERSION}; public container {PUBLIC_CONTAINER_VERSION}"
     )
 

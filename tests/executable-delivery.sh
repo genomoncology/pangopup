@@ -536,6 +536,14 @@ fi
 
 candidate_release_notes="$repo/planning/artifacts/059-release-notes.md"
 candidate_publication_record="$repo/planning/artifacts/060-public-v0.4.1.md"
+v041_release_notes_sha256=a2e481810f3e9095c5a06437fc47b96162c79f6c66147d08b3c0f2711e5e1abe
+[[ "$(sha256sum "$candidate_release_notes" | cut -d' ' -f1)" == "$v041_release_notes_sha256" ]]
+mutated_v041_release_notes="$root/v0.4.1-release-notes-mutated.md"
+cp "$candidate_release_notes" "$mutated_v041_release_notes"
+printf '\nmutation\n' >>"$mutated_v041_release_notes"
+if [[ "$(sha256sum "$mutated_v041_release_notes" | cut -d' ' -f1)" == "$v041_release_notes_sha256" ]]; then
+  fail 'v0.4.1 release-note digest check accepted changed bytes'
+fi
 grep -Fxq '# PangoPup v0.4.1 release notes' "$candidate_release_notes"
 grep -Fq 'The HTTP, JSON, command-line, and scoring contracts do not change from v0.4.0 except for the reported software version and its derived scoring identity.' "$candidate_release_notes"
 grep -Fq 'Scoring assets do not change.' "$candidate_release_notes"
@@ -544,146 +552,69 @@ grep -Fq 'measures warmed-query allocations only on the measured thread' "$candi
 
 check_v041_publication_record() {
   local record=$1
-  grep -Fxq 'State: **PREPARED — no v0.4.1 tag, release, or container alias exists.**' "$record" || return 1
-  grep -Fq 'release ID `383614742`, tag `v0.4.0`' "$record" || return 1
-  grep -Fq 'ea4438e50762e32f09052b364060c89201ed78bc' "$record" || return 1
-  grep -Fq 'GHCR `latest`, `0.3.0`, and `v0.3.0` to remain OCI index `sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0`' "$record" || return 1
-  grep -Fq 'Require the v0.4.1 GitHub release and Git tag to be absent.' "$record" || return 1
-  grep -Fq 'GHCR `0.4.1` and `v0.4.1` to return the canonical anonymous `MANIFEST_UNKNOWN` response.' "$record" || return 1
-  grep -Fq 'release body: planning/artifacts/059-release-notes.md' "$record" || return 1
-  grep -Fq 'publication date (UTC): 2026-09-06' "$record" || return 1
-  grep -Fq 'Ian Maurer explicitly authorized building, deploying, and pushing PangoPup v0.4.1 on 2026-09-06.' "$record" || return 1
-  grep -Fq 'The final publication commit cannot name itself inside this committed runbook.' "$record" || return 1
-  grep -Fq 'obtain and retain an out-of-commit authorization receipt or user message from Ian Maurer' "$record" || return 1
-  grep -Fq 'It must name the exact 40-character `origin/main` hash, authorization date, v0.4.1, and both executable and container publication.' "$record" || return 1
-  grep -Fq 'A replacement commit requires a new receipt before any public effect.' "$record" || return 1
-  grep -Fq 'The COMPLETE record must name the exact authorized commit and retained authorization evidence after publication.' "$record" || return 1
-  ! grep -Fq 'REPLACE_WITH_EXACT_40_CHARACTER_ORIGIN_MAIN_COMMIT' "$record" || return 1
-  grep -Fq 'Require every user-facing v0.4.1 container alias to remain absent.' "$record" || return 1
-  grep -Fq 'Run `scripts/qualify-linux-release.sh <release-directory> 0.4.1 <publication-commit>`.' "$record" || return 1
-  grep -Fq 'compare every remote asset name, size, and SHA-256 with the held local inventory' "$record" || return 1
-  grep -Fq 'Before executable publication, require GitHub Latest to remain immutable release ID `383614742`' "$record" || return 1
-  grep -Fq 'After executable publication, container finalization requires GitHub Latest to be the immutable v0.4.1 release at the selected publication commit.' "$record" || return 1
-  grep -Fq 'PRE-EXECUTABLE-PUBLISH GATE: Immediately repeat the GitHub v0.4.0 Latest identity and direct-tag checks' "$record" || return 1
-  grep -Fq 'private draft target/title/body/six-member inventory checks, and the UTC/CITATION date check.' "$record" || return 1
-  grep -Fq 'PRE-INDEX-CREATION GATE: Immediately recheck the exact retained receipt, GitHub Latest v0.4.1 and its direct tag at the publication commit' "$record" || return 1
-  grep -Fq 'the unchanged GHCR v0.3.0 predecessor under `latest`, and absence of GHCR `0.4.1` and `v0.4.1`.' "$record" || return 1
-  grep -Fq 'require one immutable, Latest, non-draft, non-prerelease v0.4.1 release' "$record" || return 1
-  grep -Fq 'pangopup uninstall --full --yes' "$record" || return 1
-  grep -Fq 'authenticate the current workflow event, workflow source, and `origin/main` independently from the staged release commit' "$record" || return 1
-  grep -Fq 'require `0.4.1`, `v0.4.1`, and `latest` to resolve to the same index digest' "$record" || return 1
-  local -a ordered_steps=(
-    'Require a clean checkout at the selected exact commit on `origin/main`'
-    'Observe public repository visibility, immutable releases, read-only default Actions permissions'
-    'Recheck the complete split predecessor state, v0.4.1 release and tag absence'
-    'Dispatch `.github/workflows/publish-container.yml` on current `main` with `mode=stage`'
-    'Download the unique unexpired receipt artifact through the Actions API'
-    'Dispatch `.github/workflows/package-linux.yml` on current `main` with the exact publication commit.'
-    'Run `scripts/qualify-linux-release.sh <release-directory> 0.4.1 <publication-commit>`.'
-    'Require the manifest version and target commit, checksum, SBOM, executable version, notices, dynamic-library allowlist, and maximum GLIBC 2.39 check to pass.'
-    'Create one private draft titled `PangoPup v0.4.1`'
-    'If the date changed, preserve the staged leaves from the prior commit.'
-    'PRE-EXECUTABLE-PUBLISH GATE:'
-    'EXECUTABLE-PUBLISH ACTION:'
-    'Use an absent private directory and non-root user in clean Ubuntu 24.04.'
-    'Verify code-only and full uninstall in separate disposable trees.'
-    'Only after the public executable and installer checks pass, dispatch `.github/workflows/publish-container.yml` with `mode=finalize`'
-    'Re-admit the exact retained receipt and repeat anonymous native qualification of both held leaves.'
-    'PRE-INDEX-CREATION GATE:'
-    'INDEX-CREATION ACTION:'
-    'Through fresh anonymous reads, require `0.4.1`, `v0.4.1`, and `latest` to resolve to the same index digest.'
-    'If finalization fails after executable publication, preserve the immutable executable release and staged leaves.'
-    'After every check passes, replace PREPARED with COMPLETE and append the authorization binding'
-    'Update observed-current architecture and planning claims only after both delivery forms are public and qualified.'
-  )
-  local previous_step=0 step step_line
-  for step in "${ordered_steps[@]}"; do
-    [[ "$(grep -Fc "$step" "$record")" == 1 ]] || return 1
-    step_line=$(grep -nF "$step" "$record" | cut -d: -f1)
-    [[ "$step_line" -gt "$previous_step" ]] || return 1
-    previous_step=$step_line
-  done
-  local stage package draft prepublish publish installer finalize preindex index_create evidence
-  stage=$(grep -nF '## 2. Stage and admit native container leaves' "$record" | cut -d: -f1)
-  package=$(grep -nF '## 3. Build and admit the executable' "$record" | cut -d: -f1)
-  draft=$(grep -nF '## 4. Create, verify, and publish the executable release' "$record" | cut -d: -f1)
-  prepublish=$(grep -nF 'PRE-EXECUTABLE-PUBLISH GATE:' "$record" | cut -d: -f1)
-  publish=$(grep -nF 'EXECUTABLE-PUBLISH ACTION:' "$record" | cut -d: -f1)
-  installer=$(grep -nF '## 5. Qualify the public installer and uninstall' "$record" | cut -d: -f1)
-  finalize=$(grep -nF '## 6. Finalize and verify the container index' "$record" | cut -d: -f1)
-  preindex=$(grep -nF 'PRE-INDEX-CREATION GATE:' "$record" | cut -d: -f1)
-  index_create=$(grep -nF 'INDEX-CREATION ACTION:' "$record" | cut -d: -f1)
-  evidence=$(grep -nF '## 7. Record final evidence' "$record" | cut -d: -f1)
-  [[ "$stage" -lt "$package" && "$package" -lt "$draft" && "$draft" -lt "$prepublish" && "$prepublish" -lt "$publish" && "$publish" -lt "$installer" && "$installer" -lt "$finalize" && "$finalize" -lt "$preindex" && "$preindex" -lt "$index_create" && "$index_create" -lt "$evidence" ]] || return 1
-  [[ "$publish" -eq $((prepublish + 2)) ]] || return 1
-  [[ "$index_create" -eq $((preindex + 2)) ]] || return 1
+  grep -Fxq 'State: **COMPLETE — immutable v0.4.1 executable and native container are public and qualified.**' "$record" || return 1
+  grep -Fq 'origin/main` commit `ba8b62180ecd5750a575944d2070f83ca585f4ed` before the first remote mutation' "$record" || return 1
+  grep -Fq 'receipt has SHA-256 `1349dfa3968706ae446ebe23ed5c38f2b44c430b999664a793d1b1658a2c58c7`' "$record" || return 1
+  grep -Fq 'The UTC publication date matched `CITATION.cff`.' "$record" || return 1
+  grep -Fq 'The clean publication checkout, expected repository origin, absent Git replacement refs, and exact `origin/main` commit were authenticated.' "$record" || return 1
+  grep -Fq 'Local `make lint`, `make test`, and `make spec` passed.' "$record" || return 1
+  grep -Fq 'read-only default Actions permissions, disabled Actions pull-request approval, enabled Dependabot security updates, enabled secret scanning and push protection, no open secret alerts, and the expected active main rulesets' "$record" || return 1
+  grep -Fq 'Push-triggered CI run `34050860424` and native-container run `34050860367` succeeded' "$record" || return 1
+  grep -Fq 'Container stage run `34051202792` succeeded' "$record" || return 1
+  grep -Fq 'Receipt artifact ID `9994644140`' "$record" || return 1
+  grep -Fq 'SHA-256 `06d7334e32b3fbe5f0782517bf922316a7a66bf7abe39d5020c3a766287c13a8`' "$record" || return 1
+  grep -Fq 'AMD64 leaf `sha256:6da7aa07432fe5d24166ce0157bad266ccee42804b8600fb4501de7f4c9b4852`' "$record" || return 1
+  grep -Fq 'ARM64 leaf `sha256:4d6a025f65416289b5fce865fb369d401161bd4e4f02b7abf9b16eaeb04afb91`' "$record" || return 1
+  grep -Fq 'Executable package run `34051204175` succeeded' "$record" || return 1
+  grep -Fq 'Artifact ID `9994637970`' "$record" || return 1
+  grep -Fq 'SHA-256 `e3328a12b279dbf8662805f33ff3e813b6c69ac41fbf0fccff0615bf14831bdc`' "$record" || return 1
+  grep -Fq $'LICENSE\t35149\tsha256:3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986' "$record" || return 1
+  grep -Fq $'NOTICE\t2365\tsha256:516f3c44d00eb2840a1a1a7e1127b027bb47190d3fe36a4c918572f39d7ad1c1' "$record" || return 1
+  grep -Fq $'pangopup-linux-x86_64\t29035720\tsha256:06ad5c0e3aff8f030116262045cede3bc97cdfc716b3e72029f02b6d58d6f822' "$record" || return 1
+  grep -Fq $'pangopup-linux-x86_64.cdx.json\t201980\tsha256:36dc596676a6fd0848d0bb7cbca6d31e07d3cc892ce8f13a68a1317273b8c716' "$record" || return 1
+  grep -Fq $'pangopup-linux-x86_64.sha256\t88\tsha256:53e339cfdf6c18c08c3ae1216da7e4e8378bf8680df06d05f70c87cd2b4b8ece' "$record" || return 1
+  grep -Fq $'release-manifest.json\t950\tsha256:17656b9613d3f52c179e80afd57f40f1af2e769ed032ea6b60b0f43a1517ad05' "$record" || return 1
+  grep -Fq 'The manifest version and target commit, executable checksum and version, SBOM, notices, dynamic-library allowlist, and maximum GLIBC 2.38 check passed.' "$record" || return 1
+  grep -Fq 'The private draft target, title, tag, non-prerelease state, release-note body, and six-member inventory matched the admitted inputs immediately before publication.' "$record" || return 1
+  grep -Fq 'GitHub Latest remained immutable v0.4.0 at its pinned commit, GHCR `latest` remained the pinned v0.3.0 predecessor' "$record" || return 1
+  grep -Fq 'GitHub release ID `383676522` is immutable, Latest, non-draft, and non-prerelease' "$record" || return 1
+  grep -Fq 'publication time `2026-09-06T18:23:57Z`' "$record" || return 1
+  grep -Fq 'direct `refs/tags/v0.4.1` ref resolves to the same commit' "$record" || return 1
+  grep -Fq 'planning/artifacts/059-release-notes.md`, whose SHA-256 is `a2e481810f3e9095c5a06437fc47b96162c79f6c66147d08b3c0f2711e5e1abe`' "$record" || return 1
+  grep -Fq 'Fresh anonymous downloads matched every admitted name, size, and SHA-256 above.' "$record" || return 1
+  grep -Fq 'The tagged installer produced `pangopup 0.4.1` with clean stderr.' "$record" || return 1
+  grep -Fq 'Offline asset reuse, status, representative lookup, model, cache, HTTP, and release checks passed against disposable retained assets.' "$record" || return 1
+  grep -Fq 'Code-only uninstall removed the executable and preserved data and cache.' "$record" || return 1
+  grep -Fq 'Full uninstall removed the executable, normal read-only managed profile, and cache.' "$record" || return 1
+  grep -Fq 'Finalize run `34051969820` succeeded.' "$record" || return 1
+  grep -Fq 'Finalize receipt artifact ID `9994810489`, named `pangopup-container-finalize-receipt-ba8b62180ecd5750a575944d2070f83ca585f4ed-34051969820`, had size 371 bytes and API and downloaded-archive SHA-256 `8f4826bdc99a300984d12b24254ef7d50c17d7de7fac143391700b0c6633f51e`.' "$record" || return 1
+  grep -Fq 'OCI index `sha256:2177c02fc045136a2ef066dbbfa669f59d56dc15e44765e7b7bfbbc9969a6eb8`' "$record" || return 1
+  grep -Fq 'The index contains exactly the held Linux AMD64 and ARM64 leaf digests above' "$record" || return 1
+  grep -Fq 'revision `ba8b62180ecd5750a575944d2070f83ca585f4ed`, version `0.4.1`, and license `GPL-3.0-only`' "$record" || return 1
+  grep -Fq 'retained output has SHA-256 `4e55aae769ba6d8e7e73a6c5d75a13d79a589b5c355861c7cb4906fd76a857a2`' "$record" || return 1
+  grep -Fq 'The executable and container now form one coherent public v0.4.1 release.' "$record" || return 1
+  grep -Fq 'The public release is immutable. The versioned container aliases are historical deployment names and must not be deleted or retagged.' "$record" || return 1
+  ! grep -Eq 'PREPARED|REPLACE_WITH_|publication (is )?pending' "$record" || return 1
   if grep -Eqi '(authorization:[[:space:]]|bearer[[:space:]]+[a-z0-9]|ghp_[a-z0-9]|github_pat_[a-z0-9]|signed[_ -]?url)' "$record"; then
     return 1
   fi
 }
 check_v041_publication_record "$candidate_publication_record" || fail 'v0.4.1 publication record is incomplete'
-mutated_candidate_record="$root/v0.4.1-publication-record-without-prepared-state.md"
-sed '/^State: \*\*PREPARED /d' "$candidate_publication_record" >"$mutated_candidate_record"
+mutated_candidate_record="$root/v0.4.1-publication-record-without-complete-state.md"
+sed '/^State: \*\*COMPLETE /d' "$candidate_publication_record" >"$mutated_candidate_record"
 if check_v041_publication_record "$mutated_candidate_record"; then
-  fail 'v0.4.1 publication-record check accepted a removed PREPARED state'
-fi
-mutated_candidate_predecessor="$root/v0.4.1-publication-record-with-wrong-container-predecessor.md"
-sed 's/sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0/sha256:0000000000000000000000000000000000000000000000000000000000000000/g' \
-  "$candidate_publication_record" >"$mutated_candidate_predecessor"
-if check_v041_publication_record "$mutated_candidate_predecessor"; then
-  fail 'v0.4.1 publication-record check accepted the wrong container predecessor'
+  fail 'v0.4.1 publication-record check accepted a removed COMPLETE state'
 fi
 mutated_candidate_authority="$root/v0.4.1-publication-record-without-authority.md"
-sed '/Ian Maurer explicitly authorized building, deploying, and pushing PangoPup v0[.]4[.]1/d' \
+sed '/^Ian Maurer authorized the v0[.]4[.]1 Linux x86-64 executable release/d' \
   "$candidate_publication_record" >"$mutated_candidate_authority"
 if check_v041_publication_record "$mutated_candidate_authority"; then
   fail 'v0.4.1 publication-record check accepted missing authorization'
 fi
-mutated_candidate_draft="$root/v0.4.1-publication-record-without-private-inventory-check.md"
-sed '/compare every remote asset name, size, and SHA-256 with the held local inventory/d' \
-  "$candidate_publication_record" >"$mutated_candidate_draft"
-if check_v041_publication_record "$mutated_candidate_draft"; then
-  fail 'v0.4.1 publication-record check accepted an incomplete private-draft gate'
-fi
-mutated_candidate_publish_order="$root/v0.4.1-publication-record-with-separated-executable-gate.md"
-sed '/^EXECUTABLE-PUBLISH ACTION:/iThe prepublication gate is no longer immediately adjacent.' \
-  "$candidate_publication_record" >"$mutated_candidate_publish_order"
-if check_v041_publication_record "$mutated_candidate_publish_order"; then
-  fail 'v0.4.1 publication-record check accepted a separated executable publication gate'
-fi
-mutated_candidate_index_order="$root/v0.4.1-publication-record-with-separated-index-gate.md"
-sed '/^INDEX-CREATION ACTION:/iThe pre-index gate is no longer immediately adjacent.' \
-  "$candidate_publication_record" >"$mutated_candidate_index_order"
-if check_v041_publication_record "$mutated_candidate_index_order"; then
-  fail 'v0.4.1 publication-record check accepted a separated index creation gate'
-fi
-mutated_candidate_source_gate="$root/v0.4.1-publication-record-without-source-gate.md"
-sed '/^Require a clean checkout at the selected exact commit on `origin\/main`/d' \
-  "$candidate_publication_record" >"$mutated_candidate_source_gate"
-if check_v041_publication_record "$mutated_candidate_source_gate"; then
-  fail 'v0.4.1 publication-record check accepted a removed source and gate authentication step'
-fi
-mutated_candidate_stage="$root/v0.4.1-publication-record-without-stage-admission.md"
-sed '/^Dispatch `[.]github\/workflows\/publish-container[.]yml` on current `main` with `mode=stage`/d' \
-  "$candidate_publication_record" >"$mutated_candidate_stage"
-if check_v041_publication_record "$mutated_candidate_stage"; then
-  fail 'v0.4.1 publication-record check accepted a removed stage dispatch and run admission step'
-fi
-mutated_candidate_stage_order="$root/v0.4.1-publication-record-with-reordered-stage-and-package.md"
-python3 - "$candidate_publication_record" "$mutated_candidate_stage_order" <<'PY'
-from pathlib import Path
-import sys
-
-source = Path(sys.argv[1]).read_text().splitlines()
-starts = (
-    "Dispatch `.github/workflows/publish-container.yml` on current `main` with `mode=stage`",
-    "Dispatch `.github/workflows/package-linux.yml` on current `main` with the exact publication commit.",
-)
-indices = [next(index for index, line in enumerate(source) if line.startswith(start)) for start in starts]
-source[indices[0]], source[indices[1]] = source[indices[1]], source[indices[0]]
-Path(sys.argv[2]).write_text("\n".join(source) + "\n")
-PY
-if check_v041_publication_record "$mutated_candidate_stage_order"; then
-  fail 'v0.4.1 publication-record check accepted reordered stage and package actions'
+mutated_candidate_index="$root/v0.4.1-publication-record-with-wrong-index.md"
+sed 's/sha256:2177c02fc045136a2ef066dbbfa669f59d56dc15e44765e7b7bfbbc9969a6eb8/sha256:0000000000000000000000000000000000000000000000000000000000000000/' \
+  "$candidate_publication_record" >"$mutated_candidate_index"
+if check_v041_publication_record "$mutated_candidate_index"; then
+  fail 'v0.4.1 publication-record check accepted the wrong public index'
 fi
 printf 'executable delivery tests passed\n'

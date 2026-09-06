@@ -4,7 +4,7 @@ Updated: 2026-09-06
 
 ## Current release state
 
-GitHub Latest is immutable executable v0.4.0 release ID `383614742` at commit `ea4438e50762e32f09052b364060c89201ed78bc`. Its six executable files are public. Qualification found that full uninstall failed on the normal read-only installed profile, so container finalization stopped before creating v0.4.0 aliases. GHCR `latest`, `0.3.0`, and `v0.3.0` remain at `sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0`. The reviewed source now fixes the uninstall and qualification-gate defects and prepares one v0.4.1 executable/container candidate. Earlier release and measurement sections remain historical evidence.
+GitHub Latest is immutable executable v0.4.1 release ID `383676522` at commit `ba8b62180ecd5750a575944d2070f83ca585f4ed`. Its six executable files are public and qualified. GHCR `latest`, `0.4.1`, and `v0.4.1` resolve to native AMD64/ARM64 OCI index `sha256:2177c02fc045136a2ef066dbbfa669f59d56dc15e44765e7b7bfbbc9969a6eb8` from the same source commit. Tagged installer, offline functional, code-only uninstall, full uninstall, and public native-container qualification passed. Earlier release and measurement sections remain historical evidence.
 
 ## Current boundary
 

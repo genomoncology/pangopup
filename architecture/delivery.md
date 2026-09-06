@@ -73,7 +73,7 @@ dispatches
 `finalize` with the exact successful stage run ID. Finalization authenticates that run and its
 unique retained receipt through the Actions API, anonymously repeats native
 miniature qualification, and then creates version, `v`-prefixed version, and
-moving `latest` tags. The current public set is `0.3.0`/`v0.3.0`/`latest`, all resolving to index `sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0`.
+moving `latest` tags. The current public set is `0.4.1`/`v0.4.1`/`latest`, all resolving to index `sha256:2177c02fc045136a2ef066dbbfa669f59d56dc15e44765e7b7bfbbc9969a6eb8`.
 The resulting two-platform index's
 version tags are convenient names; the OCI index digest is
 the immutable deployment identity. GHCR cannot atomically create an absent tag,
@@ -91,7 +91,7 @@ history or Git LFS.
 
 Release families keep independently versioned concerns separate. The SNV
 lookup uses one shipped eight-file release asset set whose installable transport
-is the closed five-file subset. The ordinary executable release is immutable [`v0.4.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.4.0). Immutable `v0.3.0`, `v0.2.0`, and `v0.1.0` remain available as prior releases. Container publication stopped before v0.4.0 aliases were created, so the public container remains v0.3.0 while the repository prepares v0.4.1.
+is the closed five-file subset. The current ordinary executable release is immutable [`v0.4.1`](https://github.com/genomoncology/pangopup/releases/tag/v0.4.1). Immutable v0.4.0, v0.3.0, v0.2.0, and v0.1.0 remain available as prior executable releases. The native AMD64/ARM64 v0.4.1 container is public from the same source commit.
 The converted model, compiled GRCh38 sequence index, and compiled mask form one
 qualified compatibility-bound public immutable `runtime-grch38-v1` release.
 Their model-side local transport is shipped:
