@@ -689,6 +689,17 @@ enum DataAuthority {
     Absent(PublicBlocker),
 }
 
+enum RemovalError {
+    Restored(UninstallError),
+    RestoreFailed(UninstallError),
+}
+
+impl From<UninstallError> for RemovalError {
+    fn from(error: UninstallError) -> Self {
+        Self::Restored(error)
+    }
+}
+
 fn acquire_authorities(plan: &Plan) -> Result<DataAuthority, UninstallError> {
     if plan.data.identity.is_none() {
         return create_absent_data_blocker(&plan.data.path, plan.uid).map(DataAuthority::Absent);
@@ -840,39 +851,49 @@ fn remove_root(
     }
     test_hook(TestHookPoint::RootDetached);
 
-    let removal = (|| {
-        remove_contents(
-            root_fd,
-            identity.device,
-            uid,
-            retain_authorities,
-            Some(root.allowed),
-        )?;
-        if retain_authorities {
-            remove_authority(root_fd, c".install.lock", identity.device, uid)?;
-            remove_authority(root_fd, c".sync.lock", identity.device, uid)?;
-        }
-        fs::unlinkat(&parent_fd, tombstone.name.as_c_str(), AtFlags::REMOVEDIR)
-            .map_err(|error| UninstallError::io(format!("remove detached managed root: {error}")))
+    let removal: Result<(), RemovalError> = (|| {
+        with_writable_directory(root_fd, &opened_stat, "managed root", || {
+            remove_contents(
+                root_fd,
+                identity.device,
+                uid,
+                retain_authorities,
+                Some(root.allowed),
+            )?;
+            if retain_authorities {
+                remove_authority(root_fd, c".install.lock", identity.device, uid)?;
+                remove_authority(root_fd, c".sync.lock", identity.device, uid)?;
+            }
+            Ok(())
+        })?;
+        fs::unlinkat(&parent_fd, tombstone.name.as_c_str(), AtFlags::REMOVEDIR).map_err(|error| {
+            RemovalError::Restored(UninstallError::io(format!(
+                "remove detached managed root: {error}"
+            )))
+        })
     })();
-    if removal.is_err() {
-        let detached_exists = fs::statat(
-            &parent_fd,
-            tombstone.name.as_c_str(),
-            AtFlags::SYMLINK_NOFOLLOW,
-        )
-        .is_ok();
-        if detached_exists {
-            rollback_exchange(
+    match removal {
+        Ok(()) => {}
+        Err(RemovalError::Restored(error)) => {
+            let detached_exists = fs::statat(
                 &parent_fd,
-                name,
                 tombstone.name.as_c_str(),
-                &opened_stat,
-                &tombstone.stat,
-            );
+                AtFlags::SYMLINK_NOFOLLOW,
+            )
+            .is_ok();
+            if detached_exists {
+                rollback_exchange(
+                    &parent_fd,
+                    name,
+                    tombstone.name.as_c_str(),
+                    &opened_stat,
+                    &tombstone.stat,
+                );
+            }
+            return Err(error);
         }
+        Err(RemovalError::RestoreFailed(error)) => return Err(error),
     }
-    removal?;
     let public_name = std::ffi::CString::new(name.as_bytes())
         .map_err(|_| UninstallError::unsafe_path("public root name contains NUL"))?;
     let blocker = PublicBlocker {
@@ -1149,7 +1170,7 @@ fn remove_contents(
     uid: u32,
     retain_authorities: bool,
     top_level_allowed: Option<&[&str]>,
-) -> Result<(), UninstallError> {
+) -> Result<(), RemovalError> {
     let mut names = Vec::new();
     let mut dir = Dir::read_from(fd)
         .map_err(|error| UninstallError::io(format!("read removal directory: {error}")))?;
@@ -1170,7 +1191,8 @@ fn remove_contents(
                 if !allowed.contains(&text) {
                     return Err(UninstallError::unsafe_path(format!(
                         "managed root contains unknown top-level entry {text}"
-                    )));
+                    ))
+                    .into());
                 }
             }
             names.push(name.to_owned());
@@ -1196,7 +1218,9 @@ fn remove_contents(
                 UninstallError::io(format!("inspect removal entry {text}: {error}"))
             })?;
             same_identity(&stat, &opened, &text)?;
-            remove_contents(&child, device, uid, false, None)?;
+            with_writable_directory(&child, &opened, &text, || {
+                remove_contents(&child, device, uid, false, None)
+            })?;
             let final_stat = fs::statat(fd, &name, AtFlags::SYMLINK_NOFOLLOW).map_err(|error| {
                 UninstallError::io(format!("finalize removal entry {text}: {error}"))
             })?;
@@ -1209,6 +1233,52 @@ fn remove_contents(
         }
     }
     Ok(())
+}
+
+fn with_writable_directory<T>(
+    fd: &OwnedFd,
+    original: &Stat,
+    label: &str,
+    operation: impl FnOnce() -> Result<T, RemovalError>,
+) -> Result<T, RemovalError> {
+    let original_mode = stat_mode(original) & 0o7777;
+    set_directory_mode(fd, original_mode | 0o700, label, "make writable")
+        .map_err(RemovalError::Restored)?;
+    let result = if fail_after_directory_writable() {
+        Err(RemovalError::Restored(UninstallError::io(
+            "injected failure after making a managed directory writable",
+        )))
+    } else {
+        operation()
+    };
+    let restored = if fail_directory_restore(label) {
+        Err(UninstallError::io(format!(
+            "injected failure restoring managed directory {label}"
+        )))
+    } else {
+        set_directory_mode(fd, original_mode, label, "restore")
+    };
+    match restored {
+        Ok(()) => result,
+        Err(error) => Err(RemovalError::RestoreFailed(error)),
+    }
+}
+
+fn set_directory_mode(
+    fd: &OwnedFd,
+    mode: u32,
+    label: &str,
+    action: &str,
+) -> Result<(), UninstallError> {
+    // SAFETY: fchmod reads the mode value and acts on the live owned descriptor.
+    if unsafe { libc::fchmod(fd.as_raw_fd(), mode as libc::mode_t) } == 0 {
+        Ok(())
+    } else {
+        Err(UninstallError::io(format!(
+            "{action} managed directory {label}: {}",
+            io::Error::last_os_error()
+        )))
+    }
 }
 
 fn unlink_executable(plan: &Plan) -> Result<(), UninstallError> {
@@ -1300,6 +1370,8 @@ thread_local! {
     static TEST_HOOK: std::cell::RefCell<TestHook> =
         std::cell::RefCell::new(None);
     static FAIL_ROOT_DETACH_CALL: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static FAIL_WRITABLE_CALL: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static FAIL_RESTORE_LABEL: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]
@@ -1333,6 +1405,44 @@ fn fail_root_detach() -> bool {
             false
         }
     })
+}
+
+#[cfg(test)]
+fn fail_after_directory_writable() -> bool {
+    FAIL_WRITABLE_CALL.with(|slot| {
+        let remaining = slot.get();
+        if remaining == 0 {
+            false
+        } else if remaining == 1 {
+            slot.set(0);
+            true
+        } else {
+            slot.set(remaining - 1);
+            false
+        }
+    })
+}
+
+#[cfg(test)]
+fn fail_directory_restore(label: &str) -> bool {
+    FAIL_RESTORE_LABEL.with(|slot| {
+        if slot.borrow().as_deref() == Some(label) {
+            slot.borrow_mut().take();
+            true
+        } else {
+            false
+        }
+    })
+}
+
+#[cfg(not(test))]
+fn fail_directory_restore(_label: &str) -> bool {
+    false
+}
+
+#[cfg(not(test))]
+fn fail_after_directory_writable() -> bool {
+    false
 }
 
 #[cfg(not(test))]
@@ -1417,6 +1527,22 @@ mod tests {
             assert!(slot.borrow().is_none(), "test hook already installed");
             *slot.borrow_mut() = Some((point, Box::new(hook)));
         });
+    }
+
+    fn detached_directories(public_root: &Path) -> Vec<PathBuf> {
+        let parent = public_root.parent().expect("managed parent");
+        let mut detached = stdfs::read_dir(parent)
+            .expect("read managed parent")
+            .map(|entry| entry.expect("managed parent entry").path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(".pangopup-uninstall-"))
+                    && path.is_dir()
+            })
+            .collect::<Vec<_>>();
+        detached.sort();
+        detached
     }
 
     #[test]
@@ -1511,6 +1637,216 @@ mod tests {
             "\"cache\":{{\"path\":\"{}\",\"state\":\"absent\"}}",
             fixture.cache.display()
         )));
+    }
+
+    // Exercises the permission shape created by normal managed installation.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn full_yes_removes_read_only_managed_profile() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fixture = Fixture::new();
+        let bundle = fixture.data.join("bundles/id/bundle");
+        let runtime = fixture.data.join("runtime/profiles/id");
+        let cache_profile = fixture.cache.join("profiles/id");
+        for directory in [&bundle, &runtime, &cache_profile] {
+            stdfs::create_dir_all(directory).expect("managed directory");
+            stdfs::write(directory.join("receipt.json"), b"managed").expect("managed file");
+            stdfs::set_permissions(
+                directory.join("receipt.json"),
+                stdfs::Permissions::from_mode(0o444),
+            )
+            .expect("read-only managed file");
+        }
+        for directory in [
+            &bundle,
+            bundle.parent().expect("bundle parent"),
+            fixture.data.join("bundles").as_path(),
+            &runtime,
+            runtime.parent().expect("runtime parent"),
+            runtime
+                .parent()
+                .expect("runtime parent")
+                .parent()
+                .expect("runtime root"),
+            &cache_profile,
+            cache_profile.parent().expect("cache parent"),
+        ] {
+            stdfs::set_permissions(directory, stdfs::Permissions::from_mode(0o555))
+                .expect("read-only managed directory");
+        }
+
+        fixture
+            .execute(
+                Options {
+                    full: true,
+                    yes: true,
+                },
+                "",
+                false,
+            )
+            .expect("remove read-only installation");
+
+        assert!(!fixture.data.exists());
+        assert!(!fixture.cache.exists());
+        assert!(!fixture.executable.exists());
+    }
+
+    // Exercises rollback after destructive traversal has temporarily changed
+    // managed directory permissions.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn failed_read_only_traversal_restores_surviving_directory_modes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fixture = Fixture::new();
+        let bundle_parent = fixture.data.join("bundles/id");
+        let bundle = bundle_parent.join("bundle");
+        stdfs::create_dir_all(&bundle).expect("managed directories");
+        stdfs::write(bundle.join("receipt.json"), b"managed").expect("managed file");
+        stdfs::set_permissions(
+            bundle.join("receipt.json"),
+            stdfs::Permissions::from_mode(0o444),
+        )
+        .expect("read-only managed file");
+        for directory in [&bundle, &bundle_parent, &fixture.data.join("bundles")] {
+            stdfs::set_permissions(directory, stdfs::Permissions::from_mode(0o555))
+                .expect("read-only managed directory");
+        }
+        let directories = [
+            fixture.data.clone(),
+            fixture.data.join("bundles"),
+            bundle_parent,
+            bundle.clone(),
+            fixture.cache.clone(),
+        ];
+        let admitted_modes: Vec<u32> = directories
+            .iter()
+            .map(|path| stdfs::metadata(path).expect("admitted directory").mode())
+            .collect();
+
+        FAIL_WRITABLE_CALL.with(|slot| slot.set(3));
+        let error = fixture
+            .execute(
+                Options {
+                    full: true,
+                    yes: true,
+                },
+                "",
+                false,
+            )
+            .expect_err("injected traversal failure");
+
+        assert_eq!(error.code, "UNINSTALL_IO");
+        assert!(fixture.executable.exists(), "executable remains installed");
+        assert!(bundle.join("receipt.json").exists());
+        for (directory, admitted_mode) in directories.iter().zip(admitted_modes) {
+            assert_eq!(
+                stdfs::metadata(directory)
+                    .expect("surviving directory")
+                    .mode(),
+                admitted_mode,
+                "{} regained its admitted mode",
+                directory.display()
+            );
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn managed_root_restore_failure_keeps_writable_tree_detached() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fixture = Fixture::new();
+        for lock in [".sync.lock", ".install.lock"] {
+            stdfs::write(fixture.data.join(lock), b"").expect("authority file");
+        }
+        stdfs::set_permissions(&fixture.data, stdfs::Permissions::from_mode(0o555))
+            .expect("read-only managed root");
+        FAIL_RESTORE_LABEL.with(|slot| *slot.borrow_mut() = Some("managed root".to_owned()));
+
+        let error = fixture
+            .execute(
+                Options {
+                    full: true,
+                    yes: true,
+                },
+                "",
+                false,
+            )
+            .expect_err("injected root restore failure");
+
+        assert_eq!(error.code, "UNINSTALL_IO");
+        assert!(fixture.executable.exists(), "executable remains installed");
+        assert!(
+            stdfs::metadata(&fixture.data)
+                .expect("public blocker")
+                .is_file(),
+            "public path remains blocked"
+        );
+        let detached = detached_directories(&fixture.data);
+        assert_eq!(detached.len(), 1);
+        assert_eq!(
+            stdfs::metadata(&detached[0])
+                .expect("detached managed root")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755,
+            "writable survivor stays detached"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn nested_restore_failure_keeps_writable_tree_detached() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fixture = Fixture::new();
+        let nested = fixture.data.join("bundles/id");
+        stdfs::create_dir_all(nested.join("bundle")).expect("managed tree");
+        stdfs::write(nested.join("bundle/receipt.json"), b"managed").expect("managed file");
+        for directory in [fixture.data.join("bundles"), nested.clone()] {
+            stdfs::set_permissions(directory, stdfs::Permissions::from_mode(0o555))
+                .expect("read-only managed directory");
+        }
+        FAIL_RESTORE_LABEL.with(|slot| *slot.borrow_mut() = Some("id".to_owned()));
+
+        let error = fixture
+            .execute(
+                Options {
+                    full: true,
+                    yes: true,
+                },
+                "",
+                false,
+            )
+            .expect_err("injected nested restore failure");
+
+        assert_eq!(error.code, "UNINSTALL_IO");
+        assert!(fixture.executable.exists(), "executable remains installed");
+        assert!(
+            stdfs::metadata(&fixture.data)
+                .expect("public blocker")
+                .is_file(),
+            "public path remains blocked"
+        );
+        let detached = detached_directories(&fixture.data);
+        assert_eq!(detached.len(), 1);
+        let survivor = detached[0].join("bundles/id");
+        assert!(
+            survivor.is_dir(),
+            "detached nested survivor remains available"
+        );
+        assert_eq!(
+            stdfs::metadata(&survivor)
+                .expect("detached nested survivor")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755,
+            "writable nested survivor never returns to its public path"
+        );
     }
 
     // Exercises Linux-only direct uninstall; other platforms get the
