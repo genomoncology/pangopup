@@ -21,6 +21,59 @@ PACKAGES = {
     "pangopup-index",
     "pangopup-model",
 }
+RESPONSE_SHAPE_INVENTORY = (
+    ("Status response root", "adds", "`scoring_identity` and `request_contract`"),
+    (
+        "Status `model` object",
+        "adds",
+        "`work_unit`, `planning_millis_per_unit`, and `full_capacity_planning_seconds`",
+    ),
+    ("Every score item", "adds", "`input` and `scoring_identity`"),
+    ("Score item status", "adds", "`\"rejected\"`"),
+    ("Rejected score item", "carries", "`error` and `reason`"),
+    ("Every structured score record", "adds", "`stable_gene`"),
+)
+REJECTED_ITEM_SHAPES = (
+    "- Invalid-input rejected item: carries `input`, `status`, empty `records`, empty `source_reference_ambiguities`, `error`, `reason`, and `scoring_identity`; it has no normalized genomic fields or `provenance`.",
+    "- Normalized model-rejected item: carries `input`, normalized `assembly`, `contig`, `position`, `ref`, and `alt`, `status`, empty `records`, empty `source_reference_ambiguities`, `error`, `reason`, and `scoring_identity`; it has no `provenance`.",
+)
+COMPATIBILITY_DOCUMENTS = (
+    (
+        "architecture/compatibility.md",
+        "../spec/http-service.md#request-contract-schema",
+    ),
+    (
+        "planning/artifacts/057-release-notes.md",
+        "../../spec/http-service.md#request-contract-schema",
+    ),
+)
+REQUEST_CONTRACT_SCHEMA_MEMBERS = (
+    "request_contract: object",
+    "|-- api_version: string",
+    "|-- route: string",
+    "|-- content_type: string",
+    "|-- max_body_bytes: integer",
+    "|-- variants: object",
+    "|   |-- min_items: integer",
+    "|   |-- max_items: integer",
+    "|   |-- max_uncached_model_items: integer",
+    "|   |-- model_work_unit: string",
+    "|   |-- assembly: string",
+    "|   |-- max_model_allele_bases: integer",
+    "|   |-- max_exact_edit_sequence_bases: integer",
+    "|   |-- forms: array of strings",
+    "|   `-- contigs: array of objects",
+    "|       |-- canonical: string",
+    "|       `-- accepted: array of strings",
+    "|-- gene_filter: object",
+    "|   |-- accepted_forms: array of strings",
+    "|   |-- version_minimum: integer",
+    "|   |-- version_maximum: integer",
+    "|   `-- version_allows_leading_zero: boolean",
+    "`-- model_only: object",
+    "    |-- type: string",
+    "    `-- optional: boolean",
+)
 
 
 def fail(category: str, path: str, claim: str) -> None:
@@ -348,37 +401,59 @@ def check_history() -> None:
         fail("history", "planning/artifacts/053-current-runtime-resources.jsonl", "measured version 0.2.0")
 
 
-def check_stable_gene_compatibility() -> None:
-    require_in_section(
-        "structured compatibility",
-        "architecture/compatibility.md",
-        "## Structured JSON score records",
-        "`stable_gene` adds one property to every structured JSON score record from the command-line JSONL and HTTP scoring routes.",
-    )
-    require_in_section(
-        "structured compatibility",
-        "architecture/compatibility.md",
-        "## Structured JSON score records",
-        "Permissive JSON readers that ignore unknown properties remain compatible.",
-    )
-    require_in_section(
-        "structured compatibility",
-        "architecture/compatibility.md",
-        "## Structured JSON score records",
-        "Strict readers that reject unknown properties must accept `stable_gene` before deploying a PangoPup application revision that emits it.",
-    )
-    require_in_section(
-        "structured compatibility",
-        "architecture/compatibility.md",
-        "## Structured JSON score records",
-        "`stable_gene` is the stable Ensembl grouping and filter key. `gene` remains the source-reported identity. Consumers must retain `gene` when exact version or PAR identity matters.",
-    )
-    require_in_section(
-        "release compatibility",
-        "planning/artifacts/057-release-notes.md",
-        "## Consumer deployment order",
-        "Deploy strict consumer support for `stable_gene` before deploying PangoPup v0.4.0.",
-    )
+def inventory_line(scope: str, action: str, fields: str) -> str:
+    return f"- {scope}: {action} {fields}."
+
+
+def check_response_shape_compatibility() -> None:
+    heading = "## v0.4.0 response-shape inventory"
+    for path, schema_target in COMPATIBILITY_DOCUMENTS:
+        for scope, action, fields in RESPONSE_SHAPE_INVENTORY:
+            require_in_section(
+                "response-shape compatibility",
+                path,
+                heading,
+                inventory_line(scope, action, fields),
+            )
+        for shape in REJECTED_ITEM_SHAPES:
+            require_in_section(
+                "response-shape compatibility",
+                path,
+                heading,
+                shape,
+            )
+        require_in_section(
+            "response-shape compatibility",
+            path,
+            heading,
+            f"The complete [`request_contract` nested schema]({schema_target}) is part of the public HTTP contract.",
+        )
+        require_in_section(
+            "response-shape compatibility",
+            path,
+            heading,
+            "Permissive JSON readers that ignore unknown properties remain compatible.",
+        )
+        require_in_section(
+            "response-shape compatibility",
+            path,
+            heading,
+            "Deploy strict consumer support for the complete response-shape inventory before deploying PangoPup v0.4.0.",
+        )
+        require_in_section(
+            "response-shape compatibility",
+            path,
+            heading,
+            "`stable_gene` is the stable Ensembl grouping and filter key. `gene` remains the source-reported identity. Consumers must retain `gene` when exact version or PAR identity matters.",
+        )
+    schema_heading = "## Request contract schema"
+    for member in REQUEST_CONTRACT_SCHEMA_MEMBERS:
+        require_in_section(
+            "request-contract schema",
+            "spec/http-service.md",
+            schema_heading,
+            member,
+        )
 
 
 def main() -> None:
@@ -387,7 +462,7 @@ def main() -> None:
     check_current_public()
     check_fixed_fixtures()
     check_history()
-    check_stable_gene_compatibility()
+    check_response_shape_compatibility()
     print(f"version consistency: candidate {candidate}; public {PUBLIC_VERSION}")
 
 

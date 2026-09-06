@@ -35,7 +35,41 @@ The inside-out HTTP tests inject miniature providers and exercise the actual rou
 
 The status response and every returned score item carry one `scoring_identity`. PangoPup hashes the RFC 8785 canonical `pangopup.active-scoring-identity.v1` preimage over software version, admitted runtime-profile identity, and effective CPU policy. Precomputed, modeled, cached, ambiguous, mixed, and mixed-batch rejected items all carry the same value. Request-level errors have no result item. Detailed route provenance stays unchanged, and standalone CLI output does not gain this service-only field.
 
+## Request contract schema
+
 The status response also carries `request_contract`. This machine-readable object reports the `/v1/score` API version, media type, body and item limits, uncached model-work units, assembly, model allele and exact-edit limits, all accepted variant and gene forms, and every accepted primary-contig spelling. Clients should consume this object instead of copying those values from prose. It stays identical across readiness and queue states. It contains no host or request details and does not enter `scoring_identity`.
+
+Each object contains exactly the properties listed in this public nested schema:
+
+```text
+request_contract: object
+|-- api_version: string
+|-- route: string
+|-- content_type: string
+|-- max_body_bytes: integer
+|-- variants: object
+|   |-- min_items: integer
+|   |-- max_items: integer
+|   |-- max_uncached_model_items: integer
+|   |-- model_work_unit: string
+|   |-- assembly: string
+|   |-- max_model_allele_bases: integer
+|   |-- max_exact_edit_sequence_bases: integer
+|   |-- forms: array of strings
+|   `-- contigs: array of objects
+|       |-- canonical: string
+|       `-- accepted: array of strings
+|-- gene_filter: object
+|   |-- accepted_forms: array of strings
+|   |-- version_minimum: integer
+|   |-- version_maximum: integer
+|   `-- version_allows_leading_zero: boolean
+`-- model_only: object
+    |-- type: string
+    `-- optional: boolean
+```
+
+Array entries and scalar values carry the enforced strings, numbers, and booleans reported by the running service. The exact contract test below pins the full object.
 
 The status `model` object reports `planning_millis_per_unit: 10241` from the slowest retained p50 and `full_capacity_planning_seconds` as `ceil(queue_capacity × planning_millis_per_unit / 1000)` with a one-second minimum. The default capacity reports 205 seconds. The same factor and upward-rounded arithmetic produce `Retry-After` from admitted units. Worker count does not divide either value. These retained measurements provide planning guidance. They do not guarantee latency or recommend a client timeout. Strict JSON status consumers must adopt both additive fields before deployment.
 

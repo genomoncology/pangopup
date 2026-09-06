@@ -1,7 +1,23 @@
 # PangoPup v0.4.0 candidate release notes
 
-## Consumer deployment order
+## v0.4.0 response-shape inventory
 
-PangoPup v0.4.0 is the first application release that adds `stable_gene` to each structured JSON score record from command-line JSONL and HTTP scoring routes. Permissive readers that ignore unknown properties remain compatible. Strict readers that reject unknown properties require coordinated adoption.
+PangoPup v0.4.0 changes response shapes from v0.3.0:
 
-Deploy strict consumer support for `stable_gene` before deploying PangoPup v0.4.0. Consumers can then use `stable_gene` for grouping and filtering. They must retain `gene` when exact version or PAR identity matters.
+- Status response root: adds `scoring_identity` and `request_contract`.
+- Status `model` object: adds `work_unit`, `planning_millis_per_unit`, and `full_capacity_planning_seconds`.
+- Every score item: adds `input` and `scoring_identity`.
+- Score item status: adds `"rejected"`.
+- Rejected score item: carries `error` and `reason`.
+- Every structured score record: adds `stable_gene`.
+
+- Invalid-input rejected item: carries `input`, `status`, empty `records`, empty `source_reference_ambiguities`, `error`, `reason`, and `scoring_identity`; it has no normalized genomic fields or `provenance`.
+- Normalized model-rejected item: carries `input`, normalized `assembly`, `contig`, `position`, `ref`, and `alt`, `status`, empty `records`, empty `source_reference_ambiguities`, `error`, `reason`, and `scoring_identity`; it has no `provenance`.
+
+The complete [`request_contract` nested schema](../../spec/http-service.md#request-contract-schema) is part of the public HTTP contract.
+
+Permissive JSON readers that ignore unknown properties remain compatible. Strict readers must accept the complete response-shape inventory before a producer emits it.
+
+Deploy strict consumer support for the complete response-shape inventory before deploying PangoPup v0.4.0.
+
+`stable_gene` is the stable Ensembl grouping and filter key. `gene` remains the source-reported identity. Consumers must retain `gene` when exact version or PAR identity matters.
