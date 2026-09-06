@@ -204,7 +204,7 @@ def check_candidate(candidate: str) -> None:
         (
             "tests/production-release-qualification.sh",
             "candidate qualification server status",
-            rf'^            "/v1/status": {{"version":"{re.escape(candidate)}","readiness":"ready"}},$',
+            rf'^            "/v1/status": {{"version":"{re.escape(candidate)}","readiness":"ready","scoring_identity":scoring_identity}},$',
         ),
         (
             "tests/production-release-qualification.sh",

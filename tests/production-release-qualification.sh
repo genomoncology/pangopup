@@ -116,6 +116,7 @@ source = pathlib.Path(sys.argv[1])
 model = json.loads((source / "tests/fixtures/executable-release/m09.jsonl").read_bytes())
 model_only_snv = json.loads((source / "tests/fixtures/executable-release/model-only-snv.jsonl").read_bytes())
 automatic_snv = json.loads((source / "tests/fixtures/snv-regression/expected/ENSG00000010610.jsonl").read_text().splitlines()[0])
+scoring_identity = "sha256:" + "1" * 64
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     def emit(self, value):
@@ -129,7 +130,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         values = {
             "/livez": {"status":"live"},
             "/readyz": {"status":"ready"},
-            "/v1/status": {"version":"0.4.0","readiness":"ready"},
+            "/v1/status": {"version":"0.4.0","readiness":"ready","scoring_identity":scoring_identity},
         }
         self.emit(values[self.path])
     def do_POST(self):
@@ -141,6 +142,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             result = automatic_snv
         else:
             result = model
+        result = dict(result)
+        result["input"] = request["variants"][0]
+        result["scoring_identity"] = scoring_identity
         self.emit({"results":[result]})
     def log_message(self, *_): pass
 http.server.ThreadingHTTPServer(("127.0.0.1", 18080), Handler).serve_forever()
@@ -278,6 +282,90 @@ if "$repo/scripts/check-production-qualification.py" "$root/http-model-only-outp
   exit 1
 fi
 grep -Fxq 'HTTP model-only SNV response mismatch' "$root/http-model-only.err"
+
+expect_http_contract_rejected() {
+  local label=$1 file=$2 mutation=$3 expected=$4
+  local changed="$root/http-contract-$label"
+  cp -a "$root/output" "$changed"
+  python3 - "$changed/$file" "$mutation" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+mutation = sys.argv[2]
+head, separator, body = path.read_bytes().partition(b"\r\n\r\n")
+assert separator
+value = json.loads(body)
+item = value.get("results", [{}])[0]
+if mutation == "missing-input":
+    del item["input"]
+elif mutation == "input-type":
+    item["input"] = 7
+elif mutation == "input-value":
+    item["input"] = "GRCh38:chr1:1:A:C"
+elif mutation == "missing-identity":
+    del item["scoring_identity"]
+elif mutation == "identity-type":
+    item["scoring_identity"] = 7
+elif mutation == "identity-malformed":
+    item["scoring_identity"] = "sha256:" + "A" * 64
+elif mutation == "identity-mismatch":
+    item["scoring_identity"] = "sha256:" + "2" * 64
+elif mutation == "status-identity-mismatch":
+    value["scoring_identity"] = "sha256:" + "2" * 64
+elif mutation == "extra-item-property":
+    item["transport_extra"] = True
+elif mutation == "missing-score-property":
+    del item["status"]
+elif mutation == "wrong-score-type":
+    item["position"] = "6801301"
+elif mutation == "wrong-score-value":
+    item["position"] += 1
+elif mutation == "integer-as-float":
+    item["position"] = float(item["position"])
+elif mutation == "boolean-as-integer":
+    item["provenance"]["masked"] = 1
+else:
+    raise AssertionError(mutation)
+path.write_bytes(head + separator + json.dumps(value, separators=(",", ":")).encode() + b"\n")
+PY
+  if "$repo/scripts/check-production-qualification.py" "$changed" "$repo" \
+    >"$root/http-contract-$label.out" 2>"$root/http-contract-$label.err"; then
+    printf 'checker accepted HTTP contract mutation: %s\n' "$label" >&2
+    exit 1
+  fi
+  grep -Fxq "$expected" "$root/http-contract-$label.err"
+}
+
+expect_http_contract_rejected missing-input http-snv.txt missing-input \
+  'HTTP SNV item shape mismatch'
+expect_http_contract_rejected input-type http-snv.txt input-type \
+  'HTTP SNV input mismatch'
+expect_http_contract_rejected input-value http-snv.txt input-value \
+  'HTTP SNV input mismatch'
+expect_http_contract_rejected missing-identity http-model.txt missing-identity \
+  'HTTP model item shape mismatch'
+expect_http_contract_rejected identity-type http-model.txt identity-type \
+  'HTTP model scoring identity is invalid'
+expect_http_contract_rejected identity-malformed http-model.txt identity-malformed \
+  'HTTP model scoring identity is invalid'
+expect_http_contract_rejected cross-item-identity http-model-only.txt identity-mismatch \
+  'HTTP model-only SNV scoring identity mismatch'
+expect_http_contract_rejected status-identity http-status.txt status-identity-mismatch \
+  'HTTP SNV scoring identity mismatch'
+expect_http_contract_rejected extra-item-property http-model-only.txt extra-item-property \
+  'HTTP model-only SNV item shape mismatch'
+expect_http_contract_rejected missing-score-property http-snv.txt missing-score-property \
+  'HTTP SNV item shape mismatch'
+expect_http_contract_rejected wrong-score-type http-snv.txt wrong-score-type \
+  'HTTP SNV response mismatch'
+expect_http_contract_rejected wrong-score-value http-snv.txt wrong-score-value \
+  'HTTP SNV response mismatch'
+expect_http_contract_rejected integer-as-float http-snv.txt integer-as-float \
+  'HTTP SNV response mismatch'
+expect_http_contract_rejected boolean-as-integer http-model.txt boolean-as-integer \
+  'HTTP model response mismatch'
 
 cp -a "$root/output" "$root/truncated-output"
 sed -i '$d' "$root/truncated-output/snv-unfiltered.jsonl"

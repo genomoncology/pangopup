@@ -49,6 +49,7 @@ TRANSFER = re.compile(
     r"\d+/\d+ bytes \((\d+) downloaded, (\d+) resumed\)$"
 )
 COMPLETE = re.compile(r"^sync: ready \((\d+) downloaded, (\d+) resumed\)$")
+SCORING_IDENTITY = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 def fail(message: str) -> None:
@@ -117,6 +118,21 @@ def without_bundle_identity(value: object) -> object:
     if not isinstance(bundle_id, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", bundle_id):
         fail("SNV response bundle identity is invalid")
     return copied
+
+
+def json_equal(actual: object, expected: object) -> bool:
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(actual, dict):
+        return actual.keys() == expected.keys() and all(
+            json_equal(actual[key], expected[key]) for key in actual
+        )
+    if isinstance(actual, list):
+        return len(actual) == len(expected) and all(
+            json_equal(actual_item, expected_item)
+            for actual_item, expected_item in zip(actual, expected)
+        )
+    return actual == expected
 
 
 def require_fixture_identities(source: pathlib.Path) -> None:
@@ -218,6 +234,42 @@ def http_body(path: pathlib.Path) -> object:
         fail(f"invalid HTTP JSON: {path.name}: {error}")
 
 
+def require_http_score(
+    response: object,
+    oracle: object,
+    submitted: str,
+    scoring_identity: str,
+    label: str,
+    *,
+    ignore_bundle_identity: bool = False,
+) -> None:
+    if not isinstance(response, dict) or set(response) != {"results"}:
+        fail(f"HTTP {label} response mismatch")
+    results = response["results"]
+    if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
+        fail(f"HTTP {label} response mismatch")
+    if not isinstance(oracle, dict):
+        fail(f"HTTP {label} oracle mismatch")
+    result = results[0]
+    if set(result) != set(oracle) | {"input", "scoring_identity"}:
+        fail(f"HTTP {label} item shape mismatch")
+    if result["input"] != submitted:
+        fail(f"HTTP {label} input mismatch")
+    identity = result["scoring_identity"]
+    if not isinstance(identity, str) or SCORING_IDENTITY.fullmatch(identity) is None:
+        fail(f"HTTP {label} scoring identity is invalid")
+    if identity != scoring_identity:
+        fail(f"HTTP {label} scoring identity mismatch")
+    score = dict(result)
+    del score["input"]
+    del score["scoring_identity"]
+    if ignore_bundle_identity:
+        score = without_bundle_identity(score)
+        oracle = without_bundle_identity(oracle)
+    if not json_equal(score, oracle):
+        fail(f"HTTP {label} response mismatch")
+
+
 def main() -> None:
     if len(sys.argv) not in (3, 4) or (len(sys.argv) == 4 and sys.argv[3] != "--reuse-installed"):
         fail("usage: check-production-qualification.py <OUTPUT_DIR> <SOURCE_TREE> [--reuse-installed]")
@@ -288,6 +340,9 @@ def main() -> None:
         fail("HTTP health response mismatch")
     if not isinstance(status, dict) or status.get("version") != "0.4.0" or status.get("readiness") != "ready":
         fail("HTTP status response mismatch")
+    status_identity = status.get("scoring_identity")
+    if not isinstance(status_identity, str) or SCORING_IDENTITY.fullmatch(status_identity) is None:
+        fail("HTTP status scoring identity is invalid")
     automatic_expected = json.loads(
         (source / "tests/fixtures/snv-regression/expected/ENSG00000010610.jsonl")
         .read_text(encoding="utf-8")
@@ -296,13 +351,28 @@ def main() -> None:
     if automatic_expected["records"][0]["stable_gene"] \
        != model_only_value["records"][0]["stable_gene"]:
         fail("automatic and forced routes disagree on stable gene")
-    if not isinstance(snv, dict) or len(snv.get("results", [])) != 1 \
-       or without_bundle_identity(snv["results"][0]) != without_bundle_identity(automatic_expected):
-        fail("HTTP SNV response mismatch")
-    if modeled != {"results": [model_value]}:
-        fail("HTTP model response mismatch")
-    if forced != {"results": [model_only_value]}:
-        fail("HTTP model-only SNV response mismatch")
+    require_http_score(
+        snv,
+        automatic_expected,
+        "GRCh38:chr12:6801301:G:A",
+        status_identity,
+        "SNV",
+        ignore_bundle_identity=True,
+    )
+    require_http_score(
+        modeled,
+        model_value,
+        "GRCh38:chr12:6801303:G:GA",
+        status_identity,
+        "model",
+    )
+    require_http_score(
+        forced,
+        model_only_value,
+        "GRCh38:chr12:6801301:G:A",
+        status_identity,
+        "model-only SNV",
+    )
 
     print(f"requests_sha256={REQUESTS_SHA256}")
     print(f"snv_canonical_actual_sha256={hashlib.sha256(combined_actual).hexdigest()}")
