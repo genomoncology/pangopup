@@ -73,9 +73,7 @@ dispatches
 `finalize` with the exact successful stage run ID. Finalization authenticates that run and its
 unique retained receipt through the Actions API, anonymously repeats native
 miniature qualification, and then creates version, `v`-prefixed version, and
-moving `latest` tags. The current public set is `0.3.0`/`v0.3.0`/`latest`, all
-resolving to index
-`sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0`.
+moving `latest` tags. The current public set is `0.3.0`/`v0.3.0`/`latest`, all resolving to index `sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0`.
 The resulting two-platform index's
 version tags are convenient names; the OCI index digest is
 the immutable deployment identity. GHCR cannot atomically create an absent tag,
@@ -93,9 +91,7 @@ history or Git LFS.
 
 Release families keep independently versioned concerns separate. The SNV
 lookup uses one shipped eight-file release asset set whose installable transport
-is the closed five-file subset. The ordinary executable release is immutable
-[`v0.3.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.3.0);
-immutable `v0.2.0` and `v0.1.0` remain available as prior releases.
+is the closed five-file subset. The ordinary executable release is immutable [`v0.3.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.3.0). Immutable `v0.2.0` and `v0.1.0` remain available as prior releases.
 The converted model, compiled GRCh38 sequence index, and compiled mask form one
 qualified compatibility-bound public immutable `runtime-grch38-v1` release.
 Their model-side local transport is shipped:

@@ -477,4 +477,42 @@ publish_request=$(grep -nF 'gh api --method PATCH "repos/$REPO/releases/$RELEASE
 if grep -Eqi '(authorization:[[:space:]]|bearer[[:space:]]+[a-z0-9]|ghp_[a-z0-9]|github_pat_[a-z0-9]|signed[_ -]?url)' "$publication_record"; then
   fail 'v0.3.0 publication record contains credential material'
 fi
+
+candidate_publication_record="$repo/planning/artifacts/058-public-v0.4.0.md"
+check_candidate_executable_publication_record() {
+  local record=$1
+  grep -Fxq 'State: **PREPARED — no v0.4.0 tag, release, or container alias exists.**' "$record" || return 1
+  grep -Fq 'GitHub Latest remains immutable release ID `365425336`, tag `v0.3.0`, target commit `3a857f7def2c11ad9d9e38ed62b7204bf7d6b691`' "$record" || return 1
+  grep -Fq 'Require the v0.4.0 GitHub release and Git tag to be absent.' "$record" || return 1
+  grep -Fq 'The GitHub release body uses the exact bytes from `planning/artifacts/057-release-notes.md`.' "$record" || return 1
+  grep -Fq 'Compare the fetched draft body byte-for-byte with the source file.' "$record" || return 1
+  grep -Fq 'Require exactly six regular, single-link files: `LICENSE`, `NOTICE`, `pangopup-linux-x86_64`, `pangopup-linux-x86_64.cdx.json`, `pangopup-linux-x86_64.sha256`, and `release-manifest.json`.' "$record" || return 1
+  grep -Fq 'Ian Maurer explicitly authorized building, deploying, and pushing PangoPup v0.4.0 on 2026-09-06.' "$record" || return 1
+  grep -Fq 'Before the first remote mutation, bind this authorization to the exact 40-character publication commit selected from `origin/main`' "$record" || return 1
+  grep -Fq 'Immediately before the first public effect, require the current UTC date to equal `2026-09-06`, the `date-released` value in `CITATION.cff`.' "$record" || return 1
+  grep -Fq 'If the dates differ, stop before mutation, update `CITATION.cff` and its bound checks, recommit, and repeat every commit-bound qualification for the new exact publication commit.' "$record" || return 1
+  grep -Fq 'After those private-draft checks and immediately before publishing the private draft, require the current UTC date to equal `2026-09-06`, the `date-released` value in `CITATION.cff`.' "$record" || return 1
+  grep -Fq 'Preserve the staged native leaves from the prior commit.' "$record" || return 1
+  grep -Fq 'Discard only the still-private draft through a separately reviewed safe recovery path.' "$record" || return 1
+  grep -Fq 'Update `CITATION.cff` and its bound checks, recommit, and repeat every commit-bound qualification for the new exact publication commit before creating a replacement private draft.' "$record" || return 1
+  local stage_check package_check private_draft_check date_recheck publish_boundary
+  stage_check=$(grep -nF 'Verify both leaves anonymously by digest.' "$record" | cut -d: -f1)
+  package_check=$(grep -nF 'Run `scripts/qualify-linux-release.sh <release-directory> 0.4.0 <publication-commit>`.' "$record" | cut -d: -f1)
+  private_draft_check=$(grep -nF 'Compare the fetched draft body byte-for-byte with the source file.' "$record" | cut -d: -f1)
+  date_recheck=$(grep -nF 'After those private-draft checks and immediately before publishing the private draft' "$record" | cut -d: -f1)
+  publish_boundary=$(grep -nF 'Publish the draft as non-prerelease and Latest.' "$record" | cut -d: -f1)
+  [[ -n "$stage_check" && -n "$package_check" && -n "$private_draft_check" && -n "$date_recheck" && -n "$publish_boundary" ]] || return 1
+  [[ "$stage_check" -lt "$date_recheck" && "$package_check" -lt "$date_recheck" && "$private_draft_check" -lt "$date_recheck" ]] || return 1
+  [[ "$date_recheck" -lt "$publish_boundary" && "$((date_recheck + 2))" -eq "$publish_boundary" ]] || return 1
+  grep -Fq "append Ian Maurer's 2026-09-06 authorization bound to the exact publication commit, the verified UTC publication date" "$record" || return 1
+  if grep -Eqi '(authorization:[[:space:]]|bearer[[:space:]]+[a-z0-9]|ghp_[a-z0-9]|github_pat_[a-z0-9]|signed[_ -]?url)' "$record"; then
+    return 1
+  fi
+}
+check_candidate_executable_publication_record "$candidate_publication_record" || fail 'v0.4.0 executable publication record is incomplete'
+mutated_candidate_record="$root/v0.4.0-publication-record-without-prepared-state.md"
+sed '/^State: \*\*PREPARED /d' "$candidate_publication_record" >"$mutated_candidate_record"
+if check_candidate_executable_publication_record "$mutated_candidate_record"; then
+  fail 'v0.4.0 publication-record check accepted a removed PREPARED state'
+fi
 printf 'executable delivery tests passed\n'

@@ -97,7 +97,12 @@ try:
         path: original_read(path) for path, _schema_target in required_documents
     }
     request_contract_schema = original_read("spec/http-service.md")
+    citation = original_read("CITATION.cff")
+    citation_test = original_read("crates/pangopup-cli/tests/citation.rs")
     candidate = namespace["workspace_version"]()
+    required_candidate_release_date = "2026-09-06"
+    if checker_globals["CANDIDATE_RELEASE_DATE"] != required_candidate_release_date:
+        raise AssertionError("checker candidate release date differs from the independent required date")
 
     main()
 
@@ -139,6 +144,26 @@ try:
                 lock,
                 f'name = "pangopup-assets"\nversion = "{candidate}"',
                 'name = "pangopup-assets"\nversion = "9.9.9"',
+            )
+        },
+    )
+    expect_rejected(
+        "a changed candidate citation release date",
+        {
+            "CITATION.cff": replace_once(
+                citation,
+                f"date-released: {required_candidate_release_date}",
+                "date-released: 2099-01-01",
+            )
+        },
+    )
+    expect_rejected(
+        "a changed candidate citation release-date fixture",
+        {
+            "crates/pangopup-cli/tests/citation.rs": replace_once(
+                citation_test,
+                f'("date-released", "{required_candidate_release_date}"),',
+                '("date-released", "2099-01-01"),',
             )
         },
     )

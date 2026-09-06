@@ -11,6 +11,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PUBLIC_VERSION = "0.3.0"
+CANDIDATE_RELEASE_DATE = "2026-09-06"
 PACKAGES = {
     "pangopup-assets",
     "pangopup-build",
@@ -210,56 +211,68 @@ def check_candidate(candidate: str) -> None:
             "candidate status mutation test",
             rf'^sed -i \'s/"version":"{re.escape(candidate)}"/"version":"9\.9\.9"/\'',
         ),
+        ("CITATION.cff", "citation version", rf"^version: {re.escape(candidate)}$"),
+        (
+            "CITATION.cff",
+            "candidate release date",
+            rf"^date-released: {re.escape(CANDIDATE_RELEASE_DATE)}$",
+        ),
+        (
+            "CITATION.cff",
+            "citation release URL",
+            rf'^repository-artifact: "https://github\.com/genomoncology/pangopup/releases/tag/v{re.escape(candidate)}"$',
+        ),
+        (
+            "crates/pangopup-cli/tests/citation.rs",
+            "citation release fixture",
+            rf'^const RELEASE: &str = "https://github\.com/genomoncology/pangopup/releases/tag/v{re.escape(candidate)}";$',
+        ),
+        (
+            "crates/pangopup-cli/tests/citation.rs",
+            "citation version fixture",
+            rf'^        \("version", "{re.escape(candidate)}"\),$',
+        ),
+        (
+            "crates/pangopup-cli/tests/citation.rs",
+            "candidate release date fixture",
+            rf'^        \("date-released", "{re.escape(CANDIDATE_RELEASE_DATE)}"\),$',
+        ),
+        (
+            "spec/container-image.md",
+            "publication-target container tags",
+            rf'^`{re.escape(candidate)}` and `v{re.escape(candidate)}`; the manifest digest is the immutable deployment identity,$',
+        ),
     )
     for path, claim, pattern in claims:
         require("candidate", path, claim, pattern)
 
+    require_in_section("candidate", "README.md", "## Quick start", f"raw.githubusercontent.com/genomoncology/pangopup/v{candidate}/install.sh")
+    require_in_section("candidate", "README.md", "## Quick start", f"bash -s -- --version {candidate}")
+    require_in_section("candidate", "README.md", "## Docker", f"export PANGOPUP_IMAGE=ghcr.io/genomoncology/pangopup:{candidate}")
+    require_in_section("candidate", "README.md", "## Storage and operations", f"VERSION={candidate}")
+    require_in_section("candidate", "README.md", "## Storage and operations", f"export PANGOPUP_IMAGE=ghcr.io/genomoncology/pangopup:{candidate}")
+    require_in_section("candidate", "README.md", "## Storage and operations", f"docker image rm ghcr.io/genomoncology/pangopup:{candidate}")
+    require_in_section("candidate", "spec/readme-first-use.md", "# README first-use contract", f"raw.githubusercontent.com/genomoncology/pangopup/v{candidate}/install.sh")
+    require_in_section("candidate", "spec/readme-first-use.md", "# README first-use contract", f"bash -s -- --version {candidate}")
+    require_in_section("candidate", "spec/readme-first-use.md", "# README first-use contract", f"ghcr.io/genomoncology/pangopup:{candidate}")
+    require_in_section("candidate", "spec/readme-first-use.md", "# README first-use contract", f"VERSION={candidate}")
+
     service = re.sub(r"\s+", " ", markdown_section("architecture/service.md", "# Service Boundary"))
-    transition = (
-        f"currently identifies application v{PUBLIC_VERSION}; the repository prepares "
-        f"v{candidate} as one coherent executable/container candidate"
-    )
+    if candidate == PUBLIC_VERSION:
+        transition = (
+            f"public application and repository source both identify v{candidate} as one "
+            "coherent executable/container release"
+        )
+    else:
+        transition = (
+            f"currently identifies application v{PUBLIC_VERSION}; the repository prepares "
+            f"v{candidate} as one coherent executable/container candidate"
+        )
     if transition not in service:
         fail("candidate/public transition", "architecture/service.md", transition)
 
 
 def check_current_public() -> None:
-    claims = (
-        ("CITATION.cff", "citation version", rf"^version: {re.escape(PUBLIC_VERSION)}$"),
-        (
-            "CITATION.cff",
-            "citation release URL",
-            rf'^repository-artifact: "https://github\.com/genomoncology/pangopup/releases/tag/v{re.escape(PUBLIC_VERSION)}"$',
-        ),
-        (
-            "crates/pangopup-cli/tests/citation.rs",
-            "citation release fixture",
-            rf'^const RELEASE: &str = "https://github\.com/genomoncology/pangopup/releases/tag/v{re.escape(PUBLIC_VERSION)}";$',
-        ),
-        (
-            "crates/pangopup-cli/tests/citation.rs",
-            "citation version fixture",
-            rf'^        \("version", "{re.escape(PUBLIC_VERSION)}"\),$',
-        ),
-        (
-            "spec/container-image.md",
-            "published container tags",
-            rf'^`{re.escape(PUBLIC_VERSION)}` and `v{re.escape(PUBLIC_VERSION)}`; the manifest digest is the immutable deployment identity,$',
-        ),
-    )
-    for path, claim, pattern in claims:
-        require("current-public", path, claim, pattern)
-
-    require_in_section("current-public", "README.md", "## Quick start", f"raw.githubusercontent.com/genomoncology/pangopup/v{PUBLIC_VERSION}/install.sh")
-    require_in_section("current-public", "README.md", "## Quick start", f"bash -s -- --version {PUBLIC_VERSION}")
-    require_in_section("current-public", "README.md", "## Docker", f"export PANGOPUP_IMAGE=ghcr.io/genomoncology/pangopup:{PUBLIC_VERSION}")
-    require_in_section("current-public", "README.md", "## Storage and operations", f"VERSION={PUBLIC_VERSION}")
-    require_in_section("current-public", "README.md", "## Storage and operations", f"export PANGOPUP_IMAGE=ghcr.io/genomoncology/pangopup:{PUBLIC_VERSION}")
-    require_in_section("current-public", "README.md", "## Storage and operations", f"docker image rm ghcr.io/genomoncology/pangopup:{PUBLIC_VERSION}")
-    require_in_section("current-public", "spec/readme-first-use.md", "# README first-use contract", f"raw.githubusercontent.com/genomoncology/pangopup/v{PUBLIC_VERSION}/install.sh")
-    require_in_section("current-public", "spec/readme-first-use.md", "# README first-use contract", f"bash -s -- --version {PUBLIC_VERSION}")
-    require_in_section("current-public", "spec/readme-first-use.md", "# README first-use contract", f"ghcr.io/genomoncology/pangopup:{PUBLIC_VERSION}")
-    require_in_section("current-public", "spec/readme-first-use.md", "# README first-use contract", f"VERSION={PUBLIC_VERSION}")
     require_in_section("current-public", "architecture/delivery.md", "## Thin container delivery", f"The current public set is `{PUBLIC_VERSION}`/`v{PUBLIC_VERSION}`/`latest`")
     require_in_section("current-public", "architecture/delivery.md", "## GitHub Releases", f"[`v{PUBLIC_VERSION}`](https://github.com/genomoncology/pangopup/releases/tag/v{PUBLIC_VERSION})")
     require_in_section("current-public", "planning/faq.md", "### How will users install the executable?", f"tagged `v{PUBLIC_VERSION}` script with\n`--version {PUBLIC_VERSION}`")
