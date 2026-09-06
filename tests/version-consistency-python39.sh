@@ -114,6 +114,12 @@ try:
         "    |-- type: string",
         "    `-- optional: boolean",
     )
+    required_container_note = (
+        "PangoPup published no v0.4.0 container."
+        " The first published container carrying this inventory is v0.4.1."
+    )
+    if checker_globals["FIRST_INVENTORY_CONTAINER_NOTE"] != required_container_note:
+        raise AssertionError("checker container note differs from the independent required text")
     if tuple(checker_globals["COMPATIBILITY_DOCUMENTS"]) != required_documents:
         raise AssertionError("checker compatibility documents differ from the independent required set")
     if tuple(checker_globals["RESPONSE_SHAPE_INVENTORY"]) != required_inventory:
@@ -333,6 +339,16 @@ try:
             f"a removed consumer-first deployment order in {path}",
             {path: replace_once(compatibility_text[path], order, "")},
         )
+    expect_rejected(
+        "a removed first-inventory container note in architecture/compatibility.md",
+        {
+            "architecture/compatibility.md": replace_once(
+                compatibility_text["architecture/compatibility.md"],
+                required_container_note,
+                "",
+            )
+        },
+    )
     for member in required_schema_members:
         expect_rejected(
             f"a removed request-contract schema member {member!r}",

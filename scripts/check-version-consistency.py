@@ -56,6 +56,10 @@ REJECTED_ITEM_SHAPES = (
     "- Invalid-input rejected item: carries `input`, `status`, empty `records`, empty `source_reference_ambiguities`, `error`, `reason`, and `scoring_identity`; it has no normalized genomic fields or `provenance`.",
     "- Normalized model-rejected item: carries `input`, normalized `assembly`, `contig`, `position`, `ref`, and `alt`, `status`, empty `records`, empty `source_reference_ambiguities`, `error`, `reason`, and `scoring_identity`; it has no `provenance`.",
 )
+FIRST_INVENTORY_CONTAINER_NOTE = (
+    "PangoPup published no v0.4.0 container."
+    " The first published container carrying this inventory is v0.4.1."
+)
 COMPATIBILITY_DOCUMENTS = (
     (
         "architecture/compatibility.md",
@@ -503,6 +507,12 @@ def check_response_shape_compatibility() -> None:
             heading,
             "`stable_gene` is the stable Ensembl grouping and filter key. `gene` remains the source-reported identity. Consumers must retain `gene` when exact version or PAR identity matters.",
         )
+    require_in_section(
+        "response-shape compatibility",
+        "architecture/compatibility.md",
+        heading,
+        FIRST_INVENTORY_CONTAINER_NOTE,
+    )
     schema_heading = "## Request contract schema"
     for member in REQUEST_CONTRACT_SCHEMA_MEMBERS:
         require_in_section(

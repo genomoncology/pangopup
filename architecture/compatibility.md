@@ -20,4 +20,6 @@ Permissive JSON readers that ignore unknown properties remain compatible. Strict
 
 Deploy strict consumer support for the complete response-shape inventory before deploying PangoPup v0.4.0.
 
+PangoPup published no v0.4.0 container. The first published container carrying this inventory is v0.4.1.
+
 `stable_gene` is the stable Ensembl grouping and filter key. `gene` remains the source-reported identity. Consumers must retain `gene` when exact version or PAR identity matters.
