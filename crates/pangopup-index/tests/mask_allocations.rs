@@ -86,20 +86,27 @@ fn sufficiently_reserved_warmed_queries_allocate_nothing() {
 
 #[test]
 fn unrelated_thread_allocation_does_not_change_measurement() {
-    use std::sync::{Arc, Barrier};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
 
-    let start = Arc::new(Barrier::new(2));
-    let finish = Arc::new(Barrier::new(2));
+    let start = Arc::new(AtomicBool::new(false));
+    let finish = Arc::new(AtomicBool::new(false));
     let worker_start = Arc::clone(&start);
     let worker_finish = Arc::clone(&finish);
     let worker = std::thread::spawn(move || {
-        worker_start.wait();
+        while !worker_start.load(Ordering::Acquire) {
+            std::hint::spin_loop();
+        }
         std::hint::black_box(Box::new(42_u64));
-        worker_finish.wait();
+        worker_finish.store(true, Ordering::Release);
     });
     let (_, calls) = measure_allocations(|| {
-        start.wait();
-        finish.wait();
+        start.store(true, Ordering::Release);
+        while !finish.load(Ordering::Acquire) {
+            std::hint::spin_loop();
+        }
     });
     worker.join().expect("unrelated allocator thread");
     assert_eq!(calls, 0, "unrelated thread contaminated measurement");
