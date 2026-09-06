@@ -979,9 +979,9 @@ async fn health_status_and_route_errors_are_exact_json_lines() {
     assert_eq!(
         status,
         json!({
-            "version": "0.4.0",
+            "version": "0.4.1",
             "readiness": "ready",
-            "scoring_identity": "sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd",
+            "scoring_identity": "sha256:04fe923c4814c12d11cf3ddd27d25e8099983a6cf65d39ddb0e718467ed0cbd9",
             "assets": {"snv_bundle_id":"snv","model_bundle_id":"model","reference_bundle_id":"reference","mask_sha256":"mask"},
             "routes": {"lookup":true,"model":true,"model_only":true},
             "model": {"effective_cpu_policy":"sequential:1/1","workers":1,"threads_per_worker":1,"running":0,"queued":0,"queue_capacity":2,"work_unit":"uncached_model_variant","planning_millis_per_unit":10241,"full_capacity_planning_seconds":21}
@@ -1727,7 +1727,7 @@ async fn modeled_http_success_is_pinned_as_one_complete_byte_fixture() {
         .expect("response");
     assert_eq!(response.status(), StatusCode::OK);
     let expected = format!(
-        "{{\"results\":[{{\"input\":\"GRCh38:chr1:2:A:C\",\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":2,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"not_found\",\"records\":[],\"source_reference_ambiguities\":[],\"provenance\":{{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:{}\",\"model_profile\":\"model-v1\",\"effective_cpu_policy\":\"sequential:1/1\",\"reference_bundle_id\":\"sha256:{}\",\"reference_profile\":\"reference-v1\",\"reference_sequence_set_sha256\":\"sha256:{}\",\"mask_bytes\":1,\"mask_sha256\":\"sha256:{}\",\"masked\":true,\"window\":50}},\"scoring_identity\":\"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd\"}}]}}\n",
+        "{{\"results\":[{{\"input\":\"GRCh38:chr1:2:A:C\",\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":2,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"not_found\",\"records\":[],\"source_reference_ambiguities\":[],\"provenance\":{{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:{}\",\"model_profile\":\"model-v1\",\"effective_cpu_policy\":\"sequential:1/1\",\"reference_bundle_id\":\"sha256:{}\",\"reference_profile\":\"reference-v1\",\"reference_sequence_set_sha256\":\"sha256:{}\",\"mask_bytes\":1,\"mask_sha256\":\"sha256:{}\",\"masked\":true,\"window\":50}},\"scoring_identity\":\"sha256:04fe923c4814c12d11cf3ddd27d25e8099983a6cf65d39ddb0e718467ed0cbd9\"}}]}}\n",
         "1".repeat(64),
         "2".repeat(64),
         "3".repeat(64),
@@ -2793,7 +2793,7 @@ async fn exact_deletion_mismatch_is_an_ordered_item_rejection() {
     assert_eq!(output.results.len(), 2);
     assert_eq!(
         output.results[1].get(),
-        r#"{"input":"GRCh38:chr1:DEL:3:3:C","assembly":"GRCh38","contig":"chr1","position":2,"ref":"AC","alt":"A","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"reason":"reference_mismatch","scoring_identity":"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd"}"#
+        r#"{"input":"GRCh38:chr1:DEL:3:3:C","assembly":"GRCh38","contig":"chr1","position":2,"ref":"AC","alt":"A","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"reason":"reference_mismatch","scoring_identity":"sha256:04fe923c4814c12d11cf3ddd27d25e8099983a6cf65d39ddb0e718467ed0cbd9"}"#
     );
     assert_eq!(
         calls.load(Ordering::SeqCst),
@@ -3036,7 +3036,7 @@ async fn mixed_batch_keeps_precomputed_result_and_orders_typed_rejection() {
     assert_eq!(raw.results[0].get(), normal.results[0].get());
     assert_eq!(
         raw.results[1].get(),
-        r#"{"input":"GRCh38:chr1:2:A:C","assembly":"GRCh38","contig":"chr1","position":2,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"reason":"not_in_annotated_gene","scoring_identity":"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd"}"#
+        r#"{"input":"GRCh38:chr1:2:A:C","assembly":"GRCh38","contig":"chr1","position":2,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"reason":"not_in_annotated_gene","scoring_identity":"sha256:04fe923c4814c12d11cf3ddd27d25e8099983a6cf65d39ddb0e718467ed0cbd9"}"#
     );
     let value: Value = serde_json::from_slice(&bytes).expect("JSON");
     assert!(value["results"][1].get("provenance").is_none());
@@ -3243,7 +3243,7 @@ async fn mixed_batch_keeps_exact_cache_hit_beside_rejection_without_rescoring() 
     assert_eq!(mixed.results[0].get(), cached_only.results[0].get());
     assert_eq!(
         mixed.results[1].get(),
-        r#"{"input":"GRCh38:chr1:3:A:C","assembly":"GRCh38","contig":"chr1","position":3,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"reason":"not_in_annotated_gene","scoring_identity":"sha256:3e12c7cb2ed1905de57e4cf9953b2708ac0e61472860ad2472f5914af7a83ecd"}"#
+        r#"{"input":"GRCh38:chr1:3:A:C","assembly":"GRCh38","contig":"chr1","position":3,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"reason":"not_in_annotated_gene","scoring_identity":"sha256:04fe923c4814c12d11cf3ddd27d25e8099983a6cf65d39ddb0e718467ed0cbd9"}"#
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }

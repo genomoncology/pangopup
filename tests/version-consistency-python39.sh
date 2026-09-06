@@ -26,6 +26,24 @@ try:
     main = namespace["main"]
     checker_globals = main.__globals__
     original_read = checker_globals["read"]
+    required_public_executable_version = "0.4.0"
+    required_public_executable_release_id = "383614742"
+    required_public_executable_commit = "ea4438e50762e32f09052b364060c89201ed78bc"
+    required_public_container_version = "0.3.0"
+    required_public_container_index = "sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0"
+    required_frontier_updated_date = "2026-09-06"
+    if checker_globals.get("PUBLIC_EXECUTABLE_VERSION") != required_public_executable_version:
+        raise AssertionError("checker does not pin the public executable version")
+    if checker_globals.get("PUBLIC_EXECUTABLE_RELEASE_ID") != required_public_executable_release_id:
+        raise AssertionError("checker does not pin the public executable release")
+    if checker_globals.get("PUBLIC_EXECUTABLE_COMMIT") != required_public_executable_commit:
+        raise AssertionError("checker does not pin the public executable commit")
+    if checker_globals.get("PUBLIC_CONTAINER_VERSION") != required_public_container_version:
+        raise AssertionError("checker does not pin the public container version")
+    if checker_globals.get("PUBLIC_CONTAINER_INDEX") != required_public_container_index:
+        raise AssertionError("checker does not pin the public container index")
+    if checker_globals.get("FRONTIER_UPDATED_DATE") != required_frontier_updated_date:
+        raise AssertionError("checker does not pin the current frontier update date")
     required_documents = (
         (
             "architecture/compatibility.md",
@@ -99,6 +117,10 @@ try:
     request_contract_schema = original_read("spec/http-service.md")
     citation = original_read("CITATION.cff")
     citation_test = original_read("crates/pangopup-cli/tests/citation.rs")
+    delivery = original_read("architecture/delivery.md")
+    v040_release_notes = original_read("planning/artifacts/057-release-notes.md")
+    v040_publication_record = original_read("planning/artifacts/058-public-v0.4.0.md")
+    frontier = original_read("planning/frontier.md")
     candidate = namespace["workspace_version"]()
     required_candidate_release_date = "2026-09-06"
     if checker_globals["CANDIDATE_RELEASE_DATE"] != required_candidate_release_date:
@@ -164,6 +186,52 @@ try:
                 citation_test,
                 f'("date-released", "{required_candidate_release_date}"),',
                 '("date-released", "2099-01-01"),',
+            )
+        },
+    )
+    executable_claim = f"[`v{required_public_executable_version}`](https://github.com/genomoncology/pangopup/releases/tag/v{required_public_executable_version})"
+    expect_rejected(
+        "a stale public executable claim",
+        {
+            "architecture/delivery.md": replace_once(
+                delivery, executable_claim, "[`v9.9.9`](https://example.invalid/v9.9.9)"
+            )
+        },
+    )
+    container_claim = f"The current public set is `{required_public_container_version}`/`v{required_public_container_version}`/`latest`, all resolving to index `{required_public_container_index}`"
+    expect_rejected(
+        "a stale public container claim",
+        {
+            "architecture/delivery.md": replace_once(
+                delivery, container_claim, container_claim.replace(required_public_container_index, "sha256:" + "0" * 64)
+            )
+        },
+    )
+    expect_rejected(
+        "changed immutable v0.4.0 release-note bytes",
+        {
+            "planning/artifacts/057-release-notes.md": replace_once(
+                v040_release_notes, "# PangoPup v0.4.0 release notes", "# Changed v0.4.0 release notes"
+            )
+        },
+    )
+    expect_rejected(
+        "an incomplete v0.4.0 partial record",
+        {
+            "planning/artifacts/058-public-v0.4.0.md": replace_once(
+                v040_publication_record,
+                "State: **PARTIAL — immutable v0.4.0 executable public; v0.4.0 container aliases absent.**",
+                "",
+            )
+        },
+    )
+    expect_rejected(
+        "a stale current frontier update date",
+        {
+            "planning/frontier.md": replace_once(
+                frontier,
+                f"Updated: {required_frontier_updated_date}",
+                "Updated: 2026-08-05",
             )
         },
     )

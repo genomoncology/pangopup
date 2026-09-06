@@ -4,14 +4,21 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import pathlib
 import re
 import sys
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-PUBLIC_VERSION = "0.3.0"
+PUBLIC_EXECUTABLE_VERSION = "0.4.0"
+PUBLIC_EXECUTABLE_RELEASE_ID = "383614742"
+PUBLIC_EXECUTABLE_COMMIT = "ea4438e50762e32f09052b364060c89201ed78bc"
+PUBLIC_CONTAINER_VERSION = "0.3.0"
+PUBLIC_CONTAINER_INDEX = "sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0"
 CANDIDATE_RELEASE_DATE = "2026-09-06"
+FRONTIER_UPDATED_DATE = "2026-09-06"
+V040_RELEASE_NOTES_SHA256 = "729fa6ed9ddb641501f2abdf5e63cd2fd9861154a46f02967bea7ff408ce4aa9"
 PACKAGES = {
     "pangopup-assets",
     "pangopup-build",
@@ -258,26 +265,24 @@ def check_candidate(candidate: str) -> None:
     require_in_section("candidate", "spec/readme-first-use.md", "# README first-use contract", f"VERSION={candidate}")
 
     service = re.sub(r"\s+", " ", markdown_section("architecture/service.md", "# Service Boundary"))
-    if candidate == PUBLIC_VERSION:
-        transition = (
-            f"public application and repository source both identify v{candidate} as one "
-            "coherent executable/container release"
-        )
-    else:
-        transition = (
-            f"currently identifies application v{PUBLIC_VERSION}; the repository prepares "
-            f"v{candidate} as one coherent executable/container candidate"
-        )
+    transition = (
+        f"public executable identifies application v{PUBLIC_EXECUTABLE_VERSION}; the public "
+        f"container remains v{PUBLIC_CONTAINER_VERSION}; the repository prepares v{candidate} "
+        "as one coherent executable/container candidate"
+    )
     if transition not in service:
         fail("candidate/public transition", "architecture/service.md", transition)
 
 
 def check_current_public() -> None:
-    require_in_section("current-public", "architecture/delivery.md", "## Thin container delivery", f"The current public set is `{PUBLIC_VERSION}`/`v{PUBLIC_VERSION}`/`latest`")
-    require_in_section("current-public", "architecture/delivery.md", "## GitHub Releases", f"[`v{PUBLIC_VERSION}`](https://github.com/genomoncology/pangopup/releases/tag/v{PUBLIC_VERSION})")
-    require_in_section("current-public", "planning/faq.md", "### How will users install the executable?", f"tagged `v{PUBLIC_VERSION}` script with\n`--version {PUBLIC_VERSION}`")
-    require_in_section("current-public", "planning/faq.md", "### How will users install the executable?", f"[`v{PUBLIC_VERSION}`](https://github.com/genomoncology/pangopup/releases/tag/v{PUBLIC_VERSION})")
-    require_in_section("current-public", "planning/faq.md", "### How will users install the executable?", f"The public v{PUBLIC_VERSION} release passed a clean isolated Linux run")
+    require("current-state", "planning/frontier.md", "current update date", rf"^Updated: {re.escape(FRONTIER_UPDATED_DATE)}$")
+    require_in_section("current-public-container", "architecture/delivery.md", "## Thin container delivery", f"The current public set is `{PUBLIC_CONTAINER_VERSION}`/`v{PUBLIC_CONTAINER_VERSION}`/`latest`, all resolving to index `{PUBLIC_CONTAINER_INDEX}`")
+    require_in_section("current-public-executable", "architecture/delivery.md", "## GitHub Releases", f"[`v{PUBLIC_EXECUTABLE_VERSION}`](https://github.com/genomoncology/pangopup/releases/tag/v{PUBLIC_EXECUTABLE_VERSION})")
+    require_in_section("current-public-executable", "planning/faq.md", "### How will users install the executable?", f"tagged `v{PUBLIC_EXECUTABLE_VERSION}` script with\n`--version {PUBLIC_EXECUTABLE_VERSION}`")
+    require_in_section("current-public-executable", "planning/faq.md", "### How will users install the executable?", f"[`v{PUBLIC_EXECUTABLE_VERSION}`](https://github.com/genomoncology/pangopup/releases/tag/v{PUBLIC_EXECUTABLE_VERSION})")
+    require_in_section("current-public-executable", "planning/faq.md", "### How will users install the executable?", f"The public v{PUBLIC_EXECUTABLE_VERSION} release passed a clean isolated Linux run")
+    require_in_section("current-state", "planning/frontier.md", "## Current release state", f"GitHub Latest is immutable executable v{PUBLIC_EXECUTABLE_VERSION} release ID `{PUBLIC_EXECUTABLE_RELEASE_ID}` at commit `{PUBLIC_EXECUTABLE_COMMIT}`.")
+    require_in_section("current-state", "planning/frontier.md", "## Current release state", f"GHCR `latest`, `{PUBLIC_CONTAINER_VERSION}`, and `v{PUBLIC_CONTAINER_VERSION}` remain at `{PUBLIC_CONTAINER_INDEX}`.")
 
 
 def check_fixed_fixtures() -> None:
@@ -401,9 +406,21 @@ def check_history() -> None:
             "independent v0.3.0 qualification title",
             r"^# Independent public v0\.3\.0 qualification$",
         ),
+        ("planning/artifacts/057-release-notes.md", "v0.4.0 release-note title", r"^# PangoPup v0\.4\.0 release notes$"),
+        (
+            "planning/artifacts/058-public-v0.4.0.md",
+            "v0.4.0 executable-only publication state",
+            r"^State: \*\*PARTIAL — immutable v0\.4\.0 executable public; v0\.4\.0 container aliases absent\.\*\*$",
+        ),
     )
     for path, claim, pattern in claims:
         require("history", path, claim, pattern)
+
+    release_notes_digest = hashlib.sha256(
+        (ROOT / "planning/artifacts/057-release-notes.md").read_bytes()
+    ).hexdigest()
+    if release_notes_digest != V040_RELEASE_NOTES_SHA256:
+        fail("history", "planning/artifacts/057-release-notes.md", "the immutable v0.4.0 release body")
 
     resources = [
         json.loads(line)
@@ -476,7 +493,10 @@ def main() -> None:
     check_fixed_fixtures()
     check_history()
     check_response_shape_compatibility()
-    print(f"version consistency: candidate {candidate}; public {PUBLIC_VERSION}")
+    print(
+        f"version consistency: candidate {candidate}; public executable "
+        f"{PUBLIC_EXECUTABLE_VERSION}; public container {PUBLIC_CONTAINER_VERSION}"
+    )
 
 
 if __name__ == "__main__":

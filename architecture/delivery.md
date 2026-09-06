@@ -91,7 +91,7 @@ history or Git LFS.
 
 Release families keep independently versioned concerns separate. The SNV
 lookup uses one shipped eight-file release asset set whose installable transport
-is the closed five-file subset. The ordinary executable release is immutable [`v0.3.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.3.0). Immutable `v0.2.0` and `v0.1.0` remain available as prior releases.
+is the closed five-file subset. The ordinary executable release is immutable [`v0.4.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.4.0). Immutable `v0.3.0`, `v0.2.0`, and `v0.1.0` remain available as prior releases. Container publication stopped before v0.4.0 aliases were created, so the public container remains v0.3.0 while the repository prepares v0.4.1.
 The converted model, compiled GRCh38 sequence index, and compiled mask form one
 qualified compatibility-bound public immutable `runtime-grch38-v1` release.
 Their model-side local transport is shipped:

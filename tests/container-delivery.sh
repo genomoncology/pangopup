@@ -18,14 +18,15 @@ fi
 
 publish_workflow=.github/workflows/publish-container.yml
 [[ -f "$publish_workflow" ]]
-candidate_publication_record=planning/artifacts/058-public-v0.4.0.md
+candidate_publication_record=planning/artifacts/060-public-v0.4.1.md
 [[ -f "$candidate_publication_record" ]]
-grep -Fq 'GHCR `latest` remains OCI index `sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0`' "$candidate_publication_record"
-grep -Fq 'The Git tag `v0.4.0` and GHCR tags `0.4.0` and `v0.4.0` must all be absent.' "$candidate_publication_record"
-stage_record_line=$(grep -nF '## 2. Stage and qualify native container leaves' "$candidate_publication_record" | cut -d: -f1)
-finalize_record_line=$(grep -nF '## 6. Finalize and verify the public container index' "$candidate_publication_record" | cut -d: -f1)
+grep -Fq 'Before every public effect, require GHCR `latest`, `0.3.0`, and `v0.3.0` to remain OCI index `sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0`.' "$candidate_publication_record"
+grep -Fq 'Require GHCR `0.4.1` and `v0.4.1` to return the canonical anonymous `MANIFEST_UNKNOWN` response.' "$candidate_publication_record"
+grep -Fq 'The absent historical `0.4.0` and `v0.4.0` container aliases are recorded in `planning/artifacts/058-public-v0.4.0.md`' "$candidate_publication_record"
+stage_record_line=$(grep -nF '## 2. Stage and admit native container leaves' "$candidate_publication_record" | cut -d: -f1)
+finalize_record_line=$(grep -nF '## 6. Finalize and verify the container index' "$candidate_publication_record" | cut -d: -f1)
 [[ -n "$stage_record_line" && -n "$finalize_record_line" && "$stage_record_line" -lt "$finalize_record_line" ]]
-grep -Fq 'Only after the executable release and public installer pass, dispatch `.github/workflows/publish-container.yml` with `mode=finalize`' "$candidate_publication_record"
+grep -Fq 'Only after the public executable and installer checks pass, dispatch `.github/workflows/publish-container.yml` with `mode=finalize`' "$candidate_publication_record"
 grep -Fxq '  workflow_dispatch:' "$publish_workflow"
 if grep -Eq '^  (push|pull_request|schedule):' "$publish_workflow"; then
   printf 'container publication workflow must be manually dispatched only\n' >&2
@@ -115,6 +116,7 @@ collision_accept='Accept: application/vnd.oci.image.index.v1+json, application/v
 grep -Fq '.[0].code == "MANIFEST_UNKNOWN"' scripts/require-container-tag-absent.sh
 grep -Fq 'could not prove version tag %s absent: HTTP %s' scripts/require-container-tag-absent.sh
 grep -Fq 'PREVIOUS_INDEX: sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0' "$publish_workflow"
+grep -Fq 'VERSION: 0.4.1' "$publish_workflow"
 grep -Fq 'scripts/require-container-tag-digest.sh latest "$latest_code"' "$publish_workflow"
 grep -Fq '"$RUNNER_TEMP/latest.headers" "$PREVIOUS_INDEX"' "$publish_workflow"
 grep -Fq 'container tag %s no longer resolves to its reviewed predecessor' scripts/require-container-tag-digest.sh

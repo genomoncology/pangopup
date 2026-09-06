@@ -1,6 +1,10 @@
 # Frontier
 
-Updated: 2026-08-05
+Updated: 2026-09-06
+
+## Current release state
+
+GitHub Latest is immutable executable v0.4.0 release ID `383614742` at commit `ea4438e50762e32f09052b364060c89201ed78bc`. Its six executable files are public. Qualification found that full uninstall failed on the normal read-only installed profile, so container finalization stopped before creating v0.4.0 aliases. GHCR `latest`, `0.3.0`, and `v0.3.0` remain at `sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0`. The reviewed source now fixes the uninstall and qualification-gate defects and prepares one v0.4.1 executable/container candidate. Earlier release and measurement sections remain historical evidence.
 
 ## Current boundary
 
