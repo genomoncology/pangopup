@@ -66,10 +66,20 @@ for action in $(sed -nE 's/^[[:space:]]*- uses: ([^ #]+).*/\1/p' "$publish_workf
     exit 1
   }
 done
-[[ "$(grep -Fc 'test "$EVENT_SHA" = "$EXACT_COMMIT"' "$publish_workflow")" == 6 ]]
-[[ "$(grep -Fc 'test "$WORKFLOW_SHA" = "$EXACT_COMMIT"' "$publish_workflow")" == 6 ]]
-[[ "$(grep -Fc 'test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"' "$publish_workflow")" == 6 ]]
-[[ "$(grep -Fc 'test "$(git rev-parse origin/main)" = "$EXACT_COMMIT"' "$publish_workflow")" == 6 ]]
+stage_jobs=$(sed -n '/^  preflight-stage:/,/^  load-stage-receipt:/p' "$publish_workflow")
+finalize_jobs=$(sed -n '/^  load-stage-receipt:/,$p' "$publish_workflow")
+[[ "$(grep -Fc 'test "$EVENT_SHA" = "$EXACT_COMMIT"' <<<"$stage_jobs")" == 3 ]]
+[[ "$(grep -Fc 'test "$WORKFLOW_SHA" = "$EXACT_COMMIT"' <<<"$stage_jobs")" == 3 ]]
+[[ "$(grep -Fc 'test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"' <<<"$stage_jobs")" == 3 ]]
+[[ "$(grep -Fc 'test "$(git rev-parse origin/main)" = "$EXACT_COMMIT"' <<<"$stage_jobs")" == 3 ]]
+[[ "$(grep -Fc 'test "$EVENT_SHA" = "$WORKFLOW_SHA"' <<<"$finalize_jobs")" == 3 ]]
+[[ "$(grep -Fc 'test "$(git rev-parse origin/main)" = "$WORKFLOW_SHA"' <<<"$finalize_jobs")" == 3 ]]
+[[ "$(grep -Fc 'test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"' <<<"$finalize_jobs")" == 3 ]]
+[[ "$(grep -Fc 'git merge-base --is-ancestor "$RELEASE_COMMIT" origin/main' <<<"$finalize_jobs")" == 3 ]]
+grep -Fq '"/repos/$GITHUB_REPOSITORY/releases/tags/v$VERSION"' <<<"$finalize_jobs"
+grep -Fq '.immutable == true and .draft == false and .prerelease == false and .tag_name == $tag and .target_commitish == $commit' <<<"$finalize_jobs"
+grep -Fq '"/repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION"' <<<"$finalize_jobs"
+grep -Fq '.object.type == "commit" and .object.sha == $commit' <<<"$finalize_jobs"
 [[ "$(grep -Ec '^[[:space:]]+for tag in "\$VERSION" "v\$VERSION"; do$' "$publish_workflow")" == 2 ]]
 grep -Fq 'pangopup-container-leaf-${{ matrix.architecture }}-${{ inputs.commit }}-${{ github.run_id }}' "$publish_workflow"
 grep -Fq 'test "${#files[@]}" = 2' "$publish_workflow"
@@ -81,14 +91,16 @@ grep -Fq '.name == "aggregate-stage-receipt" and .conclusion == "success"' "$pub
 grep -Fq '"/repos/$GITHUB_REPOSITORY/actions/runs/$STAGE_RUN_ID/artifacts?per_page=100"' "$publish_workflow"
 grep -Fq 'scripts/admit-container-stage-receipt.sh metadata' "$publish_workflow"
 grep -Fq 'scripts/admit-container-stage-receipt.sh archive' "$publish_workflow"
+grep -Fq '"$RELEASE_COMMIT" "$RELEASE_COMMIT" "$STAGE_RUN_ID"' "$publish_workflow"
 grep -Fq 'test "$artifact_digest" = "sha256:$(sha256sum "$RUNNER_TEMP/receipt.zip" | cut -d'"'"' '"'"' -f1)"' "$publish_workflow"
 grep -Fq 'keys == ["amd64","arm64","commit","mode","run_id","schema","workflow_sha"]' scripts/admit-container-stage-receipt.sh
 grep -Fq 'docker logout ghcr.io >/dev/null 2>&1 || true' "$publish_workflow"
 grep -Fq 'scripts/qualify-container.sh "$IMAGE@$digest"' "$publish_workflow"
-revision_inspect='            test "$(docker image inspect --format '\''{{index .Config.Labels "org.opencontainers.image.revision"}}'\'' "$IMAGE@$digest")" = "$EXACT_COMMIT"'
+revision_inspect='            test "$(docker image inspect --format '\''{{index .Config.Labels "org.opencontainers.image.revision"}}'\'' "$IMAGE@$digest")" = "$RELEASE_COMMIT"'
 version_inspect='            test "$(docker image inspect --format '\''{{index .Config.Labels "org.opencontainers.image.version"}}'\'' "$IMAGE@$digest")" = "$VERSION"'
 grep -Fxq "$revision_inspect" "$publish_workflow"
 grep -Fxq "$version_inspect" "$publish_workflow"
+grep -Fq 'test "$(jq -r '\''.annotations."org.opencontainers.image.revision"'\'' <<<"$raw")" = "${{ inputs.commit }}"' "$publish_workflow"
 if grep -Fq '{{index .Config.Labels \"' "$publish_workflow"; then
   printf 'Docker label inspection templates must not pass literal backslashes\n' >&2
   exit 1
