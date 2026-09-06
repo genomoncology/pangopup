@@ -211,7 +211,7 @@ impl WorkerBackend for ProductionWorker {
 }
 
 struct JobItem {
-    output_index: usize,
+    output_indices: Vec<usize>,
     pending: PendingModel,
     key: CacheKey,
 }
@@ -231,6 +231,7 @@ impl ModelJob {
 // Keep ordinary completed values inline. Boxing this variant would add an
 // allocation for every successful item. The uncommon rejection does not
 // justify that cost.
+#[derive(Clone)]
 #[allow(clippy::large_enum_variant)]
 enum ScoreOutcome {
     Complete(RoutedResult),
@@ -1020,15 +1021,17 @@ fn process_job(
         if job.response.is_closed() {
             return Ok(results);
         }
-        match backend.complete(&item.pending, &item.key) {
-            Ok(result) => results.push((item.output_index, ScoreOutcome::Complete(result))),
-            Err(WorkerFailure::Rejected(reason)) => results.push((
-                item.output_index,
-                ScoreOutcome::Rejected(item.pending.variant().clone(), reason.into()),
-            )),
+        let outcome = match backend.complete(&item.pending, &item.key) {
+            Ok(result) => ScoreOutcome::Complete(result),
+            Err(WorkerFailure::Rejected(reason)) => {
+                ScoreOutcome::Rejected(item.pending.variant().clone(), reason.into())
+            }
             Err(WorkerFailure::Operational(failure)) => {
                 return Err(WorkerReply::BackendFailure(failure));
             }
+        };
+        for output_index in &item.output_indices {
+            results.push((*output_index, outcome.clone()));
         }
     }
     Ok(results)
@@ -1438,14 +1441,14 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
             BatchDecision::Model(required) => {
                 let key = CacheKey::new(required.variant(), state.cache_identity.clone());
                 pending.push(JobItem {
-                    output_index: index,
+                    output_indices: vec![index],
                     pending: required,
                     key,
                 });
             }
         }
     }
-    let pending = match handler_cache_hits(state, pending).await {
+    let pending = match handler_cache_hits(state, group_request_model_work(pending)).await {
         Ok(pending) => pending,
         Err(_) => {
             return service_error(
@@ -1458,11 +1461,14 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
     let mut misses = Vec::new();
     for (item, cached) in pending {
         if let Some(records) = cached {
-            outputs[item.output_index] = Some(ScoreOutcome::Complete(routed_from_cached(
+            let outcome = ScoreOutcome::Complete(routed_from_cached(
                 &item.pending,
                 records,
                 state.provenance.clone(),
-            )));
+            ));
+            for output_index in item.output_indices {
+                outputs[output_index] = Some(outcome.clone());
+            }
         } else {
             misses.push(item);
         }
@@ -1663,6 +1669,18 @@ fn render_invalid_variant_raw(reason: RejectionReason) -> Result<Box<RawValue>, 
         reason: reason.as_str(),
     };
     serde_json::value::to_raw_value(&value).map_err(|_| ())
+}
+
+fn group_request_model_work(items: Vec<JobItem>) -> Vec<JobItem> {
+    let mut groups: Vec<JobItem> = Vec::with_capacity(items.len());
+    for mut item in items {
+        if let Some(group) = groups.iter_mut().find(|group| group.key == item.key) {
+            group.output_indices.append(&mut item.output_indices);
+        } else {
+            groups.push(item);
+        }
+    }
+    groups
 }
 
 async fn handler_cache_hits(

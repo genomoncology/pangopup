@@ -276,6 +276,21 @@ struct RejectAtWorker {
     calls: Arc<AtomicUsize>,
 }
 
+struct CountingRejectWorker {
+    calls: Arc<AtomicUsize>,
+}
+
+impl WorkerBackend for CountingRejectWorker {
+    fn complete(
+        &mut self,
+        _pending: &PendingModel,
+        _key: &CacheKey,
+    ) -> Result<RoutedResult, WorkerFailure> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(WorkerFailure::Rejected(ModelRejection::NotInGene))
+    }
+}
+
 impl WorkerBackend for RejectAtWorker {
     fn complete(
         &mut self,
@@ -493,7 +508,7 @@ fn model_job(positions: &[u32]) -> ModelJob {
             .map(|(output_index, position)| {
                 let pending = pending_at(*position);
                 JobItem {
-                    output_index,
+                    output_indices: vec![output_index],
                     key: CacheKey::new(pending.variant(), identity()),
                     pending,
                 }
@@ -745,7 +760,7 @@ fn queued_production_job_rechecks_sqlite_after_admission_before_inference() {
     sender
         .send(ModelJob {
             items: vec![JobItem {
-                output_index: 0,
+                output_indices: vec![0],
                 pending,
                 key: key.clone(),
             }],
@@ -819,7 +834,7 @@ fn production_worker_running_disconnect_still_writes_through_sqlite() {
     sender
         .send(ModelJob {
             items: vec![JobItem {
-                output_index: 0,
+                output_indices: vec![0],
                 pending,
                 key: key.clone(),
             }],
@@ -1959,6 +1974,232 @@ fn score_request_for(positions: &[u32]) -> Request<Body> {
         .expect("request")
 }
 
+fn score_request_for_values(variants: &[String]) -> Request<Body> {
+    Request::post("/v1/score")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({"variants": variants})).expect("JSON"),
+        ))
+        .expect("request")
+}
+
+#[tokio::test]
+async fn canonical_model_work_at_the_request_item_limit_executes_once() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut state = build_state(
+        Arc::new(FakeLookup),
+        Box::new(EmptyCache),
+        identity(),
+        provenance(),
+        vec![Box::new(FakeWorker {
+            calls: Arc::clone(&calls),
+        })],
+        1,
+        1,
+        AssetStatus {
+            snv_bundle_id: "snv".to_owned(),
+            model_bundle_id: "model".to_owned(),
+            reference_bundle_id: "reference".to_owned(),
+            mask_sha256: "mask".to_owned(),
+        },
+        scoring_identity(),
+    );
+    state.reference = Some(Arc::new(ExactEditReference {
+        bases: b"AAGT".to_vec(),
+        provenance: provenance().reference().clone(),
+    }));
+    let forms = [
+        "GRCh38:chr1:DEL:3:3:G",
+        "GRCh38:chr1:2:AG:A",
+        "GRCh38:1:2:AG:A",
+        "GRCh38:NC_000001.11:2:AG:A",
+    ];
+    let submitted = (0..REQUEST_LIMITS.max_variants)
+        .map(|index| forms[index % forms.len()].to_owned())
+        .collect::<Vec<_>>();
+    let response = app(state)
+        .oneshot(score_request_for_values(&submitted))
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: Value = serde_json::from_slice(&body(response).await).expect("JSON");
+    let results = value["results"].as_array().expect("results");
+    assert_eq!(results.len(), REQUEST_LIMITS.max_variants);
+    for (result, input) in results.iter().zip(&submitted) {
+        assert_eq!(result["input"], input.as_str());
+        assert_eq!(result["position"], 2);
+        assert_eq!(result["ref"], "AG");
+        assert_eq!(result["alt"], "A");
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn one_model_rejection_fans_out_to_every_request_local_occurrence() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let state = build_state(
+        Arc::new(FakeLookup),
+        Box::new(EmptyCache),
+        identity(),
+        provenance(),
+        vec![Box::new(CountingRejectWorker {
+            calls: Arc::clone(&calls),
+        })],
+        1,
+        1,
+        AssetStatus {
+            snv_bundle_id: "snv".to_owned(),
+            model_bundle_id: "model".to_owned(),
+            reference_bundle_id: "reference".to_owned(),
+            mask_sha256: "mask".to_owned(),
+        },
+        scoring_identity(),
+    );
+    let submitted = [
+        "GRCh38:chr1:2:A:C".to_owned(),
+        "GRCh38:1:2:A:C".to_owned(),
+        "GRCh38:NC_000001.11:2:A:C".to_owned(),
+    ];
+    let response = app(state)
+        .oneshot(score_request_for_values(&submitted))
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: Value = serde_json::from_slice(&body(response).await).expect("JSON");
+    let results = value["results"].as_array().expect("results");
+    for (result, input) in results.iter().zip(&submitted) {
+        assert_eq!(result["input"], input.as_str());
+        assert_eq!(result["status"], "rejected");
+        assert_eq!(result["reason"], "not_in_annotated_gene");
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grouped_request_work_controls_status_and_retry_after() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let release = Arc::new((Mutex::new(false), Condvar::new()));
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let state = build_state(
+        Arc::new(FakeLookup),
+        Box::new(EmptyCache),
+        identity(),
+        provenance(),
+        vec![Box::new(BlockingWorker {
+            calls: Arc::clone(&calls),
+            entered: entered_tx,
+            release: Arc::clone(&release),
+            order,
+        })],
+        1,
+        2,
+        AssetStatus {
+            snv_bundle_id: "snv".to_owned(),
+            model_bundle_id: "model".to_owned(),
+            reference_bundle_id: "reference".to_owned(),
+            mask_sha256: "mask".to_owned(),
+        },
+        scoring_identity(),
+    );
+    let router = app(state.clone());
+    let duplicates = vec!["GRCh38:chr1:2:A:C".to_owned(), "GRCh38:1:2:A:C".to_owned()];
+    let running = tokio::spawn(
+        router
+            .clone()
+            .oneshot(score_request_for_values(&duplicates)),
+    );
+    tokio::task::spawn_blocking(move || entered_rx.recv().expect("worker entered"))
+        .await
+        .expect("entered join");
+    let queued = tokio::spawn(router.clone().oneshot(score_request(3)));
+    while state.dispatcher.snapshot().queued == 0 {
+        tokio::task::yield_now().await;
+    }
+    let snapshot = state.dispatcher.snapshot();
+    let refused = router.oneshot(score_request(4)).await.expect("response");
+    let retry_after = refused.headers()[header::RETRY_AFTER].clone();
+
+    let (lock, ready) = &*release;
+    *lock.lock().expect("release") = true;
+    ready.notify_all();
+    assert_eq!(
+        running.await.expect("join").expect("response").status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        queued.await.expect("join").expect("response").status(),
+        StatusCode::OK
+    );
+
+    assert_eq!(snapshot.running, 1);
+    assert_eq!(snapshot.queued, 1);
+    assert_eq!(refused.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(retry_after, "21");
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_requests_for_one_key_do_not_coalesce() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let release = Arc::new((Mutex::new(false), Condvar::new()));
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let backends = (0..2)
+        .map(|_| {
+            Box::new(BlockingWorker {
+                calls: Arc::clone(&calls),
+                entered: entered_tx.clone(),
+                release: Arc::clone(&release),
+                order: Arc::clone(&order),
+            }) as Box<dyn WorkerBackend>
+        })
+        .collect();
+    let state = build_state(
+        Arc::new(FakeLookup),
+        Box::new(EmptyCache),
+        identity(),
+        provenance(),
+        backends,
+        1,
+        2,
+        AssetStatus {
+            snv_bundle_id: "snv".to_owned(),
+            model_bundle_id: "model".to_owned(),
+            reference_bundle_id: "reference".to_owned(),
+            mask_sha256: "mask".to_owned(),
+        },
+        scoring_identity(),
+    );
+    let router = app(state.clone());
+    let first = tokio::spawn(router.clone().oneshot(score_request(2)));
+    let second = tokio::spawn(router.oneshot(score_request(2)));
+    tokio::task::spawn_blocking(move || {
+        entered_rx.recv().expect("first worker entered");
+        entered_rx.recv().expect("second worker entered");
+    })
+    .await
+    .expect("entered join");
+    let snapshot = state.dispatcher.snapshot();
+
+    let (lock, ready) = &*release;
+    *lock.lock().expect("release") = true;
+    ready.notify_all();
+    assert_eq!(
+        first.await.expect("join").expect("response").status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        second.await.expect("join").expect("response").status(),
+        StatusCode::OK
+    );
+    assert_eq!(snapshot.running, 2);
+    assert_eq!(snapshot.queued, 0);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn configured_workers_report_running_variant_units() {
     let calls = Arc::new(AtomicUsize::new(0));
@@ -2133,7 +2374,7 @@ async fn contended_completed_cache_hit_waits_outside_full_model_capacity() {
             .dispatcher
             .admit(ModelJob {
                 items: vec![JobItem {
-                    output_index: 0,
+                    output_indices: vec![0],
                     key: CacheKey::new(pending.variant(), identity()),
                     pending,
                 }],
@@ -3117,12 +3358,12 @@ fn running_disconnect_does_not_interrupt_started_inference() {
         .send(ModelJob {
             items: vec![
                 JobItem {
-                    output_index: 0,
+                    output_indices: vec![0],
                     key: CacheKey::new(first.variant(), identity()),
                     pending: first,
                 },
                 JobItem {
-                    output_index: 1,
+                    output_indices: vec![1],
                     key: CacheKey::new(second.variant(), identity()),
                     pending: second,
                 },
