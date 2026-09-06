@@ -149,7 +149,7 @@ check_focused_help assets 'Usage: pangopup assets <ACTION>' assets
 check_focused_help assets-install 'Usage: pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]' assets install
 check_focused_help assets-runtime 'Usage: pangopup assets runtime <ACTION>' assets runtime
 check_focused_help assets-runtime-install 'Usage: pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]' assets runtime install
-check_focused_help lookup 'Usage: pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant GRCh38:<CONTIG>:<POS>:<REF>:<ALT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]' lookup
+check_focused_help lookup 'Usage: pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant <GRCh38-VARIANT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]' lookup
 
 stage=filesystem-inventory
 docker create --name "$container" "$image" >/dev/null
