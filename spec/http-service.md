@@ -31,7 +31,7 @@ pangopup serve --data-dir "$(pwd)/../target/spec/missing-service-data"
 {"status":"error","code":"ASSETS_MISSING","message":"required assets are missing; run pangopup sync","details":null}
 ```
 
-The inside-out HTTP tests inject miniature providers and exercise the actual router without downloading or running the production model. They pin exact success/error bytes, lookup and SQLite bypass under saturation, whole-request FIFO admission by uncached model variant, exact-boundary 429 backpressure with retry guidance, permanent HTTP 422 rejection above the reported request limit, disconnect accounting, worker loss, graceful drain, multi-worker status totals, and the HTTP-required empty wire body plus exact representation headers for `HEAD`.
+The inside-out HTTP tests inject miniature providers and exercise the actual router without downloading or running the production model. They pin exact success/error bytes, lookup and SQLite bypass under saturation, whole-request FIFO admission by uncached model variant, exact-boundary 429 backpressure with retry guidance, HTTP 422 rejection above the live-cache-dependent request limit, disconnect accounting, worker loss, graceful drain, multi-worker status totals, and the HTTP-required empty wire body plus exact representation headers for `HEAD`.
 
 The status response and every returned score item carry one `scoring_identity`. PangoPup hashes the RFC 8785 canonical `pangopup.active-scoring-identity.v1` preimage over software version, admitted runtime-profile identity, and effective CPU policy. Precomputed, modeled, cached, ambiguous, mixed, and mixed-batch rejected items all carry the same value. Request-level errors have no result item. Detailed route provenance stays unchanged, and standalone CLI output does not gain this service-only field.
 
@@ -78,6 +78,34 @@ cargo test --locked --quiet --package pangopup-assets active_identity >/dev/null
 cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures --bin pangopup scoring_identity >/dev/null 2>&1
 cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures --bin pangopup request_contract >/dev/null 2>&1
 printf 'status and every returned HTTP item share one canonical active scoring identity\n' | mustmatch like 'status and every returned HTTP item share one canonical active scoring identity'
+```
+
+## Cache-dependent model-work limit
+
+The uncached-model limit counts distinct canonical cache keys that remain misses after the live cache lookup. It does not count submitted items or elapsed time.
+
+An identical refused request can be accepted later after another successful operation populates enough keys, but cache writes are best-effort, entries can be evicted, and eventual success is not guaranteed.
+
+A batch within the item limit is accepted when its variants need no uncached model work, regardless of the uncached-model ceiling.
+
+`MODEL_BATCH_TOO_LARGE` returns HTTP 422 without `Retry-After`. Time alone does not change cache state, so clients should not retry an unchanged request blindly.
+
+Without evidence of cache warming, split the batch or reduce its distinct uncached model work to the reported `max_uncached_model_items`.
+
+## Scoring requests
+
+```bash
+cache_contract=$(awk '/^## Cache-dependent model-work limit$/ { on=1; next } on && (/^## / || /^```/) { exit } on' http-service.md)
+for statement in \
+  'The uncached-model limit counts distinct canonical cache keys that remain misses after the live cache lookup.' \
+  'It does not count submitted items or elapsed time.' \
+  'An identical refused request can be accepted later after another successful operation populates enough keys, but cache writes are best-effort, entries can be evicted, and eventual success is not guaranteed.' \
+  'A batch within the item limit is accepted when its variants need no uncached model work, regardless of the uncached-model ceiling.' \
+  '`MODEL_BATCH_TOO_LARGE` returns HTTP 422 without `Retry-After`. Time alone does not change cache state, so clients should not retry an unchanged request blindly.' \
+  'Without evidence of cache warming, split the batch or reduce its distinct uncached model work to the reported `max_uncached_model_items`.'; do
+  printf '%s' "$cache_contract" | rg -F -- "$statement" >/dev/null
+done
+printf 'the cache-dependent model-work refusal contract is complete\n' | mustmatch like 'the cache-dependent model-work refusal contract is complete'
 ```
 
 The scoring route requires exactly one parsed `application/json` content type. Case does not matter and legal parameters are accepted. Missing, malformed, non-JSON, JSON suffix, and repeated values receive HTTP 415 with `UNSUPPORTED_MEDIA_TYPE`. This validation follows route and method selection. It precedes readiness checks and body reads. The real executable test sends these headers through the HTTP listener and pins the response.
