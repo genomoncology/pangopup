@@ -134,9 +134,9 @@ Backend scoring and unusable-cache failures invalidate the complete request and 
 
 ## What a consumer pins
 
-A consumer stores one value beside a retained score and compares it later. That value must move whenever a score can change. It must hold still otherwise. `scoring_identity` fails the second half. It hashes the effective CPU policy of the deployment. Scaling a service from one thread to four moves it. Every answer stays the same.
+A consumer stores one value beside a retained score and compares it later. That value must move whenever a score can change. It must hold still otherwise. `scoring_identity` fails the second half. It hashes the effective CPU policy of the deployment. Scaling a service from one thread to four moves it. Measurement on one host and one build found every answer unchanged. [`architecture/compatibility.md`](../architecture/compatibility.md) states the strength of that measurement and tells a reader when to repeat it.
 
-The status response publishes three further values. `data_set_version` is the value to store where a system has one version field. PangoPup hashes the RFC 8785 canonical `pangopup.scoring-data-set-version.v1` preimage over the software version and the runtime profile identity. `runtime_profile_id` is the SHA-256 of the admitted canonical runtime profile. It covers every asset digest and every scoring input the profile declares. `scoring_semantics` names the score contract both routes answer under.
+The status response publishes three further values. `data_set_version` is the value to store where a system has one version field. PangoPup hashes the RFC 8785 canonical `pangopup.scoring-data-set-version.v1` preimage over the software version and the runtime profile identity. `runtime_profile_id` is the SHA-256 of the admitted canonical runtime profile. It covers every asset digest and every scoring input the profile declares. It does not cover the software version. A PangoPup version change can move an answer with every asset unchanged. A consumer therefore stores `data_set_version` rather than `runtime_profile_id`. `scoring_semantics` names the score contract both routes answer under.
 
 `--model-workers` and `--model-threads` move neither `data_set_version` nor `runtime_profile_id`. They do move `model.effective_cpu_policy`. `scoring_identity` moves with that policy.
 
@@ -169,6 +169,7 @@ for statement in \
   'A worker or thread change moves `scoring_identity` and never moves `data_set_version`.'; do
   printf '%s' "$readme" | rg -F -- "$statement" >/dev/null
 done
+! printf '%s' "$readme" | rg -F -- 'Store this identity as the data-set version' >/dev/null
 pinning=$(awk '/^## What a consumer pins$/ { on=1; next } on && /^## / { exit } on' ../architecture/compatibility.md)
 for statement in \
   'Store `data_set_version` as the data-set version when a system has one version field.' \
@@ -176,7 +177,8 @@ for statement in \
   '`runtime_profile_id` hashes the whole admitted runtime profile.' \
   'It covers every asset digest and every scoring input, `assembly`, `semantics`, `distance`, `masking_policy` and `cpu_policy` among them.' \
   'No worker or thread setting moves `data_set_version` or `runtime_profile_id`.' \
-  '`scoring_identity` also hashes the effective CPU policy. A thread change moves it. Measurement found no score that a thread change moved.' \
+  '`runtime_profile_id` alone is not the value to store. A PangoPup version change can move an answer with every asset unchanged. No such change moves `runtime_profile_id`. `data_set_version` covers the version too.' \
+  '`scoring_identity` also hashes the effective CPU policy. A thread change moves it. Measurement on one host and one build found no score that a thread change moved.' \
   'The runtime profile declares `cpu_policy` for the assets PangoPup qualified. The status `model.effective_cpu_policy` reports what the running service uses.' \
   'A service started with `--model-threads 4` reports `sequential:4/1` as its effective policy while its runtime profile still declares `sequential:1/1`.' \
   'A precomputed score item carries six provenance fields and a modeled score item carries twelve.' \

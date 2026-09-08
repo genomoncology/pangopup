@@ -501,9 +501,13 @@ mod installed_success {
             &cache.with_file_name("service-cache-four.sqlite3"),
             "4",
         );
-        assert_ne!(
-            one["model"]["effective_cpu_policy"], four["model"]["effective_cpu_policy"],
-            "the two runs must report different effective CPU policies"
+        assert_eq!(
+            one["model"]["effective_cpu_policy"], "sequential:1/1",
+            "one thread renders the effective policy the compatibility contract quotes"
+        );
+        assert_eq!(
+            four["model"]["effective_cpu_policy"], "sequential:4/1",
+            "four threads render the effective policy the compatibility contract quotes"
         );
         assert_ne!(
             one["scoring_identity"], four["scoring_identity"],
