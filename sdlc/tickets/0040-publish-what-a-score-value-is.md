@@ -12,6 +12,10 @@ A consumer building a clinical decision rule on a published threshold must recor
 
 The same question covers reproducibility. `crates/pangopup-assets/src/active_identity.rs:12-17` folds `effective_cpu_policy` into the scoring identity, which implies a deployment's worker and thread settings might change a result. Nothing states whether they can. Rounding to hundredths plausibly absorbs any floating-point variation a thread count introduces, and "plausibly" is not a property a clinical record can cite.
 
+The service already behaves as though a CPU policy can change a score. `CacheIdentity::new` takes the effective policy as a component (`crates/pangopup-cli/src/service.rs:783-790`), so a modeled result computed under one thread setting is never reused under another and the service recomputes it. That is either prudence or a quiet admission, and this ticket says which.
+
+It also supplies the test at no cost. Score the same variants under two thread settings and compare the two cache entries directly. If the values match, the cache key and the scoring identity are both over-specified and each carries an input that cannot change an answer. If they differ, a PangoPup score is not reproducible without recording the deployment's thread count, and that belongs in every clinical record that cites one.
+
 Done, observably:
 
 - The published specification states the score value space: discrete hundredths from 0.00 through 1.00 inclusive, and no value between two of them.
@@ -20,6 +24,7 @@ Done, observably:
 - It states that a threshold finer than one hundredth cannot be evaluated against a PangoPup score, and names the two representable neighbours of such a threshold as the only comparisons available.
 - It states whether the precomputed route and the model route produce the same value for the same variant, or names the conditions under which they differ.
 - It states whether a modeled score is identical across CPU policies, worker counts and thread counts. If it is, a test proves it by scoring the same variants under at least two different policies and comparing exact rendered output. If it is not, the specification names the variation a consumer must expect and the test pins that bound instead.
+- The finding says whether the effective CPU policy belongs in the model cache key. A policy that cannot change a value is discarding reusable cached work on every deployment change.
 - A consumer can cite a document rather than a source line for every sentence above.
 - `make lint`, `make test` and `make spec` pass without reducing specification coverage.
 
