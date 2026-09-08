@@ -23,6 +23,18 @@ struct CorpusCase {
     context: Option<CaseContext>,
     #[serde(default)]
     strands: Vec<CaseStrand>,
+    #[serde(default)]
+    precomputed: Vec<PrecomputedObservation>,
+}
+
+/// One published-dataset record for a variant the corpus also scores with the
+/// model, so the two routes can be compared on the same input.
+#[derive(Clone, Debug, Deserialize)]
+struct PrecomputedObservation {
+    gene: String,
+    gain_bits: String,
+    gain_position: i16,
+    loss_bits: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -909,6 +921,209 @@ fn test_gene(boundaries: &[u32]) -> MaskGene {
             .map(|position| GenomicPosition::new(*position).expect("boundary"))
             .collect(),
     }
+}
+
+#[test]
+fn a_halfway_model_value_rounds_to_the_even_hundredth() {
+    // 0.105 and 0.115 both land exactly on a half after the times-100 step, in
+    // f32 and in f64. Ties to even sends 10.5 down to 10 and 11.5 up to 12.
+    // Half-up would send both up. This pair tells the two rules apart.
+    assert_eq!(
+        PublicScore::gain_hundredths(0.105_f32).expect("f32 10.5"),
+        10
+    );
+    assert_eq!(
+        PublicScore::gain_hundredths(0.115_f32).expect("f32 11.5"),
+        12
+    );
+    assert_eq!(
+        PublicScore::gain_hundredths(0.105_f64).expect("f64 10.5"),
+        10
+    );
+    assert_eq!(
+        PublicScore::gain_hundredths(0.115_f64).expect("f64 11.5"),
+        12
+    );
+    assert_eq!(
+        PublicScore::loss_hundredths(-0.105_f32).expect("f32 -10.5"),
+        10
+    );
+    assert_eq!(
+        PublicScore::loss_hundredths(-0.115_f32).expect("f32 -11.5"),
+        12
+    );
+    assert_eq!(
+        PublicScore::loss_hundredths(-0.105_f64).expect("f64 -10.5"),
+        10
+    );
+    assert_eq!(
+        PublicScore::loss_hundredths(-0.115_f64).expect("f64 -11.5"),
+        12
+    );
+
+    // The published worked example is what a caller reads, so pin the rendered
+    // record rather than the intermediate integer.
+    for (value, rendered) in [(0.105_f32, "0.10"), (0.115_f32, "0.12")] {
+        let mut gain = vec![0.0_f32; 200];
+        gain[100] = value;
+        let records = score_typed(
+            vec![0.0_f32; 200],
+            gain,
+            &[test_gene(&[1])],
+            GenomicPosition::new(100).expect("position"),
+        )
+        .expect("score a halfway value");
+        assert_eq!(records[0].score().gain().to_string(), rendered, "{value}");
+    }
+}
+
+/// One route's rendered gain and loss for a corpus record, produced by the
+/// shipped rounding rather than by the fixture's own arithmetic.
+fn rendered_pair(dtype: &str, gain_bits: &str, loss_bits: &str) -> (String, String) {
+    let (gain, loss) = match dtype {
+        "f32" => (
+            PublicScore::gain_hundredths(compat_f32(gain_bits)),
+            PublicScore::loss_hundredths(compat_f32(loss_bits)),
+        ),
+        "f64" => (
+            PublicScore::gain_hundredths(compat_f64(gain_bits)),
+            PublicScore::loss_hundredths(compat_f64(loss_bits)),
+        ),
+        other => panic!("unsupported fixture dtype {other}"),
+    };
+    let gain = ScoreMagnitude::new(gain.expect("a gain in range")).expect("a rendered gain");
+    let loss = ScoreMagnitude::new(loss.expect("a loss in range")).expect("a rendered loss");
+    (
+        gain.to_string(),
+        PangolinScore::new(
+            gain,
+            RelativePosition::new(0).expect("placeholder"),
+            loss,
+            RelativePosition::new(0).expect("placeholder"),
+        )
+        .loss_text()
+        .to_string(),
+    )
+}
+
+#[test]
+fn the_precomputed_and_model_routes_do_not_always_report_the_same_value() {
+    // The corpus carries both routes for four variants: the published dataset
+    // record under `precomputed`, and the masked model product under
+    // `expected.masked`. The neighbouring replay test proves the engine
+    // produces that masked product. Rendering both sides through the shipped
+    // rounding here compares one route against the other.
+    //
+    // Four of the five records agree on the value and one does not. A consumer
+    // cannot treat a precomputed score and a modeled score as the same
+    // measurement. Positions diverge more widely: the published dataset
+    // reports -50 wherever its score is zero, and the model reports the
+    // position of its own extremum.
+    let expected = [
+        // case, gene, model gain @ position, source gain @ position, loss pair
+        (
+            "M01-snv-cd4-precomputed",
+            "ENSG00000010610.10",
+            ("0.00", 5),
+            ("0.00", -50),
+            ("0.00", "0.00"),
+        ),
+        (
+            "M02-snv-wrap53-tp53-precomputed",
+            "ENSG00000141499.17",
+            ("0.21", 18),
+            ("0.21", 18),
+            ("0.00", "0.00"),
+        ),
+        (
+            "M02-snv-wrap53-tp53-precomputed",
+            "ENSG00000141510.18",
+            ("0.00", -4),
+            ("0.00", -50),
+            ("0.00", "0.00"),
+        ),
+        (
+            "M03-snv-afap1l2-precomputed",
+            "ENSG00000169129.15",
+            ("0.02", 13),
+            ("0.06", 12),
+            ("0.00", "0.00"),
+        ),
+        (
+            "M04-snv-grk1-precomputed",
+            "ENSG00000185974.7",
+            ("0.03", 0),
+            ("0.03", 0),
+            ("0.00", "0.00"),
+        ),
+    ];
+    let mut rows = Vec::new();
+    let mut disagreeing = 0_usize;
+    let mut model_reports_a_position_for_a_zero = false;
+    for case in corpus_cases()
+        .into_iter()
+        .filter(|case| !case.precomputed.is_empty())
+    {
+        for strand in &case.strands {
+            for masked in &strand.expected.masked {
+                let source = case
+                    .precomputed
+                    .iter()
+                    .find(|record| record.gene == masked.gene)
+                    .unwrap_or_else(|| {
+                        panic!("{} has no source record for {}", case.id, masked.gene)
+                    });
+                let (model_gain, model_loss) =
+                    rendered_pair(&strand.dtype, &masked.gain_bits, &masked.loss_bits);
+                let (source_gain, source_loss) =
+                    rendered_pair(&strand.dtype, &source.gain_bits, &source.loss_bits);
+                if model_gain != source_gain || model_loss != source_loss {
+                    disagreeing += 1;
+                }
+                // The published dataset carries no position for a zero
+                // score. The model carries the position of its own extremum
+                // whatever that extremum rounds to.
+                if source_gain == "0.00" {
+                    assert_eq!(
+                        source.gain_position, -50,
+                        "{} source gain position",
+                        case.id
+                    );
+                }
+                if model_gain == "0.00" && masked.gain_position != -50 {
+                    model_reports_a_position_for_a_zero = true;
+                }
+                rows.push((
+                    case.id.clone(),
+                    masked.gene.clone(),
+                    (model_gain, masked.gain_position),
+                    (source_gain, source.gain_position),
+                    (model_loss, source_loss),
+                ));
+            }
+        }
+    }
+    let rows: Vec<_> = rows
+        .iter()
+        .map(|row| {
+            (
+                row.0.as_str(),
+                row.1.as_str(),
+                (row.2.0.as_str(), row.2.1),
+                (row.3.0.as_str(), row.3.1),
+                (row.4.0.as_str(), row.4.1.as_str()),
+            )
+        })
+        .collect();
+    assert_eq!(rows, expected);
+    assert_eq!(
+        disagreeing, 1,
+        "the specification tells a consumer the two routes can disagree"
+    );
+    assert!(
+        model_reports_a_position_for_a_zero,
+        "the specification tells a consumer to read a position only beside a non-zero score"
+    );
 }
 
 #[test]

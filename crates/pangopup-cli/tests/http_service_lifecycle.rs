@@ -147,6 +147,55 @@ mod installed_success {
         )
     }
 
+    fn start_with_policy(
+        data: &Path,
+        profile: &Path,
+        cache: &Path,
+        workers: &str,
+        threads: &str,
+    ) -> (Child, String) {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+            .args([
+                "serve",
+                "--listen",
+                "127.0.0.1:0",
+                "--data-dir",
+                data.to_str().expect("data"),
+                "--model-cache",
+                cache.to_str().expect("cache"),
+                "--model-workers",
+                workers,
+                "--model-threads",
+                threads,
+            ])
+            .env("PANGOPUP_SERVICE_TEST_PROFILE", profile)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn");
+        let mut line = String::new();
+        BufReader::new(child.stdout.as_mut().expect("stdout"))
+            .read_line(&mut line)
+            .expect("listening");
+        if line.is_empty() {
+            let status = child.wait().expect("status");
+            let mut stderr = String::new();
+            child
+                .stderr
+                .as_mut()
+                .expect("stderr")
+                .read_to_string(&mut stderr)
+                .expect("stderr");
+            panic!("startup failed: {status}: {stderr}");
+        }
+        let event: Value = serde_json::from_str(&line).expect("event");
+        assert_eq!(event["event"], "listening");
+        (
+            child,
+            event["address"].as_str().expect("address").to_owned(),
+        )
+    }
+
     fn request(address: &str, method: &str, path: &str, body: &str) -> Vec<u8> {
         let content_types = if path == "/v1/score" {
             &["application/json"][..]
@@ -292,6 +341,90 @@ mod installed_success {
             0
         );
         assert!(restarted.wait().expect("restarted service exit").success());
+    }
+
+    // Everything a caller reads except the two fields a CPU policy is allowed
+    // to move. A score, a position, a status and a rejection reason all stay.
+    fn comparable_items(response: &[u8]) -> Vec<Value> {
+        let value: Value = serde_json::from_slice(response_body(response)).expect("score JSON");
+        value["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .map(|item| {
+                let mut item = item.clone();
+                item.as_object_mut()
+                    .expect("item")
+                    .remove("scoring_identity");
+                if let Some(provenance) = item["provenance"].as_object_mut() {
+                    provenance.remove("effective_cpu_policy");
+                }
+                item
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_deployment_worker_and_thread_setting_changes_no_modeled_score() {
+        let temp = tempfile::tempdir().expect("temp");
+        let data = temp.path().join("data");
+        let (_profile, profile_path) = install(&data, temp.path());
+        let body = r#"{"variants":["GRCh38:chr1:5051:A:C","GRCh38:chr1:5051:A:T","GRCh38:chr1:5051:A:G","GRCh38:chr1:5051:A:AC","GRCh38:chr1:INS:5051:5052:C","GRCh38:chr1:5051:A:TC"]}"#;
+        let mut policies = Vec::new();
+        let mut identities = Vec::new();
+        let mut scored = Vec::new();
+        for (index, (workers, threads)) in [("1", "1"), ("2", "4")].into_iter().enumerate() {
+            // A separate cache per run, so the second run recomputes every
+            // variant instead of reading the first run's rows back.
+            let cache = temp.path().join(format!("policy-cache-{index}.sqlite3"));
+            let (mut child, address) =
+                start_with_policy(&data, &profile_path, &cache, workers, threads);
+            let response = request(&address, "POST", "/v1/score", body);
+            assert!(
+                response.starts_with(b"HTTP/1.1 200 OK\r\n"),
+                "{}",
+                String::from_utf8_lossy(&response)
+            );
+            let value: Value =
+                serde_json::from_slice(response_body(&response)).expect("score JSON");
+            let results = value["results"].as_array().expect("results").clone();
+            assert_eq!(results.len(), 6);
+            assert!(
+                results
+                    .iter()
+                    .filter(|item| item["provenance"]["kind"] == "model")
+                    .count()
+                    >= 5,
+                "the compared batch must reach the model: {value}"
+            );
+            policies.push(
+                results[0]["provenance"]["effective_cpu_policy"]
+                    .as_str()
+                    .expect("effective CPU policy")
+                    .to_owned(),
+            );
+            identities.push(
+                results[0]["scoring_identity"]
+                    .as_str()
+                    .expect("scoring identity")
+                    .to_owned(),
+            );
+            scored.push(comparable_items(&response));
+            assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+            assert!(child.wait().expect("service exit").success());
+        }
+        assert_ne!(
+            policies[0], policies[1],
+            "the two runs must report different effective CPU policies"
+        );
+        assert_ne!(
+            identities[0], identities[1],
+            "the scoring identity moves with the effective CPU policy today"
+        );
+        assert_eq!(
+            scored[0], scored[1],
+            "a deployment worker or thread setting must move no score, position, status or reason"
+        );
     }
 
     #[test]
@@ -503,17 +636,22 @@ mod retained_production {
         io::{BufRead, BufReader, Read, Write},
         net::TcpStream,
         path::Path,
-        process::{Command, Stdio},
+        process::{Child, Command, Stdio},
     };
 
     fn request(address: &str, method: &str, path: &str, body: &str) -> Vec<u8> {
         let mut stream = TcpStream::connect(address).expect("connect");
         write!(
             stream,
-            "{method} {path} HTTP/1.1\r\nHost: test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            "{method} {path} HTTP/1.1\r\nHost: test\r\nContent-Length: {}\r\n",
             body.len()
         )
         .expect("write");
+        // The service rejects a scoring request that declares no media type.
+        if path == "/v1/score" {
+            write!(stream, "Content-Type: application/json\r\n").expect("write content type");
+        }
+        write!(stream, "Connection: close\r\n\r\n{body}").expect("write body");
         let mut response = Vec::new();
         stream.read_to_end(&mut response).expect("read");
         response
@@ -525,6 +663,126 @@ mod retained_production {
             .position(|window| window == b"\r\n\r\n")
             .expect("HTTP separator");
         &response[split + 4..]
+    }
+
+    fn start_retained(data: &Path, cache: &Path, workers: &str, threads: &str) -> (Child, String) {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+            .args([
+                "serve",
+                "--listen",
+                "127.0.0.1:0",
+                "--data-dir",
+                data.to_str().expect("data"),
+                "--model-cache",
+                cache.to_str().expect("cache"),
+                "--model-workers",
+                workers,
+                "--model-threads",
+                threads,
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn");
+        let mut line = String::new();
+        BufReader::new(child.stdout.as_mut().expect("stdout"))
+            .read_line(&mut line)
+            .expect("listening");
+        let event: Value = serde_json::from_str(&line).expect("event");
+        (
+            child,
+            event["address"].as_str().expect("address").to_owned(),
+        )
+    }
+
+    fn comparable_items(response: &[u8]) -> Vec<Value> {
+        let value: Value = serde_json::from_slice(response_body(response)).expect("score JSON");
+        value["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .map(|item| {
+                let mut item = item.clone();
+                item.as_object_mut()
+                    .expect("item")
+                    .remove("scoring_identity");
+                if let Some(provenance) = item["provenance"].as_object_mut() {
+                    provenance.remove("effective_cpu_policy");
+                }
+                item
+            })
+            .collect()
+    }
+
+    // The published contract says a deployment's worker and thread settings
+    // move no score. The gate runs that claim against the miniature graph. The
+    // miniature graph's arithmetic cannot reorder. Only the production model can
+    // reorder a float sum. The production proof therefore lives here and a
+    // maintainer runs it against the retained assets.
+    #[test]
+    #[ignore = "requires retained qualified production assets"]
+    fn retained_assets_score_identically_under_two_cpu_policies() {
+        let data =
+            std::env::var_os("PANGOPUP_RETAINED_DATA_DIR").expect("set PANGOPUP_RETAINED_DATA_DIR");
+        let data = Path::new(&data);
+        let temp = tempfile::tempdir().expect("temp");
+        std::fs::set_permissions(
+            temp.path(),
+            <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o700),
+        )
+        .expect("private cache");
+        // Variants that reach the model and carry a non-zero gain or loss, so
+        // the comparison has values in it rather than a column of 0.00.
+        let body = r#"{"variants":["GRCh38:chr12:6801303:G:GA","GRCh38:chr17:7687421:G:GACG","GRCh38:chr12:6801303:GG:AC","GRCh38:chr17:7687421:GCCC:ATTA","GRCh38:chr12:6801303:GG:G","GRCh38:chr17:7687421:GCCC:G","GRCh38:chr17:INS:7669673:7669674:A","GRCh38:chr17:INS:7676038:7676039:A"]}"#;
+        let mut policies = Vec::new();
+        let mut scored = Vec::new();
+        for (index, (workers, threads)) in [("1", "1"), ("2", "4")].into_iter().enumerate() {
+            let cache = temp.path().join(format!("policy-cache-{index}.sqlite3"));
+            let (mut child, address) = start_retained(data, &cache, workers, threads);
+            let response = request(&address, "POST", "/v1/score", body);
+            assert!(
+                response.starts_with(b"HTTP/1.1 200 OK\r\n"),
+                "{}",
+                String::from_utf8_lossy(&response)
+            );
+            let value: Value =
+                serde_json::from_slice(response_body(&response)).expect("score JSON");
+            let results = value["results"].as_array().expect("results");
+            assert_eq!(results.len(), 8);
+            assert!(
+                results
+                    .iter()
+                    .all(|item| item["provenance"]["kind"] == "model"),
+                "every compared item must come from the model: {value}"
+            );
+            assert!(
+                results.iter().any(|item| {
+                    item["records"].as_array().is_some_and(|records| {
+                        records.iter().any(|record| {
+                            record["gain_score"] != "0.00" || record["loss_score"] != "0.00"
+                        })
+                    })
+                }),
+                "the compared batch must carry a non-zero score: {value}"
+            );
+            policies.push(
+                results[0]["provenance"]["effective_cpu_policy"]
+                    .as_str()
+                    .expect("effective CPU policy")
+                    .to_owned(),
+            );
+            scored.push(comparable_items(&response));
+            assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+            assert!(child.wait().expect("service exit").success());
+        }
+        assert_ne!(
+            policies[0], policies[1],
+            "the two runs must report different effective CPU policies"
+        );
+        assert_eq!(
+            scored[0], scored[1],
+            "the production model must return the same score under either CPU policy"
+        );
     }
 
     #[test]
