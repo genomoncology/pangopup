@@ -34,7 +34,9 @@ Ian settled these choices on 2026-09-08.
 
 The Ensembl accession stays the identity. A name is a label a consumer displays, never a key it stores or matches on. Symbols get renamed and accessions do not. `crates/pangopup-core/src/lib.rs:229` already records that a stable accession is not globally unique across PAR identities, and naming does not change that.
 
-A consumer can read the HGNC identifier, the approved symbol, the NCBI Gene identifier and the Ensembl accession for a named gene, plus previous and alias symbols so a consumer holding an older name can still match. The NCBI Gene identifier is the short numeric identifier that names BRAF 673.
+A consumer can read the HGNC identifier, the approved symbol, the NCBI Gene identifier and the Ensembl accession for a named gene. The NCBI Gene identifier is the short numeric identifier that names BRAF 673.
+
+Previous and alias symbols ship, and they are not identifiers. 1,097 of 43,406 alias symbols point at more than one gene: `ASP` reaches seven, and 462 alias symbols are some other gene's approved symbol, `ACAT1` and `ACP1` among them. Previous symbols are safer at 86 ambiguous of 15,746 and are still not unique. They exist to help a human or a curator recognise a gene they already hold under an older name. Neither may be the sole basis for an automated match, and the published documentation must say so where a consumer will read it. This does not soften the rule above. The Ensembl accession remains the only key.
 
 A gene the naming source cannot name reports no name. A clone-derived string such as `AC092143.1` reads like a symbol without being one, and an absent field is honest where a convincing placeholder is not. Reject placeholders of that kind, not the annotation that carries them.
 
@@ -47,12 +49,13 @@ The candidate ships as 0.5.0. Publication is separate work, as tickets 0036 thro
 Done, observably:
 
 - A named gene reports its approved symbol, HGNC identifier and NCBI Gene identifier alongside the Ensembl accession it reports today. Fields the naming source does not supply for that gene are absent rather than empty.
-- Previous symbols and alias symbols are readable for a named gene that has them.
+- Previous symbols and alias symbols are readable for a named gene that has them, and the published documentation states that both are ambiguous and must never be the sole basis for an automated match.
 - Every identifier that can hold several values for one gene is readable as all of them, not one arbitrary pick. Alias symbols reach 22 per gene and previous symbols reach 18.
 - A gene the naming source does not name, and a gene whose accession carries conflicting approved records, both report the Ensembl accession alone and no name. A test pins one of the three known conflicting accessions.
 - The specification states which output surfaces gain names. Structured score records and the gene reported on a source-reference ambiguity are in scope. The human-readable table is out of scope unless the specification says otherwise.
 - The service runs, reports ready and scores normally when no naming source is installed. A score record then reports no name and `/v1/status` states that naming is unavailable.
 - `/v1/status` names the naming source release that is installed, so a consumer can tell one naming vintage from another.
+- `NOTICE` records the naming source, its publisher and its licence terms. The same entry is added for the GENCODE annotation, which the mask is built from and which `NOTICE` does not name today.
 - The naming source is pinned to an immutable dated release file, not to a URL whose bytes are replaced on each publication, and it is pinned by byte count and a self-computed cryptographic digest. HGNC publishes no upstream checksum file, so parity with the GENCODE annotation's `MD5SUMS` pin is not available and is not required.
 - The naming source installs and updates through the existing offline asset path with no network access.
 - `scoring_identity` is unchanged by installing, updating or removing a naming source. A test proves that with the software version held fixed.
