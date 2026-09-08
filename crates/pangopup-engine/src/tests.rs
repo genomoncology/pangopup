@@ -1016,9 +1016,15 @@ fn the_precomputed_and_model_routes_do_not_always_report_the_same_value() {
     //
     // Four of the five records agree on the value and one does not. A consumer
     // cannot treat a precomputed score and a modeled score as the same
-    // measurement. Positions diverge more widely: the published dataset
-    // reports -50 wherever its score is zero, and the model reports the
+    // measurement. Positions diverge more widely than values. Every zero score
+    // in this corpus sits at -50 on the source side, and the model reports the
     // position of its own extremum.
+    //
+    // The corpus is not the whole published dataset. A scan of the shipped
+    // v0.5.0 SNV index found 2,225,454 zero scores at a position other than
+    // -50 out of 7,651,541,764 zero scores, recorded in
+    // planning/artifacts/0040-score-value-determinism.md. So the assertion
+    // below pins these five corpus rows and nothing wider.
     let expected = [
         // case, gene, model gain @ position, source gain @ position, loss pair
         (
@@ -1080,13 +1086,14 @@ fn the_precomputed_and_model_routes_do_not_always_report_the_same_value() {
                 if model_gain != source_gain || model_loss != source_loss {
                     disagreeing += 1;
                 }
-                // The published dataset carries no position for a zero
-                // score. The model carries the position of its own extremum
-                // whatever that extremum rounds to.
+                // These corpus rows carry -50 beside every zero source score.
+                // The published dataset does not always, so this pins the
+                // corpus rather than a dataset-wide rule. The model carries
+                // the position of its own extremum whatever it rounds to.
                 if source_gain == "0.00" {
                     assert_eq!(
                         source.gain_position, -50,
-                        "{} source gain position",
+                        "{} source gain position in this corpus",
                         case.id
                     );
                 }

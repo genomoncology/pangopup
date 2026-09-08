@@ -78,12 +78,21 @@ The frozen upstream corpus carries both routes for four variants and five gene
 records. Four records agree on the value. One does not.
 `GRCh38:chr10:114306065:A:T` reports `0.06` at position 12 from the published
 dataset and `0.02` at position 13 from the model. A consumer must not treat a
-precomputed score and a modeled score as the same measurement.
+precomputed score and a modeled score as the same measurement. Five gene records
+cannot establish a rate. This file claims no rate of disagreement.
 
-Positions diverge more widely than values. The published dataset reports `-50`
-wherever its score is zero. The model reports the position of its own extremum
-even when that extremum rounds to `0.00`. Read a position only where the score
-beside it is non-zero.
+Positions diverge more widely than values. A zero score carries no meaningful
+position on either route. The published dataset reports `-50` beside almost every
+zero score and reports some other position for a small remainder. A scan of the
+whole shipped v0.5.0 SNV dataset read 8,198,511,150 score-and-position pairs.
+7,651,541,764 of those pairs carry a zero score, and 2,225,454 of those zero
+scores carry a position other than `-50`. `GRCh38:chrX:100627272:C:A` is one of
+them and reports `"gain_score":"0.00","gain_position":-49`. The model reports the
+position of its own extremum even when that extremum rounds to `0.00`. Read a
+position only where the score beside it is non-zero. Never infer a zero score
+from a position of `-50`, and never infer a position of `-50` from a zero score.
+[`planning/artifacts/0040-score-value-determinism.md`](../planning/artifacts/0040-score-value-determinism.md)
+records the scan.
 
 `provenance.kind` names the route that produced a value. A consumer storing a
 score stores that field with it.
@@ -99,6 +108,8 @@ printf 'the precomputed and model routes do not always report the same value\n' 
 `--model-workers` and `--model-threads` move no modeled score. They move no
 position, no status and no rejection reason. Two deployments running the same
 assets under different worker and thread settings return the same answer.
+Measurement supports that. No gate proves it. The paragraph below the block
+names what the measurement covered.
 
 `--model-threads` does move the reported `effective_cpu_policy` and the
 `scoring_identity` derived from it. `--model-workers` moves neither. The
@@ -118,12 +129,16 @@ cargo test --locked --quiet --package pangopup-cli --features service-test-fixtu
 printf 'a deployment worker or thread setting changes no modeled score\n' | mustmatch like 'a deployment worker or thread setting changes no modeled score'
 ```
 
-That gate test runs the miniature graph. The miniature graph's arithmetic cannot
-reorder across threads. Only the production model can reorder a floating-point
-sum. The production proof is
-[`planning/artifacts/0040-score-value-determinism.md`](../planning/artifacts/0040-score-value-determinism.md),
-and `retained_assets_score_identically_under_two_cpu_policies` repeats it on
-demand against retained production assets.
+That gate test runs a stand-in model with two operators, `MaxPool` and `Concat`.
+Neither operator sums across threads. That model's arithmetic cannot reorder.
+Only the production model can reorder a floating-point sum. No gate runs the
+production model. The production proof is
+[`planning/artifacts/0040-score-value-determinism.md`](../planning/artifacts/0040-score-value-determinism.md).
+That artifact records four runs on one host against one build.
+`retained_assets_score_identically_under_two_cpu_policies` repeats the
+comparison on demand against retained production assets. Read the statement
+above as a measured result on the shipped v0.5.0 assets. It does not prove the
+same result for every host and build.
 
 ## What a consumer can cite
 

@@ -105,20 +105,71 @@ case as `M03-snv-afap1l2-precomputed`, holding the published record `0.06` at 12
 beside the model's `0.02` at 13. Nothing published it.
 
 A zero score also carries a different position on each route. The published
-dataset reports `-50` wherever its score is zero. The model reports the position
-of its own extremum even when that extremum rounds to `0.00`.
+dataset reports `-50` beside almost every zero score. The model reports the
+position of its own extremum even when that extremum rounds to `0.00`. The next
+section counts how often the published dataset departs from `-50`.
+
+## How often a zero score carries a position other than `-50`
+
+Date: 2026-09-08. Ticket 0040's code review measured this after an earlier draft
+of the specification stated the `-50` rule without a bound.
+
+The whole shipped SNV index was read directly and read-only from the installed
+bundle. The file is
+`~/.local/share/pangopup/bundles/c4c4162b34a73ecd8c44d379f9e4fbc4e5e07869af1967a6695b8d439d2819b3/bundle/scores.pgi`
+and measures 15,033,158,255 bytes. Its bundle is
+`sha256:c4c4162b34a73ecd8c44d379f9e4fbc4e5e07869af1967a6695b8d439d2819b3`, the
+same SNV bundle the runs above used. Every 11-byte fixed-v1 locus record in all
+19,945 segments was decoded, plus all 30 exception records. Each locus carries
+three alternates. Each alternate carries a gain pair and a loss pair. One locus
+therefore holds six score-and-position pairs.
+
+| measure | count |
+| --- | --- |
+| loci in segments | 1,366,418,525 |
+| score-and-position pairs | 8,198,511,150 |
+| pairs carrying a zero score | 7,651,541,764 |
+| zero scores at a position other than `-50` | 2,225,454 |
+| exception records violating the rule | 0 |
+
+So the published dataset departs from `-50` on roughly one zero score in every
+3,400. The shipped executable reports the departures:
+
+```
+$ pangopup lookup --bundle <the bundle above> \
+    --variant GRCh38:chrX:100627272:C:A --variant GRCh38:chrX:100627223:T:A
+... "gain_score":"0.00","gain_position":-49,"loss_score":"0.00","loss_position":-50 ...
+... "gain_score":"0.16","gain_position":-50,"loss_score":"0.00","loss_position":-49 ...
+```
+
+The fixed-v1 format does not force the rule either. `decode_pair_code` in
+`crates/pangopup-index/src/snv.rs` packs a 7-bit magnitude beside an independent
+7-bit position code. Any position code can sit beside any magnitude.
+`default_pair` returns `0.00` at `-50` only for a locus the index does not
+store.
+
+The consumer rule stands. A zero score carries no meaningful position on either
+route. A consumer reads a position only where the score beside it is non-zero.
+The specification now states that rule without the false universal claim about
+`-50`.
 
 ## Findings
 
 1. A deployment's worker and thread settings change no modeled score, position,
-   status or reason. The specification can state that as a property rather than
-   a hope.
+   status or reason. The runs above measured that on one host against one build.
+   The specification states it as a measured result and says so. No gate proves
+   it, because the always-on gate scores a stand-in model with two operators.
 2. The effective CPU policy therefore cannot change a value. It is in the
    scoring identity and in the model cache key anyway. Ticket 0041 owns the
    identity. The cache key is a separate cost: every deployment thread change
    discards every stored model row.
 3. The precomputed route and the model route can report different values for the
    same variant. A consumer must record which route answered.
+4. The published dataset does not always report position `-50` beside a zero
+   score. It departs on roughly one zero score in 3,400. An earlier draft of the
+   specification stated the `-50` rule as universal on the strength of five
+   corpus records. The scan above replaced that claim with a consumer rule. A
+   position means something only where the score beside it is non-zero.
 
 ## Reproducing
 
