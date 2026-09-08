@@ -105,6 +105,8 @@ position always means a higher genomic coordinate, including for a minus-strand 
 `provenance.kind` is `precomputed` for an index result or `model` for model inference or
 an exact SQLite reuse.
 
+A score is an exact decimal in hundredths. `gain_score` runs from `0.00` through `1.00` and `loss_score` runs from `0.00` through `-1.00`. A rendered score always carries exactly two decimal places. A threshold finer than one hundredth cannot be compared against a PangoPup score. See [What a score value is](spec/score-value.md).
+
 Run `pangopup <command> --help` for command-specific options.
 
 ## HTTP service

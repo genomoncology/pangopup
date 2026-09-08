@@ -45,3 +45,19 @@ Deploy strict consumer support for the complete response-shape inventory before 
 `prev_symbols` and `alias_symbols` are ambiguous. One symbol can point at several genes, and one can be another gene's approved symbol. Never match on them alone. `stable_gene` remains the only key.
 
 Installing, updating or removing a naming source does not move `scoring_identity`. A naming refresh changes no score. Unchanged scores stay one data-set version.
+
+## Score values
+
+A score value is one of 101 exact hundredths. `gain_score` runs from `0.00` through `1.00`. `loss_score` carries the same 101 magnitudes with its sign restored. It runs from `0.00` through `-1.00`. Every rendered score carries exactly two decimal places and one digit before the decimal point. A zero loss renders `0.00` and never `-0.00`.
+
+The model rounds half to even. PangoPup multiplies the model value by 100, rounds half to even, and reports the resulting hundredth. A model value of 0.105 reports `0.10`. A model value of 0.115 reports `0.12`. Half-up would report `0.11` and `0.12`. The precomputed route rounds nothing. It reads exact hundredths from the published dataset.
+
+A threshold finer than one hundredth cannot be evaluated. The representable neighbours of 0.106 are `0.10` and `0.11`. No PangoPup response distinguishes them. Pin a threshold on a hundredth and record which hundredth the deployment compared against.
+
+A precomputed score and a modeled score are not interchangeable. The frozen upstream corpus carries both routes for four variants and five gene records, and one record disagrees on the value. `GRCh38:chr10:114306065:A:T` reports `0.06` at position 12 from the published dataset and `0.02` at position 13 from the model. No rate of disagreement is claimed. Positions diverge more widely than values. The published dataset reports position `-50` wherever its score is zero. The model reports the position of its own extremum whatever that extremum rounds to. Read a position only where the score beside it is non-zero.
+
+Store `provenance.kind` beside every score a system retains. That field names the route that produced the value. Without it a later comparison cannot tell one route's score from the other's.
+
+A worker or thread setting changes no score. `--model-workers` and `--model-threads` move no score, no position, no status and no rejection reason. `--model-threads` does move the reported `effective_cpu_policy`. `scoring_identity` carries that policy and moves with it. `--model-workers` moves neither. The measured evidence is [`planning/artifacts/0040-score-value-determinism.md`](../planning/artifacts/0040-score-value-determinism.md), and [`spec/score-value.md`](../spec/score-value.md) states what each proof covers.
+
+`scoring_identity` also hashes the PangoPup version. Read a moved identity only within one version. Two deployments of one PangoPup version on the same assets can differ in thread count. They report different identities and the same answers. A PangoPup version change moves the identity too, and a version change can move an answer.
