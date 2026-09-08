@@ -131,3 +131,65 @@ printf 'a valid batch returns HTTP 200 with one ordered outcome for every valid 
 ```
 
 Backend scoring and unusable-cache failures invalidate the complete request and remain HTTP 500. Their machine-readable `error.code` remains `MODEL_SCORING` or `MODEL_CACHE_INVALID`. Worker loss and service readiness failures also remain request-level errors. Inside-out service tests inject all backend families and pin their exact status and generic response body. The public fixture does not corrupt a production-only model or cache path solely to manufacture those server failures.
+
+## What a consumer pins
+
+A consumer stores one value beside a retained score and compares it later. That value must move whenever a score can change. It must hold still otherwise. `scoring_identity` fails the second half. It hashes the effective CPU policy of the deployment. Scaling a service from one thread to four moves it. Every answer stays the same.
+
+The status response publishes three further values. `data_set_version` is the value to store where a system has one version field. PangoPup hashes the RFC 8785 canonical `pangopup.scoring-data-set-version.v1` preimage over the software version and the runtime profile identity. `runtime_profile_id` is the SHA-256 of the admitted canonical runtime profile. It covers every asset digest and every scoring input the profile declares. `scoring_semantics` names the score contract both routes answer under.
+
+`--model-workers` and `--model-threads` move neither `data_set_version` nor `runtime_profile_id`. They do move `model.effective_cpu_policy`. `scoring_identity` moves with that policy.
+
+The runtime profile declares its own `cpu_policy`. That value describes the assets PangoPup qualified. It never describes the running service. `production_runtime_profile` fixes it at `sequential:1/1` and admits an installed profile only where it matches. A service started with `--model-threads 4` reports `sequential:4/1` under `model.effective_cpu_policy` while its profile still declares `sequential:1/1`. Read the profile value as a property of the assets. Read the status value as a property of the deployment.
+
+The two scoring routes do not carry provenance to the same depth. [`architecture/compatibility.md`](../architecture/compatibility.md) states which facts a precomputed item leaves out and where a consumer reads them instead. The test below pins both field sets, so that statement cannot drift away from the response.
+
+```bash
+cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
+  --test http_service_lifecycle pinned_values_hold_across_cpu_policies_and_move_with_the_scored_inputs \
+  2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
+cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
+  --test http_service_lifecycle status_publishes_a_recomputable_data_set_version \
+  2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
+cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
+  --test http_service_lifecycle each_route_reports_the_provenance_its_answer_used \
+  2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
+cargo test --locked --quiet --package pangopup-assets --lib \
+  every_leaf_fact_changes_the_profile_identity \
+  2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
+printf 'the pinned values hold across CPU policies and move with every scoring input\n' | mustmatch like 'the pinned values hold across CPU policies and move with every scoring input'
+```
+
+A consumer reads what to pin from two documents rather than from a source line. `README.md` states it beside the status route it describes. `architecture/compatibility.md` carries the full contract under `## What a consumer pins`.
+
+```bash
+readme=$(cat ../README.md)
+for statement in \
+  'Store `data_set_version` as the data-set version when a system has one version field.' \
+  'A worker or thread change moves `scoring_identity` and never moves `data_set_version`.'; do
+  printf '%s' "$readme" | rg -F -- "$statement" >/dev/null
+done
+pinning=$(awk '/^## What a consumer pins$/ { on=1; next } on && /^## / { exit } on' ../architecture/compatibility.md)
+for statement in \
+  'Store `data_set_version` as the data-set version when a system has one version field.' \
+  '`data_set_version` hashes the PangoPup version and the runtime profile identity.' \
+  '`runtime_profile_id` hashes the whole admitted runtime profile.' \
+  'It covers every asset digest and every scoring input, `assembly`, `semantics`, `distance`, `masking_policy` and `cpu_policy` among them.' \
+  'No worker or thread setting moves `data_set_version` or `runtime_profile_id`.' \
+  '`scoring_identity` also hashes the effective CPU policy. A thread change moves it. Measurement found no score that a thread change moved.' \
+  'The runtime profile declares `cpu_policy` for the assets PangoPup qualified. The status `model.effective_cpu_policy` reports what the running service uses.' \
+  'A service started with `--model-threads 4` reports `sequential:4/1` as its effective policy while its runtime profile still declares `sequential:1/1`.' \
+  'A precomputed score item carries six provenance fields and a modeled score item carries twelve.' \
+  'A precomputed value ran no model, read no reference window and applied no runtime mask. `model_bundle_id`, `model_profile`, `effective_cpu_policy`, `reference_bundle_id`, `reference_profile`, `reference_sequence_set_sha256`, `mask_bytes` and `mask_sha256` describe none of it.' \
+  '`bundle_id`, `source_doi` and `source_archive_md5` pin the published dataset a precomputed value came from.' \
+  'Both routes answer under one scoring semantics. The status response reports it as `scoring_semantics`.'; do
+  printf '%s' "$pinning" | rg -F -- "$statement" >/dev/null
+done
+identity=$(awk '/^## Active scoring identity$/ { on=1; next } on && /^## / { exit } on' ../architecture/service.md)
+printf '%s' "$identity" | rg -F -- '`data_set_version` carries the same inputs without the effective CPU policy.' >/dev/null
+! printf '%s' "$identity" | rg -F -- 'active policy that can change an answer' >/dev/null
+runtime_data=$(cat ../architecture/runtime-data.md)
+printf '%s' "$runtime_data" | rg -F -- '`data_set_version` gives a consumer one concise version value that no deployment setting moves.' >/dev/null
+! printf '%s' "$runtime_data" | rg -F -- 'This environment identity gives a consumer one concise version value.' >/dev/null
+printf 'a consumer can cite a document for what to pin\n' | mustmatch like 'a consumer can cite a document for what to pin'
+```

@@ -147,6 +147,11 @@ try:
             "carries",
             "`symbol`, `hgnc_id`, `ncbi_gene_id`, `prev_symbols`, and `alias_symbols`",
         ),
+        (
+            "Status response root",
+            "adds",
+            "`data_set_version`, `runtime_profile_id`, and `scoring_semantics`",
+        ),
     )
     required_v050_unnamed_shape = (
         "- Unnamed gene: the score record and the source-reference ambiguity carry no"

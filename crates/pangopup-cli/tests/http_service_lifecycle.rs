@@ -14,6 +14,7 @@ mod installed_success {
     use serde_json::Value;
     use sha2::{Digest, Sha256};
     use std::{
+        collections::BTreeSet,
         fs,
         io::{BufRead, BufReader, Read, Write},
         net::TcpStream,
@@ -35,6 +36,18 @@ mod installed_success {
     }
 
     fn install(root: &Path, scratch: &Path) -> (RuntimeProfile, PathBuf) {
+        install_variant(root, scratch, &fixture("route-mask/domains.pgm"), 50)
+    }
+
+    /// Install the miniature runtime with one chosen mask asset and one chosen
+    /// scoring distance. `install` supplies the defaults. A caller varies
+    /// either input to change what the runtime profile identifies.
+    fn install_variant(
+        root: &Path,
+        scratch: &Path,
+        mask: &Path,
+        distance: u64,
+    ) -> (RuntimeProfile, PathBuf) {
         fs::set_permissions(scratch, fs::Permissions::from_mode(0o700)).expect("private");
         let snv_bundle = fixture("snv-regression/bundle");
         let transport = scratch.join("transport");
@@ -53,7 +66,6 @@ mod installed_success {
         let reference = fixture("reference-route-test/bundle");
         let reference_facts = inspect_reference_admission(&reference).expect("reference");
         let reference_member = reference.join("reference.pgr");
-        let mask = fixture("route-mask/domains.pgm");
         let profile = RuntimeProfile {
             schema: pangopup_assets::RUNTIME_PROFILE_SCHEMA.to_owned(),
             snv: SnvProfile {
@@ -81,18 +93,18 @@ mod installed_success {
             },
             mask: MaskProfile {
                 format: "pangopup.gencode-v38-domains.v1".to_owned(),
-                member_bytes: fs::metadata(&mask).expect("mask").len(),
-                member_sha256: digest(&mask),
+                member_bytes: fs::metadata(mask).expect("mask").len(),
+                member_sha256: digest(mask),
             },
             scoring: ScoringProfile {
                 assembly: "GRCh38".to_owned(),
                 semantics: "pangopup-variant-score-v1".to_owned(),
-                distance: 50,
+                distance,
                 masking_policy: "pangolin-gencode-v38-order-sensitive-v1".to_owned(),
                 cpu_policy: "sequential:1/1".to_owned(),
             },
         };
-        install_test_runtime_profile(&profile, &model, &reference, &mask, root)
+        install_test_runtime_profile(&profile, &model, &reference, mask, root)
             .expect("install runtime");
         let profile_path = scratch.join("mini-profile.json");
         fs::write(
@@ -424,6 +436,256 @@ mod installed_success {
         assert_eq!(
             scored[0], scored[1],
             "a deployment worker or thread setting must move no score, position, status or reason"
+        );
+    }
+
+    /// One published status field, or a clear failure naming the field the
+    /// service did not publish.
+    fn published(status: &Value, field: &str) -> String {
+        status[field]
+            .as_str()
+            .unwrap_or_else(|| panic!("status must publish {field}: {status}"))
+            .to_owned()
+    }
+
+    /// Start one service under a chosen thread count, read `/v1/status`, and
+    /// stop it again.
+    fn status_under_threads(data: &Path, profile: &Path, cache: &Path, threads: &str) -> Value {
+        let (mut child, address) = start_with_policy(data, profile, cache, "1", threads);
+        let response = request(&address, "GET", "/v1/status", "");
+        assert!(
+            response.starts_with(b"HTTP/1.1 200 OK\r\n"),
+            "{}",
+            String::from_utf8_lossy(&response)
+        );
+        let status: Value = serde_json::from_slice(response_body(&response)).expect("status JSON");
+        assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+        assert!(child.wait().expect("service exit").success());
+        status
+    }
+
+    /// Install one miniature runtime under its own data root and scratch
+    /// directory, so several installations can stand side by side.
+    fn install_under(
+        temp: &Path,
+        name: &str,
+        mask: &Path,
+        distance: u64,
+    ) -> (PathBuf, PathBuf, PathBuf) {
+        let scratch = temp.join(format!("{name}-scratch"));
+        fs::create_dir(&scratch).expect("scratch");
+        let data = temp.join(format!("{name}-data"));
+        let (_profile, profile_path) = install_variant(&data, &scratch, mask, distance);
+        let cache = scratch.join("service-cache.sqlite3");
+        (data, profile_path, cache)
+    }
+
+    // A consumer stores one value as its data-set version. That value must
+    // track the inputs a score depends on and nothing else. A thread count
+    // reaches the model runtime and reaches no answer. It must therefore leave
+    // the stored value alone. A changed mask asset and a changed scoring input
+    // must both move it.
+    #[test]
+    fn pinned_values_hold_across_cpu_policies_and_move_with_the_scored_inputs() {
+        let temp = tempfile::tempdir().expect("temp");
+        let (data, profile, cache) = install_under(
+            temp.path(),
+            "baseline",
+            &fixture("route-mask/domains.pgm"),
+            50,
+        );
+        let one = status_under_threads(&data, &profile, &cache, "1");
+        let four = status_under_threads(
+            &data,
+            &profile,
+            &cache.with_file_name("service-cache-four.sqlite3"),
+            "4",
+        );
+        assert_ne!(
+            one["model"]["effective_cpu_policy"], four["model"]["effective_cpu_policy"],
+            "the two runs must report different effective CPU policies"
+        );
+        assert_ne!(
+            one["scoring_identity"], four["scoring_identity"],
+            "the active scoring identity still covers the effective CPU policy"
+        );
+        assert_eq!(
+            published(&one, "data_set_version"),
+            published(&four, "data_set_version"),
+            "a thread setting must not move the value a consumer stores as its data-set version"
+        );
+        assert_eq!(
+            published(&one, "runtime_profile_id"),
+            published(&four, "runtime_profile_id"),
+            "a thread setting must not move the runtime profile identity"
+        );
+        assert_eq!(
+            one["assets"], four["assets"],
+            "the two thread settings must hold every asset digest fixed"
+        );
+
+        let (other_mask_data, other_mask_profile, other_mask_cache) = install_under(
+            temp.path(),
+            "other-mask",
+            &fixture("gencode-mask-mini/domains.pgm"),
+            50,
+        );
+        let other_mask = status_under_threads(
+            &other_mask_data,
+            &other_mask_profile,
+            &other_mask_cache,
+            "1",
+        );
+        assert_ne!(
+            one["assets"]["mask_sha256"], other_mask["assets"]["mask_sha256"],
+            "this run must install a different mask asset"
+        );
+        assert_ne!(
+            published(&other_mask, "runtime_profile_id"),
+            published(&one, "runtime_profile_id"),
+            "a changed mask asset must move the runtime profile identity"
+        );
+        assert_ne!(
+            published(&other_mask, "data_set_version"),
+            published(&one, "data_set_version"),
+            "a changed mask asset must move the data-set version"
+        );
+
+        let (other_distance_data, other_distance_profile, other_distance_cache) = install_under(
+            temp.path(),
+            "other-distance",
+            &fixture("route-mask/domains.pgm"),
+            51,
+        );
+        let other_distance = status_under_threads(
+            &other_distance_data,
+            &other_distance_profile,
+            &other_distance_cache,
+            "1",
+        );
+        assert_eq!(
+            one["assets"], other_distance["assets"],
+            "this run must change a scoring input with every asset digest fixed"
+        );
+        assert_ne!(
+            published(&other_distance, "runtime_profile_id"),
+            published(&one, "runtime_profile_id"),
+            "a changed scoring distance must move the runtime profile identity"
+        );
+        assert_ne!(
+            published(&other_distance, "data_set_version"),
+            published(&one, "data_set_version"),
+            "a changed scoring distance must move the data-set version"
+        );
+    }
+
+    // A clinical consumer stores a hash it cannot check. Publishing both
+    // preimage inputs beside it makes the stored value verifiable. This
+    // assertion fails whenever a third input enters the preimage.
+    #[test]
+    fn status_publishes_a_recomputable_data_set_version() {
+        let temp = tempfile::tempdir().expect("temp");
+        let data = temp.path().join("data");
+        let (_profile, profile_path) = install(&data, temp.path());
+        let (mut child, address) = start(&data, &profile_path);
+        let response = request(&address, "GET", "/v1/status", "");
+        assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+        assert!(child.wait().expect("service exit").success());
+        let status: Value = serde_json::from_slice(response_body(&response)).expect("status JSON");
+        let software_version = status["version"].as_str().expect("status version");
+        let runtime_profile_id = published(&status, "runtime_profile_id");
+        let preimage = format!(
+            "{{\"runtime_profile_id\":\"{runtime_profile_id}\",\
+             \"schema\":\"pangopup.scoring-data-set-version.v1\",\
+             \"software_version\":\"{software_version}\"}}"
+        );
+        assert_eq!(
+            published(&status, "data_set_version"),
+            format!("sha256:{:x}", Sha256::digest(preimage.as_bytes())),
+            "a consumer must be able to recompute the data-set version from published values"
+        );
+    }
+
+    fn provenance_fields(item: &Value) -> BTreeSet<String> {
+        item["provenance"]
+            .as_object()
+            .unwrap_or_else(|| panic!("item must carry provenance: {item}"))
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    fn field_set(names: &[&str]) -> BTreeSet<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    // The two routes pin to different depths in one response. A precomputed
+    // item names the published dataset it came from. A modeled item names the
+    // model run that produced it. One scoring semantics covers both routes. A
+    // precomputed item carries no field for it. The status response therefore
+    // reports it once for the whole service.
+    #[test]
+    fn each_route_reports_the_provenance_its_answer_used() {
+        let temp = tempfile::tempdir().expect("temp");
+        let data = temp.path().join("data");
+        let (_profile, profile_path) = install(&data, temp.path());
+        let (mut child, address) = start(&data, &profile_path);
+        let status = request(&address, "GET", "/v1/status", "");
+        let scored = request(
+            &address,
+            "POST",
+            "/v1/score",
+            r#"{"variants":["GRCh38:chr12:6801301:G:A","GRCh38:chr1:5051:A:C"]}"#,
+        );
+        assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+        assert!(child.wait().expect("service exit").success());
+        assert!(
+            scored.starts_with(b"HTTP/1.1 200 OK\r\n"),
+            "{}",
+            String::from_utf8_lossy(&scored)
+        );
+        let status: Value = serde_json::from_slice(response_body(&status)).expect("status JSON");
+        let value: Value = serde_json::from_slice(response_body(&scored)).expect("score JSON");
+        let precomputed = &value["results"][0];
+        let modeled = &value["results"][1];
+        assert_eq!(precomputed["provenance"]["kind"], "precomputed");
+        assert_eq!(modeled["provenance"]["kind"], "model");
+        assert_eq!(
+            provenance_fields(precomputed),
+            field_set(&[
+                "kind",
+                "bundle_id",
+                "source_doi",
+                "source_archive_md5",
+                "masked",
+                "window",
+            ]),
+            "the precomputed provenance field set is a published contract"
+        );
+        assert_eq!(
+            provenance_fields(modeled),
+            field_set(&[
+                "kind",
+                "scoring_semantics",
+                "model_bundle_id",
+                "model_profile",
+                "effective_cpu_policy",
+                "reference_bundle_id",
+                "reference_profile",
+                "reference_sequence_set_sha256",
+                "mask_bytes",
+                "mask_sha256",
+                "masked",
+                "window",
+            ]),
+            "the modeled provenance field set is a published contract"
+        );
+        assert_eq!(
+            published(&status, "scoring_semantics"),
+            modeled["provenance"]["scoring_semantics"]
+                .as_str()
+                .expect("modeled scoring semantics"),
+            "status must report the semantics a precomputed item does not carry"
         );
     }
 
