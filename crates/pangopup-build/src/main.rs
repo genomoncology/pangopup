@@ -11,6 +11,7 @@ use pangopup_build::{
         ConvertArguments, EvidenceArguments, convert_model_bundle, create_model_evidence,
         inspect_model_bundle, qualify_model_bundle,
     },
+    naming::inspect_naming_source,
     prepare_benchmark_corpus, prototype_open, prototype_roundtrip,
     reference::{build_reference_bundle, inspect_reference_bundle, reference_window},
     runtime_profile::prepare_runtime_profile,
@@ -46,6 +47,7 @@ fn main() -> ExitCode {
         }
         Some("runtime-release") => json_usage("runtime-release requires prepare"),
         Some("executable-release") => json_usage("executable-release requires prepare"),
+        Some("naming") => json_usage("naming requires inspect"),
         Some(_) => unreachable!("closed namespace catalog"),
         None => json_failure(&CommandError::new("CLI_USAGE", LEGACY_USAGE)),
     }
@@ -135,6 +137,18 @@ fn dispatch(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
         | Leaf::RuntimeTransportUnpack => runtime_transport_command(leaf, arguments),
         Leaf::RuntimeReleasePrepare => runtime_release_command(arguments),
         Leaf::ExecutableReleasePrepare => executable_release_command(arguments),
+        Leaf::NamingInspect => naming_command(arguments),
+    }
+}
+
+fn naming_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let [source] = arguments else {
+        return json_usage("naming inspect requires one naming source file");
+    };
+    let mut stdout = std::io::stdout().lock();
+    match inspect_naming_source(Path::new(source), &mut stdout) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => json_failure(&CommandError::new(error.kind().code(), error.to_string())),
     }
 }
 

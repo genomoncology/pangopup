@@ -27,11 +27,12 @@ pub(crate) enum Leaf {
     RuntimeTransportUnpack,
     RuntimeReleasePrepare,
     ExecutableReleasePrepare,
+    NamingInspect,
 }
 
 impl Leaf {
     #[cfg(test)]
-    const ALL: [Self; 25] = [
+    const ALL: [Self; 26] = [
         Self::Inspect,
         Self::PrototypeRoundtrip,
         Self::PrototypeOpen,
@@ -57,6 +58,7 @@ impl Leaf {
         Self::RuntimeTransportUnpack,
         Self::RuntimeReleasePrepare,
         Self::ExecutableReleasePrepare,
+        Self::NamingInspect,
     ];
 }
 
@@ -245,6 +247,13 @@ const ENTRIES: &[Entry] = &[
         synopsis: "executable-release prepare --executable <FILE> --sbom <CYCLONEDX_JSON> --version <MAJOR.MINOR.PATCH> --target-commit <40_LOWERCASE_HEX> --repository <DIR> --output <ABSENT_DIR>",
         summary: "Prepare the deterministic Linux x86_64 executable release set.",
     },
+    Entry {
+        leaf: Leaf::NamingInspect,
+        namespace: Some("naming"),
+        action: "inspect",
+        synopsis: "naming inspect <NAMING_SOURCE_FILE>",
+        summary: "Report what a dated gene naming source yields for every Ensembl accession.",
+    },
 ];
 
 pub(crate) fn resolve(arguments: &[OsString]) -> Option<(Leaf, &[OsString])> {
@@ -393,7 +402,8 @@ mod tests {
                 "runtime-profile",
                 "runtime-transport",
                 "runtime-release",
-                "executable-release"
+                "executable-release",
+                "naming"
             ]
         );
         assert!(
