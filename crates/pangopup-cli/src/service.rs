@@ -15,9 +15,9 @@ use axum::{
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
 use pangopup_assets::{
-    ActiveScoringIdentity, ActiveScoringIdentityPreimage, AssetError,
-    canonical_runtime_profile_bytes, open_active_bundle, open_installed_runtime_profile,
-    runtime_profile_id,
+    ActiveScoringIdentity, ActiveScoringIdentityPreimage, AssetError, NamingSource,
+    canonical_runtime_profile_bytes, open_active_bundle, open_installed_naming_source,
+    open_installed_runtime_profile, runtime_profile_id,
 };
 #[cfg(feature = "service-test-fixtures")]
 use pangopup_assets::{open_test_runtime_profile, parse_runtime_profile};
@@ -464,6 +464,9 @@ struct AppState {
     assets: AssetStatus,
     scoring_identity: ActiveScoringIdentity,
     reference: Option<Arc<dyn ReferenceProvider>>,
+    /// The installed naming source, or nothing where none is installed.
+    /// Naming is a label store, so it stays out of `scoring_identity`.
+    names: Option<Arc<NamingSource>>,
 }
 
 #[derive(Deserialize)]
@@ -507,7 +510,17 @@ struct StatusOutput<'a> {
     assets: StatusAssets<'a>,
     routes: StatusRoutes,
     model: StatusModel,
+    naming: StatusNaming<'a>,
     request_contract: RequestContract,
+}
+
+/// Whether a naming source is installed, and which dated release it is. A
+/// consumer reads `release` to tell one naming vintage from another.
+#[derive(Serialize)]
+struct StatusNaming<'a> {
+    available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    release: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -834,6 +847,9 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
         scoring_identity,
     );
     state.reference = Some(Arc::new(conversion_reference));
+    state.names = open_installed_naming_source(&data)
+        .map_err(super::map_lookup_asset_error)?
+        .map(Arc::new);
     let listener = tokio::net::TcpListener::bind(options.listen)
         .await
         .map_err(|_| Failure {
@@ -951,6 +967,7 @@ fn build_state(
         assets,
         scoring_identity,
         reference: None,
+        names: None,
     }
 }
 
@@ -1141,6 +1158,10 @@ async fn status(State(state): State<AppState>) -> Response {
                 full_capacity_planning_seconds: retry_after_seconds(
                     state.dispatcher.queue_capacity,
                 ),
+            },
+            naming: StatusNaming {
+                available: state.names.is_some(),
+                release: state.names.as_deref().map(NamingSource::release),
             },
             request_contract: request_contract(request_limits),
         },
@@ -1568,7 +1589,9 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
             );
         };
         let rendered: Result<Box<RawValue>, ()> = match output {
-            ScoreOutcome::Complete(result) => render_result_raw(result).map_err(|_| ()),
+            ScoreOutcome::Complete(result) => {
+                render_result_raw(result, state.names.as_deref()).map_err(|_| ())
+            }
             ScoreOutcome::Rejected(variant, reason) => render_rejection_raw(variant, reason),
             ScoreOutcome::Invalid(reason) => render_invalid_variant_raw(reason),
         }

@@ -979,12 +979,13 @@ async fn health_status_and_route_errors_are_exact_json_lines() {
     assert_eq!(
         status,
         json!({
-            "version": "0.4.1",
+            "version": "0.5.0",
             "readiness": "ready",
             "scoring_identity": scoring_identity().as_str(),
             "assets": {"snv_bundle_id":"snv","model_bundle_id":"model","reference_bundle_id":"reference","mask_sha256":"mask"},
             "routes": {"lookup":true,"model":true,"model_only":true},
-            "model": {"effective_cpu_policy":"sequential:1/1","workers":1,"threads_per_worker":1,"running":0,"queued":0,"queue_capacity":2,"work_unit":"uncached_model_variant","planning_millis_per_unit":10241,"full_capacity_planning_seconds":21}
+            "model": {"effective_cpu_policy":"sequential:1/1","workers":1,"threads_per_worker":1,"running":0,"queued":0,"queue_capacity":2,"work_unit":"uncached_model_variant","planning_millis_per_unit":10241,"full_capacity_planning_seconds":21},
+            "naming": {"available":false}
         })
     );
     let response = router

@@ -1,3 +1,4 @@
+use pangopup_assets::{GeneNames, NamingSource};
 use pangopup_core::{
     GeneScoreRecord, Grch38Snv, Grch38Variant, LookupResult, ModelGeneScoreRecord, ModelWarning,
     SourceReferenceAmbiguity,
@@ -53,12 +54,17 @@ impl Error for RenderError {}
 
 /// Render already-materialized lookup results through the shipped CLI wire
 /// boundary. The binary and performance harness both call this function.
+///
+/// `names` carries the installed naming source, or nothing where none is
+/// installed. An unnamed gene reports its Ensembl accession alone. The
+/// human-readable table gains no names.
 pub fn render_requests(
     format: OutputFormat,
     requests: &[RenderRequest],
+    names: Option<&NamingSource>,
 ) -> Result<Vec<u8>, RenderError> {
     match format {
-        OutputFormat::Jsonl => render_jsonl(requests),
+        OutputFormat::Jsonl => render_jsonl(requests, names),
         OutputFormat::Table => render_table(requests),
     }
 }
@@ -67,8 +73,9 @@ pub fn render_requests(
 /// adapters use this form when byte-stable object key order matters.
 pub fn render_result_raw(
     result: RoutedResult,
+    names: Option<&NamingSource>,
 ) -> Result<Box<serde_json::value::RawValue>, RenderError> {
-    let mut bytes = render_jsonl(&[RenderRequest::from_routed(result)])?;
+    let mut bytes = render_jsonl(&[RenderRequest::from_routed(result)], names)?;
     if bytes.pop() != Some(b'\n') {
         return Err(RenderError("lookup result serialization failed"));
     }
@@ -90,7 +97,10 @@ fn precomputed_status(result: &LookupResult) -> &'static str {
     }
 }
 
-fn render_jsonl(requests: &[RenderRequest]) -> Result<Vec<u8>, RenderError> {
+fn render_jsonl(
+    requests: &[RenderRequest],
+    names: Option<&NamingSource>,
+) -> Result<Vec<u8>, RenderError> {
     let mut output = Vec::new();
     for request in requests {
         match &request.result {
@@ -106,11 +116,15 @@ fn render_jsonl(requests: &[RenderRequest]) -> Result<Vec<u8>, RenderError> {
                     reference: variant.reference(),
                     alternate: variant.alternate(),
                     status: precomputed_status(result),
-                    records: result.records().iter().map(JsonRecord::from).collect(),
+                    records: result
+                        .records()
+                        .iter()
+                        .map(|record| JsonRecord::new(record, names))
+                        .collect(),
                     source_reference_ambiguities: result
                         .source_reference_ambiguities()
                         .iter()
-                        .map(JsonAmbiguity::from)
+                        .map(|ambiguity| JsonAmbiguity::new(ambiguity, names))
                         .collect(),
                     provenance: JsonPrecomputedProvenance {
                         kind: "precomputed",
@@ -140,7 +154,10 @@ fn render_jsonl(requests: &[RenderRequest]) -> Result<Vec<u8>, RenderError> {
                     } else {
                         "found"
                     },
-                    records: records.iter().map(JsonModelRecord::from).collect(),
+                    records: records
+                        .iter()
+                        .map(|record| JsonModelRecord::new(record, names))
+                        .collect(),
                     source_reference_ambiguities: [],
                     provenance: JsonModelProvenance::from(provenance),
                 };
@@ -187,18 +204,22 @@ struct JsonModeledResult<'a> {
 struct JsonRecord {
     gene: String,
     stable_gene: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gene_names: Option<GeneNames>,
     gain_score: String,
     gain_position: i16,
     loss_score: String,
     loss_position: i16,
 }
 
-impl From<&GeneScoreRecord> for JsonRecord {
-    fn from(value: &GeneScoreRecord) -> Self {
+impl JsonRecord {
+    fn new(value: &GeneScoreRecord, names: Option<&NamingSource>) -> Self {
         let score = value.score();
+        let stable_gene = value.gene().to_string();
         Self {
             gene: value.gene().to_string(),
-            stable_gene: value.gene().to_string(),
+            gene_names: gene_names(names, &stable_gene),
+            stable_gene,
             gain_score: score.gain().to_string(),
             gain_position: score.gain_position().get(),
             loss_score: score.loss_text().to_string(),
@@ -207,10 +228,19 @@ impl From<&GeneScoreRecord> for JsonRecord {
     }
 }
 
+/// The labels the installed naming source carries for one stable Ensembl
+/// accession. An accession the source cannot name reports nothing, so the
+/// whole object is absent rather than empty.
+fn gene_names(names: Option<&NamingSource>, stable_gene: &str) -> Option<GeneNames> {
+    names?.names(stable_gene).cloned()
+}
+
 #[derive(Serialize)]
 struct JsonModelRecord {
     gene: String,
     stable_gene: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gene_names: Option<GeneNames>,
     gain_score: String,
     gain_position: i16,
     loss_score: String,
@@ -218,12 +248,14 @@ struct JsonModelRecord {
     warnings: Vec<&'static str>,
 }
 
-impl From<&ModelGeneScoreRecord> for JsonModelRecord {
-    fn from(value: &ModelGeneScoreRecord) -> Self {
+impl JsonModelRecord {
+    fn new(value: &ModelGeneScoreRecord, names: Option<&NamingSource>) -> Self {
         let score = value.score();
+        let stable_gene = value.gene().stable().to_string();
         Self {
             gene: value.gene().to_string(),
-            stable_gene: value.gene().stable().to_string(),
+            gene_names: gene_names(names, &stable_gene),
+            stable_gene,
             gain_score: score.gain().to_string(),
             gain_position: score.gain_position().get(),
             loss_score: score.loss_text().to_string(),
@@ -242,15 +274,19 @@ impl From<&ModelGeneScoreRecord> for JsonModelRecord {
 #[derive(Serialize)]
 struct JsonAmbiguity {
     gene: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gene_names: Option<GeneNames>,
     source_ref: &'static str,
     published_alts: [String; 3],
     omitted_alt: String,
 }
 
-impl From<&SourceReferenceAmbiguity> for JsonAmbiguity {
-    fn from(value: &SourceReferenceAmbiguity) -> Self {
+impl JsonAmbiguity {
+    fn new(value: &SourceReferenceAmbiguity, names: Option<&NamingSource>) -> Self {
+        let gene = value.gene().to_string();
         Self {
-            gene: value.gene().to_string(),
+            gene_names: gene_names(names, &gene),
+            gene,
             source_ref: value.source_reference(),
             published_alts: value.published_alternates().map(|base| base.to_string()),
             omitted_alt: value.omitted_alternate().to_string(),
@@ -488,7 +524,7 @@ mod tests {
             "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":4,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"not_found\",\"records\":[],\"source_reference_ambiguities\":[],\"provenance\":{\"kind\":\"precomputed\",\"bundle_id\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"source_doi\":\"10.5281/zenodo.15649338\",\"source_archive_md5\":\"679ef0b50e511b6102b4b88fbf811108\",\"masked\":true,\"window\":50}}\n",
         );
         assert_eq!(
-            render_requests(OutputFormat::Jsonl, &status_matrix()).expect("render"),
+            render_requests(OutputFormat::Jsonl, &status_matrix(), None).expect("render"),
             expected.as_bytes()
         );
     }
@@ -504,7 +540,7 @@ mod tests {
             "GRCh38\tchr1\t3\tA\tC\tmixed\tENSG00000000005\t.\t.\t.\t.\tN\tA,C,G\tT\tsha256:0000000000000000000000000000000000000000000000000000000000000000\n",
             "GRCh38\tchr1\t4\tA\tC\tnot_found\t.\t.\t.\t.\t.\t.\t.\t.\tsha256:0000000000000000000000000000000000000000000000000000000000000000\n",
         );
-        let actual = render_requests(OutputFormat::Table, &status_matrix()).expect("render");
+        let actual = render_requests(OutputFormat::Table, &status_matrix(), None).expect("render");
         assert_eq!(actual, expected.as_bytes());
         assert_eq!(actual.last(), Some(&b'\n'));
         assert_eq!(actual.iter().filter(|byte| **byte == b'\n').count(), 7);
@@ -532,7 +568,7 @@ mod tests {
     fn structured_records_report_source_and_stable_gene_identity() {
         let precomputed = GeneScoreRecord::new(gene("ENSG00000157764"), score(35, 25, 0, -50));
         let precomputed =
-            serde_json::to_value(JsonRecord::from(&precomputed)).expect("precomputed JSON");
+            serde_json::to_value(JsonRecord::new(&precomputed, None)).expect("precomputed JSON");
         assert_eq!(precomputed["gene"], "ENSG00000157764");
         assert_eq!(precomputed["stable_gene"], "ENSG00000157764");
 
@@ -541,7 +577,8 @@ mod tests {
             score(35, 25, 10, 2),
             Vec::new(),
         );
-        let modeled = serde_json::to_value(JsonModelRecord::from(&modeled)).expect("modeled JSON");
+        let modeled =
+            serde_json::to_value(JsonModelRecord::new(&modeled, None)).expect("modeled JSON");
         assert_eq!(modeled["gene"], "ENSG00000157764.14_PAR_Y");
         assert_eq!(modeled["stable_gene"], "ENSG00000157764");
     }
@@ -575,7 +612,10 @@ mod tests {
             reference: found.reference(),
             alternate: found.alternate(),
             status: "found",
-            records: records.iter().map(JsonModelRecord::from).collect(),
+            records: records
+                .iter()
+                .map(|record| JsonModelRecord::new(record, None))
+                .collect(),
             source_reference_ambiguities: [],
             provenance: synthetic_json_provenance(),
         };

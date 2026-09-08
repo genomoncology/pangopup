@@ -86,7 +86,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let provider = BundleOpen::open(&bundle_path)?;
     for (name, queries) in groups {
         let materialized = materialize(&provider, &queries);
-        let expected_cli = render_requests(OutputFormat::Jsonl, &materialized)?;
+        let expected_cli = render_requests(OutputFormat::Jsonl, &materialized, None)?;
         benchmark_cli(&cli, &bundle_path, &name, &queries, &expected_cli)?;
         benchmark_lookup(&provider, &name, &queries)?;
         benchmark_serialization(&name, &materialized, OutputFormat::Jsonl)?;
@@ -300,7 +300,7 @@ fn benchmark_serialization(
         })
         .sum();
     let (times, output, calls, bytes, delta) = sample(|| {
-        let rendered = render_requests(format, materialized).expect("render");
+        let rendered = render_requests(format, materialized, None).expect("render");
         black_box(rendered.len())
     });
     let format_name = match format {

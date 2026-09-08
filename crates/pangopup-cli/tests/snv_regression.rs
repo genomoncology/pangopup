@@ -73,8 +73,12 @@ fn all_one_thousand_direct_tsv_expectations_pass_one_real_provider() {
         let result = provider.lookup(snv, request.gene).expect("real lookup");
         record_count += result.records().len() + result.source_reference_ambiguities().len();
         actual.extend_from_slice(
-            &render_requests(OutputFormat::Jsonl, &[RenderRequest::new(snv, result)])
-                .expect("production renderer"),
+            &render_requests(
+                OutputFormat::Jsonl,
+                &[RenderRequest::new(snv, result)],
+                None,
+            )
+            .expect("production renderer"),
         );
     }
     assert!(
