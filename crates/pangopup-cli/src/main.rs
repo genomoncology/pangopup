@@ -77,6 +77,11 @@ const HELP_CATALOG: &[HelpEntry] = &[
         summary: "Install a caller-supplied compatible model-side runtime profile.",
     },
     HelpEntry {
+        path: &["assets", "naming", "install"],
+        synopsis: "assets naming install --source <NAMING_SOURCE_FILE> [--data-dir <ABSOLUTE_PATH>]",
+        summary: "Install a caller-supplied dated gene naming source into the local asset store.",
+    },
+    HelpEntry {
         path: &["lookup"],
         synopsis: "lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant <GRCh38-VARIANT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]",
         summary: "Score one or more GRCh38 variants with lookup-first model fallback. Forms: GRCh38:CONTIG:POS:REF:ALT; GRCh38:CONTIG:INS:LEFT:RIGHT:SEQUENCE; GRCh38:CONTIG:DEL:START:END:SEQUENCE. Examples: GRCh38:chr1:5051:A:AC; GRCh38:chr1:INS:5051:5052:C; GRCh38:chr1:DEL:5052:5052:A.",
@@ -2165,13 +2170,19 @@ mod tests {
         assert_eq!(
             focused_help(&os_args(&["assets", "--help"])).as_deref(),
             Some(
-                "Usage: pangopup assets <ACTION>\n\nActions:\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n"
+                "Usage: pangopup assets <ACTION>\n\nActions:\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets naming install --source <NAMING_SOURCE_FILE> [--data-dir <ABSOLUTE_PATH>]\n"
             )
         );
         assert_eq!(
             focused_help(&os_args(&["assets", "runtime", "--help"])).as_deref(),
             Some(
                 "Usage: pangopup assets runtime <ACTION>\n\nActions:\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n"
+            )
+        );
+        assert_eq!(
+            focused_help(&os_args(&["assets", "naming", "--help"])).as_deref(),
+            Some(
+                "Usage: pangopup assets naming <ACTION>\n\nActions:\n  pangopup assets naming install --source <NAMING_SOURCE_FILE> [--data-dir <ABSOLUTE_PATH>]\n"
             )
         );
     }
@@ -2202,6 +2213,10 @@ mod tests {
             (
                 "assets runtime install",
                 "Install a caller-supplied compatible model-side runtime profile.",
+            ),
+            (
+                "assets naming install",
+                "Install a caller-supplied dated gene naming source into the local asset store.",
             ),
             (
                 "lookup",
@@ -2237,7 +2252,11 @@ mod tests {
             .collect();
         assert_eq!(
             namespaces,
-            BTreeSet::from([vec!["assets"], vec!["assets", "runtime"],])
+            BTreeSet::from([
+                vec!["assets"],
+                vec!["assets", "naming"],
+                vec!["assets", "runtime"],
+            ])
         );
     }
 
@@ -2252,6 +2271,8 @@ mod tests {
             vec!["assets", "install"],
             vec!["assets", "runtime"],
             vec!["assets", "runtime", "install"],
+            vec!["assets", "naming"],
+            vec!["assets", "naming", "install"],
             vec!["lookup"],
         ] {
             for flag in ["-h", "--help"] {
