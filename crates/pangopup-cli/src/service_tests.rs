@@ -1774,6 +1774,85 @@ async fn an_absent_naming_source_is_reported_and_leaves_every_record_unnamed() {
     );
 }
 
+/// One naming source naming the accession both fake routes report. The
+/// columns are the seven the reader names; the published release carries
+/// fifty-three and the reader ignores the rest.
+fn installed_naming_source() -> NamingSource {
+    let source = concat!(
+        "hgnc_id\tsymbol\tstatus\talias_symbol\tprev_symbol\tentrez_id\tensembl_gene_id\n",
+        "HGNC:1097\tBRAF\tApproved\t\"BRAF1|BRAF-1\"\t\t673\tENSG00000000001\n",
+    );
+    NamingSource::parse("hgnc-2026-09-04".to_owned(), source.as_bytes()).expect("naming source")
+}
+
+async fn status_of(state: AppState) -> Value {
+    let response = app(state)
+        .oneshot(
+            Request::get("/v1/status")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    serde_json::from_slice(&body(response).await).expect("JSON status")
+}
+
+#[tokio::test]
+async fn an_installed_naming_source_reports_its_release_and_moves_no_scoring_identity() {
+    let unnamed = status_of(state_with_worker(Box::new(RecordWorker))).await;
+    let mut state = state_with_worker(Box::new(RecordWorker));
+    state.names = Some(Arc::new(installed_naming_source()));
+    let named = status_of(state.clone()).await;
+
+    assert_eq!(
+        named["naming"],
+        json!({"available": true, "release": "hgnc-2026-09-04"}),
+        "status names the installed naming release"
+    );
+    assert_eq!(named["readiness"], "ready");
+    assert_eq!(
+        named["scoring_identity"], unnamed["scoring_identity"],
+        "installing a naming source moves no scoring identity"
+    );
+
+    let response = app(state)
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"variants":["GRCh38:chr1:1:A:C","GRCh38:chr1:2:A:C"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: Value = serde_json::from_slice(&body(response).await).expect("JSON response");
+    let expected = json!({
+        "symbol": "BRAF",
+        "hgnc_id": "HGNC:1097",
+        "ncbi_gene_id": 673,
+        "alias_symbols": ["BRAF1", "BRAF-1"],
+    });
+    let precomputed = &value["results"][0]["records"][0];
+    assert_eq!(precomputed["stable_gene"], "ENSG00000000001");
+    assert_eq!(
+        precomputed["gene_names"], expected,
+        "a named gene reports the labels the source supplies"
+    );
+    let modeled = &value["results"][1]["records"][0];
+    assert_eq!(modeled["gene"], "ENSG00000000001.1");
+    assert_eq!(
+        modeled["gene_names"], expected,
+        "the model route names the versioned accession from its stable form"
+    );
+    assert_eq!(
+        value["results"][0]["scoring_identity"], unnamed["scoring_identity"],
+        "a named record keeps the scoring identity an unnamed one reports"
+    );
+}
+
 #[tokio::test]
 async fn modeled_http_success_is_pinned_as_one_complete_byte_fixture() {
     let (state, _) = state();
