@@ -298,11 +298,13 @@ fn read_receipt(
         ACTIVE_MODE,
         root,
         AssetErrorKind::ManifestInvalid,
-    )?
+    )
+    .map_err(|_| naming_state_invalid("installed naming receipt is not a private regular file"))?
     else {
         return Ok(None);
     };
-    let bytes = local::read_bounded_handle_ref(&file, 4_096, AssetErrorKind::ManifestInvalid)?;
+    let bytes = local::read_bounded_handle_ref(&file, 4_096, AssetErrorKind::ManifestInvalid)
+        .map_err(|_| naming_state_invalid("installed naming receipt cannot be read"))?;
     serde_json::from_slice(&bytes)
         .map(Some)
         .map_err(|_| naming_state_invalid("installed naming receipt is invalid"))
@@ -320,12 +322,14 @@ fn read_published_source(
         SOURCE_MODE,
         root,
         AssetErrorKind::ManifestInvalid,
-    )?
+    )
+    .map_err(|_| naming_state_invalid("installed naming source is not a private regular file"))?
     else {
         return Ok(None);
     };
     let bytes =
-        local::read_bounded_handle_ref(&file, MAX_SOURCE_BYTES, AssetErrorKind::ManifestInvalid)?;
+        local::read_bounded_handle_ref(&file, MAX_SOURCE_BYTES, AssetErrorKind::ManifestInvalid)
+            .map_err(|_| naming_state_invalid("installed naming source cannot be read"))?;
     if bytes.len() as u64 != receipt.source_bytes || sha256(&bytes) != receipt.source_sha256 {
         return Err(naming_state_invalid(
             "installed naming source does not match its receipt",
@@ -607,6 +611,25 @@ mod tests {
                 .names("ENSG00000157764")
                 .map(|names| names.symbol.as_str()),
             Some("BRAF")
+        );
+    }
+
+    #[test]
+    fn a_relaxed_member_mode_is_refused_and_the_message_names_the_naming_component() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().expect("temporary root");
+        let data = root.path().join("data");
+        install_naming_source(Path::new(FIXTURE), &data).expect("install");
+        let source = data.join(NAMING_DIRECTORY).join(SOURCE_MEMBER);
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644))
+            .expect("relax the published source mode");
+
+        let error = open_installed_naming_source(&data).expect_err("a relaxed mode is refused");
+        assert_eq!(error.kind(), AssetErrorKind::AssetStateInvalid);
+        assert_eq!(
+            error.to_string(),
+            "installed naming source is not a private regular file"
         );
     }
 
