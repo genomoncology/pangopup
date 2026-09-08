@@ -19,16 +19,22 @@ The offline builder reports what a naming source yields, one line per Ensembl
 accession, sorted by accession. It reports every value of a multi-valued field
 rather than one pick, and it writes `-` where the source supplies nothing.
 
+The source quotes a field that holds more than one value and leaves a single
+value bare. The reader strips those quotes and reports the values themselves.
+`CD4` carries the source cell `"T4|Leu-3"` and reports the two alias symbols
+`T4` and `Leu-3`.
+
 ```bash
 pangopup-build naming inspect ../tests/fixtures/gene-naming-mini/hgnc_complete_set_2026-09-04.tsv | mustmatch like "gene=ENSG00000010610 hgnc=HGNC:1678 symbol=CD4 ncbi=920 prev=- alias=T4|Leu-3
 gene=ENSG00000119888 hgnc=HGNC:11529 symbol=EPCAM ncbi=4072 prev=M4S1|MIC18|TACSTD1 alias=Ly74|TROP1|GA733-2|EGP34|EGP40|EGP-2|KSA|CD326|Ep-CAM|HEA125|KS1/4|MK-1|MH99|MOC31|MOC-31|323/A3|17-1A|TACST-1|CO-17A|ESA|BerEp4|Ber-Ep4
 gene=ENSG00000141499 hgnc=HGNC:25522 symbol=WRAP53 ncbi=55135 prev=WDR79 alias=FLJ10385|TCAB1
 gene=ENSG00000141510 hgnc=HGNC:11998 symbol=TP53 ncbi=- prev=- alias=p53|LFS1
 gene=ENSG00000157764 hgnc=HGNC:1097 symbol=BRAF ncbi=673 prev=- alias=BRAF1|BRAF-1
+gene=ENSG00000167034 hgnc=HGNC:7838 symbol=NKX3-1 ncbi=4824 prev=NKX3A alias=NKX3.1|BAPX2
 gene=ENSG00000169129 hgnc=HGNC:25901 symbol=AFAP1L2 ncbi=84632 prev=KIAA1914 alias=FLJ14564|Em:AC005383.4|XB130
 gene=ENSG00000175658 unnamed=conflicting_records
 gene=ENSG00000185974 unnamed=placeholder_symbol
-total rows=9 accessions=8 named=6 unnamed=2"
+total rows=10 accessions=9 named=7 unnamed=2"
 ```
 
 `ENSG00000175658` carries two approved HGNC records, `DRD5P2` and `DRD5P3`. It
@@ -38,9 +44,17 @@ release.
 
 `ENSG00000185974` carries a clone-derived string in place of a symbol. It
 reports no name. The row is still read and the accession is still reported. The
-guard rejects the placeholder, not the record that carries it. The guard reads
-the approved symbol alone. `ENSG00000169129` keeps its alias `Em:AC005383.4` and
-stays named.
+guard withholds the name. It keeps the record that carries the placeholder.
+
+An approved symbol never contains a period. All 45,045 approved records in the
+2026-09-04 release satisfy that. A clone-derived name such as `AC092143.1`
+carries the period of its accession version. The guard reads the approved
+symbol alone and withholds the name when it finds a period there. The guard
+reaches no other field. `ENSG00000169129` keeps its alias `Em:AC005383.4`.
+`ENSG00000167034` keeps its alias `NKX3.1`. Both stay named.
+
+A hyphen is ordinary in an approved symbol. 7,411 approved symbols in the
+release carry one. `NKX3-1` is one of them and it reports its name.
 
 ## Installing a naming source
 
@@ -68,8 +82,8 @@ Reinstalling the same source reuses it.
 ```bash
 data=$(cd .. && pwd)/target/spec/gene-naming/data
 source=../tests/fixtures/gene-naming-mini/hgnc_complete_set_2026-09-04.tsv
-pangopup assets naming install --source "$source" --data-dir "$data" | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch like '{"status":"installed","release":"hgnc-2026-09-04","source_bytes":5513,"source_sha256":"sha256:<digest>","named_genes":6'
-pangopup assets naming install --source "$source" --data-dir "$data" | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch like '{"status":"reused","release":"hgnc-2026-09-04","source_bytes":5513,"source_sha256":"sha256:<digest>","named_genes":6'
+pangopup assets naming install --source "$source" --data-dir "$data" | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch like '{"status":"installed","release":"hgnc-2026-09-04","source_bytes":6092,"source_sha256":"sha256:<digest>","named_genes":7'
+pangopup assets naming install --source "$source" --data-dir "$data" | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch like '{"status":"reused","release":"hgnc-2026-09-04","source_bytes":6092,"source_sha256":"sha256:<digest>","named_genes":7'
 ```
 
 ## Names on score records
@@ -92,6 +106,20 @@ a placeholder.
 data=$(cd .. && pwd)/target/spec/gene-naming/data
 pangopup lookup --data-dir "$data" --variant GRCh38:chr17:7687427:A:T | rg -F '"gene_names":{"symbol":"TP53","hgnc_id":"HGNC:11998","alias_symbols":["p53","LFS1"]}' >/dev/null
 printf 'an unsupplied naming field is absent rather than empty\n' | mustmatch like 'an unsupplied naming field is absent rather than empty'
+```
+
+The human-readable table carries no names. It keeps its fifteen columns and
+reports the Ensembl accession under `GENE`. A consumer reading names reads the
+structured record.
+
+```bash
+data=$(cd .. && pwd)/target/spec/gene-naming/data
+pangopup lookup --data-dir "$data" --variant GRCh38:chr12:6801301:G:A --format table > ../target/spec/gene-naming/table.txt
+head -1 ../target/spec/gene-naming/table.txt | mustmatch like 'ASSEMBLY	CONTIG	POS	REF	ALT	STATUS	GENE	GAIN_SCORE	GAIN_POS	LOSS_SCORE	LOSS_POS	SOURCE_REF	PUBLISHED_ALTS	OMITTED_ALT	BUNDLE_ID'
+rg -F 'ENSG00000010610' ../target/spec/gene-naming/table.txt >/dev/null
+! rg -F 'CD4' ../target/spec/gene-naming/table.txt
+! rg -F 'HGNC' ../target/spec/gene-naming/table.txt
+printf 'the human-readable table gains no names\n' | mustmatch like 'the human-readable table gains no names'
 ```
 
 A gene the naming source does not name reports the Ensembl accession alone. A

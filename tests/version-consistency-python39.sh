@@ -180,8 +180,12 @@ try:
         "hgnc_complete_set_2026-09-04.tsv",
         "16903161",
         "6f43d6ff43aa9fdfa5fb2f20a20a7cace66e6e02e2a0dcf19d9b726e2e248d20",
+        "Creative Commons Public Domain (CC0)",
     )
-    required_gencode_annotation_claims = ("gencode.v38.annotation.gtf.gz",)
+    required_gencode_annotation_claims = (
+        "gencode.v38.annotation.gtf.gz",
+        "https://www.ebi.ac.uk/about/terms-of-use",
+    )
     if checker_globals.get("ATTRIBUTION_DOCUMENT") != required_attribution_document:
         raise AssertionError("checker does not gate the attribution document")
     if tuple(checker_globals.get("NAMING_SOURCE_CLAIMS", ())) != required_naming_source_claims:
