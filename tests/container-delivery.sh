@@ -117,7 +117,7 @@ collision_accept='Accept: application/vnd.oci.image.index.v1+json, application/v
 grep -Fq '.[0].code == "MANIFEST_UNKNOWN"' scripts/require-container-tag-absent.sh
 grep -Fq 'could not prove version tag %s absent: HTTP %s' scripts/require-container-tag-absent.sh
 grep -Fq 'PREVIOUS_INDEX: sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0' "$publish_workflow"
-grep -Fq 'VERSION: 0.4.1' "$publish_workflow"
+grep -Fq 'VERSION: 0.5.0' "$publish_workflow"
 grep -Fq 'scripts/require-container-tag-digest.sh latest "$latest_code"' "$publish_workflow"
 grep -Fq '"$RUNNER_TEMP/latest.headers" "$PREVIOUS_INDEX"' "$publish_workflow"
 grep -Fq 'container tag %s no longer resolves to its reviewed predecessor' scripts/require-container-tag-digest.sh

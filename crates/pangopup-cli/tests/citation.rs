@@ -2,7 +2,7 @@ use serde_yaml_ng::{Mapping, Value};
 use std::{fs, path::Path};
 
 const REPOSITORY: &str = "https://github.com/genomoncology/pangopup";
-const RELEASE: &str = "https://github.com/genomoncology/pangopup/releases/tag/v0.4.1";
+const RELEASE: &str = "https://github.com/genomoncology/pangopup/releases/tag/v0.5.0";
 const PAPER_DOI: &str = "https://doi.org/10.1186/s13059-022-02664-4";
 const PAPER_SPRINGER: &str = "https://link.springer.com/article/10.1186/s13059-022-02664-4";
 const ZENODO_DOI: &str = "https://doi.org/10.5281/zenodo.15649338";
@@ -37,7 +37,7 @@ fn validate_citation(source: &str) -> Result<(), String> {
         ("cff-version", "1.2.0"),
         ("title", "PangoPup"),
         ("type", "software"),
-        ("version", "0.4.1"),
+        ("version", "0.5.0"),
         ("date-released", "2026-09-06"),
         ("repository-code", REPOSITORY),
         ("repository-artifact", RELEASE),

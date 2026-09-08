@@ -42,8 +42,8 @@ The direct executable requires Linux x86-64/amd64 with GLIBC 2.39 or newer. The 
 sync downloads about 2.44 GiB, installs about 14.76 GiB, and needs at least 25 GB free.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/v0.4.1/install.sh \
-  | bash -s -- --version 0.4.1
+curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/v0.5.0/install.sh \
+  | bash -s -- --version 0.5.0
 export PATH="$HOME/.local/bin:$PATH"
 
 pangopup sync --progress
@@ -138,7 +138,7 @@ The published image supports native Linux AMD64 and ARM64. Create persistent vol
 sync once, then start the service:
 
 ```bash
-export PANGOPUP_IMAGE=ghcr.io/genomoncology/pangopup:0.4.1
+export PANGOPUP_IMAGE=ghcr.io/genomoncology/pangopup:0.5.0
 docker pull "$PANGOPUP_IMAGE"
 docker volume create pangopup-data
 docker volume create pangopup-cache
@@ -204,7 +204,7 @@ pangopup status
 To install a chosen release, use its version in both the URL and installer argument:
 
 ```bash
-VERSION=0.4.1
+VERSION=0.5.0
 curl -fsSL "https://raw.githubusercontent.com/genomoncology/pangopup/v${VERSION}/install.sh" \
   | bash -s -- --version "$VERSION"
 ```
@@ -217,7 +217,7 @@ For Docker, pull the chosen tag, stop the container started above, then repeat t
 service command with both named volumes:
 
 ```bash
-export PANGOPUP_IMAGE=ghcr.io/genomoncology/pangopup:0.4.1
+export PANGOPUP_IMAGE=ghcr.io/genomoncology/pangopup:0.5.0
 docker pull "$PANGOPUP_IMAGE"
 docker stop pangopup
 ```
@@ -233,7 +233,7 @@ pangopup uninstall --full       # code, managed data, and cache; asks first
 pangopup uninstall --full --yes # full removal without prompting
 ```
 
-For Docker, remove code with `docker image rm ghcr.io/genomoncology/pangopup:0.4.1`.
+For Docker, remove code with `docker image rm ghcr.io/genomoncology/pangopup:0.5.0`.
 Optionally remove downloads and cached model results with
 `docker volume rm pangopup-cache`, or installed assets with
 `docker volume rm pangopup-data`.

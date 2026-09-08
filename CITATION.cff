@@ -5,8 +5,8 @@ type: software
 authors:
   - family-names: Maurer
     given-names: Ian
-version: 0.4.1
+version: 0.5.0
 date-released: 2026-09-06
 repository-code: "https://github.com/genomoncology/pangopup"
-repository-artifact: "https://github.com/genomoncology/pangopup/releases/tag/v0.4.1"
+repository-artifact: "https://github.com/genomoncology/pangopup/releases/tag/v0.5.0"
 license: GPL-3.0-only

@@ -70,6 +70,45 @@ COMPATIBILITY_DOCUMENTS = (
         "../../spec/http-service.md#request-contract-schema",
     ),
 )
+V050_COMPATIBILITY_DOCUMENT = "architecture/compatibility.md"
+V050_RESPONSE_SHAPE_HEADING = "## v0.5.0 response-shape inventory"
+V050_RESPONSE_SHAPE_INVENTORY = (
+    ("Status response root", "adds", "`naming`"),
+    ("Status `naming` object", "carries", "`available` and `release`"),
+    ("Every structured score record", "adds", "`gene_names`"),
+    ("Every source-reference ambiguity", "adds", "`gene_names`"),
+    (
+        "Score-record `gene_names` object",
+        "carries",
+        "`symbol`, `hgnc_id`, `ncbi_gene_id`, `prev_symbols`, and `alias_symbols`",
+    ),
+)
+V050_UNNAMED_GENE_SHAPE = (
+    "- Unnamed gene: the score record and the source-reference ambiguity carry no"
+    " `gene_names` object, and a named gene omits `ncbi_gene_id`, `prev_symbols`,"
+    " and `alias_symbols` where the naming source supplies none."
+)
+V050_DEPLOYMENT_ORDER = (
+    "Deploy strict consumer support for the complete response-shape inventory"
+    " before deploying PangoPup v0.5.0."
+)
+AMBIGUOUS_SYMBOL_GUIDANCE = (
+    "`prev_symbols` and `alias_symbols` are ambiguous. One symbol can point at"
+    " several genes, and one can be another gene's approved symbol. Never match on"
+    " them alone. `stable_gene` remains the only key."
+)
+ATTRIBUTION_DOCUMENT = "NOTICE"
+NAMING_SOURCE_CLAIMS = (
+    "HUGO Gene Nomenclature Committee",
+    "hgnc_complete_set_2026-09-04.tsv",
+    "16903161",
+    "6f43d6ff43aa9fdfa5fb2f20a20a7cace66e6e02e2a0dcf19d9b726e2e248d20",
+    "Creative Commons Public Domain (CC0)",
+)
+GENCODE_ANNOTATION_CLAIMS = (
+    "gencode.v38.annotation.gtf.gz",
+    "https://www.ebi.ac.uk/about/terms-of-use",
+)
 REQUEST_CONTRACT_SCHEMA_MEMBERS = (
     "request_contract: object",
     "|-- api_version: string",
@@ -279,10 +318,13 @@ def check_candidate(candidate: str) -> None:
     require_in_section("candidate", "spec/readme-first-use.md", "# README first-use contract", f"ghcr.io/genomoncology/pangopup:{candidate}")
     require_in_section("candidate", "spec/readme-first-use.md", "# README first-use contract", f"VERSION={candidate}")
 
+    # The transition sentence names what is published, not what the workspace
+    # builds. The two coincided while the candidate and the public release were
+    # both v0.4.1. They separate whenever a candidate runs ahead of publication.
     service = re.sub(r"\s+", " ", markdown_section("architecture/service.md", "# Service Boundary"))
     transition = (
         "immutable public executable and native container identify application "
-        f"v{candidate} from one exact source commit"
+        f"v{PUBLIC_EXECUTABLE_VERSION} from one exact source commit"
     )
     if transition not in service:
         fail("candidate/public transition", "architecture/service.md", transition)
@@ -523,6 +565,34 @@ def check_response_shape_compatibility() -> None:
         )
 
 
+def check_gene_naming_compatibility() -> None:
+    # The v0.5 section must sit below the v0.4 section. markdown_section ends a
+    # section at the next heading of the same or a higher level, so a v0.5
+    # heading placed above would truncate every v0.4 claim to nothing.
+    for scope, action, fields in V050_RESPONSE_SHAPE_INVENTORY:
+        require_in_section(
+            "response-shape compatibility",
+            V050_COMPATIBILITY_DOCUMENT,
+            V050_RESPONSE_SHAPE_HEADING,
+            inventory_line(scope, action, fields),
+        )
+    for claim in (
+        V050_UNNAMED_GENE_SHAPE,
+        V050_DEPLOYMENT_ORDER,
+        AMBIGUOUS_SYMBOL_GUIDANCE,
+    ):
+        require_in_section(
+            "response-shape compatibility",
+            V050_COMPATIBILITY_DOCUMENT,
+            V050_RESPONSE_SHAPE_HEADING,
+            claim,
+        )
+    attribution = read(ATTRIBUTION_DOCUMENT)
+    for claim in NAMING_SOURCE_CLAIMS + GENCODE_ANNOTATION_CLAIMS:
+        if claim not in attribution:
+            fail("attribution", ATTRIBUTION_DOCUMENT, claim)
+
+
 def main() -> None:
     candidate = workspace_version()
     check_candidate(candidate)
@@ -530,6 +600,7 @@ def main() -> None:
     check_fixed_fixtures()
     check_history()
     check_response_shape_compatibility()
+    check_gene_naming_compatibility()
     print(
         f"version consistency: current {candidate}; public executable "
         f"{PUBLIC_EXECUTABLE_VERSION}; public container {PUBLIC_CONTAINER_VERSION}"

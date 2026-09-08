@@ -47,6 +47,43 @@ Distributed index bundles must retain this notice, identify the exact source
 archive checksum, describe the transformation, and state whether further
 changes were made.
 
+HGNC gene naming source
+-----------------------
+
+Pangopup reads the following separately licensed file to name the gene an
+Ensembl accession belongs to:
+
+  Title: HGNC complete set, monthly release 2026-09-04
+  Publisher: HUGO Gene Nomenclature Committee (HGNC), EMBL-EBI
+  File: hgnc_complete_set_2026-09-04.tsv
+  Source: https://storage.googleapis.com/public-download-files/hgnc/archive/archive/monthly/tsv/
+  Size: 16903161 bytes
+  SHA-256: 6f43d6ff43aa9fdfa5fb2f20a20a7cace66e6e02e2a0dcf19d9b726e2e248d20
+  License: Creative Commons Public Domain (CC0)
+  License text: https://creativecommons.org/publicdomain/zero/1.0/
+
+HGNC publishes no upstream checksum file for this release. Pangopup pins the
+dated release member by byte count and its own computed digest. The naming
+source is never embedded in an index bundle, a runtime profile or the
+container image. It installs through the offline asset path and reaches no
+network at scoring time or at service start.
+
+GENCODE annotation
+------------------
+
+The Pangopup domain mask is derived from the following annotation:
+
+  Title: GENCODE human release 38 comprehensive annotation
+  Creators: The GENCODE consortium
+  Publisher: EMBL-EBI
+  File: gencode.v38.annotation.gtf.gz
+  Source: https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_38/
+  Terms: GENCODE names no separate licence and refers to the EMBL-EBI terms of use
+  Terms text: https://www.ebi.ac.uk/about/terms-of-use
+
+The mask records the annotated gene domains the model scores against. It
+carries no GENCODE sequence and no GENCODE transcript payload.
+
 PangoPup pangolin artwork
 -------------------------
 

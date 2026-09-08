@@ -78,8 +78,8 @@ for text in \
   '2.44 GiB' \
   '14.76 GiB' \
   '25 GB free' \
-  'raw.githubusercontent.com/genomoncology/pangopup/v0.4.1/install.sh' \
-  'bash -s -- --version 0.4.1' \
+  'raw.githubusercontent.com/genomoncology/pangopup/v0.5.0/install.sh' \
+  'bash -s -- --version 0.5.0' \
   'export PATH="$HOME/.local/bin:$PATH"' \
   'pangopup sync --progress' \
   'pangopup status' \
@@ -164,7 +164,7 @@ Docker offers one persistent sync/service path and one direct CLI call.
 ```bash
 docker=$(awk '/^## Docker$/ { on=1; next } /^## / { if (on) exit } on' ../README.md)
 for text in \
-  'ghcr.io/genomoncology/pangopup:0.4.1' \
+  'ghcr.io/genomoncology/pangopup:0.5.0' \
   'docker volume create pangopup-data' \
   'docker volume create pangopup-cache' \
   'pangopup-data:/var/lib/pangopup:ro' \
@@ -202,7 +202,7 @@ for text in \
   'does not publish a macOS executable or executable installer' \
   '`pangopup uninstall` refuses on macOS' \
   'pangopup sync --offline' \
-  'VERSION=0.4.1' \
+  'VERSION=0.5.0' \
   'v${VERSION}/install.sh' \
   'preserving assets and caches' \
   'pangopup sync --progress' \

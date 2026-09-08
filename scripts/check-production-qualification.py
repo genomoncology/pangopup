@@ -338,7 +338,7 @@ def main() -> None:
     model_only_value = json.loads(model_only_expected.read_bytes())
     if live != {"status": "live"} or not isinstance(ready, dict) or ready.get("status") != "ready":
         fail("HTTP health response mismatch")
-    if not isinstance(status, dict) or status.get("version") != "0.4.1" or status.get("readiness") != "ready":
+    if not isinstance(status, dict) or status.get("version") != "0.5.0" or status.get("readiness") != "ready":
         fail("HTTP status response mismatch")
     status_identity = status.get("scoring_identity")
     if not isinstance(status_identity, str) or SCORING_IDENTITY.fullmatch(status_identity) is None:
