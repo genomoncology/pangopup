@@ -20,6 +20,7 @@ mod active_identity;
 mod error;
 mod input_audit;
 mod local;
+mod naming;
 mod provisioning;
 mod release;
 mod runtime_install;
@@ -40,6 +41,10 @@ pub use input_audit::{test_reset_input_opens, test_take_input_opens};
 pub use local::{
     ActiveBundle, DataPathInputs, InstallOutcome, LocalStatus, active_bundle, install_transport,
     local_status, open_active_bundle, resolve_data_root,
+};
+pub use naming::{
+    GeneNames, GeneNaming, NamingInstallOutcome, NamingSource, UnnamedReason,
+    install_naming_source, open_installed_naming_source,
 };
 pub use provisioning::{
     CombinedLocalStatus, CombinedStatusInvalid, CombinedStatusResult, CombinedSyncIncomplete,
