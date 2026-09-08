@@ -3,9 +3,14 @@
 The root README is a compact user guide. These checks inspect text only; they
 do not use the network, synchronize assets, start a service, or remove files.
 
+The size budget holds the README to a first-use guide. It carries the
+score-value statements that `spec/score-value.md` requires beside the fields
+they describe. The budget moved once to admit them and stops general growth
+otherwise.
+
 ```bash
-test "$(wc -l < ../README.md)" -le 260
-test "$(wc -w < ../README.md)" -le 1700
+test "$(wc -l < ../README.md)" -le 270
+test "$(wc -w < ../README.md)" -le 1770
 test "$(sed -n '1p' ../README.md)" = '# PangoPup'
 headings=$(rg '^## ' ../README.md)
 test "$headings" = "$(printf '%s\n' \

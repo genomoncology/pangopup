@@ -1,8 +1,9 @@
 # What a score value is
 
-A PangoPup score is an exact decimal, not a rounded floating-point number. This
-file states the value space, the rounding that produces it, the rendered form,
-what a consumer can compare it against, and what moves it.
+A PangoPup score is an exact decimal in hundredths. A response carries that
+decimal and never a floating-point value. This file states the value space, the
+rounding that produces it, the rendered form, what a consumer can compare it
+against, and what moves it.
 
 ## The value space
 
@@ -14,8 +15,10 @@ A rendered score always carries exactly two decimal places and one digit before
 the decimal point. A zero loss renders `0.00` and never `-0.00`.
 
 ```bash
-cargo test --locked --quiet --package pangopup-core --test score_value a_score_value_is_one_of_one_hundred_and_one_exact_hundredths >/dev/null 2>&1
-cargo test --locked --quiet --package pangopup-core --test score_value a_loss_carries_the_same_value_space_with_its_sign_restored >/dev/null 2>&1
+cargo test --locked --quiet --package pangopup-core --test score_value a_score_value_is_one_of_one_hundred_and_one_exact_hundredths 2>/dev/null \
+  | rg -F '1 passed; 0 failed' >/dev/null
+cargo test --locked --quiet --package pangopup-core --test score_value a_loss_carries_the_same_value_space_with_its_sign_restored 2>/dev/null \
+  | rg -F '1 passed; 0 failed' >/dev/null
 pangopup lookup \
   --bundle ../tests/fixtures/snv-regression/bundle \
   --variant GRCh38:chr12:6801301:G:A \
@@ -37,7 +40,8 @@ The precomputed route does not round. It reads exact hundredths from the
 published dataset and refuses a source value it cannot carry.
 
 ```bash
-cargo test --locked --quiet --package pangopup-engine a_halfway_model_value_rounds_to_the_even_hundredth >/dev/null 2>&1
+cargo test --locked --quiet --package pangopup-engine --lib a_halfway_model_value_rounds_to_the_even_hundredth 2>/dev/null \
+  | rg -F '1 passed; 0 failed' >/dev/null
 printf 'a halfway model value rounds to the even hundredth\n' | mustmatch like 'a halfway model value rounds to the even hundredth'
 ```
 
@@ -50,7 +54,8 @@ against one of those two values. The deployment must record which one it
 compared against.
 
 ```bash
-cargo test --locked --quiet --package pangopup-core --test score_value a_threshold_finer_than_one_hundredth_has_no_value_to_compare_against >/dev/null 2>&1
+cargo test --locked --quiet --package pangopup-core --test score_value a_threshold_finer_than_one_hundredth_has_no_value_to_compare_against 2>/dev/null \
+  | rg -F '1 passed; 0 failed' >/dev/null
 pangopup lookup \
   --model-only \
   --variant GRCh38:chr1:5051:A:C \
@@ -64,8 +69,10 @@ printf 'a threshold finer than one hundredth has no value to compare against\n' 
 
 ## The two routes
 
-A covered SNV is answered from the published dataset. Everything else runs the
-model. The two routes do not always report the same value for the same variant.
+A covered SNV is answered from the published dataset unless the request asks for
+the model. A supported non-SNV, a supported lookup miss and an explicit
+`--model-only` request each run the model. The two routes do not always report
+the same value for the same variant.
 
 The frozen upstream corpus carries both routes for four variants and five gene
 records. Four records agree on the value. One does not.
@@ -82,7 +89,8 @@ beside it is non-zero.
 score stores that field with it.
 
 ```bash
-cargo test --locked --quiet --package pangopup-engine the_precomputed_and_model_routes_do_not_always_report_the_same_value >/dev/null 2>&1
+cargo test --locked --quiet --package pangopup-engine --lib the_precomputed_and_model_routes_do_not_always_report_the_same_value 2>/dev/null \
+  | rg -F '1 passed; 0 failed' >/dev/null
 printf 'the precomputed and model routes do not always report the same value\n' | mustmatch like 'the precomputed and model routes do not always report the same value'
 ```
 
@@ -93,15 +101,20 @@ position, no status and no rejection reason. Two deployments running the same
 assets under different worker and thread settings return the same answer.
 
 `--model-threads` does move the reported `effective_cpu_policy` and the
-`scoring_identity` derived from it. `--model-workers` moves neither: the
-effective policy renders `sequential:{threads}/1` and the worker count does not
-enter it. A `scoring_identity` change across two deployments of the same assets
-therefore reports a thread-count change rather than a different answer.
+`scoring_identity` derived from it. `--model-workers` moves neither. The
+effective policy renders `sequential:{threads}/1` and the worker count never
+enters it.
+
+The identity also carries the PangoPup version and the runtime profile. Between
+two deployments of the same assets on the same PangoPup version, a
+`scoring_identity` change therefore reports a thread-count change and no change
+of answer. A PangoPup version change moves the identity too, and a version
+change can move an answer.
 
 ```bash
 cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
   --test http_service_lifecycle a_deployment_worker_and_thread_setting_changes_no_modeled_score \
-  >/dev/null 2>&1
+  2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
 printf 'a deployment worker or thread setting changes no modeled score\n' | mustmatch like 'a deployment worker or thread setting changes no modeled score'
 ```
 
