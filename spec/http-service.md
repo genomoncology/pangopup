@@ -183,12 +183,15 @@ for statement in \
   'A service started with `--model-threads 4` reports `sequential:4/1` as its effective policy while its runtime profile still declares `sequential:1/1`.' \
   'A precomputed score item carries six provenance fields and a modeled score item carries twelve.' \
   'A precomputed value ran no model, read no reference window and applied no runtime mask. `model_bundle_id`, `model_profile`, `effective_cpu_policy`, `reference_bundle_id`, `reference_profile`, `reference_sequence_set_sha256`, `mask_bytes` and `mask_sha256` describe none of it.' \
+  'A precomputed item still reports `masked` and `window`. Both values come from the published dataset manifest.' \
   '`bundle_id`, `source_doi` and `source_archive_md5` pin the published dataset a precomputed value came from.' \
+  'A modeled score item carries none of those three fields.' \
   'Both routes answer under one scoring semantics. The status response reports it as `scoring_semantics`.'; do
   printf '%s' "$pinning" | rg -F -- "$statement" >/dev/null
 done
 identity=$(awk '/^## Active scoring identity$/ { on=1; next } on && /^## / { exit } on' ../architecture/service.md)
 printf '%s' "$identity" | rg -F -- '`data_set_version` carries the same inputs without the effective CPU policy.' >/dev/null
+printf '%s' "$identity" | rg -F -- 'The installed naming source stays outside the preimage.' >/dev/null
 ! printf '%s' "$identity" | rg -F -- 'active policy that can change an answer' >/dev/null
 runtime_data=$(cat ../architecture/runtime-data.md)
 printf '%s' "$runtime_data" | rg -F -- '`data_set_version` gives a consumer one concise version value that no deployment setting moves.' >/dev/null
