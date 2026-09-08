@@ -13,11 +13,14 @@ The identifiers exist in one public file. HGNC's complete set carries an Ensembl
 | HGNC identifier | 41,957 | 100.0% |
 | Approved symbol | 41,957 | 100.0% |
 | NCBI Gene identifier | 41,496 | 98.9% |
-| RefSeq accessions | 40,820 | 97.3% |
 | Previous symbols | 11,826 | 28.2% |
 | Alias symbols | 21,495 | 51.2% |
 
 41,957 of the 60,605 scoreable accessions join to an HGNC record and 19,218 of those are protein-coding.
+
+NCBI's `Homo_sapiens.gene_info` was evaluated as a second source and rejected. Its own Ensembl crosslink reaches 36,561 of the same accessions, fewer than HGNC's 41,957. HGNC's NCBI Gene identifier column alone supplies 41,496 identifiers where NCBI's file supplies 36,561. Adding it as a second source raises total naming from 41,957 to 44,569, and 82 of those 2,612 additions are protein-coding. It also introduces 158 accessions where the two sources report different NCBI Gene identifiers, each needing an arbitration rule. One source carries this work.
+
+HGNC also publishes RefSeq accessions for 40,820 of the joined genes. They are not carried. The field mixes transcript, genomic-region, non-coding and protein accessions across the joined set, 75 genes carry more than one, and no consumer requirement names it.
 
 Three limits are known and none of them blocks this work.
 
@@ -31,7 +34,7 @@ Ian settled these choices on 2026-09-08.
 
 The Ensembl accession stays the identity. A name is a label a consumer displays, never a key it stores or matches on. Symbols get renamed and accessions do not. `crates/pangopup-core/src/lib.rs:229` already records that a stable accession is not globally unique across PAR identities, and naming does not change that.
 
-A consumer can read the HGNC identifier, the approved symbol, the NCBI Gene identifier and RefSeq accessions for a named gene, plus previous and alias symbols so a consumer holding an older name can still match.
+A consumer can read the HGNC identifier, the approved symbol, the NCBI Gene identifier and the Ensembl accession for a named gene, plus previous and alias symbols so a consumer holding an older name can still match. The NCBI Gene identifier is the short numeric identifier that names BRAF 673.
 
 A gene the naming source cannot name reports no name. A clone-derived string such as `AC092143.1` reads like a symbol without being one, and an absent field is honest where a convincing placeholder is not. Reject placeholders of that kind, not the annotation that carries them.
 
@@ -43,9 +46,9 @@ The candidate ships as 0.5.0. Publication is separate work, as tickets 0036 thro
 
 Done, observably:
 
-- A named gene reports its approved symbol, HGNC identifier, NCBI Gene identifier and RefSeq accessions alongside the Ensembl accession it reports today. Fields the naming source does not supply for that gene are absent rather than empty.
+- A named gene reports its approved symbol, HGNC identifier and NCBI Gene identifier alongside the Ensembl accession it reports today. Fields the naming source does not supply for that gene are absent rather than empty.
 - Previous symbols and alias symbols are readable for a named gene that has them.
-- Every identifier that can hold several values for one gene is readable as all of them, not one arbitrary pick. 75 joined genes carry more than one RefSeq accession, alias symbols reach 22 per gene and previous symbols reach 18.
+- Every identifier that can hold several values for one gene is readable as all of them, not one arbitrary pick. Alias symbols reach 22 per gene and previous symbols reach 18.
 - A gene the naming source does not name, and a gene whose accession carries conflicting approved records, both report the Ensembl accession alone and no name. A test pins one of the three known conflicting accessions.
 - The specification states which output surfaces gain names. Structured score records and the gene reported on a source-reference ambiguity are in scope. The human-readable table is out of scope unless the specification says otherwise.
 - The service runs, reports ready and scores normally when no naming source is installed. A score record then reports no name and `/v1/status` states that naming is unavailable.
