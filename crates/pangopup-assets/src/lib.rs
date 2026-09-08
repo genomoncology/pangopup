@@ -32,6 +32,7 @@ mod sync;
 
 pub use active_identity::{
     ACTIVE_SCORING_IDENTITY_SCHEMA, ActiveScoringIdentity, ActiveScoringIdentityPreimage,
+    SCORING_DATA_SET_VERSION_SCHEMA, ScoringDataSetVersion, ScoringDataSetVersionPreimage,
 };
 pub use error::{AssetError, AssetErrorKind};
 pub(crate) use input_audit::record_test_input_open;

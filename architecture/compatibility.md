@@ -33,6 +33,7 @@ PangoPup v0.5.0 changes response shapes from v0.4.1:
 - Every structured score record: adds `gene_names`.
 - Every source-reference ambiguity: adds `gene_names`.
 - Score-record `gene_names` object: carries `symbol`, `hgnc_id`, `ncbi_gene_id`, `prev_symbols`, and `alias_symbols`.
+- Status response root: adds `data_set_version`, `runtime_profile_id`, and `scoring_semantics`.
 
 - Unnamed gene: the score record and the source-reference ambiguity carry no `gene_names` object, and a named gene omits `ncbi_gene_id`, `prev_symbols`, and `alias_symbols` where the naming source supplies none.
 
@@ -61,3 +62,17 @@ Store `provenance.kind` beside every score a system retains. That field names th
 A worker or thread setting changes no score. `--model-workers` and `--model-threads` move no score, no position, no status and no rejection reason. That statement rests on measurement. No gate proves it. The always-on gate runs a stand-in model with two operators. That model's arithmetic cannot reorder across threads. The production model was measured under thread counts 1, 4 and 8 and worker counts 1, 2 and 4, on one host and one build, against the shipped v0.5.0 assets. All six pairwise comparisons of those four runs were identical. Re-measure before citing the statement for another host, build or asset set. `--model-threads` does move the reported `effective_cpu_policy`. `scoring_identity` carries that policy and moves with it. `--model-workers` moves neither. The measured evidence is [`planning/artifacts/0040-score-value-determinism.md`](../planning/artifacts/0040-score-value-determinism.md), and [`spec/score-value.md`](../spec/score-value.md) states what each proof covers.
 
 `scoring_identity` also hashes the PangoPup version. Read a moved identity only within one version. Two deployments of one PangoPup version on the same assets can differ in thread count. They report different identities and the same answers. A PangoPup version change moves the identity too, and a version change can move an answer.
+
+## What a consumer pins
+
+A consumer stores one value beside every retained score and compares it later. Store `data_set_version` as the data-set version when a system has one version field. `data_set_version` hashes the PangoPup version and the runtime profile identity. PangoPup hashes the RFC 8785 canonical `pangopup.scoring-data-set-version.v1` preimage over those two inputs. The status response publishes both of them. A consumer recomputes the value instead of trusting it.
+
+`runtime_profile_id` hashes the whole admitted runtime profile. It covers every asset digest and every scoring input, `assembly`, `semantics`, `distance`, `masking_policy` and `cpu_policy` among them. No worker or thread setting moves `data_set_version` or `runtime_profile_id`.
+
+`runtime_profile_id` alone is not the value to store. A PangoPup version change can move an answer with every asset unchanged. No such change moves `runtime_profile_id`. `data_set_version` covers the version too.
+
+`scoring_identity` also hashes the effective CPU policy. A thread change moves it. Measurement on one host and one build found no score that a thread change moved. The `## Score values` section above states what that measurement covered and when to repeat it. `scoring_identity` keeps its value and its place on the status response and on every score item.
+
+The runtime profile declares `cpu_policy` for the assets PangoPup qualified. The status `model.effective_cpu_policy` reports what the running service uses. A service started with `--model-threads 4` reports `sequential:4/1` as its effective policy while its runtime profile still declares `sequential:1/1`. Read the declared value as a property of the assets. Read the reported value as a property of the deployment.
+
+The two scoring routes do not carry provenance to the same depth. A precomputed score item carries six provenance fields and a modeled score item carries twelve. A precomputed value ran no model, read no reference window and applied no runtime mask. `model_bundle_id`, `model_profile`, `effective_cpu_policy`, `reference_bundle_id`, `reference_profile`, `reference_sequence_set_sha256`, `mask_bytes` and `mask_sha256` describe none of it. `bundle_id`, `source_doi` and `source_archive_md5` pin the published dataset a precomputed value came from. Both routes answer under one scoring semantics. The status response reports it as `scoring_semantics`.

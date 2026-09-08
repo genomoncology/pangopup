@@ -472,16 +472,31 @@ fn identity() -> CacheIdentity {
     identity_with_policy("sequential:1/1")
 }
 
-fn scoring_identity() -> ActiveScoringIdentity {
+fn runtime_identity() -> RuntimeProfileId {
     let profile = pangopup_assets::production_runtime_profile();
     let bytes = pangopup_assets::canonical_runtime_profile_bytes(&profile).expect("profile bytes");
-    let runtime_id = pangopup_assets::runtime_profile_id(&bytes).expect("runtime identity");
+    pangopup_assets::runtime_profile_id(&bytes).expect("runtime identity")
+}
+
+fn scoring_identity() -> ActiveScoringIdentity {
     ActiveScoringIdentityPreimage::new(
         env!("CARGO_PKG_VERSION"),
-        &runtime_id,
+        &runtime_identity(),
         CpuPolicy::SEQUENTIAL_1_1,
     )
     .identity()
+}
+
+fn data_set_version() -> ScoringDataSetVersion {
+    ScoringDataSetVersionPreimage::new(env!("CARGO_PKG_VERSION"), &runtime_identity()).version()
+}
+
+fn identities() -> ScoringIdentities {
+    ScoringIdentities {
+        scoring_identity: scoring_identity(),
+        data_set_version: data_set_version(),
+        runtime_profile_id: runtime_identity(),
+    }
 }
 
 fn identity_with_policy(policy: &str) -> CacheIdentity {
@@ -900,7 +915,7 @@ fn state_with_capacity(capacity: usize) -> (AppState, Arc<AtomicUsize>) {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
-        scoring_identity(),
+        identities(),
     );
     (state, calls)
 }
@@ -982,6 +997,9 @@ async fn health_status_and_route_errors_are_exact_json_lines() {
             "version": "0.5.0",
             "readiness": "ready",
             "scoring_identity": scoring_identity().as_str(),
+            "data_set_version": data_set_version().as_str(),
+            "runtime_profile_id": runtime_identity().as_str(),
+            "scoring_semantics": provenance().scoring_semantics(),
             "assets": {"snv_bundle_id":"snv","model_bundle_id":"model","reference_bundle_id":"reference","mask_sha256":"mask"},
             "routes": {"lookup":true,"model":true,"model_only":true},
             "model": {"effective_cpu_policy":"sequential:1/1","workers":1,"threads_per_worker":1,"running":0,"queued":0,"queue_capacity":2,"work_unit":"uncached_model_variant","planning_millis_per_unit":10241,"full_capacity_planning_seconds":21},
@@ -1423,7 +1441,7 @@ async fn request_contract_is_stable_across_service_state_and_queue_occupancy() {
 async fn all_precomputed_status_shapes_carry_the_service_identity() {
     let (mut state, _) = state();
     state.lookup = Arc::new(PrecomputedShapeLookup);
-    let expected = state.scoring_identity.as_str().to_owned();
+    let expected = state.identities.scoring_identity.as_str().to_owned();
     let scored = app(state)
         .oneshot(
             Request::post("/v1/score")
@@ -2145,7 +2163,7 @@ async fn canonical_model_work_at_the_request_item_limit_executes_once() {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
-        scoring_identity(),
+        identities(),
     );
     state.reference = Some(Arc::new(ExactEditReference {
         bases: b"AAGT".to_vec(),
@@ -2197,7 +2215,7 @@ async fn one_model_rejection_fans_out_to_every_request_local_occurrence() {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
-        scoring_identity(),
+        identities(),
     );
     let submitted = [
         "GRCh38:chr1:2:A:C".to_owned(),
@@ -2245,7 +2263,7 @@ async fn grouped_request_work_controls_status_and_retry_after() {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
-        scoring_identity(),
+        identities(),
     );
     let router = app(state.clone());
     let duplicates = vec!["GRCh38:chr1:2:A:C".to_owned(), "GRCh38:1:2:A:C".to_owned()];
@@ -2314,7 +2332,7 @@ async fn concurrent_requests_for_one_key_do_not_coalesce() {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
-        scoring_identity(),
+        identities(),
     );
     let router = app(state.clone());
     let first = tokio::spawn(router.clone().oneshot(score_request(2)));
@@ -2373,7 +2391,7 @@ async fn configured_workers_report_running_variant_units() {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
-        scoring_identity(),
+        identities(),
     );
     let router = app(state.clone());
     let first = tokio::spawn(router.clone().oneshot(score_request_for(&[2, 3])));
@@ -2452,7 +2470,7 @@ async fn request_heavier_than_reported_limit_is_a_permanent_rejection() {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
-        scoring_identity(),
+        identities(),
     );
     let response = app(state)
         .oneshot(score_request_for(&[2, 3]))
@@ -2504,7 +2522,7 @@ async fn contended_completed_cache_hit_waits_outside_full_model_capacity() {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
-        scoring_identity(),
+        identities(),
     );
     let cache_gate = Arc::clone(&state.cache_gate)
         .acquire_owned()
@@ -2605,7 +2623,7 @@ async fn fixed_worker_and_waiting_capacity_are_fifo_while_lookup_bypasses_them()
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
-        scoring_identity(),
+        identities(),
     );
     let router = app(state.clone());
     let first = tokio::spawn(router.clone().oneshot(score_request(2)));
@@ -2675,7 +2693,7 @@ async fn worker_panic_fans_out_to_running_and_queued_callers_then_closes_cleanly
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
-        scoring_identity(),
+        identities(),
     );
     let router = app(state.clone());
     let running = tokio::spawn(router.clone().oneshot(score_request(2)));
@@ -2727,7 +2745,7 @@ async fn worker_failure_response(failure: WorkerFailure) -> (StatusCode, Vec<u8>
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
-        scoring_identity(),
+        identities(),
     );
     let response = app(state)
         .oneshot(score_request(2))
@@ -2861,7 +2879,7 @@ fn state_with_worker(worker: Box<dyn WorkerBackend>) -> AppState {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
-        scoring_identity(),
+        identities(),
     )
 }
 
@@ -2913,7 +2931,7 @@ async fn exact_deletion_mismatch_is_an_ordered_item_rejection() {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
-        scoring_identity(),
+        identities(),
     );
     state.reference = Some(Arc::new(ExactEditReference {
         bases: b"AAGT".to_vec(),
@@ -3359,7 +3377,7 @@ async fn mixed_batch_keeps_exact_cache_hit_beside_rejection_without_rescoring() 
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
-        scoring_identity(),
+        identities(),
     );
     let router = app(state);
     let cached_only = router
@@ -3410,7 +3428,7 @@ async fn model_failure_stops_batch_without_partial_http_result() {
             reference_bundle_id: "reference".to_owned(),
             mask_sha256: "mask".to_owned(),
         },
-        scoring_identity(),
+        identities(),
     );
     let response = app(state)
         .oneshot(

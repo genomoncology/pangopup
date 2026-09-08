@@ -1,4 +1,5 @@
-//! Canonical identity for one active HTTP scoring environment.
+//! Canonical identities for one active HTTP scoring environment and for the
+//! data set it scores against.
 
 use crate::RuntimeProfileId;
 use pangopup_model::CpuPolicy;
@@ -39,6 +40,49 @@ impl ActiveScoringIdentityPreimage {
             "sha256:{:x}",
             Sha256::digest(self.canonical_bytes())
         ))
+    }
+}
+
+pub const SCORING_DATA_SET_VERSION_SCHEMA: &str = "pangopup.scoring-data-set-version.v1";
+
+/// The inputs behind the value a consumer stores as its data-set version. The
+/// preimage holds the running software version and the admitted runtime-profile
+/// identity. It omits the effective CPU policy. A worker or thread setting
+/// therefore never moves the version a consumer retains beside a score.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ScoringDataSetVersionPreimage {
+    schema: &'static str,
+    software_version: String,
+    runtime_profile_id: String,
+}
+
+impl ScoringDataSetVersionPreimage {
+    pub fn new(software_version: impl Into<String>, runtime_profile_id: &RuntimeProfileId) -> Self {
+        Self {
+            schema: SCORING_DATA_SET_VERSION_SCHEMA,
+            software_version: software_version.into(),
+            runtime_profile_id: runtime_profile_id.as_str().to_owned(),
+        }
+    }
+
+    pub fn canonical_bytes(&self) -> Vec<u8> {
+        serde_jcs::to_vec(self).expect("scoring data-set version contains only serializable fields")
+    }
+
+    pub fn version(&self) -> ScoringDataSetVersion {
+        ScoringDataSetVersion(format!(
+            "sha256:{:x}",
+            Sha256::digest(self.canonical_bytes())
+        ))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScoringDataSetVersion(String);
+
+impl ScoringDataSetVersion {
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 

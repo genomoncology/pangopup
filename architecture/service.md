@@ -32,7 +32,9 @@ scoring, masking, index layout, or model-runtime types.
 
 ## Active scoring identity
 
-The HTTP service computes one `pangopup.active-scoring-identity.v1` value during startup. The RFC 8785 canonical JSON preimage contains the running software version, admitted runtime-profile identity, and effective CPU policy. These inputs cover every installed component and active policy that can change an answer. The status route and every returned score item expose the same full SHA-256 value.
+The HTTP service computes one `pangopup.active-scoring-identity.v1` value during startup. The RFC 8785 canonical JSON preimage contains the running software version, admitted runtime-profile identity, and effective CPU policy. These inputs cover every installed component the service admitted. The status route and every returned score item expose the same full SHA-256 value.
+
+The status route also publishes one `pangopup.scoring-data-set-version.v1` value as `data_set_version`. `data_set_version` carries the same inputs without the effective CPU policy. `--model-workers` and `--model-threads` therefore move `scoring_identity` and leave `data_set_version` alone. Measurement on one host and one build found no score that a thread change moved. [`compatibility.md`](compatibility.md) states the strength of that measurement and states which value a consumer stores. The status route publishes `runtime_profile_id` beside it. A consumer recomputes `data_set_version` from that value and the reported software version.
 
 Worker count, queue capacity and state, cache configuration and contents, listener address, paths, process and host facts, and request fields do not enter the preimage. Existing route provenance remains authoritative for the component-level audit trail. The concise identity does not enter `RoutedResult`, route provenance, model cache identity, cache keys, or the cache schema. Standalone CLI output remains unchanged because that command can run without a complete service profile.
 

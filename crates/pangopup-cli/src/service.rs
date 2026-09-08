@@ -16,6 +16,7 @@ use axum::{
 use crossbeam_channel::{Receiver, Sender, bounded};
 use pangopup_assets::{
     ActiveScoringIdentity, ActiveScoringIdentityPreimage, AssetError, NamingSource,
+    RuntimeProfileId, ScoringDataSetVersion, ScoringDataSetVersionPreimage,
     canonical_runtime_profile_bytes, open_active_bundle, open_installed_naming_source,
     open_installed_runtime_profile, runtime_profile_id,
 };
@@ -453,6 +454,19 @@ struct AssetStatus {
     mask_sha256: String,
 }
 
+/// The identity values the service computes once at startup.
+/// `scoring_identity` covers the effective CPU policy of this deployment.
+/// `data_set_version` covers the same inputs without it. A worker or thread
+/// setting therefore never moves the value a consumer stores beside a retained
+/// score. `runtime_profile_id` is the second `data_set_version` preimage input.
+/// Publishing it lets a consumer recompute the version instead of trusting it.
+#[derive(Clone)]
+struct ScoringIdentities {
+    scoring_identity: ActiveScoringIdentity,
+    data_set_version: ScoringDataSetVersion,
+    runtime_profile_id: RuntimeProfileId,
+}
+
 #[derive(Clone)]
 struct AppState {
     lookup: Arc<dyn LookupBackend>,
@@ -462,7 +476,7 @@ struct AppState {
     provenance: ModelProvenance,
     dispatcher: Dispatcher,
     assets: AssetStatus,
-    scoring_identity: ActiveScoringIdentity,
+    identities: ScoringIdentities,
     reference: Option<Arc<dyn ReferenceProvider>>,
     /// The installed naming source, or nothing where none is installed.
     /// Naming is a label store, so it stays out of `scoring_identity`.
@@ -507,6 +521,9 @@ struct StatusOutput<'a> {
     version: &'static str,
     readiness: &'static str,
     scoring_identity: &'a str,
+    data_set_version: &'a str,
+    runtime_profile_id: &'a str,
+    scoring_semantics: &'static str,
     assets: StatusAssets<'a>,
     routes: StatusRoutes,
     model: StatusModel,
@@ -775,9 +792,20 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
     let profile_bytes =
         canonical_runtime_profile_bytes(&profile).map_err(|_| Failure::profile_corrupt())?;
     let profile_id = runtime_profile_id(&profile_bytes).map_err(|_| Failure::profile_corrupt())?;
-    let scoring_identity =
-        ActiveScoringIdentityPreimage::new(env!("CARGO_PKG_VERSION"), &profile_id, policy)
-            .identity();
+    let identities = ScoringIdentities {
+        scoring_identity: ActiveScoringIdentityPreimage::new(
+            env!("CARGO_PKG_VERSION"),
+            &profile_id,
+            policy,
+        )
+        .identity(),
+        data_set_version: ScoringDataSetVersionPreimage::new(
+            env!("CARGO_PKG_VERSION"),
+            &profile_id,
+        )
+        .version(),
+        runtime_profile_id: profile_id,
+    };
     let provenance = ModelProvenance::new(
         profile.model.bundle_id.clone(),
         profile.model.profile.clone(),
@@ -844,7 +872,7 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
         options.threads,
         options.queue_capacity,
         assets,
-        scoring_identity,
+        identities,
     );
     state.reference = Some(Arc::new(conversion_reference));
     state.names = open_installed_naming_source(&data)
@@ -932,7 +960,7 @@ fn build_state(
     threads: usize,
     queue_capacity: usize,
     assets: AssetStatus,
-    scoring_identity: ActiveScoringIdentity,
+    identities: ScoringIdentities,
 ) -> AppState {
     let worker_count = backends.len();
     let (sender, receiver) = bounded(queue_capacity);
@@ -965,7 +993,7 @@ fn build_state(
         provenance,
         dispatcher,
         assets,
-        scoring_identity,
+        identities,
         reference: None,
         names: None,
     }
@@ -1134,7 +1162,10 @@ async fn status(State(state): State<AppState>) -> Response {
         &StatusOutput {
             version: env!("CARGO_PKG_VERSION"),
             readiness,
-            scoring_identity: state.scoring_identity.as_str(),
+            scoring_identity: state.identities.scoring_identity.as_str(),
+            data_set_version: state.identities.data_set_version.as_str(),
+            runtime_profile_id: state.identities.runtime_profile_id.as_str(),
+            scoring_semantics: state.provenance.scoring_semantics(),
             assets: StatusAssets {
                 snv_bundle_id: &state.assets.snv_bundle_id,
                 model_bundle_id: &state.assets.model_bundle_id,
@@ -1595,7 +1626,9 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
             ScoreOutcome::Rejected(variant, reason) => render_rejection_raw(variant, reason),
             ScoreOutcome::Invalid(reason) => render_invalid_variant_raw(reason),
         }
-        .and_then(|value| add_service_fields(&value, submitted, &state.scoring_identity));
+        .and_then(|value| {
+            add_service_fields(&value, submitted, &state.identities.scoring_identity)
+        });
         match rendered {
             Ok(value) => results.push(value),
             Err(_) => {
