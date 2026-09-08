@@ -140,9 +140,9 @@ The status response publishes three further values. `data_set_version` is the va
 
 `--model-workers` and `--model-threads` move neither `data_set_version` nor `runtime_profile_id`. They do move `model.effective_cpu_policy`. `scoring_identity` moves with that policy.
 
-The runtime profile declares its own `cpu_policy`. That value describes the assets PangoPup qualified. It never describes the running service. `production_runtime_profile` fixes it at `sequential:1/1` and admits an installed profile only where it matches. A service started with `--model-threads 4` reports `sequential:4/1` under `model.effective_cpu_policy` while its profile still declares `sequential:1/1`. Read the profile value as a property of the assets. Read the status value as a property of the deployment.
+The runtime profile declares its own `cpu_policy`. That value describes the assets PangoPup qualified. It never describes the running service. `production_runtime_profile` fixes it at `sequential:1/1`. Installation admits a runtime profile only where the whole profile equals that constant. A service started with `--model-threads 4` reports `sequential:4/1` under `model.effective_cpu_policy` while its profile still declares `sequential:1/1`. Read the profile value as a property of the assets. Read the status value as a property of the deployment.
 
-The two scoring routes do not carry provenance to the same depth. [`architecture/compatibility.md`](../architecture/compatibility.md) states which facts a precomputed item leaves out and where a consumer reads them instead. The test below pins both field sets, so that statement cannot drift away from the response.
+The two scoring routes do not carry provenance to the same depth. [`architecture/compatibility.md`](../architecture/compatibility.md) states which facts a precomputed item leaves out and where a consumer reads them instead. The test below pins both field sets. That statement cannot drift away from the response.
 
 ```bash
 cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
