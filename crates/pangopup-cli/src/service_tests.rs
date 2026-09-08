@@ -1712,6 +1712,68 @@ async fn http_records_report_source_and_stable_gene_identity_on_both_routes() {
 }
 
 #[tokio::test]
+async fn an_absent_naming_source_is_reported_and_leaves_every_record_unnamed() {
+    let response = app(state_with_worker(Box::new(RecordWorker)))
+        .oneshot(
+            Request::get("/v1/status")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let status: Value = serde_json::from_slice(&body(response).await).expect("JSON status");
+    assert_eq!(
+        status["readiness"], "ready",
+        "the service is ready without a naming source"
+    );
+    assert_eq!(
+        status["naming"],
+        json!({"available": false}),
+        "an absent naming source is reported rather than omitted"
+    );
+    assert_eq!(
+        status["scoring_identity"],
+        scoring_identity().as_str(),
+        "naming availability stays out of the scoring identity"
+    );
+
+    let response = app(state_with_worker(Box::new(RecordWorker)))
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"variants":["GRCh38:chr1:1:A:C","GRCh38:chr1:2:A:C"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: Value = serde_json::from_slice(&body(response).await).expect("JSON response");
+    let precomputed = &value["results"][0]["records"][0];
+    assert_eq!(precomputed["gene"], "ENSG00000000001");
+    assert_eq!(precomputed["stable_gene"], "ENSG00000000001");
+    assert_eq!(
+        precomputed.get("gene_names"),
+        None,
+        "an unnamed gene reports its accession and no naming object"
+    );
+    assert_eq!(
+        value["results"][0]["scoring_identity"],
+        scoring_identity().as_str(),
+        "an unnamed record keeps the same scoring identity"
+    );
+    let modeled = &value["results"][1]["records"][0];
+    assert_eq!(modeled["stable_gene"], "ENSG00000000001");
+    assert_eq!(
+        modeled.get("gene_names"),
+        None,
+        "the model route reports no naming object either"
+    );
+}
+
+#[tokio::test]
 async fn modeled_http_success_is_pinned_as_one_complete_byte_fixture() {
     let (state, _) = state();
     let response = app(state)

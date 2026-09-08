@@ -47,6 +47,9 @@ try:
         raise AssertionError("checker does not pin the current frontier update date")
     if checker_globals.get("V041_RELEASE_NOTES_SHA256") != required_v041_release_notes_sha256:
         raise AssertionError("checker does not pin the immutable v0.4.1 release body")
+    required_candidate_version = "0.5.0"
+    if namespace["workspace_version"]() != required_candidate_version:
+        raise AssertionError("the workspace does not carry the 0.5.0 gene-naming candidate version")
     required_current_state_documents = (
         "architecture/delivery.md",
         "architecture/service.md",
@@ -132,12 +135,66 @@ try:
         expected_line = f"- {scope}: {action} {fields}."
         if checker_globals["inventory_line"](scope, action, fields) != expected_line:
             raise AssertionError("checker inventory-line format differs from the independent required format")
+    required_v050_document = "architecture/compatibility.md"
+    required_v050_heading = "## v0.5.0 response-shape inventory"
+    required_v050_inventory = (
+        ("Status response root", "adds", "`naming`"),
+        ("Status `naming` object", "carries", "`available` and `release`"),
+        ("Every structured score record", "adds", "`gene_names`"),
+        ("Every source-reference ambiguity", "adds", "`gene_names`"),
+        (
+            "Score-record `gene_names` object",
+            "carries",
+            "`symbol`, `hgnc_id`, `ncbi_gene_id`, `prev_symbols`, and `alias_symbols`",
+        ),
+    )
+    required_v050_unnamed_shape = (
+        "- Unnamed gene: the score record and the source-reference ambiguity carry no"
+        " `gene_names` object, and a named gene omits `ncbi_gene_id`, `prev_symbols`,"
+        " and `alias_symbols` where the naming source supplies none."
+    )
+    required_v050_order = (
+        "Deploy strict consumer support for the complete response-shape inventory"
+        " before deploying PangoPup v0.5.0."
+    )
+    required_ambiguous_symbol_guidance = (
+        "`prev_symbols` and `alias_symbols` are ambiguous. One symbol can point at"
+        " several genes, and one can be another gene's approved symbol. Never match on"
+        " them alone. `stable_gene` remains the only key."
+    )
+    if checker_globals.get("V050_COMPATIBILITY_DOCUMENT") != required_v050_document:
+        raise AssertionError("checker does not gate the 0.5 inventory in the compatibility document")
+    if checker_globals.get("V050_RESPONSE_SHAPE_HEADING") != required_v050_heading:
+        raise AssertionError("checker 0.5 inventory heading differs from the independent required heading")
+    if tuple(checker_globals.get("V050_RESPONSE_SHAPE_INVENTORY", ())) != required_v050_inventory:
+        raise AssertionError("checker 0.5 response-shape inventory differs from the independent required set")
+    if checker_globals.get("V050_UNNAMED_GENE_SHAPE") != required_v050_unnamed_shape:
+        raise AssertionError("checker 0.5 unnamed-gene shape differs from the independent required text")
+    if checker_globals.get("V050_DEPLOYMENT_ORDER") != required_v050_order:
+        raise AssertionError("checker 0.5 deployment order differs from the independent required text")
+    if checker_globals.get("AMBIGUOUS_SYMBOL_GUIDANCE") != required_ambiguous_symbol_guidance:
+        raise AssertionError("checker ambiguous-symbol guidance differs from the independent required text")
+    required_attribution_document = "NOTICE"
+    required_naming_source_claims = (
+        "HUGO Gene Nomenclature Committee",
+        "hgnc_complete_set_2026-09-04.tsv",
+        "16903161",
+        "6f43d6ff43aa9fdfa5fb2f20a20a7cace66e6e02e2a0dcf19d9b726e2e248d20",
+    )
+    required_gencode_annotation_claims = ("gencode.v38.annotation.gtf.gz",)
+    if checker_globals.get("ATTRIBUTION_DOCUMENT") != required_attribution_document:
+        raise AssertionError("checker does not gate the attribution document")
+    if tuple(checker_globals.get("NAMING_SOURCE_CLAIMS", ())) != required_naming_source_claims:
+        raise AssertionError("checker naming-source attribution differs from the independent required set")
+    if tuple(checker_globals.get("GENCODE_ANNOTATION_CLAIMS", ())) != required_gencode_annotation_claims:
+        raise AssertionError("checker GENCODE attribution differs from the independent required set")
     cargo = original_read("Cargo.toml")
     lock = original_read("Cargo.lock")
     compatibility_text = {
         path: original_read(path) for path, _schema_target in required_documents
     }
     request_contract_schema = original_read("spec/http-service.md")
+    attribution = original_read(required_attribution_document)
     citation = original_read("CITATION.cff")
     citation_test = original_read("crates/pangopup-cli/tests/citation.rs")
     delivery = original_read("architecture/delivery.md")
@@ -355,6 +412,41 @@ try:
             {
                 "spec/http-service.md": replace_once(
                     request_contract_schema, member, ""
+                )
+            },
+        )
+    v050_text = compatibility_text[required_v050_document]
+    for scope, action, fields in required_v050_inventory:
+        line = f"- {scope}: {action} {fields}."
+        expect_rejected(
+            f"a removed {scope} 0.5 inventory entry in {required_v050_document}",
+            {required_v050_document: replace_once(v050_text, line, "")},
+        )
+        expect_rejected(
+            f"a changed {scope} 0.5 object scope in {required_v050_document}",
+            {
+                required_v050_document: replace_once(
+                    v050_text,
+                    line,
+                    line.replace(scope, "Unspecified response object", 1),
+                )
+            },
+        )
+    for label, claim in (
+        ("unnamed-gene shape", required_v050_unnamed_shape),
+        ("consumer-first deployment order", required_v050_order),
+        ("ambiguous-symbol guidance", required_ambiguous_symbol_guidance),
+    ):
+        expect_rejected(
+            f"a removed 0.5 {label} in {required_v050_document}",
+            {required_v050_document: replace_once(v050_text, claim, "")},
+        )
+    for claim in required_naming_source_claims + required_gencode_annotation_claims:
+        expect_rejected(
+            f"a removed attribution claim {claim!r} in {required_attribution_document}",
+            {
+                required_attribution_document: replace_once(
+                    attribution, claim, ""
                 )
             },
         )
