@@ -205,20 +205,144 @@ export QUALIFICATION_EXPECTED_SNV_BUNDLE=$root/data/pangopup/bundles/qualified/b
 export QUALIFICATION_LOOKUP_LOG=$root/lookups.log
 "$repo/scripts/run-production-qualification.sh" \
   "$root/bin/pangopup" "$repo" "$root/data" "$root/cache" "$root/output"
-"$repo/scripts/check-production-qualification.py" "$root/output" "$repo" >"$root/check.out"
-grep -Fxq 'production qualification passed' "$root/check.out"
+# A rejection here means the shipped renderer and the checker disagree about
+# what a scored record carries. The oracles beside the checker are deliberately
+# independent of the renderer and never move, so the checker is the file that
+# has to learn about a changed field. Say so, because a maintainer reading a
+# byte mismatch has no other way to know which of the two descriptions moved.
+require_checker_accepts() {
+  local label=$1 output=$2
+  shift 2
+  if ! "$repo/scripts/check-production-qualification.py" "$output" "$repo" "$@" \
+    >"$root/$label.out" 2>"$root/$label.err"; then
+    cat "$root/$label.err" >&2
+    printf 'scripts/check-production-qualification.py describes what a scored record carries. A field added to, removed from or renamed in what the tool prints must be reflected there.\n' >&2
+    return 1
+  fi
+  grep -Fxq 'production qualification passed' "$root/$label.out"
+}
+require_checker_accepts check "$root/output"
 [[ $(grep -Fc $'snv\t' "$root/lookups.log") == 7 ]]
 [[ $(grep -Fxc $'snv\t'"$QUALIFICATION_EXPECTED_SNV_BUNDLE" "$root/lookups.log") == 7 ]]
 [[ $(grep -Fxc 'model' "$root/lookups.log") == 2 ]]
+
+# What the checker compared must be what the shipped renderer printed.
+#
+# The stub above replays committed oracles. A record this harness writes by
+# hand proves nothing about a release: a field added to, removed from or
+# renamed in what the tool prints never reaches the checker, which is how
+# v0.5.0's naming leaf passed every gate and would have failed qualification.
+# The seven SNV groups need no published asset. The built executable scores
+# them against the repository SNV fixture bundle and prints the release's own
+# bytes, so the qualification output must be exactly those bytes.
+real_cli=$repo/target/debug/pangopup
+[[ -x "$real_cli" && ! -L "$real_cli" ]] || {
+  printf 'build the command-line tool before this harness: cargo build --package pangopup-cli\n' >&2
+  exit 1
+}
+rendered=$root/rendered
+install -d -m 700 "$rendered"
+groups=(
+  ENSG00000010610
+  ENSG00000141499
+  ENSG00000141510
+  ENSG00000169129
+  ENSG00000175727
+  ENSG00000185974
+  unfiltered
+)
+for group in "${groups[@]}"; do
+  mapfile -t rendered_variants < <(awk -F '\t' -v group="$group" 'NR > 1 && $2 == group { print $4 }' \
+    "$repo/tests/fixtures/snv-regression/requests.tsv")
+  render_command=("$real_cli" lookup --bundle "$repo/tests/fixtures/snv-regression/bundle" --format jsonl)
+  for variant in "${rendered_variants[@]}"; do render_command+=(--variant "$variant"); done
+  if [[ $group != unfiltered ]]; then render_command+=(--gene "$group"); fi
+  "${render_command[@]}" >"$rendered/$group.jsonl"
+  if ! cmp -s "$root/output/snv-$group.jsonl" "$rendered/$group.jsonl"; then
+    printf 'the qualification output for %s is not what the shipped renderer printed, so scripts/check-production-qualification.py compared a record this harness wrote by hand\n' "$group" >&2
+    exit 1
+  fi
+done
+
+# The renderer names three kinds of record: a precomputed score, a model score
+# and a source-reference ambiguity. The checker takes the naming leaf back out
+# of each. Require the compared output to carry a named ambiguity, so the
+# removal rule is proved against every kind the renderer names rather than
+# against the one kind a hand-written record happens to carry.
+python3 - "$root/output/snv-unfiltered.jsonl" <<'NAMEDAMBIGUITY'
+import json
+import pathlib
+import sys
+
+ambiguities = [
+    ambiguity
+    for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+    for ambiguity in json.loads(line)["source_reference_ambiguities"]
+]
+assert ambiguities, "the unfiltered group carried no source-reference ambiguity"
+assert any("gene_names" in ambiguity for ambiguity in ambiguities), (
+    "no source-reference ambiguity the checker compared carries a naming leaf, so "
+    "scripts/check-production-qualification.py never removes one from that kind of record"
+)
+NAMEDAMBIGUITY
+
+# The model route and the HTTP score item replay oracles, because no repository
+# fixture reproduces the published model's scores. Their naming leaf is not
+# excused by that: it is a rendering, and the shipped renderer prints it for
+# this accession on a route repository fixtures do reach. Pin the replayed leaf
+# to the one the executable just printed, so the two agree by evidence.
+rendered_leaf=$(
+  "$real_cli" lookup --bundle "$repo/tests/fixtures/snv-regression/bundle" --format jsonl \
+    --variant GRCh38:chr12:6801301:G:A --gene ENSG00000010610 \
+    | python3 -c 'import json, sys; print(json.dumps(json.loads(sys.stdin.readline())["records"][0]["gene_names"], separators=(",", ":")))'
+)
+for replayed in model-M09.jsonl model-only-SNV.jsonl http-snv.txt http-model.txt http-model-only.txt; do
+  if ! grep -Fq "\"gene_names\":$rendered_leaf" "$root/output/$replayed"; then
+    printf 'the naming leaf replayed into %s is not the leaf the shipped renderer prints for ENSG00000010610\n' "$replayed" >&2
+    exit 1
+  fi
+done
+
+# A field added to what the tool prints for a scored record must fail the
+# checker, on each surface the checker compares with its own implementation:
+# the precomputed route and the model route byte for byte, the HTTP score item
+# through a decoded comparison. The oracles never move, so the checker is what
+# must change, and the harness must say that.
+cp -a "$root/output" "$root/drift-add-output"
+sed -i 's/"stable_gene":"\([A-Z0-9]*\)"/"stable_gene":"\1","drift_probe":true/' \
+  "$root/drift-add-output/snv-ENSG00000010610.jsonl"
+if require_checker_accepts drift-add "$root/drift-add-output" 2>"$root/drift-add.guidance"; then
+  printf 'checker accepted a precomputed record carrying a field the oracles do not\n' >&2
+  exit 1
+fi
+grep -Fxq 'SNV oracle mismatch: ENSG00000010610' "$root/drift-add.err"
+grep -Fq 'scripts/check-production-qualification.py' "$root/drift-add.guidance"
+
+cp -a "$root/output" "$root/drift-add-model-output"
+sed -i 's/"stable_gene":"\([A-Z0-9]*\)"/"stable_gene":"\1","drift_probe":true/' \
+  "$root/drift-add-model-output/model-M09.jsonl"
+if "$repo/scripts/check-production-qualification.py" "$root/drift-add-model-output" "$repo" \
+  >"$root/drift-add-model.out" 2>"$root/drift-add-model.err"; then
+  printf 'checker accepted a model record carrying a field the oracles do not\n' >&2
+  exit 1
+fi
+grep -Fxq 'model oracle mismatch: M09-insertion-short-plus' "$root/drift-add-model.err"
+
+cp -a "$root/output" "$root/drift-remove-output"
+sed -i 's/,"loss_position":-\?[0-9]\+//g' "$root/drift-remove-output/snv-ENSG00000010610.jsonl"
+if "$repo/scripts/check-production-qualification.py" "$root/drift-remove-output" "$repo" \
+  >"$root/drift-remove.out" 2>"$root/drift-remove.err"; then
+  printf 'checker accepted a precomputed record missing a field the oracles carry\n' >&2
+  exit 1
+fi
+grep -Fxq 'SNV oracle mismatch: ENSG00000010610' "$root/drift-remove.err"
 
 reuse_output=$root/reuse-output
 QUALIFICATION_EXPECTED_HOME=$reuse_output/home \
   "$repo/scripts/run-production-qualification.sh" \
     "$root/bin/pangopup" "$repo" "$root/data" "$root/cache" "$reuse_output" \
     --reuse-installed
-"$repo/scripts/check-production-qualification.py" \
-  "$reuse_output" "$repo" --reuse-installed >"$root/reuse-check.out"
-grep -Fxq 'production qualification passed' "$root/reuse-check.out"
+require_checker_accepts reuse-check "$reuse_output" --reuse-installed
 
 for layout in zero multiple symlink unsafe; do
   bad=$root/bad-$layout
@@ -394,6 +518,8 @@ elif mutation == "status-identity-mismatch":
     value["scoring_identity"] = "sha256:" + "2" * 64
 elif mutation == "extra-item-property":
     item["transport_extra"] = True
+elif mutation == "record-extra-property":
+    item["records"][0]["drift_probe"] = True
 elif mutation == "missing-score-property":
     del item["status"]
 elif mutation == "wrong-score-type":
@@ -434,6 +560,12 @@ expect_http_contract_rejected status-identity http-status.txt status-identity-mi
   'HTTP SNV scoring identity mismatch'
 expect_http_contract_rejected extra-item-property http-model-only.txt extra-item-property \
   'HTTP model-only SNV item shape mismatch'
+# A field added to the scored record inside the item, not to the item envelope.
+# `json_equal` is the checker's third and only decoded comparison, so an added
+# field has to be rejected there too or a change to what the tool prints
+# reaches the release through the HTTP surface alone.
+expect_http_contract_rejected record-extra-property http-snv.txt record-extra-property \
+  'HTTP SNV response mismatch'
 expect_http_contract_rejected missing-score-property http-snv.txt missing-score-property \
   'HTTP SNV item shape mismatch'
 expect_http_contract_rejected wrong-score-type http-snv.txt wrong-score-type \
