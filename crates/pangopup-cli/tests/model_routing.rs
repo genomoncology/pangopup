@@ -1,11 +1,15 @@
+mod support;
+
 use serde_json::Value;
 use std::{
     fs,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::Output,
     sync::atomic::{AtomicU64, Ordering},
 };
+
+use support::Spawn;
 
 static SCRATCH_SERIAL: AtomicU64 = AtomicU64::new(0);
 
@@ -42,21 +46,15 @@ fn fallback_args() -> Vec<String> {
 /// or from `HOME` when that is unset. A run that inherits either from the
 /// person running the suite reaches that person's own cache file: it fills it
 /// with rows scored from miniature fixtures, and a cache that is discarded when
-/// the setup that filled it changes would be discarded outright. A private home
-/// per run also keeps one test in this file from filling, evicting or
-/// discarding the cache another test is reading.
-fn isolated(command: &mut Command) -> Output {
-    let home = tempfile::tempdir().expect("private cache home");
-    fs::set_permissions(home.path(), fs::Permissions::from_mode(0o700)).expect("private home");
-    command
-        .env("XDG_CACHE_HOME", home.path())
-        .env("HOME", home.path())
-        .output()
-        .expect("run pangopup")
+/// the setup that filled it changes would be discarded outright. `support`
+/// gives every command a private home, which also keeps one test in this file
+/// from filling, evicting or discarding the cache another test is reading.
+fn isolated(spawn: Spawn) -> Output {
+    spawn.output().expect("run pangopup")
 }
 
 fn run(args: &[String]) -> Output {
-    isolated(Command::new(env!("CARGO_BIN_EXE_pangopup")).args(args))
+    isolated(support::pangopup().args(args))
 }
 
 fn modeled_args(variant: &str) -> Vec<String> {
@@ -102,7 +100,7 @@ fn authoritative_installed_hit_ignores_malformed_cache_environment_and_missing_r
     pangopup_assets::install_transport(&transport, &data).expect("install miniature SNV");
 
     let output = isolated(
-        Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        support::pangopup()
             .args([
                 "lookup",
                 "--data-dir",
@@ -264,7 +262,7 @@ fn explicit_model_only_bypasses_snv_assets_and_reuses_the_exact_cache() {
     args.extend(["--model-cache".to_owned(), cache.display().to_string()]);
 
     let first = isolated(
-        Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        support::pangopup()
             .args(&args)
             .env("PANGOPUP_DATA_DIR", "relative/invalid-snv-installation"),
     );
@@ -276,7 +274,7 @@ fn explicit_model_only_bypasses_snv_assets_and_reuses_the_exact_cache() {
     assert!(String::from_utf8_lossy(&first.stdout).contains("\"kind\":\"model\""));
 
     let second = isolated(
-        Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        support::pangopup()
             .args(&args)
             .env("PANGOPUP_DATA_DIR", "relative/invalid-snv-installation"),
     );
@@ -630,7 +628,7 @@ fn no_run_here_reaches_the_ambient_model_cache() {
     // second half watches for -- otherwise the second half proves nothing.
     let probe = tempfile::tempdir().expect("probe cache home");
     fs::set_permissions(probe.path(), fs::Permissions::from_mode(0o700)).expect("private probe");
-    let filled = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+    let filled = support::pangopup()
         .args(model_only_args("GRCh38:chr1:5051:A:AC"))
         .env("XDG_CACHE_HOME", probe.path())
         .env("HOME", probe.path())

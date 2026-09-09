@@ -1,12 +1,14 @@
 #![cfg(target_os = "macos")]
 
+mod support;
+
 use serde_json::Value;
 use std::{
     ffi::OsString,
     fs,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::Output,
 };
 
 fn repository_path(relative: &str) -> PathBuf {
@@ -16,7 +18,7 @@ fn repository_path(relative: &str) -> PathBuf {
 }
 
 fn run(arguments: impl IntoIterator<Item = OsString>) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_pangopup"))
+    support::pangopup()
         .args(arguments)
         .output()
         .expect("run pangopup")
@@ -157,7 +159,7 @@ fn serve_reaches_asset_validation_on_macos() {
 #[test]
 fn uninstall_keeps_its_existing_macos_refusal() {
     let temp = tempfile::tempdir().expect("temp");
-    let output = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+    let output = support::pangopup()
         .args(["uninstall", "--yes"])
         .env("XDG_DATA_HOME", temp.path().join("data"))
         .env("XDG_CACHE_HOME", temp.path().join("cache"))

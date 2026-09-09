@@ -13,12 +13,14 @@
 
 #![cfg(unix)]
 
+mod support;
+
 use serde_json::Value;
 use std::{
     fs,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::Output,
 };
 
 /// Two variants the miniature model route scores. A test fills the cache with
@@ -137,7 +139,7 @@ fn score(setup: &Setup, cache_home: &Path, variants: &[&str]) -> Output {
         args.push((*variant).to_owned());
     }
     args.extend(setup.args());
-    Command::new(env!("CARGO_BIN_EXE_pangopup"))
+    support::pangopup()
         .args(&args)
         .env("XDG_CACHE_HOME", cache_home)
         .env("HOME", cache_home)
@@ -527,7 +529,7 @@ fn an_explicitly_named_cache_is_discarded_on_a_setup_change_too() {
         }
         args.extend(setup.args());
         args.extend(["--model-cache".to_owned(), cache.display().to_string()]);
-        Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        support::pangopup()
             .args(&args)
             .env("XDG_CACHE_HOME", temp.path())
             .env("HOME", temp.path())
@@ -799,7 +801,7 @@ fn run_with_chosen_cache(
     }
     args.extend(setup.args());
     args.extend(["--model-cache".to_owned(), cache.display().to_string()]);
-    Command::new(env!("CARGO_BIN_EXE_pangopup"))
+    support::pangopup()
         .args(&args)
         .env("XDG_CACHE_HOME", cache_home)
         .env("HOME", cache_home)

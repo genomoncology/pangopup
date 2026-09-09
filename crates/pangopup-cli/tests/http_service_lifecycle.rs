@@ -1,7 +1,9 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code, unused_imports))]
 #![cfg(unix)]
 
-use std::{fs, os::unix::fs::PermissionsExt, process::Command};
+mod support;
+
+use std::{fs, os::unix::fs::PermissionsExt};
 
 #[cfg(feature = "service-test-fixtures")]
 mod installed_success {
@@ -20,9 +22,11 @@ mod installed_success {
         net::TcpStream,
         os::unix::fs::PermissionsExt,
         path::{Path, PathBuf},
-        process::{Child, Command, Stdio},
+        process::Stdio,
         thread,
     };
+
+    use crate::support::{self, Running};
 
     fn fixture(relative: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -115,12 +119,12 @@ mod installed_success {
         (profile, profile_path)
     }
 
-    fn start(data: &Path, profile: &Path) -> (Child, String) {
+    fn start(data: &Path, profile: &Path) -> (Running, String) {
         let cache = profile
             .parent()
             .expect("profile parent")
             .join("service-cache.sqlite3");
-        let mut child = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        let mut child = support::pangopup()
             .args([
                 "serve",
                 "--listen",
@@ -165,8 +169,8 @@ mod installed_success {
         cache: &Path,
         workers: &str,
         threads: &str,
-    ) -> (Child, String) {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+    ) -> (Running, String) {
+        let mut child = support::pangopup()
             .args([
                 "serve",
                 "--listen",
@@ -1023,7 +1027,7 @@ mod installed_success {
         assert!(child.wait().expect("service exit").success());
         let served = &scored["results"][0]["records"][0];
 
-        let output = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        let output = support::pangopup()
             .args([
                 "lookup",
                 "--data-dir",
@@ -1084,7 +1088,7 @@ mod installed_success {
         // the same bundle bytes without resolving a data root. The gene-name
         // index travels in the executable, so which flag chose the bundle
         // cannot change what the gene is called.
-        let explicit = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        let explicit = support::pangopup()
             .args([
                 "lookup",
                 "--bundle",
@@ -1120,7 +1124,7 @@ mod installed_success {
 
         // No naming asset is installed under this data root. Names come from
         // the build, so a freshly installed runtime already reports them.
-        let output = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        let output = support::pangopup()
             .args([
                 "lookup",
                 "--data-dir",
@@ -1142,7 +1146,7 @@ mod installed_success {
 
         // Installing a naming source is not a step a deployment can take, so
         // the verb that took one is gone.
-        let refused = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        let refused = support::pangopup()
             .args(["assets", "naming", "install", "--source", "/dev/null"])
             .output()
             .expect("run assets naming install");
@@ -1180,7 +1184,7 @@ mod installed_success {
             canonical_runtime_profile_bytes(&profile).expect("canonical"),
         )
         .expect("write");
-        let output = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        let output = support::pangopup()
             .args([
                 "serve",
                 "--listen",
@@ -1218,7 +1222,7 @@ mod installed_success {
             "--model-cache".to_owned(),
             cache.display().to_string(),
         ]);
-        let output = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        let output = support::pangopup()
             .args(&args)
             .env("XDG_CACHE_HOME", home)
             .env("HOME", home)
@@ -1476,8 +1480,10 @@ mod retained_production {
         io::{BufRead, BufReader, Read, Write},
         net::TcpStream,
         path::Path,
-        process::{Child, Command, Stdio},
+        process::Stdio,
     };
+
+    use crate::support::{self, Running};
 
     fn request(address: &str, method: &str, path: &str, body: &str) -> Vec<u8> {
         let mut stream = TcpStream::connect(address).expect("connect");
@@ -1505,8 +1511,13 @@ mod retained_production {
         &response[split + 4..]
     }
 
-    fn start_retained(data: &Path, cache: &Path, workers: &str, threads: &str) -> (Child, String) {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+    fn start_retained(
+        data: &Path,
+        cache: &Path,
+        workers: &str,
+        threads: &str,
+    ) -> (Running, String) {
+        let mut child = support::pangopup()
             .args([
                 "serve",
                 "--listen",
@@ -1636,7 +1647,7 @@ mod retained_production {
             <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o700),
         )
         .expect("private cache");
-        let mut child = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        let mut child = support::pangopup()
             .args([
                 "serve",
                 "--listen",
@@ -1680,7 +1691,7 @@ mod retained_production {
 fn missing_assets_fail_before_listener_and_direct_user_to_sync() {
     let temp = tempfile::tempdir().expect("temp");
     fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o700)).expect("private temp");
-    let output = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+    let output = support::pangopup()
         .args([
             "serve",
             "--listen",

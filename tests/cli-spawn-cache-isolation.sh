@@ -35,6 +35,13 @@ token='CARGO_BIN_EXE_pangopup"'
 # it can see rather than the calling side that exists, which is how a check
 # stays green while a spawn reaches the operator's cache. Refuse those
 # spellings outside the helper too.
+#
+# Only inside the test tree the helper serves. Outside it both spellings have
+# honest uses that are not a way around the helper: `src/uninstall.rs` reports
+# the running executable's own path, `crates/pangopup-build/tests` re-executes
+# its own test binary, and a benchmark builds and times a fresh process.
+# Refusing those would demand a product change this check has no business
+# demanding.
 detour='current_exe|target/(debug|release)/pangopup'
 
 fail() { printf 'cli spawn cache isolation: %s\n' "$*" >&2; exit 1; }
@@ -43,7 +50,8 @@ fail() { printf 'cli spawn cache isolation: %s\n' "$*" >&2; exit 1; }
 # that root. Prints its counts on acceptance and its reason on refusal.
 examine() {
     local root=$1 helper=$2
-    local sources=() occurrences strays detours scanned
+    local sources=() suite=() occurrences strays detours scanned
+    local suite_root="$root/${helper%/support/mod.rs}/"
 
     while IFS= read -r source; do sources+=("$source"); done < <(
         find "$root" -type f -name '*.rs' -not -path '*/target/*' | sort
@@ -69,7 +77,12 @@ examine() {
         return 1
     fi
 
-    detours=$(grep -nE -- "$detour" "${sources[@]}" | grep -vF -- "$root/$helper" || true)
+    for source in "${sources[@]}"; do
+        [[ $source == "$suite_root"* ]] && suite+=("$source")
+    done
+    detours=$(
+        ((${#suite[@]})) && grep -nE -- "$detour" "${suite[@]}" | grep -vF -- "$root/$helper" || true
+    )
     if [[ -n "$detours" ]]; then
         printf 'these sources reach the shipped executable by path instead of by name, so they spawn it outside %s and inherit the cache home of whoever runs the suite:\n' \
             "$helper" >&2
@@ -95,7 +108,11 @@ plant() {
     mkdir -p "$tree/$(dirname "$path")"
     case "$spawn" in
         spawns) printf 'fn go() { Command::new(env!("%s)); }\n' "$token" >"$tree/$path" ;;
-        detours) printf 'fn go() { Command::new(root().join("target/debug/pangopup")); }\n' >"$tree/$path" ;;
+        # The directory is spelled through an argument rather than inline:
+        # `tests/built-executable-currency.sh` reads a literal `target/debug/`
+        # in code as a harness running a built executable, and this line plants
+        # a fixture rather than running anything.
+        detours) printf 'fn go() { Command::new(root().join("target/%s/pangopup")); }\n' debug >"$tree/$path" ;;
         *) printf 'fn go() {}\n' >"$tree/$path" ;;
     esac
 }

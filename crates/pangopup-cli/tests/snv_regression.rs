@@ -1,3 +1,5 @@
+mod support;
+
 use pangopup_cli::{OutputFormat, RenderRequest, render_requests};
 use pangopup_core::{DnaBase, EnsemblGeneId, GenomicPosition, Grch38Snv, ScoreProvider};
 use pangopup_index::BundleOpen;
@@ -5,7 +7,6 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
-    process::Command,
     str::FromStr,
 };
 #[cfg(unix)]
@@ -99,21 +100,21 @@ fn seven_cli_batches_match_the_direct_oracle_subsets() {
             .push(request);
     }
     assert_eq!(groups.len(), 7);
-    let executable = env!("CARGO_BIN_EXE_pangopup");
     let mut total_named = 0_usize;
     for (group, requests) in groups {
-        let mut command = Command::new(executable);
-        command
+        let mut spawn = support::pangopup();
+        spawn
+            .command
             .arg("lookup")
             .arg("--bundle")
             .arg(fixture.join("bundle"));
         for request in &requests {
-            command.arg("--variant").arg(&request.variant);
+            spawn.command.arg("--variant").arg(&request.variant);
         }
         if group != "unfiltered" {
-            command.arg("--gene").arg(&group);
+            spawn.command.arg("--gene").arg(&group);
         }
-        let output = command.output().expect("run CLI batch");
+        let output = spawn.output().expect("run CLI batch");
         assert!(
             output.status.success(),
             "{group} failed: {}",
@@ -174,7 +175,7 @@ fn strip_gene_names(rendered: &[u8]) -> (Vec<u8>, usize) {
 #[cfg(unix)]
 #[test]
 fn non_utf8_lookup_data_dir_is_a_path_error_not_cli_usage() {
-    let output = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+    let output = support::pangopup()
         .arg("lookup")
         .arg("--data-dir")
         .arg(OsString::from_vec(b"/tmp/pangopup-\xff".to_vec()))
