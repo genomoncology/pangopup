@@ -10,7 +10,7 @@ That bash script is not the executable. Its `lookup` branch prints the bytes of 
 
 Ticket 0045 fell into the gap. v0.5.0 added a `gene_names` object to every named record. The checker compared release output byte for byte against oracles that carry no such object. The real production qualification would have failed on the seven SNV group comparisons, on both model oracles and on the three HTTP score comparisons. `make test` stayed green through all of it. A human reading the checker found it, and the code review repaired the checker and taught the replay script to insert the object by hand.
 
-The repair closed that instance. The shape survives it. Two hand-maintained descriptions of a released record now agree by construction rather than by evidence, and only one of them has a gate. Any further change to what a record carries can pass every gate and fail at qualification time.
+The repair closed that instance. The shape survives it. Two hand-maintained descriptions of a released record now agree by construction rather than by evidence, and only one of them has a gate. A bare field addition does fail `make test` today, at `crates/pangopup-cli/tests/snv_regression.rs`. That test strips the naming leaf with its own hand-written rule, so the developer who adds the field repairs that rule and the suite goes green. The Python rule beside it never comes up. That is the path 0045 took, and any further change to what a record carries can take it again.
 
 Done, observably:
 
