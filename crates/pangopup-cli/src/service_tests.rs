@@ -447,7 +447,8 @@ fn model_records() -> Vec<ModelGeneScoreRecord> {
 fn private_cache(temp: &tempfile::TempDir) -> (PathBuf, ModelResultCache) {
     fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o700)).expect("private temp");
     let path = temp.path().join("cache.sqlite3");
-    let cache = ModelResultCache::open_explicit(&path, EntryLimit::Unlimited).expect("cache");
+    let cache =
+        ModelResultCache::open_explicit(&path, &identity(), EntryLimit::Unlimited).expect("cache");
     (path, cache)
 }
 
@@ -498,7 +499,17 @@ fn provenance() -> ModelProvenance {
 }
 
 fn identity() -> CacheIdentity {
-    identity_with_policy("sequential:1/1")
+    CacheIdentity::new(
+        &format!("sha256:{}", "1".repeat(64)),
+        "model-v1",
+        "singleton",
+        &format!("sha256:{}", "2".repeat(64)),
+        "reference-v1",
+        &format!("sha256:{}", "3".repeat(64)),
+        1,
+        &format!("sha256:{}", "4".repeat(64)),
+    )
+    .expect("identity")
 }
 
 fn runtime_identity() -> RuntimeProfileId {
@@ -528,21 +539,6 @@ fn identities() -> ScoringIdentities {
     }
 }
 
-fn identity_with_policy(policy: &str) -> CacheIdentity {
-    CacheIdentity::new(
-        &format!("sha256:{}", "1".repeat(64)),
-        "model-v1",
-        "singleton",
-        policy,
-        &format!("sha256:{}", "2".repeat(64)),
-        "reference-v1",
-        &format!("sha256:{}", "3".repeat(64)),
-        1,
-        &format!("sha256:{}", "4".repeat(64)),
-    )
-    .expect("identity")
-}
-
 fn model_job(positions: &[u32]) -> ModelJob {
     let (response, _waiting) = oneshot::channel();
     ModelJob {
@@ -553,7 +549,7 @@ fn model_job(positions: &[u32]) -> ModelJob {
                 let pending = pending_at(*position);
                 JobItem {
                     output_indices: vec![output_index],
-                    key: CacheKey::new(pending.variant(), identity()),
+                    key: CacheKey::new(pending.variant()),
                     pending,
                 }
             })
@@ -745,11 +741,11 @@ fn worker_loss_releases_every_drained_job_weight() {
 }
 
 #[test]
-fn production_worker_rechecks_sqlite_uses_exact_policy_and_holds_no_lock_during_model() {
+fn production_worker_rechecks_sqlite_and_holds_no_lock_during_model() {
     let temp = tempfile::tempdir().expect("temp");
     let (path, mut cache) = private_cache(&temp);
     let cached = pending_at(2);
-    let cached_key = CacheKey::new(cached.variant(), identity());
+    let cached_key = CacheKey::new(cached.variant());
     cache
         .put(&cached_key, &model_records())
         .expect("seed cache");
@@ -766,27 +762,19 @@ fn production_worker_rechecks_sqlite_uses_exact_policy_and_holds_no_lock_during_
     assert_eq!(calls.load(Ordering::SeqCst), 0, "worker rechecks SQLite");
     assert!(matches!(cached_result, RoutedResult::Modeled { .. }));
 
-    let policy_miss = pending_at(3);
-    let wrong_policy_key = CacheKey::new(
-        policy_miss.variant(),
-        identity_with_policy("sequential:2/1"),
-    );
+    let uncached = pending_at(3);
+    let uncached_key = CacheKey::new(uncached.variant());
     worker
-        .cache
-        .put(&wrong_policy_key, &model_records())
-        .expect("seed other policy");
-    let actual_key = CacheKey::new(policy_miss.variant(), identity());
-    worker
-        .complete(&policy_miss, &actual_key)
-        .expect("model under actual policy");
+        .complete(&uncached, &uncached_key)
+        .expect("model on a miss");
     assert_eq!(
         calls.load(Ordering::SeqCst),
         1,
-        "other CPU policy must miss"
+        "an uncached variant must reach the model"
     );
     worker
-        .complete(&policy_miss, &actual_key)
-        .expect("new exact-policy hit");
+        .complete(&uncached, &uncached_key)
+        .expect("the row the worker wrote");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
@@ -794,11 +782,14 @@ fn production_worker_rechecks_sqlite_uses_exact_policy_and_holds_no_lock_during_
 fn queued_production_job_rechecks_sqlite_after_admission_before_inference() {
     let temp = tempfile::tempdir().expect("temp");
     let (_path, worker_cache) = private_cache(&temp);
-    let mut seeder =
-        ModelResultCache::open_explicit(&temp.path().join("cache.sqlite3"), EntryLimit::Unlimited)
-            .expect("seeder");
+    let mut seeder = ModelResultCache::open_explicit(
+        &temp.path().join("cache.sqlite3"),
+        &identity(),
+        EntryLimit::Unlimited,
+    )
+    .expect("seeder");
     let pending = pending_at(6);
-    let key = CacheKey::new(pending.variant(), identity());
+    let key = CacheKey::new(pending.variant());
     let (reply, waiting) = oneshot::channel();
     let (sender, receiver) = bounded(1);
     sender
@@ -858,7 +849,7 @@ fn production_worker_returns_valid_result_when_sqlite_write_is_busy() {
         cache,
     };
     let pending = pending_at(7);
-    let key = CacheKey::new(pending.variant(), identity());
+    let key = CacheKey::new(pending.variant());
     let result = worker.complete(&pending, &key).expect("valid model result");
     assert!(matches!(result, RoutedResult::Modeled { .. }));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -870,7 +861,7 @@ fn production_worker_running_disconnect_still_writes_through_sqlite() {
     let temp = tempfile::tempdir().expect("temp");
     let (_path, cache) = private_cache(&temp);
     let pending = pending_at(8);
-    let key = CacheKey::new(pending.variant(), identity());
+    let key = CacheKey::new(pending.variant());
     let release = Arc::new((Mutex::new(false), Condvar::new()));
     let (entered_tx, entered_rx) = mpsc::channel();
     let (reply, waiting) = oneshot::channel();
@@ -916,9 +907,12 @@ fn production_worker_running_disconnect_still_writes_through_sqlite() {
     state.lock().expect("state").sender.take();
     drop(sender);
     join.join().expect("worker joins");
-    let mut cache =
-        ModelResultCache::open_explicit(&temp.path().join("cache.sqlite3"), EntryLimit::Unlimited)
-            .expect("reopen cache");
+    let mut cache = ModelResultCache::open_explicit(
+        &temp.path().join("cache.sqlite3"),
+        &identity(),
+        EntryLimit::Unlimited,
+    )
+    .expect("reopen cache");
     assert_eq!(cache.get(&key).expect("cache read"), Some(model_records()));
 }
 
@@ -931,7 +925,6 @@ fn state_with_capacity(capacity: usize) -> (AppState, Arc<AtomicUsize>) {
     let state = build_state(
         Arc::new(FakeLookup),
         Box::new(EmptyCache),
-        identity(),
         provenance(),
         vec![Box::new(FakeWorker {
             calls: Arc::clone(&calls),
@@ -2192,7 +2185,6 @@ async fn canonical_model_work_at_the_request_item_limit_executes_once() {
     let mut state = build_state(
         Arc::new(FakeLookup),
         Box::new(EmptyCache),
-        identity(),
         provenance(),
         vec![Box::new(FakeWorker {
             calls: Arc::clone(&calls),
@@ -2244,7 +2236,6 @@ async fn one_model_rejection_fans_out_to_every_request_local_occurrence() {
     let state = build_state(
         Arc::new(FakeLookup),
         Box::new(EmptyCache),
-        identity(),
         provenance(),
         vec![Box::new(CountingRejectWorker {
             calls: Arc::clone(&calls),
@@ -2289,7 +2280,6 @@ async fn grouped_request_work_controls_status_and_retry_after() {
     let state = build_state(
         Arc::new(FakeLookup),
         Box::new(EmptyCache),
-        identity(),
         provenance(),
         vec![Box::new(BlockingWorker {
             calls: Arc::clone(&calls),
@@ -2363,7 +2353,6 @@ async fn concurrent_requests_for_one_key_do_not_coalesce() {
     let state = build_state(
         Arc::new(FakeLookup),
         Box::new(EmptyCache),
-        identity(),
         provenance(),
         backends,
         1,
@@ -2422,7 +2411,6 @@ async fn configured_workers_report_running_variant_units() {
     let state = build_state(
         Arc::new(FakeLookup),
         Box::new(EmptyCache),
-        identity(),
         provenance(),
         backends,
         1,
@@ -2499,7 +2487,6 @@ async fn request_heavier_than_reported_limit_is_a_permanent_rejection() {
     let state = build_state(
         Arc::new(FakeLookup),
         Box::new(EmptyCache),
-        identity(),
         provenance(),
         vec![Box::new(FakeWorker {
             calls: Arc::new(AtomicUsize::new(0)),
@@ -2538,17 +2525,13 @@ async fn contended_completed_cache_hit_waits_outside_full_model_capacity() {
     let (_path, mut handler_cache) = private_cache(&temp);
     let cached = pending_at(3);
     handler_cache
-        .put(
-            &CacheKey::new(cached.variant(), identity()),
-            &model_records(),
-        )
+        .put(&CacheKey::new(cached.variant()), &model_records())
         .expect("seed completed cache hit");
     let state = build_state(
         Arc::new(SignalingLookup {
             inspected: inspected_tx,
         }),
         Box::new(handler_cache),
-        identity(),
         provenance(),
         vec![Box::new(BlockingWorker {
             calls: Arc::clone(&calls),
@@ -2578,7 +2561,7 @@ async fn contended_completed_cache_hit_waits_outside_full_model_capacity() {
             .admit(ModelJob {
                 items: vec![JobItem {
                     output_indices: vec![0],
-                    key: CacheKey::new(pending.variant(), identity()),
+                    key: CacheKey::new(pending.variant()),
                     pending,
                 }],
                 response: reply,
@@ -2632,20 +2615,18 @@ async fn fixed_worker_and_waiting_capacity_are_fifo_while_lookup_bypasses_them()
     fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o700)).expect("private temp");
     let cache_path = temp.path().join("cache.sqlite3");
     let mut handler_cache =
-        ModelResultCache::open_explicit(&cache_path, EntryLimit::Unlimited).expect("handler cache");
+        ModelResultCache::open_explicit(&cache_path, &identity(), EntryLimit::Unlimited)
+            .expect("handler cache");
     let cached = pending_at(5);
     handler_cache
-        .put(
-            &CacheKey::new(cached.variant(), identity()),
-            &model_records(),
-        )
+        .put(&CacheKey::new(cached.variant()), &model_records())
         .expect("seed completed cache hit");
     let worker_cache =
-        ModelResultCache::open_explicit(&cache_path, EntryLimit::Unlimited).expect("worker cache");
+        ModelResultCache::open_explicit(&cache_path, &identity(), EntryLimit::Unlimited)
+            .expect("worker cache");
     let state = build_state(
         Arc::new(FakeLookup),
         Box::new(handler_cache),
-        identity(),
         provenance(),
         vec![Box::new(ProductionWorker {
             fallback: Box::new(ProductionBlockingCompletion {
@@ -2721,7 +2702,6 @@ async fn worker_panic_fans_out_to_running_and_queued_callers_then_closes_cleanly
     let state = build_state(
         Arc::new(FakeLookup),
         Box::new(EmptyCache),
-        identity(),
         provenance(),
         vec![Box::new(ControlledPanicWorker {
             entered: entered_tx,
@@ -2776,7 +2756,6 @@ async fn worker_failure_response(failure: WorkerFailure) -> (StatusCode, Vec<u8>
     let state = build_state(
         Arc::new(FakeLookup),
         Box::new(EmptyCache),
-        identity(),
         provenance(),
         vec![Box::new(FailingWorker { failure })],
         1,
@@ -2910,7 +2889,6 @@ fn state_with_worker(worker: Box<dyn WorkerBackend>) -> AppState {
     build_state(
         Arc::new(FakeLookup),
         Box::new(EmptyCache),
-        identity(),
         provenance(),
         vec![worker],
         1,
@@ -2960,7 +2938,6 @@ async fn exact_deletion_mismatch_is_an_ordered_item_rejection() {
         Box::new(CountingCache {
             gets: Arc::clone(&cache_gets),
         }),
-        identity(),
         provenance(),
         vec![Box::new(FakeWorker {
             calls: Arc::clone(&calls),
@@ -3405,16 +3382,12 @@ async fn mixed_batch_keeps_exact_cache_hit_beside_rejection_without_rescoring() 
     let (_path, mut cache) = private_cache(&temp);
     let cached = pending_at(2);
     cache
-        .put(
-            &CacheKey::new(cached.variant(), identity()),
-            &model_records(),
-        )
+        .put(&CacheKey::new(cached.variant()), &model_records())
         .expect("seed cache");
     let calls = Arc::new(AtomicUsize::new(0));
     let state = build_state(
         Arc::new(FakeLookup),
         Box::new(cache),
-        identity(),
         provenance(),
         vec![Box::new(RejectAtWorker {
             position: 3,
@@ -3468,7 +3441,6 @@ async fn model_failure_stops_batch_without_partial_http_result() {
     let state = build_state(
         Arc::new(FakeLookup),
         Box::new(EmptyCache),
-        identity(),
         provenance(),
         vec![Box::new(FailSecondWorker {
             calls: Arc::clone(&calls),
@@ -3573,12 +3545,12 @@ fn running_disconnect_does_not_interrupt_started_inference() {
             items: vec![
                 JobItem {
                     output_indices: vec![0],
-                    key: CacheKey::new(first.variant(), identity()),
+                    key: CacheKey::new(first.variant()),
                     pending: first,
                 },
                 JobItem {
                     output_indices: vec![1],
-                    key: CacheKey::new(second.variant(), identity()),
+                    key: CacheKey::new(second.variant()),
                     pending: second,
                 },
             ],

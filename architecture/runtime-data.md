@@ -202,9 +202,10 @@ runtime maps the held installed descriptor without rehashing the dense payload.
 Exact-edit conversion reads the same installed GRCh38 reference identity and provider implementation used by model scoring. The HTTP service holds one additional authenticated descriptor and mmap for request-time conversion because model workers own their scorers independently. Conversion finishes before lookup routing, SQLite cache access, queue admission, and inference. Equivalent exact and anchored inputs therefore share the existing literal-variant cache key. Conversion adds no reference source or cache schema.
 
 Successful model fallback now stores complete unfiltered typed records in a
-disposable SQLite cache. Its full key binds the literal variant to every model,
-reference, mask, scoring, window, and CPU-policy identity. A reopened hit still
-validates bounded identity inputs but does not open the dense reference or
+disposable SQLite cache. Its key is the literal variant. The file records the
+running software version and every model, reference, mask, scoring and window
+identity once, and is discarded whole when any of them changed. A reopened hit
+still validates bounded identity inputs but does not open the dense reference or
 ONNX model, initialize ONNX Runtime, infer, or write SQLite. Inserts and
 explicit updates define deterministic eviction order; ordinary valid hits do
 not refresh it. Precomputed SNV hits never open this cache. The default lives

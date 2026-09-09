@@ -26,6 +26,7 @@ const BUSY_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_KEY_BYTES: usize = 16 * 1024;
 const MAX_VALUE_BYTES: usize = 1024 * 1024;
 const MAX_RECORDS: usize = 1_024;
+const SOFTWARE_VERSION: &str = env!("CARGO_PKG_VERSION");
 const SCORING_SEMANTICS: &str = "pangopup-variant-score-v1";
 const MASKING_POLICY: &str = "pangolin-gencode-v38-order-sensitive-v1";
 const DISTANCE_WINDOW: u32 = 50;
@@ -59,12 +60,17 @@ impl FromStr for EntryLimit {
     }
 }
 
+/// The setup a run reaches: the assets it scores with, beside the build
+/// constants and software version the file records for itself. It is not the
+/// effective CPU policy. Ticket 0040 measured that no thread or worker setting
+/// moves any score, position, status, reason or provenance field, so keying or
+/// stamping on one throws paid-for rows away on a thread change and still
+/// fails to notice a software change.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CacheIdentity {
     model_bundle_id: String,
     model_profile: String,
     model_representation: String,
-    cpu_policy: String,
     reference_bundle_id: String,
     reference_profile: String,
     reference_sequence_set_sha256: String,
@@ -78,7 +84,6 @@ impl CacheIdentity {
         model_bundle_id: &str,
         model_profile: &str,
         model_representation: &str,
-        cpu_policy: &str,
         reference_bundle_id: &str,
         reference_profile: &str,
         reference_sequence_set_sha256: &str,
@@ -91,7 +96,6 @@ impl CacheIdentity {
                 model_representation,
                 "singleton" | "zero-padded-batch" | "paired-strand-batch"
             )
-            || !valid_cpu_policy(cpu_policy)
             || !valid_sha256(reference_bundle_id)
             || !valid_profile(reference_profile)
             || !valid_sha256(reference_sequence_set_sha256)
@@ -106,7 +110,6 @@ impl CacheIdentity {
             model_bundle_id: model_bundle_id.to_owned(),
             model_profile: model_profile.to_owned(),
             model_representation: model_representation.to_owned(),
-            cpu_policy: cpu_policy.to_owned(),
             reference_bundle_id: reference_bundle_id.to_owned(),
             reference_profile: reference_profile.to_owned(),
             reference_sequence_set_sha256: reference_sequence_set_sha256.to_owned(),
@@ -116,58 +119,108 @@ impl CacheIdentity {
     }
 }
 
-fn valid_cpu_policy(value: &str) -> bool {
-    if let Some(threads) = value
-        .strip_prefix("sequential:")
-        .and_then(|value| value.strip_suffix("/1"))
-    {
-        return threads == "auto"
-            || threads
-                .parse::<u8>()
-                .is_ok_and(|value| (1..=8).contains(&value) && value.to_string() == threads);
-    }
-    matches!(value, "parallel:1/2" | "parallel:1/4" | "parallel:1/8")
+/// What one cache file records about the setup that filled it, as the readable
+/// text a reader sees when the file is opened. The judge reads the same text,
+/// so a match is never decided from a digest a reader cannot check against the
+/// values beside it.
+#[derive(Debug, Eq, PartialEq)]
+struct RecordedSetup {
+    software_version: String,
+    model_bundle_id: String,
+    model_profile: String,
+    model_representation: String,
+    reference_bundle_id: String,
+    reference_profile: String,
+    reference_sequence_set_sha256: String,
+    mask_bytes: i64,
+    mask_sha256: String,
+    scoring_semantics: String,
+    masking_policy: String,
+    window: i64,
 }
 
+impl RecordedSetup {
+    fn running(identity: &CacheIdentity) -> Result<Self, CacheError> {
+        Ok(Self {
+            software_version: SOFTWARE_VERSION.to_owned(),
+            model_bundle_id: identity.model_bundle_id.clone(),
+            model_profile: identity.model_profile.clone(),
+            model_representation: identity.model_representation.clone(),
+            reference_bundle_id: identity.reference_bundle_id.clone(),
+            reference_profile: identity.reference_profile.clone(),
+            reference_sequence_set_sha256: identity.reference_sequence_set_sha256.clone(),
+            mask_bytes: i64::try_from(identity.mask_bytes).map_err(|_| CacheError::InvalidRow)?,
+            mask_sha256: identity.mask_sha256.clone(),
+            scoring_semantics: SCORING_SEMANTICS.to_owned(),
+            masking_policy: MASKING_POLICY.to_owned(),
+            window: i64::from(DISTANCE_WINDOW),
+        })
+    }
+
+    fn read(connection: &Connection) -> Result<Self, CacheError> {
+        connection
+            .query_row("SELECT * FROM setup WHERE singleton=1", [], |row| {
+                Ok(Self {
+                    software_version: row.get(1)?,
+                    model_bundle_id: row.get(2)?,
+                    model_profile: row.get(3)?,
+                    model_representation: row.get(4)?,
+                    reference_bundle_id: row.get(5)?,
+                    reference_profile: row.get(6)?,
+                    reference_sequence_set_sha256: row.get(7)?,
+                    mask_bytes: row.get(8)?,
+                    mask_sha256: row.get(9)?,
+                    scoring_semantics: row.get(10)?,
+                    masking_policy: row.get(11)?,
+                    window: row.get(12)?,
+                })
+            })
+            .map_err(map_sqlite)
+    }
+
+    fn record(&self, connection: &Connection) -> Result<(), CacheError> {
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO setup VALUES(
+                   1,?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12
+                 )",
+                params![
+                    self.software_version,
+                    self.model_bundle_id,
+                    self.model_profile,
+                    self.model_representation,
+                    self.reference_bundle_id,
+                    self.reference_profile,
+                    self.reference_sequence_set_sha256,
+                    self.mask_bytes,
+                    self.mask_sha256,
+                    self.scoring_semantics,
+                    self.masking_policy,
+                    self.window
+                ],
+            )
+            .map_err(map_sqlite)?;
+        Ok(())
+    }
+}
+
+/// A row is found by the submitted variant alone. The setup is judged once,
+/// when the cache opens, not once per row.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CacheKey {
     contig: String,
     position: u32,
     reference: String,
     alternate: String,
-    scoring_semantics: &'static str,
-    model_bundle_id: String,
-    model_profile: String,
-    model_representation: String,
-    cpu_policy: String,
-    reference_bundle_id: String,
-    reference_profile: String,
-    reference_sequence_set_sha256: String,
-    mask_bytes: u64,
-    mask_sha256: String,
-    masking_policy: &'static str,
-    window: u32,
 }
 
 impl CacheKey {
-    pub fn new(variant: &Grch38Variant, identity: CacheIdentity) -> Self {
+    pub fn new(variant: &Grch38Variant) -> Self {
         Self {
             contig: variant.contig().to_string(),
             position: variant.position().get(),
             reference: variant.reference().to_owned(),
             alternate: variant.alternate().to_owned(),
-            scoring_semantics: SCORING_SEMANTICS,
-            model_bundle_id: identity.model_bundle_id,
-            model_profile: identity.model_profile,
-            model_representation: identity.model_representation,
-            cpu_policy: identity.cpu_policy,
-            reference_bundle_id: identity.reference_bundle_id,
-            reference_profile: identity.reference_profile,
-            reference_sequence_set_sha256: identity.reference_sequence_set_sha256,
-            mask_bytes: identity.mask_bytes,
-            mask_sha256: identity.mask_sha256,
-            masking_policy: MASKING_POLICY,
-            window: DISTANCE_WINDOW,
         }
     }
 
@@ -258,33 +311,78 @@ impl From<io::Error> for CacheError {
 pub struct ModelResultCache {
     connection: Connection,
     path: PathBuf,
+    setup: CacheIdentity,
     limit: EntryLimit,
     disposable_default: bool,
     counters: CacheCounters,
     pending_checkpoint: bool,
+    discarded: bool,
 }
 
 impl ModelResultCache {
     /// Open an explicitly selected cache. Incompatible/corrupt explicit
-    /// databases are returned to the caller rather than deleted.
-    pub fn open_explicit(path: &Path, limit: EntryLimit) -> Result<Self, CacheError> {
-        Self::open_inner(path, limit, false)
+    /// databases are returned to the caller rather than deleted. A cache a
+    /// different setup filled is discarded whole, the way a disposable one is:
+    /// the caller is told so it can report it, not left reading rows the
+    /// running setup would never write.
+    pub fn open_explicit(
+        path: &Path,
+        setup: &CacheIdentity,
+        limit: EntryLimit,
+    ) -> Result<Self, CacheError> {
+        Self::open_matching(path, setup, limit, false)
     }
 
     /// Open the disposable default cache, recreating it once if incompatible
     /// or corrupt.
-    pub fn open_default(path: &Path, limit: EntryLimit) -> Result<Self, CacheError> {
-        match Self::open_inner(path, limit, true) {
+    pub fn open_default(
+        path: &Path,
+        setup: &CacheIdentity,
+        limit: EntryLimit,
+    ) -> Result<Self, CacheError> {
+        match Self::open_matching(path, setup, limit, true) {
             Ok(cache) => Ok(cache),
             Err(CacheError::Incompatible | CacheError::Sqlite(_)) => {
                 remove_database_family(path)?;
-                Self::open_inner(path, limit, true)
+                Self::open_matching(path, setup, limit, true)
             }
             Err(error) => Err(error),
         }
     }
 
-    fn open_inner(path: &Path, limit: EntryLimit, create_parent: bool) -> Result<Self, CacheError> {
+    /// Whether opening this cache discarded a file another setup had filled.
+    pub fn discarded_earlier_setup(&self) -> bool {
+        self.discarded
+    }
+
+    /// Judge the recorded setup once, at open. On any difference the whole file
+    /// goes, leaving no earlier row readable, and the reopened file records the
+    /// running setup. No migration keeps old rows readable and none is wanted.
+    fn open_matching(
+        path: &Path,
+        setup: &CacheIdentity,
+        limit: EntryLimit,
+        create_parent: bool,
+    ) -> Result<Self, CacheError> {
+        let (cache, matched) = Self::open_inner(path, setup, limit, create_parent)?;
+        if matched {
+            return Ok(cache);
+        }
+        drop(cache);
+        remove_database_family(path)?;
+        let (mut cache, _) = Self::open_inner(path, setup, limit, create_parent)?;
+        cache.discarded = true;
+        Ok(cache)
+    }
+
+    /// Open once and report whether the file's recorded setup is the running
+    /// setup. A file this call created records the running setup and matches.
+    fn open_inner(
+        path: &Path,
+        setup: &CacheIdentity,
+        limit: EntryLimit,
+        create_parent: bool,
+    ) -> Result<(Self, bool), CacheError> {
         validate_absolute(path)?;
         let parent = path
             .parent()
@@ -353,6 +451,21 @@ impl ModelResultCache {
                    next_write_sequence INTEGER NOT NULL CHECK(next_write_sequence > 0)
                  ) STRICT;
                      INSERT OR IGNORE INTO metadata VALUES(1, 1);
+                     CREATE TABLE IF NOT EXISTS setup (
+                   singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+                   software_version TEXT NOT NULL,
+                   model_bundle_id TEXT NOT NULL,
+                   model_profile TEXT NOT NULL,
+                   model_representation TEXT NOT NULL,
+                   reference_bundle_id TEXT NOT NULL,
+                   reference_profile TEXT NOT NULL,
+                   reference_sequence_set_sha256 TEXT NOT NULL,
+                   mask_bytes INTEGER NOT NULL,
+                   mask_sha256 TEXT NOT NULL,
+                   scoring_semantics TEXT NOT NULL,
+                   masking_policy TEXT NOT NULL,
+                   window INTEGER NOT NULL
+                 ) STRICT;
                      CREATE TABLE IF NOT EXISTS entries (
                    key_digest TEXT PRIMARY KEY,
                    key_json BLOB NOT NULL,
@@ -360,36 +473,31 @@ impl ModelResultCache {
                    position INTEGER NOT NULL,
                    reference TEXT NOT NULL,
                    alternate TEXT NOT NULL,
-                   scoring_semantics TEXT NOT NULL,
-                   model_bundle_id TEXT NOT NULL,
-                   model_profile TEXT NOT NULL,
-                   model_representation TEXT NOT NULL,
-                   cpu_policy TEXT NOT NULL,
-                   reference_bundle_id TEXT NOT NULL,
-                   reference_profile TEXT NOT NULL,
-                   reference_sequence_set_sha256 TEXT NOT NULL,
-                   mask_bytes INTEGER NOT NULL,
-                   mask_sha256 TEXT NOT NULL,
-                   masking_policy TEXT NOT NULL,
-                   window INTEGER NOT NULL,
                    value_json BLOB NOT NULL,
                    write_sequence INTEGER NOT NULL CHECK(write_sequence > 0)
                  ) STRICT;"
                 ))
                 .map_err(map_sqlite)?;
         }
+        let running = RecordedSetup::running(setup)?;
+        if !initialized {
+            running.record(&connection)?;
+        }
         validate_schema(&connection)?;
+        let matched = RecordedSetup::read(&connection)? == running;
         set_family_permissions(path)?;
         let mut cache = Self {
             connection,
             path: path.to_owned(),
+            setup: setup.clone(),
             limit,
             disposable_default: create_parent,
             counters: CacheCounters::default(),
             pending_checkpoint: !initialized,
+            discarded: false,
         };
         cache.evict_to_limit().map_err(map_sqlite)?;
-        Ok(cache)
+        Ok((cache, matched))
     }
 
     pub fn get(&mut self, key: &CacheKey) -> Result<Option<Vec<ModelGeneScoreRecord>>, CacheError> {
@@ -408,7 +516,6 @@ impl ModelResultCache {
         key: &CacheKey,
     ) -> Result<Option<Vec<ModelGeneScoreRecord>>, CacheError> {
         let digest = key.digest()?;
-        let mask_bytes = i64::try_from(key.mask_bytes).map_err(|_| CacheError::InvalidRow)?;
         let row: Option<BoundedStoredRow> = self
             .connection
             .query_row(
@@ -417,29 +524,13 @@ impl ModelResultCache {
                    CASE WHEN length(value_json)<=1048576 THEN value_json END
                  FROM entries WHERE
                    key_digest=?1 AND contig=?2 AND position=?3 AND reference=?4
-                   AND alternate=?5 AND scoring_semantics=?6 AND model_bundle_id=?7
-                   AND model_profile=?8 AND model_representation=?9 AND cpu_policy=?10
-                   AND reference_bundle_id=?11 AND reference_profile=?12
-                   AND reference_sequence_set_sha256=?13 AND mask_bytes=?14
-                   AND mask_sha256=?15 AND masking_policy=?16 AND window=?17",
+                   AND alternate=?5",
                 params![
                     digest,
                     key.contig,
                     key.position,
                     key.reference,
-                    key.alternate,
-                    key.scoring_semantics,
-                    key.model_bundle_id,
-                    key.model_profile,
-                    key.model_representation,
-                    key.cpu_policy,
-                    key.reference_bundle_id,
-                    key.reference_profile,
-                    key.reference_sequence_set_sha256,
-                    mask_bytes,
-                    key.mask_sha256,
-                    key.masking_policy,
-                    key.window
+                    key.alternate
                 ],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
@@ -484,7 +575,7 @@ impl ModelResultCache {
         let old = std::mem::replace(&mut self.connection, placeholder);
         drop(old);
         remove_database_family(&self.path)?;
-        let mut replacement = Self::open_inner(&self.path, self.limit, true)?;
+        let (mut replacement, _) = Self::open_inner(&self.path, &self.setup, self.limit, true)?;
         self.connection = std::mem::replace(
             &mut replacement.connection,
             Connection::open_in_memory().map_err(map_sqlite)?,
@@ -515,7 +606,6 @@ impl ModelResultCache {
         let digest = key.digest()?;
         let key_json = key.canonical_bytes()?;
         let value_json = encode_value(records)?;
-        let mask_bytes = i64::try_from(key.mask_bytes).map_err(|_| CacheError::InvalidRow)?;
         let transaction = self.connection.transaction().map_err(map_sqlite)?;
         if let Some(existing) = transaction
             .query_row(
@@ -534,14 +624,9 @@ impl ModelResultCache {
             .execute(
                 "INSERT INTO entries(
                    key_digest,key_json,contig,position,reference,alternate,
-                   scoring_semantics,model_bundle_id,model_profile,model_representation,
-                   cpu_policy,reference_bundle_id,reference_profile,
-                   reference_sequence_set_sha256,mask_bytes,mask_sha256,masking_policy,
-                   window,value_json,write_sequence
+                   value_json,write_sequence
                  )
-                 VALUES(
-                   ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20
-                 )
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
                  ON CONFLICT(key_digest) DO UPDATE SET
                    value_json=excluded.value_json,
                    write_sequence=excluded.write_sequence",
@@ -552,18 +637,6 @@ impl ModelResultCache {
                     key.position,
                     key.reference,
                     key.alternate,
-                    key.scoring_semantics,
-                    key.model_bundle_id,
-                    key.model_profile,
-                    key.model_representation,
-                    key.cpu_policy,
-                    key.reference_bundle_id,
-                    key.reference_profile,
-                    key.reference_sequence_set_sha256,
-                    mask_bytes,
-                    key.mask_sha256,
-                    key.masking_policy,
-                    key.window,
                     value_json,
                     sequence
                 ],
@@ -637,6 +710,25 @@ fn validate_schema(connection: &Connection) -> Result<(), CacheError> {
             ColumnShape::new("next_write_sequence", "INTEGER", true, 0),
         ],
     )?;
+    validate_table_shape(
+        connection,
+        "setup",
+        &[
+            ColumnShape::new("singleton", "INTEGER", false, 1),
+            ColumnShape::new("software_version", "TEXT", true, 0),
+            ColumnShape::new("model_bundle_id", "TEXT", true, 0),
+            ColumnShape::new("model_profile", "TEXT", true, 0),
+            ColumnShape::new("model_representation", "TEXT", true, 0),
+            ColumnShape::new("reference_bundle_id", "TEXT", true, 0),
+            ColumnShape::new("reference_profile", "TEXT", true, 0),
+            ColumnShape::new("reference_sequence_set_sha256", "TEXT", true, 0),
+            ColumnShape::new("mask_bytes", "INTEGER", true, 0),
+            ColumnShape::new("mask_sha256", "TEXT", true, 0),
+            ColumnShape::new("scoring_semantics", "TEXT", true, 0),
+            ColumnShape::new("masking_policy", "TEXT", true, 0),
+            ColumnShape::new("window", "INTEGER", true, 0),
+        ],
+    )?;
     let expected = [
         ColumnShape::new("key_digest", "TEXT", true, 1),
         ColumnShape::new("key_json", "BLOB", true, 0),
@@ -644,22 +736,16 @@ fn validate_schema(connection: &Connection) -> Result<(), CacheError> {
         ColumnShape::new("position", "INTEGER", true, 0),
         ColumnShape::new("reference", "TEXT", true, 0),
         ColumnShape::new("alternate", "TEXT", true, 0),
-        ColumnShape::new("scoring_semantics", "TEXT", true, 0),
-        ColumnShape::new("model_bundle_id", "TEXT", true, 0),
-        ColumnShape::new("model_profile", "TEXT", true, 0),
-        ColumnShape::new("model_representation", "TEXT", true, 0),
-        ColumnShape::new("cpu_policy", "TEXT", true, 0),
-        ColumnShape::new("reference_bundle_id", "TEXT", true, 0),
-        ColumnShape::new("reference_profile", "TEXT", true, 0),
-        ColumnShape::new("reference_sequence_set_sha256", "TEXT", true, 0),
-        ColumnShape::new("mask_bytes", "INTEGER", true, 0),
-        ColumnShape::new("mask_sha256", "TEXT", true, 0),
-        ColumnShape::new("masking_policy", "TEXT", true, 0),
-        ColumnShape::new("window", "INTEGER", true, 0),
         ColumnShape::new("value_json", "BLOB", true, 0),
         ColumnShape::new("write_sequence", "INTEGER", true, 0),
     ];
     validate_table_shape(connection, "entries", &expected)?;
+    let recorded_setups: i64 = connection
+        .query_row("SELECT count(*) FROM setup", [], |row| row.get(0))
+        .map_err(map_sqlite)?;
+    if recorded_setups != 1 {
+        return Err(CacheError::Incompatible);
+    }
     let metadata = connection
         .query_row(
             "SELECT count(*), min(singleton), max(singleton),
@@ -724,7 +810,7 @@ fn validate_table_shape(
     table: &str,
     expected: &[ColumnShape],
 ) -> Result<(), CacheError> {
-    debug_assert!(matches!(table, "metadata" | "entries"));
+    debug_assert!(matches!(table, "metadata" | "setup" | "entries"));
     let strict: Option<i64> = connection
         .query_row(
             "SELECT strict FROM pragma_table_list
@@ -1051,6 +1137,20 @@ mod tests {
         temp
     }
 
+    fn setup() -> CacheIdentity {
+        CacheIdentity::new(
+            &format!("sha256:{:064x}", 1),
+            "model",
+            "singleton",
+            &format!("sha256:{:064x}", 2),
+            "reference",
+            &format!("sha256:{:064x}", 3),
+            260,
+            &format!("sha256:{:064x}", 4),
+        )
+        .expect("identity")
+    }
+
     fn key(position: u32) -> CacheKey {
         let variant = Grch38Variant::new(
             "chr1".parse().expect("contig"),
@@ -1059,21 +1159,7 @@ mod tests {
             "AC",
         )
         .expect("variant");
-        CacheKey::new(
-            &variant,
-            CacheIdentity::new(
-                &format!("sha256:{:064x}", 1),
-                "model",
-                "singleton",
-                "sequential:1/1",
-                &format!("sha256:{:064x}", 2),
-                "reference",
-                &format!("sha256:{:064x}", 3),
-                260,
-                &format!("sha256:{:064x}", 4),
-            )
-            .expect("identity"),
-        )
+        CacheKey::new(&variant)
     }
 
     fn records() -> Vec<ModelGeneScoreRecord> {
@@ -1094,14 +1180,14 @@ mod tests {
         let temp = private_temp();
         let path = temp.path().join("cache.sqlite3");
         {
-            let mut cache =
-                ModelResultCache::open_explicit(&path, EntryLimit::default()).expect("open");
+            let mut cache = ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default())
+                .expect("open");
             assert_eq!(cache.get(&key(10)).expect("miss"), None);
             cache.put(&key(10), &records()).expect("put");
             assert_eq!(cache.counters().misses, 1);
         }
-        let mut reopened =
-            ModelResultCache::open_explicit(&path, EntryLimit::default()).expect("reopen");
+        let mut reopened = ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default())
+            .expect("reopen");
         assert_eq!(reopened.get(&key(10)).expect("hit"), Some(records()));
         assert_eq!(reopened.counters().hits, 1);
     }
@@ -1112,7 +1198,7 @@ mod tests {
         let path = temp.path().join("cache.sqlite3");
         let wal = PathBuf::from(format!("{}-wal", path.display()));
         let mut cache =
-            ModelResultCache::open_explicit(&path, EntryLimit::default()).expect("open");
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default()).expect("open");
         cache.put(&key(10), &records()).expect("put");
         cache.checkpoint();
         let next_sequence = |cache: &ModelResultCache| {
@@ -1145,7 +1231,7 @@ mod tests {
         let temp = private_temp();
         let path = temp.path().join("cache.sqlite3");
         let mut cache =
-            ModelResultCache::open_explicit(&path, EntryLimit::Bounded(2)).expect("open");
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::Bounded(2)).expect("open");
         cache.put(&key(1), &records()).expect("one");
         cache.put(&key(2), &records()).expect("two");
         assert!(cache.get(&key(1)).expect("read without refresh").is_some());
@@ -1163,8 +1249,8 @@ mod tests {
         );
         drop(cache);
 
-        let mut reduced =
-            ModelResultCache::open_explicit(&path, EntryLimit::Bounded(1)).expect("reduced");
+        let mut reduced = ModelResultCache::open_explicit(&path, &setup(), EntryLimit::Bounded(1))
+            .expect("reduced");
         assert_eq!(reduced.entry_count().expect("count"), 1);
         assert!(
             reduced
@@ -1179,7 +1265,7 @@ mod tests {
         let temp = private_temp();
         let path = temp.path().join("cache.sqlite3");
         let mut cache =
-            ModelResultCache::open_explicit(&path, EntryLimit::Unlimited).expect("open");
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::Unlimited).expect("open");
         for position in 1..=12 {
             cache.put(&key(position), &records()).expect("put");
         }
@@ -1192,7 +1278,7 @@ mod tests {
         let temp = private_temp();
         let path = temp.path().join("cache.sqlite3");
         let mut cache =
-            ModelResultCache::open_explicit(&path, EntryLimit::Bounded(2)).expect("open");
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::Bounded(2)).expect("open");
         cache.put(&key(1), &records()).expect("one");
         cache.put(&key(2), &records()).expect("two");
         cache
@@ -1212,7 +1298,7 @@ mod tests {
         let temp = private_temp();
         let path = temp.path().join("cache.sqlite3");
         let mut cache =
-            ModelResultCache::open_explicit(&path, EntryLimit::default()).expect("open");
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default()).expect("open");
         cache.put(&key(1), &records()).expect("put");
         cache
             .connection
@@ -1237,7 +1323,7 @@ mod tests {
         drop(connection);
         fs::set_permissions(&explicit_path, fs::Permissions::from_mode(0o600)).expect("mode");
         assert!(matches!(
-            ModelResultCache::open_explicit(&explicit_path, EntryLimit::default()),
+            ModelResultCache::open_explicit(&explicit_path, &setup(), EntryLimit::default()),
             Err(CacheError::Incompatible)
         ));
         let connection = Connection::open(&explicit_path).expect("still exists");
@@ -1254,41 +1340,45 @@ mod tests {
             .expect("foreign id");
         drop(connection);
         fs::set_permissions(&disposable_path, fs::Permissions::from_mode(0o600)).expect("mode");
-        let cache = ModelResultCache::open_default(&disposable_path, EntryLimit::default())
-            .expect("recreated");
+        let cache =
+            ModelResultCache::open_default(&disposable_path, &setup(), EntryLimit::default())
+                .expect("recreated");
         assert_eq!(cache.entry_count().expect("empty"), 0);
 
         let corrupt = private_temp();
         let corrupt_path = corrupt.path().join("cache.sqlite3");
         fs::write(&corrupt_path, b"not sqlite").expect("corrupt bytes");
         fs::set_permissions(&corrupt_path, fs::Permissions::from_mode(0o600)).expect("mode");
-        let cache = ModelResultCache::open_default(&corrupt_path, EntryLimit::default())
+        let cache = ModelResultCache::open_default(&corrupt_path, &setup(), EntryLimit::default())
             .expect("corrupt default recreated");
         assert_eq!(cache.entry_count().expect("empty"), 0);
     }
 
     #[test]
     fn established_cache_reopen_validates_metadata_contract() {
-        let temp = private_temp();
-        let path = temp.path().join("cache.sqlite3");
-        drop(
-            ModelResultCache::open_explicit(&path, EntryLimit::default())
-                .expect("initialize cache"),
-        );
-        let connection = Connection::open(&path).expect("reopen raw database");
-        connection
-            .execute("DROP TABLE metadata", [])
-            .expect("remove required metadata");
-        drop(connection);
-        assert!(matches!(
-            ModelResultCache::open_explicit(&path, EntryLimit::default()),
-            Err(CacheError::Incompatible)
-        ));
+        for table in ["metadata", "setup"] {
+            let temp = private_temp();
+            let path = temp.path().join("cache.sqlite3");
+            drop(
+                ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default())
+                    .expect("initialize cache"),
+            );
+            let connection = Connection::open(&path).expect("reopen raw database");
+            connection
+                .execute(&format!("DROP TABLE {table}"), [])
+                .expect("remove required table");
+            drop(connection);
+            assert!(matches!(
+                ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default()),
+                Err(CacheError::Incompatible)
+            ));
+        }
 
         let sequence = private_temp();
         let sequence_path = sequence.path().join("cache.sqlite3");
         let mut cache =
-            ModelResultCache::open_explicit(&sequence_path, EntryLimit::default()).expect("open");
+            ModelResultCache::open_explicit(&sequence_path, &setup(), EntryLimit::default())
+                .expect("open");
         cache.put(&key(1), &records()).expect("put");
         cache
             .connection
@@ -1296,7 +1386,7 @@ mod tests {
             .expect("invalidate sequence");
         drop(cache);
         assert!(matches!(
-            ModelResultCache::open_explicit(&sequence_path, EntryLimit::default()),
+            ModelResultCache::open_explicit(&sequence_path, &setup(), EntryLimit::default()),
             Err(CacheError::Incompatible)
         ));
     }
@@ -1305,7 +1395,7 @@ mod tests {
     fn same_named_wrong_shape_schema_is_rejected_or_recreated() {
         fn mutate_declared_type(path: &Path) {
             drop(
-                ModelResultCache::open_explicit(path, EntryLimit::default())
+                ModelResultCache::open_explicit(path, &setup(), EntryLimit::default())
                     .expect("initialize cache"),
             );
             let connection = Connection::open(path).expect("raw open");
@@ -1326,15 +1416,16 @@ mod tests {
         let explicit_path = explicit.path().join("cache.sqlite3");
         mutate_declared_type(&explicit_path);
         assert!(matches!(
-            ModelResultCache::open_explicit(&explicit_path, EntryLimit::default()),
+            ModelResultCache::open_explicit(&explicit_path, &setup(), EntryLimit::default()),
             Err(CacheError::Incompatible)
         ));
 
         let disposable = private_temp();
         let disposable_path = disposable.path().join("cache.sqlite3");
         mutate_declared_type(&disposable_path);
-        let cache = ModelResultCache::open_default(&disposable_path, EntryLimit::default())
-            .expect("default recreates wrong-shape schema");
+        let cache =
+            ModelResultCache::open_default(&disposable_path, &setup(), EntryLimit::default())
+                .expect("default recreates wrong-shape schema");
         assert_eq!(cache.entry_count().expect("empty"), 0);
     }
 
@@ -1343,7 +1434,7 @@ mod tests {
         let temp = private_temp();
         let path = temp.path().join("cache.sqlite3");
         let mut cache =
-            ModelResultCache::open_explicit(&path, EntryLimit::default()).expect("open");
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default()).expect("open");
         cache.put(&key(1), &records()).expect("existing");
         let blocker = Connection::open(&path).expect("blocker");
         blocker
@@ -1366,7 +1457,8 @@ mod tests {
     fn disposable_default_recovers_from_runtime_sqlite_failure_as_a_miss() {
         let temp = private_temp();
         let path = temp.path().join("cache.sqlite3");
-        let mut cache = ModelResultCache::open_default(&path, EntryLimit::default()).expect("open");
+        let mut cache =
+            ModelResultCache::open_default(&path, &setup(), EntryLimit::default()).expect("open");
         cache.put(&key(1), &records()).expect("put");
         cache
             .connection
@@ -1384,13 +1476,13 @@ mod tests {
         let link = temp.path().join("link.sqlite3");
         symlink(&target, &link).expect("symlink");
         assert!(matches!(
-            ModelResultCache::open_explicit(&link, EntryLimit::default()),
+            ModelResultCache::open_explicit(&link, &setup(), EntryLimit::default()),
             Err(CacheError::UnsafePath(_))
         ));
 
         let path = temp.path().join("cache.sqlite3");
         let mut cache =
-            ModelResultCache::open_explicit(&path, EntryLimit::default()).expect("open");
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default()).expect("open");
         cache.put(&key(1), &records()).expect("put");
         for candidate in [
             path.clone(),
@@ -1414,7 +1506,7 @@ mod tests {
         fs::write(&explicit_wal, b"stale").expect("stale WAL");
         fs::set_permissions(&explicit_wal, fs::Permissions::from_mode(0o600)).expect("mode");
         assert!(matches!(
-            ModelResultCache::open_explicit(&explicit_path, EntryLimit::default()),
+            ModelResultCache::open_explicit(&explicit_path, &setup(), EntryLimit::default()),
             Err(CacheError::Incompatible)
         ));
 
@@ -1423,13 +1515,14 @@ mod tests {
         let disposable_wal = PathBuf::from(format!("{}-wal", disposable_path.display()));
         fs::write(&disposable_wal, b"stale").expect("stale WAL");
         fs::set_permissions(&disposable_wal, fs::Permissions::from_mode(0o600)).expect("mode");
-        let cache = ModelResultCache::open_default(&disposable_path, EntryLimit::default())
-            .expect("default replaces orphan");
+        let cache =
+            ModelResultCache::open_default(&disposable_path, &setup(), EntryLimit::default())
+                .expect("default replaces orphan");
         assert_eq!(cache.entry_count().expect("empty"), 0);
     }
 
     #[test]
-    fn every_key_identity_causes_an_actual_cache_miss() {
+    fn every_submitted_variant_field_causes_an_actual_cache_miss() {
         fn changed_keys(original: &CacheKey) -> Vec<CacheKey> {
             let mut variants = Vec::new();
             macro_rules! changed {
@@ -1443,25 +1536,13 @@ mod tests {
             changed!(position, 2);
             changed!(reference, "C".to_owned());
             changed!(alternate, "AG".to_owned());
-            changed!(scoring_semantics, "other-score-v1");
-            changed!(model_bundle_id, format!("sha256:{:064x}", 11));
-            changed!(model_profile, "other-model".to_owned());
-            changed!(model_representation, "zero-padded-batch".to_owned());
-            changed!(cpu_policy, "sequential:8/1".to_owned());
-            changed!(reference_bundle_id, format!("sha256:{:064x}", 12));
-            changed!(reference_profile, "other-reference".to_owned());
-            changed!(reference_sequence_set_sha256, format!("sha256:{:064x}", 13));
-            changed!(mask_bytes, 261);
-            changed!(mask_sha256, format!("sha256:{:064x}", 14));
-            changed!(masking_policy, "other-mask-v1");
-            changed!(window, 49);
             variants
         }
 
         let temp = private_temp();
         let path = temp.path().join("cache.sqlite3");
         let mut cache =
-            ModelResultCache::open_explicit(&path, EntryLimit::default()).expect("open");
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default()).expect("open");
         let original = key(1);
         cache.put(&original, &records()).expect("put original");
         for changed in changed_keys(&original) {
@@ -1474,13 +1555,83 @@ mod tests {
         assert_eq!(cache.entry_count().expect("one row"), 1);
     }
 
+    /// The other half of the same rule. The row key carries no identity any
+    /// more, so every identity is judged once, when the file opens. Each
+    /// recorded field on its own has to take the whole file with it, including
+    /// the software version the key never carried.
+    #[test]
+    fn every_recorded_setup_field_discards_the_whole_file() {
+        use rusqlite::types::Value;
+
+        for (column, replacement) in [
+            ("software_version", Value::Text("0.0.0".to_owned())),
+            (
+                "model_bundle_id",
+                Value::Text(format!("sha256:{:064x}", 11)),
+            ),
+            ("model_profile", Value::Text("other-model".to_owned())),
+            (
+                "model_representation",
+                Value::Text("zero-padded-batch".to_owned()),
+            ),
+            (
+                "reference_bundle_id",
+                Value::Text(format!("sha256:{:064x}", 12)),
+            ),
+            (
+                "reference_profile",
+                Value::Text("other-reference".to_owned()),
+            ),
+            (
+                "reference_sequence_set_sha256",
+                Value::Text(format!("sha256:{:064x}", 13)),
+            ),
+            ("mask_bytes", Value::Integer(261)),
+            ("mask_sha256", Value::Text(format!("sha256:{:064x}", 14))),
+            (
+                "scoring_semantics",
+                Value::Text("other-score-v1".to_owned()),
+            ),
+            ("masking_policy", Value::Text("other-mask-v1".to_owned())),
+            ("window", Value::Integer(49)),
+        ] {
+            let temp = private_temp();
+            let path = temp.path().join("cache.sqlite3");
+            let mut cache = ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default())
+                .expect("open");
+            cache.put(&key(1), &records()).expect("put");
+            drop(cache);
+
+            let connection = Connection::open(&path).expect("raw open");
+            connection
+                .execute(
+                    &format!("UPDATE setup SET {column}=?1 WHERE singleton=1"),
+                    params![replacement],
+                )
+                .expect("rewrite one recorded field");
+            drop(connection);
+
+            let mut cache = ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default())
+                .expect("reopen");
+            assert!(
+                cache.discarded_earlier_setup(),
+                "a changed {column} must be reported as a discard"
+            );
+            assert_eq!(
+                cache.entry_count().expect("row count"),
+                0,
+                "a changed {column} must leave no earlier row readable"
+            );
+            assert_eq!(cache.get(&key(1)).expect("lookup"), None);
+        }
+    }
+
     #[test]
     fn public_key_construction_rejects_invalid_scoring_identity() {
         let good_sha = format!("sha256:{:064x}", 1);
         let build = |model_bundle: &str,
                      model_profile: &str,
                      representation: &str,
-                     cpu: &str,
                      reference_bundle: &str,
                      reference_profile: &str,
                      sequence_sha: &str,
@@ -1490,7 +1641,6 @@ mod tests {
                 model_bundle,
                 model_profile,
                 representation,
-                cpu,
                 reference_bundle,
                 reference_profile,
                 sequence_sha,
@@ -1503,7 +1653,6 @@ mod tests {
                 "sha256:BAD",
                 "model",
                 "singleton",
-                "sequential:1/1",
                 &good_sha,
                 "reference",
                 &good_sha,
@@ -1514,7 +1663,6 @@ mod tests {
                 &good_sha,
                 "",
                 "singleton",
-                "sequential:1/1",
                 &good_sha,
                 "reference",
                 &good_sha,
@@ -1525,7 +1673,6 @@ mod tests {
                 &good_sha,
                 "model",
                 "unknown",
-                "sequential:1/1",
                 &good_sha,
                 "reference",
                 &good_sha,
@@ -1536,18 +1683,6 @@ mod tests {
                 &good_sha,
                 "model",
                 "singleton",
-                "fast",
-                &good_sha,
-                "reference",
-                &good_sha,
-                1,
-                &good_sha,
-            ),
-            build(
-                &good_sha,
-                "model",
-                "singleton",
-                "sequential:1/1",
                 &good_sha,
                 "reference",
                 &good_sha,
@@ -1560,48 +1695,11 @@ mod tests {
     }
 
     #[test]
-    fn service_sequential_thread_policies_are_exactly_bounded() {
-        let sha = format!("sha256:{:064x}", 1);
-        for threads in 1..=8 {
-            assert!(
-                CacheIdentity::new(
-                    &sha,
-                    "model",
-                    "singleton",
-                    &format!("sequential:{threads}/1"),
-                    &sha,
-                    "reference",
-                    &sha,
-                    1,
-                    &sha,
-                )
-                .is_ok()
-            );
-        }
-        for invalid in ["sequential:0/1", "sequential:9/1", "sequential:01/1"] {
-            assert!(
-                CacheIdentity::new(
-                    &sha,
-                    "model",
-                    "singleton",
-                    invalid,
-                    &sha,
-                    "reference",
-                    &sha,
-                    1,
-                    &sha,
-                )
-                .is_err()
-            );
-        }
-    }
-
-    #[test]
     fn same_digest_with_different_full_key_neither_aliases_nor_overwrites() {
         let temp = private_temp();
         let path = temp.path().join("cache.sqlite3");
         let mut cache =
-            ModelResultCache::open_explicit(&path, EntryLimit::default()).expect("open");
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default()).expect("open");
         let original = key(1);
         let other = key(2);
         cache.put(&original, &records()).expect("put original");

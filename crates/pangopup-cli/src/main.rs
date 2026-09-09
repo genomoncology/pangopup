@@ -23,7 +23,7 @@ use pangopup_index::{
     reference::{IdentifiedReferenceBundle, ReferenceBundleOpen, parse_caller_contig},
     reference_admission::inspect_reference_admission,
 };
-use pangopup_model::{CpuPolicy, ModelAdmission, ModelKernel, inspect_model_admission};
+use pangopup_model::{ModelAdmission, ModelKernel, inspect_model_admission};
 use serde::Serialize;
 use std::{
     ffi::OsString,
@@ -940,6 +940,7 @@ fn complete_model_batch(
     implicit_cache_limit: Option<EntryLimit>,
     observer: &mut dyn FnMut(FallbackComponent),
 ) -> Result<Vec<u8>, Failure> {
+    let setup = cache_setup(&admission).map_err(map_cache_error)?;
     let mut cache = {
         let implicit_options;
         let options = if let Some(options) = cache_options.as_ref() {
@@ -950,12 +951,24 @@ fn complete_model_batch(
             &implicit_options
         };
         let result = if options.disposable_default {
-            ModelResultCache::open_default(&options.path, options.limit)
+            ModelResultCache::open_default(&options.path, &setup, options.limit)
         } else {
-            ModelResultCache::open_explicit(&options.path, options.limit)
+            ModelResultCache::open_explicit(&options.path, &setup, options.limit)
         };
         match result {
-            Ok(cache) => Some(cache),
+            Ok(cache) => {
+                // A discard is not an error: this run still returns its answer.
+                // Saying so is what keeps a chosen database from being replaced
+                // silently, and it is how an operator tells a cold cache from a
+                // broken one.
+                if cache.discarded_earlier_setup() {
+                    eprintln!(
+                        "discarded model cache {}: another setup filled it",
+                        options.path.display()
+                    );
+                }
+                Some(cache)
+            }
             Err(pangopup_cache::CacheError::Busy) => None,
             Err(error) => return Err(map_cache_error(error)),
         }
@@ -966,12 +979,10 @@ fn complete_model_batch(
         let routed = match decision {
             BatchDecision::Authoritative(result) => result,
             BatchDecision::Model(required) => {
-                let (key, cached_provenance) = {
-                    (
-                        cache_key(required.variant(), &admission).map_err(map_cache_error)?,
-                        admission.provenance.clone(),
-                    )
-                };
+                let (key, cached_provenance) = (
+                    CacheKey::new(required.variant()),
+                    admission.provenance.clone(),
+                );
                 let cached = match cache.as_mut() {
                     Some(cache) => match cache.get(&key) {
                         Ok(value) => value,
@@ -1042,22 +1053,19 @@ fn routed_from_cached(
     }
 }
 
-fn cache_key(
-    variant: &Grch38Variant,
-    admission: &FallbackAdmission,
-) -> Result<CacheKey, pangopup_cache::CacheError> {
-    let identity = CacheIdentity::new(
+/// The setup this run reaches. Every path that opens a cache holds a
+/// `FallbackAdmission` first, so every recorded value is already in hand.
+fn cache_setup(admission: &FallbackAdmission) -> Result<CacheIdentity, pangopup_cache::CacheError> {
+    CacheIdentity::new(
         &admission.model.bundle_id().to_string(),
         admission.model.profile(),
         &admission.model.representation().to_string(),
-        &CpuPolicy::production_default().to_string(),
         admission.provenance.reference().bundle_id(),
         admission.provenance.reference().profile(),
         admission.provenance.reference().sequence_set_sha256(),
         admission.provenance.mask_bytes(),
         admission.provenance.mask_sha256(),
-    )?;
-    Ok(CacheKey::new(variant, identity))
+    )
 }
 
 fn snv_from_variant(variant: &Grch38Variant) -> Option<Grch38Snv> {
@@ -3078,6 +3086,7 @@ mod tests {
             .expect("private temp");
             let mut cache = ModelResultCache::open_explicit(
                 &temp.path().join("cache.sqlite3"),
+                &cache_setup(&admission).expect("setup"),
                 EntryLimit::Unlimited,
             )
             .expect("cache");
@@ -3091,13 +3100,9 @@ mod tests {
                 ),
                 Vec::new(),
             )];
-            cache
-                .put(&cache_key(first, &admission).expect("first key"), &records)
-                .expect("put");
+            cache.put(&CacheKey::new(first), &records).expect("put");
             assert_eq!(
-                cache
-                    .get(&cache_key(second, &admission).expect("second key"))
-                    .expect("get"),
+                cache.get(&CacheKey::new(second)).expect("get"),
                 Some(records)
             );
         }

@@ -166,8 +166,9 @@ HTTP, or concurrency policy.
 ### `pangopup-cache`
 
 Owns one disposable bundled-SQLite database for successful complete unfiltered
-model results. It binds canonical typed values to the literal variant and full
-scoring identity, then supplies deterministic insertion/update-order bounds
+model results. It binds canonical typed values to the literal variant, records
+the scoring setup once for the file and discards the file whole when that setup
+changed, then supplies deterministic insertion/update-order bounds
 and corruption recovery. Runtime composition performs bounded identity
 admission before a lookup and applies stable-gene filtering after a hit or
 fill. Valid hits are read-only. The cache does

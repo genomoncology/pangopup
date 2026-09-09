@@ -12,12 +12,19 @@ The default database is
 positive bound or `unlimited`. An explicitly selected database is never
 silently replaced.
 
-Each entry is keyed by the literal GRCh38 variant and every identity or policy
-that can change its score: scoring semantics, model bundle/profile/graph, CPU
-policy, reference bundle/profile/sequence set, mask length/hash, masking policy,
-and window. The digest accelerates lookup, but a hit requires equality with the
-complete canonical key. Values are canonical JSON decoded through the normal
-typed score constructors.
+An entry is keyed by the literal GRCh38 variant. The digest accelerates lookup,
+but a hit requires equality with the complete canonical key. Values are
+canonical JSON decoded through the normal typed score constructors.
+
+The identities are recorded once for the file, as readable text a reader can
+check: the running software version, scoring semantics, model
+bundle/profile/graph, reference bundle/profile/sequence set, mask length/hash,
+masking policy, and window. The file is judged once, when it opens, and
+discarded whole when any of them changed. No migration keeps old rows readable.
+Ticket 0040 measured that no thread or worker setting moves any published field,
+so the CPU policy is neither keyed nor recorded. A discard is reported on
+standard error, naming the file, so an explicitly selected database is never
+*silently* replaced.
 
 ## Why
 
@@ -30,7 +37,7 @@ Manifest admission and mask identification happen before a hit. A validated
 hit does not open or hash the dense reference, load the ONNX graph, construct a
 session, run its initialization probe, or perform inference. A miss
 authenticates the full components and confirms that their identities still
-match the admitted key before scoring.
+match the recorded setup before scoring.
 
 ## Consequences
 

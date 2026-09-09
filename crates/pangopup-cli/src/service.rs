@@ -472,7 +472,6 @@ struct AppState {
     lookup: Arc<dyn LookupBackend>,
     handler_cache: Arc<Mutex<Box<dyn CacheReader>>>,
     cache_gate: Arc<Semaphore>,
-    cache_identity: CacheIdentity,
     provenance: ModelProvenance,
     dispatcher: Dispatcher,
     assets: AssetStatus,
@@ -808,11 +807,10 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
         profile.mask.member_sha256.clone(),
     )
     .with_effective_cpu_policy(effective_policy.clone());
-    let identity = CacheIdentity::new(
+    let setup = CacheIdentity::new(
         &profile.model.bundle_id,
         &profile.model.profile,
         &profile.model.representation,
-        &effective_policy,
         &profile.reference.bundle_id,
         &profile.reference.profile,
         &profile.reference.sequence_set_sha256,
@@ -821,7 +819,8 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
     )
     .map_err(map_cache_error)?;
     let cache_options = resolve_model_cache_options(options.cache_path, options.cache_limit)?;
-    let handler_cache = open_cache(&cache_options)?;
+    // The first open judges the recorded setup. The rest match what it left.
+    let handler_cache = open_cache(&cache_options, &setup)?;
     let mut backends: Vec<Box<dyn WorkerBackend>> = Vec::with_capacity(options.workers);
     for _ in 0..options.workers {
         let installed = open_service_runtime(&data, &active.bundle_id)?;
@@ -841,7 +840,7 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
         }
         backends.push(Box::new(ProductionWorker {
             fallback: Box::new(fallback),
-            cache: open_cache(&cache_options)?,
+            cache: open_cache(&cache_options, &setup)?,
         }));
     }
     let assets = AssetStatus {
@@ -853,7 +852,6 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
     let mut state = build_state(
         Arc::new(LookupFirstRouter::new(bundle)),
         Box::new(handler_cache),
-        identity,
         provenance,
         backends,
         options.threads,
@@ -925,11 +923,11 @@ fn open_service_runtime(
         .map_err(|error| map_startup_asset_error(error, super::map_runtime_error))
 }
 
-fn open_cache(options: &CacheOptions) -> Result<ModelResultCache, Failure> {
+fn open_cache(options: &CacheOptions, setup: &CacheIdentity) -> Result<ModelResultCache, Failure> {
     let result = if options.disposable_default {
-        ModelResultCache::open_default(&options.path, options.limit)
+        ModelResultCache::open_default(&options.path, setup, options.limit)
     } else {
-        ModelResultCache::open_explicit(&options.path, options.limit)
+        ModelResultCache::open_explicit(&options.path, setup, options.limit)
     };
     result.map_err(map_cache_error)
 }
@@ -938,7 +936,6 @@ fn open_cache(options: &CacheOptions) -> Result<ModelResultCache, Failure> {
 fn build_state(
     lookup: Arc<dyn LookupBackend>,
     handler_cache: Box<dyn CacheReader>,
-    identity: CacheIdentity,
     provenance: ModelProvenance,
     backends: Vec<Box<dyn WorkerBackend>>,
     threads: usize,
@@ -973,7 +970,6 @@ fn build_state(
         lookup,
         handler_cache: Arc::new(Mutex::new(handler_cache)),
         cache_gate: Arc::new(Semaphore::new(1)),
-        cache_identity: identity,
         provenance,
         dispatcher,
         assets,
@@ -1470,7 +1466,7 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
                 outputs[index] = Some(ScoreOutcome::Complete(result));
             }
             BatchDecision::Model(required) => {
-                let key = CacheKey::new(required.variant(), state.cache_identity.clone());
+                let key = CacheKey::new(required.variant());
                 pending.push(JobItem {
                     output_indices: vec![index],
                     pending: required,
