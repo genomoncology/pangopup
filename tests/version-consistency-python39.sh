@@ -138,15 +138,14 @@ try:
     required_v050_document = "architecture/compatibility.md"
     required_v050_heading = "## v0.5.0 response-shape inventory"
     required_v050_inventory = (
-        ("Status response root", "adds", "`naming`"),
-        ("Status `naming` object", "carries", "`available` and `release`"),
         ("Every structured score record", "adds", "`gene_names`"),
         ("Every source-reference ambiguity", "adds", "`gene_names`"),
         (
             "Score-record `gene_names` object",
             "carries",
-            "`symbol`, `hgnc_id`, `ncbi_gene_id`, `prev_symbols`, and `alias_symbols`",
+            "`symbol`, `source`, `hgnc_id`, `ncbi_gene_id`, `prev_symbols`, and `alias_symbols`",
         ),
+        ("Score-record `gene_names.source`", "reports", "`hgnc` or `ncbi`"),
         (
             "Status response root",
             "adds",
@@ -155,8 +154,12 @@ try:
     )
     required_v050_unnamed_shape = (
         "- Unnamed gene: the score record and the source-reference ambiguity carry no"
-        " `gene_names` object, and a named gene omits `ncbi_gene_id`, `prev_symbols`,"
-        " and `alias_symbols` where the naming source supplies none."
+        " `gene_names` object, and a named gene omits `hgnc_id`, `ncbi_gene_id`,"
+        " `prev_symbols`, and `alias_symbols` where its naming source supplies none."
+    )
+    required_v050_naming_note = (
+        "PangoPup ships one gene-name index with the build. No status field reports an"
+        " installed naming vintage. A deployment cannot vary the names PangoPup returns."
     )
     required_v050_order = (
         "Deploy strict consumer support for the complete response-shape inventory"
@@ -177,6 +180,8 @@ try:
         raise AssertionError("checker 0.5 unnamed-gene shape differs from the independent required text")
     if checker_globals.get("V050_DEPLOYMENT_ORDER") != required_v050_order:
         raise AssertionError("checker 0.5 deployment order differs from the independent required text")
+    if checker_globals.get("V050_NAMING_NOTE") != required_v050_naming_note:
+        raise AssertionError("checker does not gate the one-vintage-per-build statement")
     if checker_globals.get("AMBIGUOUS_SYMBOL_GUIDANCE") != required_ambiguous_symbol_guidance:
         raise AssertionError("checker ambiguous-symbol guidance differs from the independent required text")
     required_attribution_document = "NOTICE"
@@ -187,6 +192,12 @@ try:
         "6f43d6ff43aa9fdfa5fb2f20a20a7cace66e6e02e2a0dcf19d9b726e2e248d20",
         "Creative Commons Public Domain (CC0)",
     )
+    required_ncbi_source_claims = (
+        "National Center for Biotechnology Information",
+        "Homo_sapiens.gene_info.gz",
+        "https://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz",
+        "NCBI replaces this file at a fixed URL and publishes no dated archive of it.",
+    )
     required_gencode_annotation_claims = (
         "gencode.v38.annotation.gtf.gz",
         "https://www.ebi.ac.uk/about/terms-of-use",
@@ -195,6 +206,8 @@ try:
         raise AssertionError("checker does not gate the attribution document")
     if tuple(checker_globals.get("NAMING_SOURCE_CLAIMS", ())) != required_naming_source_claims:
         raise AssertionError("checker naming-source attribution differs from the independent required set")
+    if tuple(checker_globals.get("NCBI_SOURCE_CLAIMS", ())) != required_ncbi_source_claims:
+        raise AssertionError("checker NCBI attribution differs from the independent required set")
     if tuple(checker_globals.get("GENCODE_ANNOTATION_CLAIMS", ())) != required_gencode_annotation_claims:
         raise AssertionError("checker GENCODE attribution differs from the independent required set")
     cargo = original_read("Cargo.toml")
@@ -445,12 +458,17 @@ try:
         ("unnamed-gene shape", required_v050_unnamed_shape),
         ("consumer-first deployment order", required_v050_order),
         ("ambiguous-symbol guidance", required_ambiguous_symbol_guidance),
+        ("one-vintage-per-build statement", required_v050_naming_note),
     ):
         expect_rejected(
             f"a removed 0.5 {label} in {required_v050_document}",
             {required_v050_document: replace_once(v050_text, claim, "")},
         )
-    for claim in required_naming_source_claims + required_gencode_annotation_claims:
+    for claim in (
+        required_naming_source_claims
+        + required_ncbi_source_claims
+        + required_gencode_annotation_claims
+    ):
         expect_rejected(
             f"a removed attribution claim {claim!r} in {required_attribution_document}",
             {

@@ -43,5 +43,10 @@ harness = false
 name = "snv_regression"
 harness = false
 
+[[bench]]
+name = "gene_naming"
+harness = false
+test = false
+
 [lints]
 workspace = true

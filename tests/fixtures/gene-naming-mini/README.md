@@ -34,3 +34,27 @@ Two cells are edited. Every other byte is verbatim from the published release, i
 `ENSG00000175727` is deliberately absent. It is a score-bundle gene and it raises a source-reference ambiguity, so a lookup for it reaches the naming source and finds nothing.
 
 `ENSG00000169129` keeps its verbatim alias `Em:AC005383.4`. The placeholder guard reads the approved symbol. It does not reach alias symbols.
+
+## Miniature NCBI source
+
+`Homo_sapiens.gene_info` is a nine-row excerpt of the NCBI gene information file, fetched 2026-09-08. It keeps the full 16-column header so it parses exactly like the published file. The published file is gzipped and this excerpt is not, because the reader detects the gzip magic and reads either form.
+
+Source: NCBI (National Center for Biotechnology Information), U.S. National Library of Medicine.
+File: `Homo_sapiens.gene_info.gz`.
+URL: <https://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz>
+Fetched size: 5180589 bytes.
+
+NCBI replaces this file at a fixed URL and publishes no dated archive of it. A digest recorded today cannot be re-fetched tomorrow. The built index is the durable artifact and the repository carries it.
+
+| Accession | Row | Why it is here |
+| --- | --- | --- |
+| `ENSG00000010610` | `CD4` | HGNC also names it. NCBI lists five synonyms and HGNC lists two alias symbols. The merged record must report HGNC's two. |
+| — | `CYP2D7BP` | A row whose `dbXrefs` cell is `-`. It carries no Ensembl accession and the index must not reach it. |
+| `ENSG00000185974` | `GRK1` | HGNC reaches this accession and withholds the name because the fixture's HGNC symbol is a clone-derived placeholder. NCBI names it `GRK1`. The merged record must stay unnamed. |
+| `ENSG00000141510` | `TP53` | HGNC reaches it with an empty `entrez_id`. NCBI carries `7157`. The merged record must report no NCBI Gene identifier. |
+| `ENSG00000235059` | `PRY`, `LOC101929148` | Two NCBI records for one accession, and HGNC does not reach it. The merged record must report no name. |
+| `ENSG00000233887` | `ERVFC1` | Named only by NCBI, with two synonyms and no HGNC cross-reference. |
+| `ENSG00000249624` | `IFNAR2-IL10RB` | Named only by NCBI, with no synonyms. A readthrough locus HGNC does not name. |
+| — | `Nkx3-1` | Edited. One fabricated row carrying `tax_id` 10090 and the human `NKX3-1` accession. The published human file carries no other organism, so the guard that admits only `tax_id` 9606 cannot be exercised from real rows. |
+
+Every other byte is verbatim from the fetched file.

@@ -22,7 +22,7 @@ pangopup --help | rg -F 'pangopup status [--data-dir <ABSOLUTE_PATH>]' | mustmat
 pangopup --help | rg -F 'pangopup serve [--listen <ADDRESS>]' | mustmatch like '  pangopup serve [--listen <ADDRESS>] [--data-dir <ABSOLUTE_PATH>] [--model-workers <1..8>] [--model-threads <1..8>] [--model-queue-capacity <1..1024>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]'
 pangopup --help | rg -F 'pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]' | mustmatch like '  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]'
 pangopup --help | rg -F 'pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON>' | mustmatch like '  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]'
-pangopup --help | rg -F 'pangopup assets naming install --source <NAMING_SOURCE_FILE>' | mustmatch like '  pangopup assets naming install --source <NAMING_SOURCE_FILE> [--data-dir <ABSOLUTE_PATH>]'
+! pangopup --help | rg -F 'assets naming'
 pangopup --help | rg -F 'pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>]' | mustmatch like '  pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant <GRCh38-VARIANT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]'
 pangopup lookup --help | head -1 | mustmatch like 'Usage: pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant <GRCh38-VARIANT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]'
 pangopup lookup --help | rg -F 'Forms: GRCh38:CONTIG:POS:REF:ALT; GRCh38:CONTIG:INS:LEFT:RIGHT:SEQUENCE; GRCh38:CONTIG:DEL:START:END:SEQUENCE.' | mustmatch like 'Forms: GRCh38:CONTIG:POS:REF:ALT; GRCh38:CONTIG:INS:LEFT:RIGHT:SEQUENCE; GRCh38:CONTIG:DEL:START:END:SEQUENCE.'
@@ -30,7 +30,7 @@ pangopup lookup --help | rg -F 'Examples: GRCh38:chr1:5051:A:AC; GRCh38:chr1:INS
 pangopup lookup --version | mustmatch like "pangopup 0.5.0"
 ```
 
-The eleven non-root leaf and namespace paths accept both conventional help
+The nine non-root leaf and namespace paths accept both conventional help
 flags. Invalid asset environment values do not matter because help dispatches
 before path resolution.
 
@@ -46,8 +46,6 @@ for flag in -h --help; do
   pangopup assets install "$flag" | head -1
   pangopup assets runtime "$flag" | head -1
   pangopup assets runtime install "$flag" | head -1
-  pangopup assets naming "$flag" | head -1
-  pangopup assets naming install "$flag" | head -1
   PANGOPUP_DATA_DIR=relative PANGOPUP_CACHE_DIR=relative pangopup lookup "$flag" | head -1
 done | mustmatch like "Usage: pangopup uninstall [--full] [--yes]
 Usage: pangopup sync [--offline] [--progress | --quiet] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
@@ -57,8 +55,6 @@ Usage: pangopup assets <ACTION>
 Usage: pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]
 Usage: pangopup assets runtime <ACTION>
 Usage: pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]
-Usage: pangopup assets naming <ACTION>
-Usage: pangopup assets naming install --source <NAMING_SOURCE_FILE> [--data-dir <ABSOLUTE_PATH>]
 Usage: pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant <GRCh38-VARIANT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]
 Usage: pangopup uninstall [--full] [--yes]
 Usage: pangopup sync [--offline] [--progress | --quiet] [--data-dir <ABSOLUTE_PATH>] [--cache-dir <ABSOLUTE_PATH>]
@@ -68,8 +64,6 @@ Usage: pangopup assets <ACTION>
 Usage: pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]
 Usage: pangopup assets runtime <ACTION>
 Usage: pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]
-Usage: pangopup assets naming <ACTION>
-Usage: pangopup assets naming install --source <NAMING_SOURCE_FILE> [--data-dir <ABSOLUTE_PATH>]
 Usage: pangopup lookup [--bundle <DIR> | --data-dir <ABSOLUTE_PATH>] [--model-only] --variant <GRCh38-VARIANT> [--variant ...] [--gene <ENSG>] [--format jsonl|table] [--model-bundle <DIR> --reference-bundle <DIR> --mask <FILE>] [--model-cache <ABSOLUTE_PATH>] [--model-cache-max-entries <POSITIVE_INTEGER|unlimited>]"
 ```
 

@@ -1002,8 +1002,7 @@ async fn health_status_and_route_errors_are_exact_json_lines() {
             "scoring_semantics": provenance().scoring_semantics(),
             "assets": {"snv_bundle_id":"snv","model_bundle_id":"model","reference_bundle_id":"reference","mask_sha256":"mask"},
             "routes": {"lookup":true,"model":true,"model_only":true},
-            "model": {"effective_cpu_policy":"sequential:1/1","workers":1,"threads_per_worker":1,"running":0,"queued":0,"queue_capacity":2,"work_unit":"uncached_model_variant","planning_millis_per_unit":10241,"full_capacity_planning_seconds":21},
-            "naming": {"available":false}
+            "model": {"effective_cpu_policy":"sequential:1/1","workers":1,"threads_per_worker":1,"running":0,"queued":0,"queue_capacity":2,"work_unit":"uncached_model_variant","planning_millis_per_unit":10241,"full_capacity_planning_seconds":21}
         })
     );
     let response = router
@@ -1731,7 +1730,7 @@ async fn http_records_report_source_and_stable_gene_identity_on_both_routes() {
 }
 
 #[tokio::test]
-async fn an_absent_naming_source_is_reported_and_leaves_every_record_unnamed() {
+async fn the_status_response_reports_no_installed_naming_vintage() {
     let response = app(state_with_worker(Box::new(RecordWorker)))
         .oneshot(
             Request::get("/v1/status")
@@ -1742,21 +1741,20 @@ async fn an_absent_naming_source_is_reported_and_leaves_every_record_unnamed() {
         .expect("response");
     assert_eq!(response.status(), StatusCode::OK);
     let status: Value = serde_json::from_slice(&body(response).await).expect("JSON status");
-    assert_eq!(
-        status["readiness"], "ready",
-        "the service is ready without a naming source"
-    );
-    assert_eq!(
-        status["naming"],
-        json!({"available": false}),
-        "an absent naming source is reported rather than omitted"
+    assert_eq!(status["readiness"], "ready");
+    assert!(
+        status.get("naming").is_none(),
+        "one build carries one naming vintage, so there is no installed vintage to report: {status}"
     );
     assert_eq!(
         status["scoring_identity"],
         scoring_identity().as_str(),
-        "naming availability stays out of the scoring identity"
+        "gene naming stays outside the scoring identity"
     );
+}
 
+#[tokio::test]
+async fn an_accession_the_shipped_index_does_not_carry_reports_no_name() {
     let response = app(state_with_worker(Box::new(RecordWorker)))
         .oneshot(
             Request::post("/v1/score")
@@ -1771,103 +1769,23 @@ async fn an_absent_naming_source_is_reported_and_leaves_every_record_unnamed() {
     assert_eq!(response.status(), StatusCode::OK);
     let value: Value = serde_json::from_slice(&body(response).await).expect("JSON response");
     let precomputed = &value["results"][0]["records"][0];
-    assert_eq!(precomputed["gene"], "ENSG00000000001");
     assert_eq!(precomputed["stable_gene"], "ENSG00000000001");
     assert_eq!(
         precomputed.get("gene_names"),
         None,
-        "an unnamed gene reports its accession and no naming object"
-    );
-    assert_eq!(
-        value["results"][0]["scoring_identity"],
-        scoring_identity().as_str(),
-        "an unnamed record keeps the same scoring identity"
+        "an accession neither source names reports its accession alone"
     );
     let modeled = &value["results"][1]["records"][0];
-    assert_eq!(modeled["stable_gene"], "ENSG00000000001");
+    assert_eq!(modeled["gene"], "ENSG00000000001.1");
     assert_eq!(
         modeled.get("gene_names"),
         None,
         "the model route reports no naming object either"
     );
-}
-
-/// One naming source naming the accession both fake routes report. The
-/// columns are the seven the reader names; the published release carries
-/// fifty-three and the reader ignores the rest.
-fn installed_naming_source() -> NamingSource {
-    let source = concat!(
-        "hgnc_id\tsymbol\tstatus\talias_symbol\tprev_symbol\tentrez_id\tensembl_gene_id\n",
-        "HGNC:1097\tBRAF\tApproved\t\"BRAF1|BRAF-1\"\t\t673\tENSG00000000001\n",
-    );
-    NamingSource::parse("hgnc-2026-09-04".to_owned(), source.as_bytes()).expect("naming source")
-}
-
-async fn status_of(state: AppState) -> Value {
-    let response = app(state)
-        .oneshot(
-            Request::get("/v1/status")
-                .body(Body::empty())
-                .expect("request"),
-        )
-        .await
-        .expect("response");
-    assert_eq!(response.status(), StatusCode::OK);
-    serde_json::from_slice(&body(response).await).expect("JSON status")
-}
-
-#[tokio::test]
-async fn an_installed_naming_source_reports_its_release_and_moves_no_scoring_identity() {
-    let unnamed = status_of(state_with_worker(Box::new(RecordWorker))).await;
-    let mut state = state_with_worker(Box::new(RecordWorker));
-    state.names = Some(Arc::new(installed_naming_source()));
-    let named = status_of(state.clone()).await;
-
     assert_eq!(
-        named["naming"],
-        json!({"available": true, "release": "hgnc-2026-09-04"}),
-        "status names the installed naming release"
-    );
-    assert_eq!(named["readiness"], "ready");
-    assert_eq!(
-        named["scoring_identity"], unnamed["scoring_identity"],
-        "installing a naming source moves no scoring identity"
-    );
-
-    let response = app(state)
-        .oneshot(
-            Request::post("/v1/score")
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(
-                    r#"{"variants":["GRCh38:chr1:1:A:C","GRCh38:chr1:2:A:C"]}"#,
-                ))
-                .expect("request"),
-        )
-        .await
-        .expect("response");
-    assert_eq!(response.status(), StatusCode::OK);
-    let value: Value = serde_json::from_slice(&body(response).await).expect("JSON response");
-    let expected = json!({
-        "symbol": "BRAF",
-        "hgnc_id": "HGNC:1097",
-        "ncbi_gene_id": 673,
-        "alias_symbols": ["BRAF1", "BRAF-1"],
-    });
-    let precomputed = &value["results"][0]["records"][0];
-    assert_eq!(precomputed["stable_gene"], "ENSG00000000001");
-    assert_eq!(
-        precomputed["gene_names"], expected,
-        "a named gene reports the labels the source supplies"
-    );
-    let modeled = &value["results"][1]["records"][0];
-    assert_eq!(modeled["gene"], "ENSG00000000001.1");
-    assert_eq!(
-        modeled["gene_names"], expected,
-        "the model route names the versioned accession from its stable form"
-    );
-    assert_eq!(
-        value["results"][0]["scoring_identity"], unnamed["scoring_identity"],
-        "a named record keeps the scoring identity an unnamed one reports"
+        value["results"][0]["scoring_identity"],
+        scoring_identity().as_str(),
+        "an unnamed record keeps the same scoring identity"
     );
 }
 

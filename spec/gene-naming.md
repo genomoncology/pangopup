@@ -1,66 +1,74 @@
 # Gene naming
 
-A score record identifies its gene by Ensembl accession. A naming source adds
-the labels a consumer displays beside that accession. The accession stays the
+A score record identifies its gene by Ensembl accession. Gene names are the
+labels a consumer displays beside that accession. The accession stays the
 identity. A symbol is a label. Symbols get renamed and accessions do not.
 
-Two output surfaces gain names. Structured score records gain them, and so does
-the gene reported on a source-reference ambiguity. The human-readable table does
-not.
+The names ship with the build. PangoPup carries one gene-name index in the
+repository and reads it from the executable. There is no naming asset to
+install, no naming state under the data directory, and no way for a deployment
+to vary the names it returns. A consumer refreshes gene names by upgrading
+PangoPup.
 
-Previous symbols and alias symbols ship, and they are not identifiers. One alias
-symbol can point at several genes, and an alias symbol can be another gene's
-approved symbol. Never match on a previous or alias symbol alone. The Ensembl
-accession remains the only key.
+Two output surfaces carry names. Structured score records carry them, and so
+does the gene reported on a source-reference ambiguity. The human-readable
+table does not.
 
-## Inspecting a naming source
+Previous symbols and alias symbols ship, and they are not identifiers. One
+alias symbol can point at several genes, and an alias symbol can be another
+gene's approved symbol. Never match on a previous or alias symbol alone. The
+Ensembl accession remains the only key.
 
-The offline builder reports what a naming source yields, one line per Ensembl
-accession, sorted by accession. It reports every value of a multi-valued field
-rather than one pick, and it writes `-` where the source supplies nothing.
+## Two sources and one record
 
-The source quotes a field that holds more than one value and leaves a single
-value bare. The reader strips those quotes and reports the values themselves.
-`CD4` carries the source cell `"T4|Leu-3"` and reports the two alias symbols
-`T4` and `Leu-3`.
+HGNC is the naming authority. Where HGNC reaches an accession, HGNC supplies
+that accession's whole record and NCBI is not consulted for it. NCBI names
+only the accessions HGNC does not reach. The two sources are never merged
+field by field.
+
+Every named record says which source named it. `source` reports `hgnc` or
+`ncbi`. A gene NCBI named carries no HGNC identifier, because no HGNC record
+names that accession, and its symbol is not HGNC-approved.
+
+An accession that carries more than one record in the source naming it reports
+no name. Picking one record would be invisible to a consumer.
+
+The offline builder reports what the shipped index holds for the accessions a
+maintainer names, followed by one total line.
 
 ```bash
-pangopup-build naming inspect ../tests/fixtures/gene-naming-mini/hgnc_complete_set_2026-09-04.tsv | mustmatch like "gene=ENSG00000010610 hgnc=HGNC:1678 symbol=CD4 ncbi=920 prev=- alias=T4|Leu-3
-gene=ENSG00000119888 hgnc=HGNC:11529 symbol=EPCAM ncbi=4072 prev=M4S1|MIC18|TACSTD1 alias=Ly74|TROP1|GA733-2|EGP34|EGP40|EGP-2|KSA|CD326|Ep-CAM|HEA125|KS1/4|MK-1|MH99|MOC31|MOC-31|323/A3|17-1A|TACST-1|CO-17A|ESA|BerEp4|Ber-Ep4
-gene=ENSG00000141499 hgnc=HGNC:25522 symbol=WRAP53 ncbi=55135 prev=WDR79 alias=FLJ10385|TCAB1
-gene=ENSG00000141510 hgnc=HGNC:11998 symbol=TP53 ncbi=- prev=- alias=p53|LFS1
-gene=ENSG00000157764 hgnc=HGNC:1097 symbol=BRAF ncbi=673 prev=- alias=BRAF1|BRAF-1
-gene=ENSG00000167034 hgnc=HGNC:7838 symbol=NKX3-1 ncbi=4824 prev=NKX3A alias=NKX3.1|BAPX2
-gene=ENSG00000169129 hgnc=HGNC:25901 symbol=AFAP1L2 ncbi=84632 prev=KIAA1914 alias=FLJ14564|Em:AC005383.4|XB130
+pangopup-build naming inspect --index ../assets/gene-names/gene-names.pgn \
+  ENSG00000157764 ENSG00000205702 ENSG00000233887 ENSG00000249624 ENSG00000175658 ENSG00000235059 ENSG00000002079 \
+  | mustmatch like "gene=ENSG00000157764 source=hgnc hgnc=HGNC:1097 symbol=BRAF ncbi=673 prev=- alias=BRAF1|BRAF-1
+gene=ENSG00000205702 source=hgnc hgnc=HGNC:2624 symbol=CYP2D7 ncbi=1564 prev=CYP2D|CYP2D@|CYP2D7P1|CYP2D7P alias=-
+gene=ENSG00000233887 source=ncbi hgnc=- symbol=ERVFC1 ncbi=105373297 prev=- alias=Fc1env|HERV-Fc1env
+gene=ENSG00000249624 source=ncbi hgnc=- symbol=IFNAR2-IL10RB ncbi=127882475 prev=- alias=-
 gene=ENSG00000175658 unnamed=conflicting_records
-gene=ENSG00000185974 unnamed=placeholder_symbol
-total rows=10 accessions=9 named=7 unnamed=2"
+gene=ENSG00000235059 unnamed=conflicting_records
+gene=ENSG00000002079 absent"
 ```
 
-`ENSG00000175658` carries two approved HGNC records, `DRD5P2` and `DRD5P3`. It
-reports no name. Picking one record would be invisible to a consumer.
-`ENSG00000230417` and `ENSG00000250413` carry the same conflict in the published
-release.
+`ENSG00000205702` shows the arbitration rule at work. HGNC approves `CYP2D7`
+and reports NCBI Gene 1564. NCBI reports `LOC105377203` and gene 105377203 for
+the same accession. HGNC names it, so the whole record comes from HGNC.
 
-`ENSG00000185974` carries a clone-derived string in place of a symbol. It
-reports no name. The row is still read and the accession is still reported. The
-guard withholds the name. It keeps the record that carries the placeholder.
+`ENSG00000233887` and `ENSG00000249624` are named only by NCBI. Both report no
+HGNC identifier. `ERVFC1` keeps the two synonyms NCBI publishes as alias
+symbols. NCBI publishes no previous-symbol field, so an NCBI-named gene reports
+no previous symbols.
 
-An approved symbol never contains a period. All 45,045 approved records in the
-2026-09-04 release satisfy that. A clone-derived name such as `AC092143.1`
-carries the period of its accession version. The guard reads the approved
-symbol alone and withholds the name when it finds a period there. The guard
-reaches no other field. `ENSG00000169129` keeps its alias `Em:AC005383.4`.
-`ENSG00000167034` keeps its alias `NKX3.1`. Both stay named.
+`ENSG00000175658` carries two approved HGNC records. `ENSG00000235059` carries
+two NCBI records and no HGNC record. Both report no name.
 
-A hyphen is ordinary in an approved symbol. 7,411 approved symbols in the
-release carry one. `NKX3-1` is one of them and it reports its name.
+`ENSG00000002079` is a scoreable gene that neither source reaches. The index
+holds nothing for it.
 
-## Installing a naming source
+## Names on score records
 
-Installation is local and offline. It reads one dated release file and never
-reaches the network. A score record carries no names until a naming source is
-installed.
+A named gene reports its approved symbol, the source that named it, and the
+identifiers that source supplies, beside the Ensembl accession it already
+reports. A multi-valued field reports every value in source order. No install
+step precedes any of this.
 
 ```bash
 chmod -R u+w ../target/spec/gene-naming 2>/dev/null || true
@@ -70,42 +78,30 @@ cp -R ../tests/fixtures/snv-regression/bundle ../target/spec/gene-naming/bundle
 pangopup-build transport pack --bundle ../target/spec/gene-naming/bundle --output ../target/spec/gene-naming/transport >/dev/null
 data=$(cd .. && pwd)/target/spec/gene-naming/data
 pangopup assets install --transport ../target/spec/gene-naming/transport --data-dir "$data" >/dev/null
-pangopup lookup --data-dir "$data" --variant GRCh38:chr12:6801301:G:A > ../target/spec/gene-naming/before.jsonl
-rg -F '"gene":"ENSG00000010610"' ../target/spec/gene-naming/before.jsonl >/dev/null
-! rg -F 'gene_names' ../target/spec/gene-naming/before.jsonl
-printf 'a score record carries no names before a naming source is installed\n' | mustmatch like 'a score record carries no names before a naming source is installed'
+pangopup lookup --data-dir "$data" --variant GRCh38:chr12:6801301:G:A > ../target/spec/gene-naming/named.jsonl
+rg -F '"gene_names":{"symbol":"CD4","source":"hgnc","hgnc_id":"HGNC:1678","ncbi_gene_id":920,"alias_symbols":["T4","Leu-3"]}' ../target/spec/gene-naming/named.jsonl >/dev/null
+pangopup lookup --data-dir "$data" --variant GRCh38:chr17:7686073:A:C | rg -F '"gene_names":{"symbol":"WRAP53","source":"hgnc","hgnc_id":"HGNC:25522","ncbi_gene_id":55135,"prev_symbols":["WDR79"],"alias_symbols":["FLJ10385","TCAB1"]}' >/dev/null
+printf 'a named gene reports its source, its symbols and its identifiers\n' | mustmatch like 'a named gene reports its source, its symbols and its identifiers'
 ```
 
-Install publishes one naming source and reports the release it belongs to.
-Reinstalling the same source reuses it.
+A field the naming source does not supply is absent. It is never empty and
+never a placeholder.
 
 ```bash
 data=$(cd .. && pwd)/target/spec/gene-naming/data
-source=../tests/fixtures/gene-naming-mini/hgnc_complete_set_2026-09-04.tsv
-pangopup assets naming install --source "$source" --data-dir "$data" | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch like '{"status":"installed","release":"hgnc-2026-09-04","source_bytes":6092,"source_sha256":"sha256:<digest>","named_genes":7'
-pangopup assets naming install --source "$source" --data-dir "$data" | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch like '{"status":"reused","release":"hgnc-2026-09-04","source_bytes":6092,"source_sha256":"sha256:<digest>","named_genes":7'
-```
-
-## Names on score records
-
-A named gene reports its approved symbol, its HGNC identifier and its NCBI Gene
-identifier beside the Ensembl accession it already reports. A multi-valued field
-reports every value in source order.
-
-```bash
-data=$(cd .. && pwd)/target/spec/gene-naming/data
-pangopup lookup --data-dir "$data" --variant GRCh38:chr12:6801301:G:A | rg -F '"gene_names":{"symbol":"CD4","hgnc_id":"HGNC:1678","ncbi_gene_id":920,"alias_symbols":["T4","Leu-3"]}' >/dev/null
-pangopup lookup --data-dir "$data" --variant GRCh38:chr17:7686073:A:C | rg -F '"gene_names":{"symbol":"WRAP53","hgnc_id":"HGNC:25522","ncbi_gene_id":55135,"prev_symbols":["WDR79"],"alias_symbols":["FLJ10385","TCAB1"]}' >/dev/null
-printf 'a named gene reports every symbol and identifier the source supplies\n' | mustmatch like 'a named gene reports every symbol and identifier the source supplies'
-```
-
-A field the naming source does not supply is absent. It is never empty and never
-a placeholder.
-
-```bash
-data=$(cd .. && pwd)/target/spec/gene-naming/data
-pangopup lookup --data-dir "$data" --variant GRCh38:chr17:7687427:A:T | rg -F '"gene_names":{"symbol":"TP53","hgnc_id":"HGNC:11998","alias_symbols":["p53","LFS1"]}' >/dev/null
+pangopup lookup --data-dir "$data" --variant GRCh38:chr17:7687427:A:T | rg -F '"gene_names":{"symbol":"TP53","source":"hgnc","hgnc_id":"HGNC:11998","ncbi_gene_id":7157,"alias_symbols":["p53","LFS1"]}' >/dev/null
 printf 'an unsupplied naming field is absent rather than empty\n' | mustmatch like 'an unsupplied naming field is absent rather than empty'
+```
+
+A source-reference ambiguity names its gene on the same terms.
+
+```bash
+data=$(cd .. && pwd)/target/spec/gene-naming/data
+pangopup lookup --data-dir "$data" --variant GRCh38:chr10:114306066:A:C > ../target/spec/gene-naming/ambiguity.jsonl
+rg -F '"status":"ambiguous_source_reference"' ../target/spec/gene-naming/ambiguity.jsonl >/dev/null
+rg -F '"gene":"ENSG00000169129"' ../target/spec/gene-naming/ambiguity.jsonl >/dev/null
+rg -F '"gene_names":{"symbol":"AFAP1L2","source":"hgnc","hgnc_id":"HGNC:25901","ncbi_gene_id":84632,"prev_symbols":["KIAA1914"],"alias_symbols":["FLJ14564","Em:AC005383.4","XB130"]}' ../target/spec/gene-naming/ambiguity.jsonl >/dev/null
+printf 'a source-reference ambiguity carries the same naming object\n' | mustmatch like 'a source-reference ambiguity carries the same naming object'
 ```
 
 The human-readable table carries no names. It keeps its fifteen columns and
@@ -122,43 +118,71 @@ rg -F 'ENSG00000010610' ../target/spec/gene-naming/table.txt >/dev/null
 printf 'the human-readable table gains no names\n' | mustmatch like 'the human-readable table gains no names'
 ```
 
-A gene the naming source does not name reports the Ensembl accession alone. A
-gene whose accession carries a placeholder symbol does the same.
-
-```bash
-data=$(cd .. && pwd)/target/spec/gene-naming/data
-pangopup lookup --data-dir "$data" --variant GRCh38:chr12:122093259:G:A > ../target/spec/gene-naming/absent.jsonl
-rg -F '"gene":"ENSG00000175727"' ../target/spec/gene-naming/absent.jsonl >/dev/null
-! rg -F 'gene_names' ../target/spec/gene-naming/absent.jsonl
-pangopup lookup --data-dir "$data" --variant GRCh38:chr13:113673020:G:A > ../target/spec/gene-naming/placeholder.jsonl
-rg -F '"gene":"ENSG00000185974"' ../target/spec/gene-naming/placeholder.jsonl >/dev/null
-! rg -F 'gene_names' ../target/spec/gene-naming/placeholder.jsonl
-printf 'an unnamed gene reports its accession and no name\n' | mustmatch like 'an unnamed gene reports its accession and no name'
-```
-
-A source-reference ambiguity names its gene on the same terms. It reports the
-naming object when the source names the gene, and the accession alone when it
-does not.
-
-```bash
-data=$(cd .. && pwd)/target/spec/gene-naming/data
-pangopup lookup --data-dir "$data" --variant GRCh38:chr10:114306066:A:C > ../target/spec/gene-naming/ambiguity.jsonl
-rg -F '"status":"ambiguous_source_reference"' ../target/spec/gene-naming/ambiguity.jsonl >/dev/null
-rg -F '"gene":"ENSG00000169129"' ../target/spec/gene-naming/ambiguity.jsonl >/dev/null
-rg -F '"gene_names":{"symbol":"AFAP1L2","hgnc_id":"HGNC:25901","ncbi_gene_id":84632,"prev_symbols":["KIAA1914"],"alias_symbols":["FLJ14564","Em:AC005383.4","XB130"]}' ../target/spec/gene-naming/ambiguity.jsonl >/dev/null
-pangopup lookup --data-dir "$data" --variant GRCh38:chr12:122093260:T:A > ../target/spec/gene-naming/ambiguity-unnamed.jsonl
-rg -F '"gene":"ENSG00000175727"' ../target/spec/gene-naming/ambiguity-unnamed.jsonl >/dev/null
-! rg -F 'gene_names' ../target/spec/gene-naming/ambiguity-unnamed.jsonl
-printf 'a source-reference ambiguity carries the same naming object\n' | mustmatch like 'a source-reference ambiguity carries the same naming object'
-```
-
-Naming is not a scoring fact. Installing a naming source changes no score,
-no position, no status and no provenance.
+Naming is not a scoring fact. Stripping every naming object leaves a byte-identical scoring record.
 
 ```bash
 data=$(cd .. && pwd)/target/spec/gene-naming/data
 pangopup lookup --data-dir "$data" --variant GRCh38:chr12:6801301:G:A \
   | sed -E 's/,"gene_names":\{[^}]*\}//g' > ../target/spec/gene-naming/stripped.jsonl
-cmp ../target/spec/gene-naming/before.jsonl ../target/spec/gene-naming/stripped.jsonl
-printf 'installing a naming source changes no scoring byte\n' | mustmatch like 'installing a naming source changes no scoring byte'
+rg -F '"gene":"ENSG00000010610"' ../target/spec/gene-naming/stripped.jsonl >/dev/null
+! rg -F 'gene_names' ../target/spec/gene-naming/stripped.jsonl
+printf 'a naming object carries no scoring byte\n' | mustmatch like 'a naming object carries no scoring byte'
+```
+
+## Building the index
+
+`make gene-name-index` downloads both sources, builds the index, writes it to
+its committed path, and reports the source digests and row counts it built
+from. That target reaches the network and a maintainer runs it by hand. No
+gate invokes it, and no gate reaches the network.
+
+```bash
+rg -F 'gene-name-index:' ../Makefile >/dev/null
+rg -F 'assets/gene-names/gene-names.pgn' ../Makefile >/dev/null
+! awk '/^lint:/,/^$/' ../Makefile | rg -F 'gene-name-index'
+! awk '/^test:/,/^$/' ../Makefile | rg -F 'gene-name-index'
+! awk '/^spec:/,/^$/' ../Makefile | rg -F 'gene-name-index'
+printf 'the download target exists and no gate invokes it\n' | mustmatch like 'the download target exists and no gate invokes it'
+```
+
+The repository records what the committed index was built from beside it.
+`assets/gene-names/provenance.json` names each source, its publisher, its URL,
+its byte count, its SHA-256 and its row count, and it states whether those
+bytes can be fetched again. HGNC publishes immutable dated monthly releases.
+NCBI replaces `Homo_sapiens.gene_info.gz` at a fixed URL and publishes no dated
+archive of it, so the recorded NCBI bytes cannot be fetched again. The built
+index is the durable artifact.
+
+```bash
+python3 -c "
+import json, hashlib, pathlib
+record = json.loads(pathlib.Path('../assets/gene-names/provenance.json').read_text())
+member = pathlib.Path('../assets/gene-names/gene-names.pgn').read_bytes()
+assert record['index']['bytes'] == len(member)
+assert record['index']['sha256'] == 'sha256:' + hashlib.sha256(member).hexdigest()
+assert [source['refetchable'] for source in record['sources']] == [True, False]
+"
+printf 'the record beside the index matches the index it describes\n' | mustmatch like 'the record beside the index matches the index it describes'
+```
+
+Rebuilding the index from identical source bytes produces identical index
+bytes. The builder sorts every section, packs the string runs with no padding,
+and writes no timestamp. `cargo test` proves it against two miniature source
+excerpts in the checkout, so the proof reaches no network.
+
+```bash
+cargo test --locked --quiet --package pangopup-build --test gene_name_index \
+  rebuilding_from_identical_source_bytes_produces_identical_index_bytes 2>/dev/null \
+  | rg -F '1 passed; 0 failed' >/dev/null
+printf 'the builder is deterministic and no gate reaches the network\n' | mustmatch like 'the builder is deterministic and no gate reaches the network'
+```
+
+The index answers one accession from a bounded number of memory pages, so the
+cost of a name does not grow with the number of genes the index holds.
+
+```bash
+cargo test --locked --quiet --package pangopup-index --test gene_names \
+  resolving_one_gene_name_addresses_a_bounded_number_of_pages 2>/dev/null \
+  | rg -F '1 passed; 0 failed' >/dev/null
+printf 'one accession costs a bounded number of index pages\n' | mustmatch like 'one accession costs a bounded number of index pages'
 ```

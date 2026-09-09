@@ -867,6 +867,119 @@ mod installed_success {
     }
 
     #[test]
+    fn the_command_line_tool_and_the_service_report_the_same_gene_names() {
+        let temp = tempfile::tempdir().expect("temp");
+        let data = temp.path().join("data");
+        let (_profile, profile_path) = install(&data, temp.path());
+
+        let (mut child, address) = start(&data, &profile_path);
+        let response = request(
+            &address,
+            "POST",
+            "/v1/score",
+            r#"{"variants":["GRCh38:chr12:6801301:G:A"]}"#,
+        );
+        assert!(
+            response.starts_with(b"HTTP/1.1 200 OK\r\n"),
+            "{}",
+            String::from_utf8_lossy(&response)
+        );
+        let scored: Value = serde_json::from_slice(response_body(&response)).expect("score JSON");
+        assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+        assert!(child.wait().expect("service exit").success());
+        let served = &scored["results"][0]["records"][0];
+
+        let output = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+            .args([
+                "lookup",
+                "--data-dir",
+                data.to_str().expect("data"),
+                "--variant",
+                "GRCh38:chr12:6801301:G:A",
+            ])
+            .output()
+            .expect("run lookup");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let line = String::from_utf8(output.stdout).expect("lookup is UTF-8");
+        let line: Value =
+            serde_json::from_str(line.lines().next().expect("one result")).expect("lookup JSON");
+        let looked_up = &line["records"][0];
+
+        assert_eq!(served["stable_gene"], "ENSG00000010610");
+        assert_eq!(looked_up["stable_gene"], "ENSG00000010610");
+        assert_eq!(
+            served["gene_names"]["symbol"], "CD4",
+            "the service names the gene from the index that ships with the build: {scored}"
+        );
+        assert_eq!(
+            looked_up["gene_names"], served["gene_names"],
+            "both surfaces read one index and report one name for one accession"
+        );
+        assert_eq!(looked_up["gene_names"]["source"], "hgnc");
+        assert_eq!(looked_up["gene_names"]["hgnc_id"], "HGNC:1678");
+    }
+
+    #[test]
+    fn a_gene_name_never_needs_an_install_and_never_moves_a_published_identity() {
+        let temp = tempfile::tempdir().expect("temp");
+        let data = temp.path().join("data");
+        let (_profile, profile_path) = install(&data, temp.path());
+
+        // No naming asset is installed under this data root. Names come from
+        // the build, so a freshly installed runtime already reports them.
+        let output = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+            .args([
+                "lookup",
+                "--data-dir",
+                data.to_str().expect("data"),
+                "--variant",
+                "GRCh38:chr17:7687427:A:T",
+            ])
+            .output()
+            .expect("run lookup");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let line = String::from_utf8(output.stdout).expect("lookup is UTF-8");
+        let result: Value =
+            serde_json::from_str(line.lines().next().expect("one result")).expect("lookup JSON");
+        assert_eq!(result["records"][0]["gene_names"]["symbol"], "TP53");
+
+        // Installing a naming source is not a step a deployment can take, so
+        // the verb that took one is gone.
+        let refused = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+            .args(["assets", "naming", "install", "--source", "/dev/null"])
+            .output()
+            .expect("run assets naming install");
+        assert!(
+            !refused.status.success(),
+            "installing a naming source must no longer be an accepted command"
+        );
+
+        // One build carries one naming vintage, so the status response has no
+        // installed vintage to report. `status_publishes_a_recomputable_data_set_version`
+        // above proves the gene-name index enters no published identity: it
+        // recomputes `data_set_version` from the two published inputs and
+        // fails whenever a third input joins the preimage.
+        let status = status_under_threads(
+            &data,
+            &profile_path,
+            &temp.path().join("identity-cache.sqlite3"),
+            "1",
+        );
+        assert!(
+            status.get("naming").is_none(),
+            "the status response reports no separately installed naming vintage: {status}"
+        );
+    }
+
+    #[test]
     fn incompatible_installed_profile_fails_before_listening() {
         let temp = tempfile::tempdir().expect("temp");
         let data = temp.path().join("data");
