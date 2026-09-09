@@ -299,6 +299,7 @@ def require_http_score(
     oracle: object,
     submitted: str,
     scoring_identity: str,
+    data_set_version: str,
     label: str,
     *,
     ignore_bundle_identity: bool = False,
@@ -311,7 +312,7 @@ def require_http_score(
     if not isinstance(oracle, dict):
         fail(f"HTTP {label} oracle mismatch")
     result = results[0]
-    if set(result) != set(oracle) | {"input", "scoring_identity"}:
+    if set(result) != set(oracle) | {"input", "scoring_identity", "data_set_version"}:
         fail(f"HTTP {label} item shape mismatch")
     if result["input"] != submitted:
         fail(f"HTTP {label} input mismatch")
@@ -320,9 +321,15 @@ def require_http_score(
         fail(f"HTTP {label} scoring identity is invalid")
     if identity != scoring_identity:
         fail(f"HTTP {label} scoring identity mismatch")
+    version = result["data_set_version"]
+    if not isinstance(version, str) or SCORING_IDENTITY.fullmatch(version) is None:
+        fail(f"HTTP {label} data-set version is invalid")
+    if version != data_set_version:
+        fail(f"HTTP {label} data-set version mismatch")
     score = dict(result)
     del score["input"]
     del score["scoring_identity"]
+    del score["data_set_version"]
     score, named = without_gene_names(score)
     if named == 0:
         fail(f"HTTP {label} named no gene")
@@ -406,6 +413,9 @@ def main() -> None:
     status_identity = status.get("scoring_identity")
     if not isinstance(status_identity, str) or SCORING_IDENTITY.fullmatch(status_identity) is None:
         fail("HTTP status scoring identity is invalid")
+    status_version = status.get("data_set_version")
+    if not isinstance(status_version, str) or SCORING_IDENTITY.fullmatch(status_version) is None:
+        fail("HTTP status data-set version is invalid")
     automatic_expected = json.loads(
         (source / "tests/fixtures/snv-regression/expected/ENSG00000010610.jsonl")
         .read_text(encoding="utf-8")
@@ -419,6 +429,7 @@ def main() -> None:
         automatic_expected,
         "GRCh38:chr12:6801301:G:A",
         status_identity,
+        status_version,
         "SNV",
         ignore_bundle_identity=True,
     )
@@ -427,6 +438,7 @@ def main() -> None:
         model_value,
         "GRCh38:chr12:6801303:G:GA",
         status_identity,
+        status_version,
         "model",
     )
     require_http_score(
@@ -434,6 +446,7 @@ def main() -> None:
         model_only_value,
         "GRCh38:chr12:6801301:G:A",
         status_identity,
+        status_version,
         "model-only SNV",
     )
 

@@ -33,6 +33,7 @@ PangoPup v0.5.0 changes response shapes from v0.4.1:
 - Score-record `gene_names` object: carries `symbol`, `source`, `hgnc_id`, `ncbi_gene_id`, `prev_symbols`, and `alias_symbols`.
 - Score-record `gene_names.source`: reports `hgnc` or `ncbi`.
 - Status response root: adds `data_set_version`, `runtime_profile_id`, and `scoring_semantics`.
+- Every score item: adds `data_set_version`.
 
 - Unnamed gene: the score record and the source-reference ambiguity carry no `gene_names` object, and a named gene omits `hgnc_id`, `ncbi_gene_id`, `prev_symbols`, and `alias_symbols` where its naming source supplies none.
 
@@ -71,6 +72,10 @@ A consumer stores one value beside every retained score and compares it later. S
 `runtime_profile_id` hashes the whole admitted runtime profile. It covers every asset digest and every scoring input, `assembly`, `semantics`, `distance`, `masking_policy` and `cpu_policy` among them. No worker or thread setting moves `data_set_version` or `runtime_profile_id`.
 
 `runtime_profile_id` alone is not the value to store. A PangoPup version change can move an answer with every asset unchanged. No such change moves `runtime_profile_id`. `data_set_version` covers the version too.
+
+Every score item carries `data_set_version` beside `scoring_identity`. Store the value the item carries. Reaching it takes no second request.
+
+The command-line tool prints neither field. A `--bundle` lookup opens no installed runtime profile. No data-set version is computable on every command-line path. What a retained command-line score pins is a separate open question. It has its own ticket.
 
 `scoring_identity` also hashes the effective CPU policy. A thread change moves it. Measurement on one host and one build found no score that a thread change moved. The `## Score values` section above states what that measurement covered and when to repeat it. `scoring_identity` keeps its value and its place on the status response and on every score item.
 

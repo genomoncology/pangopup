@@ -86,6 +86,7 @@ V050_RESPONSE_SHAPE_INVENTORY = (
         "adds",
         "`data_set_version`, `runtime_profile_id`, and `scoring_semantics`",
     ),
+    ("Every score item", "adds", "`data_set_version`"),
 )
 V050_UNNAMED_GENE_SHAPE = (
     "- Unnamed gene: the score record and the source-reference ambiguity carry no"
@@ -279,7 +280,7 @@ def check_candidate(candidate: str) -> None:
         (
             "tests/production-release-qualification.sh",
             "candidate qualification server status",
-            rf'^            "/v1/status": {{"version":"{re.escape(candidate)}","readiness":"ready","scoring_identity":scoring_identity}},$',
+            rf'^            "/v1/status": {{"version":"{re.escape(candidate)}","readiness":"ready","scoring_identity":scoring_identity,"data_set_version":data_set_version}},$',
         ),
         (
             "tests/production-release-qualification.sh",

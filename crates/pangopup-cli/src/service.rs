@@ -1609,9 +1609,7 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
             ScoreOutcome::Rejected(variant, reason) => render_rejection_raw(variant, reason),
             ScoreOutcome::Invalid(reason) => render_invalid_variant_raw(reason),
         }
-        .and_then(|value| {
-            add_service_fields(&value, submitted, &state.identities.scoring_identity)
-        });
+        .and_then(|value| add_service_fields(&value, submitted, &state.identities));
         match rendered {
             Ok(value) => results.push(value),
             Err(_) => {
@@ -1629,7 +1627,7 @@ async fn score_bytes(state: &AppState, bytes: &Bytes) -> Response {
 fn add_service_fields(
     value: &RawValue,
     input: &str,
-    identity: &ActiveScoringIdentity,
+    identities: &ScoringIdentities,
 ) -> Result<Box<RawValue>, ()> {
     let Some(fields) = value
         .get()
@@ -1638,13 +1636,15 @@ fn add_service_fields(
     else {
         return Err(());
     };
-    let mut text = String::with_capacity(value.get().len() + input.len() + 64);
+    let mut text = String::with_capacity(value.get().len() + input.len() + 128);
     text.push_str("{\"input\":");
     text.push_str(&serde_json::to_string(input).map_err(|_| ())?);
     text.push(',');
     text.push_str(fields);
     text.push_str(",\"scoring_identity\":");
-    text.push_str(&serde_json::to_string(identity.as_str()).map_err(|_| ())?);
+    text.push_str(&serde_json::to_string(identities.scoring_identity.as_str()).map_err(|_| ())?);
+    text.push_str(",\"data_set_version\":");
+    text.push_str(&serde_json::to_string(identities.data_set_version.as_str()).map_err(|_| ())?);
     text.push('}');
     RawValue::from_string(text).map_err(|_| ())
 }
