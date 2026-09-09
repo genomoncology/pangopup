@@ -45,12 +45,16 @@ detour='current_exe|target/(debug|release)/pangopup'
 # directory measures the calling side it chose rather than the calling side
 # that exists.
 #
-# `/src/` is product code: `src/uninstall.rs` reports the running executable's
-# own path, and refusing that would demand a product change this check has no
-# business demanding. `transport_resources.rs` re-executes its own test binary
-# under `PANGOPUP_RESOURCE_MODE`; `pangopup-build` builds no `pangopup`, so no
-# route to the shipped executable runs through it.
-exempt='/src/|/crates/pangopup-build/tests/transport_resources\.rs$'
+# A crate's own `src/` is product code: `src/uninstall.rs` reports the running
+# executable's own path, and refusing that would demand a product change this
+# check has no business demanding. The exemption is spelled `/crates/*/src/`
+# rather than `/src/` so that it names that product code and nothing else: a
+# bare `/src/` also exempts any directory called `src` a test tree happens to
+# contain, and a detour planted there is a spawn like any other.
+# `transport_resources.rs` re-executes its own test binary under
+# `PANGOPUP_RESOURCE_MODE`; `pangopup-build` builds no `pangopup`, so no route
+# to the shipped executable runs through it.
+exempt='/crates/[^/]+/src/|/crates/pangopup-build/tests/transport_resources\.rs$'
 
 fail() { printf 'cli spawn cache isolation: %s\n' "$*" >&2; exit 1; }
 
@@ -167,6 +171,13 @@ bench_tree="$fixtures/bench"
 plant "$bench_tree" "$helper_relative" spawns
 plant "$bench_tree" 'crates/pangopup-cli/benches/snv_regression.rs' detours
 expect_refusal "$bench_tree" 'crates/pangopup-cli/benches/snv_regression.rs:1'
+
+# A directory called `src` inside a test tree is not product code, and the
+# exemption must not read it as such.
+nested_src="$fixtures/nested-src"
+plant "$nested_src" "$helper_relative" spawns
+plant "$nested_src" 'crates/pangopup-cli/tests/src/sneaky.rs' detours
+expect_refusal "$nested_src" 'crates/pangopup-cli/tests/src/sneaky.rs:1'
 
 clean="$fixtures/clean"
 plant "$clean" "$helper_relative" spawns
