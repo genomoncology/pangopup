@@ -1195,6 +1195,194 @@ mod installed_success {
         assert!(output.stdout.is_empty());
         assert!(String::from_utf8_lossy(&output.stderr).contains("PROFILE_INCOMPATIBLE"));
     }
+
+    /// Fill a cache file by scoring variants through the command-line tool
+    /// against the same fixture assets the miniature runtime installs. The two
+    /// routes reach one setup by different means: the service opens an
+    /// installed runtime profile, the tool is handed three asset paths.
+    fn fill_from_command_line(cache: &Path, home: &Path, variants: &[&str]) -> Vec<Value> {
+        let mut args = vec!["lookup".to_owned(), "--model-only".to_owned()];
+        for variant in variants {
+            args.push("--variant".to_owned());
+            args.push((*variant).to_owned());
+        }
+        args.extend([
+            "--model-bundle".to_owned(),
+            fixture("pangolin-model-kernel-mini/bundle")
+                .display()
+                .to_string(),
+            "--reference-bundle".to_owned(),
+            fixture("reference-route-test/bundle").display().to_string(),
+            "--mask".to_owned(),
+            fixture("route-mask/domains.pgm").display().to_string(),
+            "--model-cache".to_owned(),
+            cache.display().to_string(),
+        ]);
+        let output = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+            .args(&args)
+            .env("XDG_CACHE_HOME", home)
+            .env("HOME", home)
+            .output()
+            .expect("run pangopup");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout)
+            .expect("UTF-8 stdout")
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("score line is JSON"))
+            .collect()
+    }
+
+    fn cached_rows(cache: &Path) -> u64 {
+        if !cache.is_file() {
+            return 0;
+        }
+        let connection = rusqlite::Connection::open(cache).expect("open cache");
+        let present: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='entries'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read cache schema");
+        if present == 0 {
+            return 0;
+        }
+        let count: i64 = connection
+            .query_row("SELECT count(*) FROM entries", [], |row| row.get(0))
+            .expect("count rows");
+        u64::try_from(count).expect("non-negative count")
+    }
+
+    /// The next write sequence the cache will hand out. Every fill takes one, so
+    /// this number holding still is how a test tells a hit from a row written
+    /// over the top of the one it was supposed to find.
+    fn next_write_sequence(cache: &Path) -> i64 {
+        rusqlite::Connection::open(cache)
+            .expect("open cache")
+            .query_row("SELECT next_write_sequence FROM metadata", [], |row| {
+                row.get(0)
+            })
+            .expect("read write sequence")
+    }
+
+    fn scored_fields(record: &Value) -> Value {
+        serde_json::json!({
+            "gene": record["gene"],
+            "gain_score": record["gain_score"],
+            "gain_position": record["gain_position"],
+            "loss_score": record["loss_score"],
+            "loss_position": record["loss_position"],
+        })
+    }
+
+    // One setup, reached two ways and run under two thread counts. The row the
+    // command-line tool paid for has to answer the service's request. A thread
+    // count reaches the model runtime and reaches no answer, so it must not
+    // decide which row is found, and it must not decide whether the file is
+    // kept.
+    #[test]
+    fn the_service_finds_a_command_line_row_under_another_thread_count() {
+        let temp = tempfile::tempdir().expect("temp");
+        let (data, profile, cache) = install_under(
+            temp.path(),
+            "shared",
+            &fixture("route-mask/domains.pgm"),
+            50,
+        );
+        let filled = fill_from_command_line(
+            &cache,
+            temp.path(),
+            &["GRCh38:chr1:5051:A:AC", "GRCh38:chr1:5051:A:C"],
+        );
+        assert_eq!(
+            cached_rows(&cache),
+            2,
+            "the command-line tool must fill the cache first"
+        );
+        let sequence = next_write_sequence(&cache);
+
+        let (status, item) =
+            status_and_item_under_threads(&data, &profile, &cache, "4", "GRCh38:chr1:5051:A:C");
+        assert_eq!(
+            status["model"]["effective_cpu_policy"], "sequential:4/1",
+            "this run must ask under a different thread count"
+        );
+        assert_eq!(
+            item["provenance"]["kind"], "model",
+            "the compared item must reach the model: {item}"
+        );
+        assert_eq!(filled.len(), 2, "the fill must return one line per variant");
+        let filled = &filled[1]["records"][0];
+        assert!(
+            filled["gain_score"].is_string(),
+            "the compared command-line record must carry a score: {filled}"
+        );
+        assert_eq!(
+            scored_fields(&item["records"][0]),
+            scored_fields(filled),
+            "the two routes must publish one answer for one variant"
+        );
+        assert_eq!(
+            cached_rows(&cache),
+            2,
+            "a thread count must not discard the file and must not add a second row for a variant \
+             already cached under the same setup"
+        );
+        assert_eq!(
+            next_write_sequence(&cache),
+            sequence,
+            "the service must find the row the command-line tool filled rather than write one \
+             over the top of it"
+        );
+    }
+
+    // The other half of the same rule. When the two routes do not run one
+    // setup, neither may read the other's rows, and the mismatch is settled
+    // once, when the file opens.
+    #[test]
+    fn the_service_discards_a_cache_another_setup_filled() {
+        let temp = tempfile::tempdir().expect("temp");
+        let (_data, _profile, cache) = install_under(
+            temp.path(),
+            "filled",
+            &fixture("route-mask/domains.pgm"),
+            50,
+        );
+        fill_from_command_line(
+            &cache,
+            temp.path(),
+            &["GRCh38:chr1:5051:A:AC", "GRCh38:chr1:5051:A:C"],
+        );
+        assert_eq!(
+            cached_rows(&cache),
+            2,
+            "the command-line tool must fill the cache first"
+        );
+
+        let (other_data, other_profile, _) = install_under(
+            temp.path(),
+            "other-mask",
+            &fixture("gencode-mask-mini/domains.pgm"),
+            50,
+        );
+        let status = status_under_threads(&other_data, &other_profile, &cache, "1");
+        assert_ne!(
+            status["assets"]["mask_sha256"],
+            serde_json::json!(
+                "sha256:004f9f95be50b92fd5c67ca44a785e950c20e5455a903ad9350b68c91566f827"
+            ),
+            "this service must run another mask than the command-line fill did"
+        );
+        assert_eq!(
+            cached_rows(&cache),
+            0,
+            "a service on another setup must leave no row the command-line tool filled readable"
+        );
+    }
 }
 
 #[cfg(unix)]
