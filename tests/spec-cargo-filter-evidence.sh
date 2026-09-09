@@ -62,7 +62,10 @@ shopt -u nullglob
 all_lines=$(spec_block_lines "${spec_files[@]}")
 
 # A gate that still calls cargo directly is the hole this ticket closes.
-raw=$(printf '%s\n' "$all_lines" | grep -F 'cargo test' | grep -Fv "$helper_call" || true)
+# The helper's own path carries no space, so it never matches 'cargo test'. Do
+# not exempt a line for mentioning the helper: a gate that calls the helper and
+# then also runs cargo directly still exits 0 on an empty filter.
+raw=$(printf '%s\n' "$all_lines" | grep -F 'cargo test' || true)
 if [[ -n "$raw" ]]; then
     printf 'spec cargo filter evidence: these spec gates run cargo test directly, so each one exits 0 when its name filter selects no test:\n' >&2
     printf '%s\n' "$raw" | sed -E 's#^'"$repository"'/#  #; s/\t/:/; s/\t/: /' >&2
@@ -78,11 +81,23 @@ while IFS=$'\t' read -r file line text; do
     [[ -n "${text:-}" ]] || continue
     where="${file#"$repository"/}:$line"
     read -r -a words <<<"${text#*"$helper_call"}"
-    floor=${words[0]-}
+    # Today's gates end in `>/dev/null 2>&1`, and a converted one may keep it.
+    # Cut the argument list at the first redirection or pipeline token, so the
+    # filter check reads the last argument the helper receives rather than the
+    # last word on the line.
+    args=()
+    for word in "${words[@]}"; do
+        case "$word" in
+            '|' | '||' | '&&' | ';' | '&' | '#' | *'>'* | *'<'*) break ;;
+        esac
+        args+=("$word")
+    done
+    floor=${args[0]-}
     [[ "$floor" =~ ^[0-9]+$ ]] || fail "$where: the gate's first argument is '${floor:-}', not a number of tests that must pass"
     (( floor >= 1 )) || fail "$where: the gate accepts $floor passing tests, which is the silent-green shape this check exists to refuse"
-    filter=${words[${#words[@]}-1]-}
-    [[ -n "$filter" && "$filter" != -* ]] || fail "$where: the gate's last argument is '${filter:-}', not a test-name filter"
+    (( ${#args[@]} >= 2 )) || fail "$where: the gate passes cargo no arguments after its floor, so it names no test to run"
+    filter=${args[${#args[@]}-1]}
+    [[ -n "$filter" && "$filter" != -* ]] || fail "$where: the gate's last argument is '$filter', not a test-name filter"
 done <<<"$gates"
 
 printf 'inspected %s spec file(s), %s cargo gate(s)\n' "${#spec_files[@]}" "$gate_count"
@@ -129,7 +144,14 @@ run_helper() {
 }
 
 summary() { printf 'test result: ok. %s passed; 0 failed; 0 ignored; 0 measured; %s filtered out; finished in 0.01s\n' "$1" "$2"; }
-runs() { local out=; for pair in "$@"; do out+=$(summary ${pair/:/ })$'\n'; done; printf '%s' "$out"; }
+# An assignment's right-hand side is a quoted context, so the pair must be split
+# here: `summary ${pair/:/ }` would hand the whole `12 3` to one parameter and
+# emit `12 3 passed; ...;  filtered out`, which no correct helper can read.
+runs() {
+    local out= pair
+    for pair in "$@"; do out+=$(summary "${pair%%:*}" "${pair#*:}")$'\n'; done
+    printf '%s' "$out"
+}
 
 full=$(runs 12:3)
 # The measured silent green: a renamed filter printed exactly this shape and
