@@ -18,7 +18,7 @@ Ian settled these choices on 2026-09-08.
 
 Both sources contribute. HGNC is the naming authority. Where HGNC names an accession, HGNC supplies that accession's whole record and NCBI is not consulted for it. NCBI names only accessions HGNC does not reach. Field-level merging is not done, so the 105 accessions where the two sources report different NCBI Gene identifiers and the 125 where they report different symbols never need arbitration.
 
-A record states which source named it. A gene named by NCBI carries no HGNC identifier, because none exists, and its symbol is not HGNC-approved. A consumer cannot tell those two cases apart without being told.
+A record states which source named it. A gene named by NCBI reports no HGNC identifier and its symbol is not HGNC-approved. The identifier often exists: 958 of the accessions only NCBI names carry an `HGNC:` cross-reference in NCBI's own `dbXrefs`, and `ENSG00000268500` carries `HGNC:10874`. HGNC's own release does not join that identifier to that accession. Reporting it would publish a join the naming authority does not publish. A consumer cannot tell an approved symbol from an NCBI one without being told.
 
 An accession carrying more than one record in the source that names it reports no name. This extends ticket 0039's rule to NCBI, which holds 261 such accessions against HGNC's 3.
 
@@ -38,7 +38,7 @@ Done, observably:
 - The index reaches every gene both sources name. A test pins one gene named only by NCBI, one named by HGNC where NCBI disagrees, and one the sources leave unnamed.
 - A score record states which source named its gene. A gene named by NCBI reports no HGNC identifier rather than an empty one.
 - An accession carrying more than one record in its naming source reports no name. A test pins one such accession from each source.
-- Previous and alias symbols survive from both sources, and the published documentation still states that both are ambiguous and must never be the sole basis for an automated match.
+- Alias symbols survive from both sources. Previous symbols survive from HGNC alone, because `Homo_sapiens.gene_info` publishes `Synonyms` and carries no previous-symbol field. The published documentation still states that both are ambiguous and must never be the sole basis for an automated match.
 - `make` carries a target that downloads both sources, builds the index, writes it to its committed path, and reports the source digests and row counts it built from. The target reaches the network and no gate invokes it.
 - Rebuilding the index from identical source bytes produces identical index bytes. A test proves the builder is deterministic without reaching the network.
 - The repository records, beside the committed index, the two source releases it was built from, their byte counts and their digests. The record states that the NCBI source is not re-fetchable at those bytes.
