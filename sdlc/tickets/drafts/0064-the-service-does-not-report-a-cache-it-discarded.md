@@ -2,6 +2,8 @@
 ---
 # The service does not report a cache it discarded
 
+Closed inside ticket 0058 by its code review. `serve` now asks its first cache open whether it discarded an earlier setup and reports it by name on standard error. Only that open can discard, so three workers produce one report. Measured: a service started on another mask against a command-line-filled default cache prints one report and still emits its `listening` event on standard output; a matching restart prints nothing. Nothing below is still open.
+
 Ticket 0058 makes a cache file be discarded whole when the setup that filled it no longer matches the setup asking, and makes the command-line tool say so. The HTTP service performs the same discard and says nothing. An operator restarting a service after an upgrade cannot tell a cold cache from one that was thrown away.
 
 Measured in this checkout on 2026-09-09.

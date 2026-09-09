@@ -819,8 +819,18 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
     )
     .map_err(map_cache_error)?;
     let cache_options = resolve_model_cache_options(options.cache_path, options.cache_limit)?;
-    // The first open judges the recorded setup. The rest match what it left.
+    // The first open judges the recorded setup. The rest match what it left, so
+    // only this one can discard and only this one reports it. A discard is not
+    // an error: the service still starts and still answers. Saying so is what
+    // keeps a chosen database from being replaced silently, and it is how an
+    // operator restarting after an upgrade tells a cold cache from a lost one.
     let handler_cache = open_cache(&cache_options, &setup)?;
+    if handler_cache.discarded_earlier_setup() {
+        eprintln!(
+            "discarded model cache {}: another setup filled it",
+            cache_options.path.display()
+        );
+    }
     let mut backends: Vec<Box<dyn WorkerBackend>> = Vec::with_capacity(options.workers);
     for _ in 0..options.workers {
         let installed = open_service_runtime(&data, &active.bundle_id)?;
