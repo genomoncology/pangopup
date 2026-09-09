@@ -1,8 +1,7 @@
 use pangopup_assets::{
     AssetError, AssetErrorKind, CachePathInputs, CombinedStatusResult, CombinedSyncResult,
-    DataPathInputs, InstalledModelInput, NamingSource, combined_local_status,
-    install_naming_source, install_runtime_profile, install_transport, open_active_bundle,
-    open_installed_naming_source, open_installed_runtime_profile,
+    DataPathInputs, InstalledModelInput, combined_local_status, install_runtime_profile,
+    install_transport, open_active_bundle, open_installed_runtime_profile,
     open_installed_runtime_profile_for_model, resolve_cache_root, resolve_data_root,
     sync_all_assets,
 };
@@ -18,7 +17,8 @@ use pangopup_engine::{
     RoutedResult, convert_exact_edit, validate_model_request,
 };
 use pangopup_index::{
-    BundleOpen, IndexError,
+    BundleOpen, IndexError, gene_names,
+    gene_names::GeneNameIndex,
     mask::{AdmittedMaskDomains, MaskDomainsOpen},
     reference::{IdentifiedReferenceBundle, ReferenceBundleOpen, parse_caller_contig},
     reference_admission::inspect_reference_admission,
@@ -75,11 +75,6 @@ const HELP_CATALOG: &[HelpEntry] = &[
         path: &["assets", "runtime", "install"],
         synopsis: "assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]",
         summary: "Install a caller-supplied compatible model-side runtime profile.",
-    },
-    HelpEntry {
-        path: &["assets", "naming", "install"],
-        synopsis: "assets naming install --source <NAMING_SOURCE_FILE> [--data-dir <ABSOLUTE_PATH>]",
-        summary: "Install a caller-supplied dated gene naming source into the local asset store.",
     },
     HelpEntry {
         path: &["lookup"],
@@ -263,10 +258,6 @@ enum Command {
         model_bundle: PathBuf,
         reference_bundle: PathBuf,
         mask: PathBuf,
-        data_dir: Option<OsString>,
-    },
-    NamingInstall {
-        source: PathBuf,
         data_dir: Option<OsString>,
     },
     Status {
@@ -634,11 +625,6 @@ fn run_with_adapters(
                     .map_err(map_runtime_error)?;
             json_line(&result)
         }
-        Command::NamingInstall { source, data_dir } => {
-            let root = data_root(data_dir)?;
-            let result = install_naming_source(&source, &root).map_err(map_install_error)?;
-            json_line(&result)
-        }
         Command::Status { data_dir } => {
             let root = data_root(data_dir)?;
             match statuser(&root).map_err(map_status_error)? {
@@ -738,10 +724,10 @@ fn run_lookup_with_runtime_opener(
         implicit_cache_path,
         implicit_cache_limit,
     } = arguments;
-    // The naming source is a label store beside the SNV bundle and the
-    // runtime. It is read only where a data root is already resolved, so an
-    // explicit `--bundle` or explicit model assets stay self-contained.
-    let mut names = None;
+    // Gene names are a label store the build carries. They are read only where
+    // a data root is already resolved, so an explicit `--bundle` or explicit
+    // model assets stay self-contained and render the accession alone.
+    let mut names: Option<GeneNameIndex> = None;
     if model_only {
         for input in &variants {
             if let VariantInput::Literal(variant) = input {
@@ -761,7 +747,7 @@ fn run_lookup_with_runtime_opener(
             }
             None => {
                 let root = data_root(data_dir)?;
-                names = installed_gene_names(&root)?;
+                names = Some(gene_names::shipped());
                 runtime_opener(&root, None)?
             }
         };
@@ -794,7 +780,7 @@ fn run_lookup_with_runtime_opener(
         Some(path) => (BundleOpen::open(&path).map_err(map_open_error)?, None),
         None => {
             let root = data_root(data_dir)?;
-            names = installed_gene_names(&root)?;
+            names = Some(gene_names::shipped());
             let (active, bundle) = open_active_bundle(&root).map_err(map_lookup_asset_error)?;
             (bundle, Some((root, active.bundle_id)))
         }
@@ -922,11 +908,6 @@ fn run_lookup_with_runtime_opener(
         },
         &requests,
     )
-}
-
-/// The installed naming source, or nothing where the data root carries none.
-fn installed_gene_names(root: &Path) -> Result<Option<NamingSource>, Failure> {
-    open_installed_naming_source(root).map_err(map_lookup_asset_error)
 }
 
 fn convert_variant_inputs(
@@ -1103,12 +1084,11 @@ fn map_lookup_error(error: pangopup_core::LookupError) -> Failure {
     }
 }
 
-/// The wire format and the installed naming source travel together into
-/// every render.
+/// The wire format and the gene-name index travel together into every render.
 #[derive(Clone, Copy)]
 struct Rendering<'a> {
     format: OutputFormat,
-    names: Option<&'a NamingSource>,
+    names: Option<&'a GeneNameIndex>,
 }
 
 fn render_lookup_requests(
@@ -1503,14 +1483,12 @@ fn parse_status(raw: &[OsString]) -> Result<Command, Failure> {
 }
 
 fn parse_assets(raw: &[OsString]) -> Result<Command, Failure> {
-    let action = raw.get(1).and_then(|value| value.to_str()).ok_or_else(|| {
-        Failure::usage("assets requires install, runtime install, or naming install")
-    })?;
+    let action = raw
+        .get(1)
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| Failure::usage("assets requires install or runtime install"))?;
     if action == "runtime" {
         return parse_runtime_assets(raw);
-    }
-    if action == "naming" {
-        return parse_naming_assets(raw);
     }
     let mut data_dir = None;
     let mut transport = None;
@@ -1544,50 +1522,7 @@ fn parse_assets(raw: &[OsString]) -> Result<Command, Failure> {
                 .ok_or_else(|| Failure::usage("assets install requires --transport"))?,
             data_dir,
         }),
-        _ => Err(Failure::usage(
-            "assets requires install, runtime install, or naming install",
-        )),
-    }
-}
-
-fn parse_naming_assets(raw: &[OsString]) -> Result<Command, Failure> {
-    let action = raw
-        .get(2)
-        .and_then(|value| value.to_str())
-        .ok_or_else(|| Failure::usage("assets naming requires install"))?;
-    let mut data_dir = None;
-    let mut source = None;
-    let mut index = 3;
-    while index < raw.len() {
-        let option = raw[index]
-            .to_str()
-            .ok_or_else(|| Failure::usage("arguments must be UTF-8"))?;
-        index += 1;
-        let value = raw
-            .get(index)
-            .ok_or_else(|| Failure::usage(format!("{option} requires a value")))?;
-        let slot = match option {
-            "--data-dir" => &mut data_dir,
-            "--source" if action == "install" => &mut source,
-            _ => {
-                return Err(Failure::usage(format!(
-                    "unknown assets naming option {option}"
-                )));
-            }
-        };
-        if slot.replace(value.clone()).is_some() {
-            return Err(Failure::usage(format!("{option} may be supplied once")));
-        }
-        index += 1;
-    }
-    match action {
-        "install" => Ok(Command::NamingInstall {
-            source: PathBuf::from(
-                source.ok_or_else(|| Failure::usage("assets naming install requires --source"))?,
-            ),
-            data_dir,
-        }),
-        _ => Err(Failure::usage("assets naming requires install")),
+        _ => Err(Failure::usage("assets requires install or runtime install")),
     }
 }
 
@@ -2170,19 +2105,13 @@ mod tests {
         assert_eq!(
             focused_help(&os_args(&["assets", "--help"])).as_deref(),
             Some(
-                "Usage: pangopup assets <ACTION>\n\nActions:\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets naming install --source <NAMING_SOURCE_FILE> [--data-dir <ABSOLUTE_PATH>]\n"
+                "Usage: pangopup assets <ACTION>\n\nActions:\n  pangopup assets install --transport <DIR> [--data-dir <ABSOLUTE_PATH>]\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n"
             )
         );
         assert_eq!(
             focused_help(&os_args(&["assets", "runtime", "--help"])).as_deref(),
             Some(
                 "Usage: pangopup assets runtime <ACTION>\n\nActions:\n  pangopup assets runtime install --profile <CANONICAL_PROFILE_JSON> --model-bundle <DIR> --reference-bundle <DIR> --mask <FILE> [--data-dir <ABSOLUTE_PATH>]\n"
-            )
-        );
-        assert_eq!(
-            focused_help(&os_args(&["assets", "naming", "--help"])).as_deref(),
-            Some(
-                "Usage: pangopup assets naming <ACTION>\n\nActions:\n  pangopup assets naming install --source <NAMING_SOURCE_FILE> [--data-dir <ABSOLUTE_PATH>]\n"
             )
         );
     }
@@ -2213,10 +2142,6 @@ mod tests {
             (
                 "assets runtime install",
                 "Install a caller-supplied compatible model-side runtime profile.",
-            ),
-            (
-                "assets naming install",
-                "Install a caller-supplied dated gene naming source into the local asset store.",
             ),
             (
                 "lookup",
@@ -2252,11 +2177,7 @@ mod tests {
             .collect();
         assert_eq!(
             namespaces,
-            BTreeSet::from([
-                vec!["assets"],
-                vec!["assets", "naming"],
-                vec!["assets", "runtime"],
-            ])
+            BTreeSet::from([vec!["assets"], vec!["assets", "runtime"]])
         );
     }
 
@@ -2271,8 +2192,6 @@ mod tests {
             vec!["assets", "install"],
             vec!["assets", "runtime"],
             vec!["assets", "runtime", "install"],
-            vec!["assets", "naming"],
-            vec!["assets", "naming", "install"],
             vec!["lookup"],
         ] {
             for flag in ["-h", "--help"] {

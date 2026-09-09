@@ -2062,20 +2062,6 @@ pub(crate) fn remove_owned_file(parent: &Dir, name: &str) -> Result<(), AssetErr
     unlink_file(parent, name)
 }
 
-/// Remove an asset-store file that may already be absent. An interrupted
-/// staged write leaves a name behind, and an exclusive create then fails.
-pub(crate) fn remove_owned_file_optional(parent: &Dir, name: &str) -> Result<(), AssetError> {
-    match unlink_file(parent, name) {
-        Ok(()) => Ok(()),
-        Err(_) if !entry_exists(parent, name) => Ok(()),
-        Err(error) => Err(error),
-    }
-}
-
-fn entry_exists(parent: &Dir, name: &str) -> bool {
-    rustix::fs::statat(&parent.file, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW).is_ok()
-}
-
 pub(crate) fn rename_owned_noreplace(
     from: &Dir,
     old: &str,

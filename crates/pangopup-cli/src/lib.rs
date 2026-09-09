@@ -1,9 +1,9 @@
-use pangopup_assets::{GeneNames, NamingSource};
 use pangopup_core::{
     GeneScoreRecord, Grch38Snv, Grch38Variant, LookupResult, ModelGeneScoreRecord, ModelWarning,
     SourceReferenceAmbiguity,
 };
 use pangopup_engine::{ModelProvenance, RoutedResult};
+use pangopup_index::gene_names::{GeneNameIndex, GeneNames};
 use serde::Serialize;
 use std::{error::Error, fmt};
 
@@ -55,13 +55,14 @@ impl Error for RenderError {}
 /// Render already-materialized lookup results through the shipped CLI wire
 /// boundary. The binary and performance harness both call this function.
 ///
-/// `names` carries the installed naming source, or nothing where none is
-/// installed. An unnamed gene reports its Ensembl accession alone. The
-/// human-readable table gains no names.
+/// `names` carries the gene-name index the build ships, or nothing where the
+/// caller opened its own SNV bundle and stays self-contained. An unnamed gene
+/// reports its Ensembl accession alone. The human-readable table gains no
+/// names.
 pub fn render_requests(
     format: OutputFormat,
     requests: &[RenderRequest],
-    names: Option<&NamingSource>,
+    names: Option<&GeneNameIndex>,
 ) -> Result<Vec<u8>, RenderError> {
     match format {
         OutputFormat::Jsonl => render_jsonl(requests, names),
@@ -73,7 +74,7 @@ pub fn render_requests(
 /// adapters use this form when byte-stable object key order matters.
 pub fn render_result_raw(
     result: RoutedResult,
-    names: Option<&NamingSource>,
+    names: Option<&GeneNameIndex>,
 ) -> Result<Box<serde_json::value::RawValue>, RenderError> {
     let mut bytes = render_jsonl(&[RenderRequest::from_routed(result)], names)?;
     if bytes.pop() != Some(b'\n') {
@@ -99,7 +100,7 @@ fn precomputed_status(result: &LookupResult) -> &'static str {
 
 fn render_jsonl(
     requests: &[RenderRequest],
-    names: Option<&NamingSource>,
+    names: Option<&GeneNameIndex>,
 ) -> Result<Vec<u8>, RenderError> {
     let mut output = Vec::new();
     for request in requests {
@@ -213,7 +214,7 @@ struct JsonRecord {
 }
 
 impl JsonRecord {
-    fn new(value: &GeneScoreRecord, names: Option<&NamingSource>) -> Self {
+    fn new(value: &GeneScoreRecord, names: Option<&GeneNameIndex>) -> Self {
         let score = value.score();
         let stable_gene = value.gene().to_string();
         Self {
@@ -228,11 +229,11 @@ impl JsonRecord {
     }
 }
 
-/// The labels the installed naming source carries for one stable Ensembl
-/// accession. An accession the source cannot name reports nothing, so the
-/// whole object is absent rather than empty.
-fn gene_names(names: Option<&NamingSource>, stable_gene: &str) -> Option<GeneNames> {
-    names?.names(stable_gene).cloned()
+/// The labels the gene-name index carries for one stable Ensembl accession. An
+/// accession the index cannot name reports nothing, so the whole object is
+/// absent rather than empty.
+fn gene_names(names: Option<&GeneNameIndex>, stable_gene: &str) -> Option<GeneNames> {
+    names?.names(stable_gene)
 }
 
 #[derive(Serialize)]
@@ -249,7 +250,7 @@ struct JsonModelRecord {
 }
 
 impl JsonModelRecord {
-    fn new(value: &ModelGeneScoreRecord, names: Option<&NamingSource>) -> Self {
+    fn new(value: &ModelGeneScoreRecord, names: Option<&GeneNameIndex>) -> Self {
         let score = value.score();
         let stable_gene = value.gene().stable().to_string();
         Self {
@@ -282,7 +283,7 @@ struct JsonAmbiguity {
 }
 
 impl JsonAmbiguity {
-    fn new(value: &SourceReferenceAmbiguity, names: Option<&NamingSource>) -> Self {
+    fn new(value: &SourceReferenceAmbiguity, names: Option<&GeneNameIndex>) -> Self {
         let gene = value.gene().to_string();
         Self {
             gene_names: gene_names(names, &gene),
