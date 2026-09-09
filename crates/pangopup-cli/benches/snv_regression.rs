@@ -4,16 +4,30 @@ use pangopup_engine::{LookupFirstRouter, RouteDecision, RouteRequest};
 use pangopup_index::BundleOpen;
 use std::{
     alloc::{GlobalAlloc, Layout, System},
-    env,
     error::Error,
     fs,
     hint::black_box,
-    path::{Path, PathBuf},
-    process::Command,
+    path::Path,
     str::FromStr,
     sync::atomic::{AtomicU64, Ordering},
     time::Instant,
 };
+
+/// The one place the shipped executable is named, shared with the test suite.
+/// A benchmark that timed a fresh process it resolved for itself would inherit
+/// the cache home of whoever ran it, which is what
+/// `tests/cli-spawn-cache-isolation.sh` exists to refuse.
+///
+/// Cargo builds that executable for this target's own profile, so it can never
+/// be stale. Two things about the fresh-process row moved with it, and it is a
+/// diagnostic rather than a threshold, so both are recorded rather than
+/// worked around. `cargo bench` now times the bench-profile build where this
+/// benchmark used to rebuild and time the debug one, and the private cache
+/// home the helper makes per command is allocated in this process, so the
+/// allocation columns of that row count it. Neither number compares against a
+/// figure recorded before this change.
+#[path = "../tests/support/mod.rs"]
+mod support;
 
 struct CountingAllocator;
 static ALLOCATIONS: AtomicU64 = AtomicU64::new(0);
@@ -78,9 +92,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         black_box(BundleOpen::open(&bundle).expect("fresh open"));
         (0, 0)
     });
-    let cli = cli_path()?;
     sample("fresh-process", 1, 10, || {
-        let output = Command::new(&cli)
+        let output = support::pangopup()
             .arg("lookup")
             .arg("--bundle")
             .arg(&bundle)
@@ -234,30 +247,6 @@ fn materialize_routed(
             RenderRequest::from_routed(result)
         })
         .collect()
-}
-
-fn cli_path() -> Result<PathBuf, Box<dyn Error>> {
-    let executable = env::current_exe()?;
-    let target = executable
-        .parent()
-        .and_then(Path::parent)
-        .and_then(Path::parent)
-        .ok_or("benchmark target directory")?;
-    let cli = target.join("debug/pangopup");
-    let status = Command::new("cargo")
-        .args([
-            "build",
-            "--locked",
-            "--package",
-            "pangopup-cli",
-            "--bin",
-            "pangopup",
-        ])
-        .status()?;
-    if !status.success() || !cli.is_file() {
-        return Err("could not build the fresh-process benchmark executable".into());
-    }
-    Ok(cli)
 }
 
 fn usage() -> Usage {

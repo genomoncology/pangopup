@@ -35,14 +35,22 @@ token='CARGO_BIN_EXE_pangopup"'
 # it can see rather than the calling side that exists, which is how a check
 # stays green while a spawn reaches the operator's cache. Refuse those
 # spellings outside the helper too.
-#
-# Only inside the test tree the helper serves. Outside it both spellings have
-# honest uses that are not a way around the helper: `src/uninstall.rs` reports
-# the running executable's own path, `crates/pangopup-build/tests` re-executes
-# its own test binary, and a benchmark builds and times a fresh process.
-# Refusing those would demand a product change this check has no business
-# demanding.
 detour='current_exe|target/(debug|release)/pangopup'
+
+# Two paths the detour scan does not read, each named with the reason it is an
+# honest use rather than a way around the helper. Everything else stays in
+# scope -- every crate's `tests/`, every `benches/`, every harness -- because a
+# spawn that reaches the shipped executable by path reaches the cache home of
+# whoever runs it wherever that spawn lives, and a scan narrowed to one
+# directory measures the calling side it chose rather than the calling side
+# that exists.
+#
+# `/src/` is product code: `src/uninstall.rs` reports the running executable's
+# own path, and refusing that would demand a product change this check has no
+# business demanding. `transport_resources.rs` re-executes its own test binary
+# under `PANGOPUP_RESOURCE_MODE`; `pangopup-build` builds no `pangopup`, so no
+# route to the shipped executable runs through it.
+exempt='/src/|/crates/pangopup-build/tests/transport_resources\.rs$'
 
 fail() { printf 'cli spawn cache isolation: %s\n' "$*" >&2; exit 1; }
 
@@ -51,7 +59,6 @@ fail() { printf 'cli spawn cache isolation: %s\n' "$*" >&2; exit 1; }
 examine() {
     local root=$1 helper=$2
     local sources=() suite=() occurrences strays detours scanned
-    local suite_root="$root/${helper%/support/mod.rs}/"
 
     while IFS= read -r source; do sources+=("$source"); done < <(
         find "$root" -type f -name '*.rs' -not -path '*/target/*' | sort
@@ -78,7 +85,7 @@ examine() {
     fi
 
     for source in "${sources[@]}"; do
-        [[ $source == "$suite_root"* ]] && suite+=("$source")
+        [[ $source =~ $exempt ]] || suite+=("$source")
     done
     detours=$(
         ((${#suite[@]})) && grep -nE -- "$detour" "${suite[@]}" | grep -vF -- "$root/$helper" || true
@@ -154,11 +161,26 @@ plant "$detour_tree" "$helper_relative" spawns
 plant "$detour_tree" 'crates/pangopup-cli/tests/macos_cli_boundary.rs' detours
 expect_refusal "$detour_tree" 'crates/pangopup-cli/tests/macos_cli_boundary.rs:1'
 
+# A benchmark, or any other harness outside the test tree, reaches the same
+# executable and inherits the same cache home. The scan reads it too.
+bench_tree="$fixtures/bench"
+plant "$bench_tree" "$helper_relative" spawns
+plant "$bench_tree" 'crates/pangopup-cli/benches/snv_regression.rs' detours
+expect_refusal "$bench_tree" 'crates/pangopup-cli/benches/snv_regression.rs:1'
+
 clean="$fixtures/clean"
 plant "$clean" "$helper_relative" spawns
 plant "$clean" 'crates/pangopup-cli/tests/citation.rs' quiet
 examine "$clean" "$helper_relative" >/dev/null \
     || fail 'the scanner refused a tree whose only spawn is the helper, so it refuses the shape it exists to require'
+
+# The product resolves its own executable path and must keep doing so, so the
+# exemption is exercised rather than only described.
+exempted="$fixtures/exempted"
+plant "$exempted" "$helper_relative" spawns
+plant "$exempted" 'crates/pangopup-cli/src/uninstall.rs' detours
+examine "$exempted" "$helper_relative" >/dev/null \
+    || fail 'the scanner refused product code for resolving its own executable path, which this check has no business demanding'
 
 # --- the real tree ----------------------------------------------------------
 examine "$repository" "$helper_relative" || exit 1
