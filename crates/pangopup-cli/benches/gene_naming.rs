@@ -9,7 +9,11 @@
 //! needs no installed asset and no network.
 
 use pangopup_index::gene_names::shipped;
-use std::{error::Error, hint::black_box, time::{Duration, Instant}};
+use std::{
+    error::Error,
+    hint::black_box,
+    time::{Duration, Instant},
+};
 
 /// The budget for one lookup's naming work. The ticket states one millisecond
 /// and it is a ceiling to clear, not a target to beat.

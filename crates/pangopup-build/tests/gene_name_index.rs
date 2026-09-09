@@ -53,7 +53,7 @@ fn the_builder_reports_the_sources_and_the_reach_it_built_from() {
     let report = build(&scratch.path().join("index.pgn"));
 
     assert_eq!(report.hgnc.file, "hgnc_complete_set_2026-09-04.tsv");
-    assert_eq!(report.hgnc.rows, 10);
+    assert_eq!(report.hgnc.rows, 11);
     assert!(report.hgnc.sha256.starts_with("sha256:"));
     assert!(report.hgnc.bytes > 0);
     assert_eq!(report.ncbi.file, "Homo_sapiens.gene_info");
@@ -61,10 +61,10 @@ fn the_builder_reports_the_sources_and_the_reach_it_built_from() {
     assert!(report.ncbi.sha256.starts_with("sha256:"));
     assert!(report.ncbi.bytes > 0);
 
-    assert_eq!(report.named_by_hgnc, 7);
+    assert_eq!(report.named_by_hgnc, 8);
     assert_eq!(report.named_by_ncbi, 2);
     assert_eq!(report.unnamed, 3);
-    assert_eq!(report.accessions, 12);
+    assert_eq!(report.accessions, 13);
 }
 
 #[test]
@@ -133,5 +133,28 @@ fn a_source_row_without_a_human_ensembl_accession_enters_no_record() {
     // The excerpt also carries CYP2D7BP, whose `dbXrefs` cell is `-`. It
     // reaches no accession, so it contributes no record and moves no count.
     let report = build(&scratch.path().join("again.pgn"));
-    assert_eq!(report.accessions, 12);
+    assert_eq!(report.accessions, 13);
+}
+
+#[test]
+fn an_accession_wider_than_thirty_two_bits_keeps_its_own_record() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let path = scratch.path().join("index.pgn");
+    build(&path);
+    let index = GeneNameIndex::open(&path).expect("open the built index");
+
+    // The HGNC excerpt carries `ENSG05220017861` verbatim from the release.
+    // Its numeric part is 5,220,017,861 and it does not fit in 32 bits. A
+    // 32-bit key truncates it to 925,050,565, which is the key of
+    // `ENSG00925050565`. The index must answer the accession it was given.
+    let wide = index.names("ENSG05220017861").expect("DDX11L3 is named");
+    assert_eq!(wide.symbol, "DDX11L3");
+    assert_eq!(wide.source, GeneNameSource::Hgnc);
+    assert_eq!(wide.hgnc_id.as_deref(), Some("HGNC:37104"));
+    assert_eq!(wide.ncbi_gene_id, Some(100_302_657));
+    assert_eq!(
+        index.naming("ENSG00925050565"),
+        None,
+        "a truncated key must not answer for the accession that overflows it"
+    );
 }

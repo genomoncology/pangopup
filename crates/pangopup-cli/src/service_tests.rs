@@ -402,6 +402,35 @@ impl ModelCompletion for FakeCompletion {
     }
 }
 
+/// A worker whose modeled record carries a versioned accession the shipped
+/// gene-name index names. `RecordWorker` reports `ENSG00000000001.1`, which no
+/// naming source reaches, so it cannot show that the model route strips the
+/// version before it asks for a name.
+struct NamedRecordWorker;
+
+impl WorkerBackend for NamedRecordWorker {
+    fn complete(
+        &mut self,
+        pending: &PendingModel,
+        _key: &CacheKey,
+    ) -> Result<RoutedResult, WorkerFailure> {
+        Ok(RoutedResult::Modeled {
+            variant: pending.variant().clone(),
+            records: vec![ModelGeneScoreRecord::new(
+                GencodeGeneId::from_str("ENSG00000157764.1").expect("GENCODE gene"),
+                PangolinScore::new(
+                    ScoreMagnitude::new(12).expect("gain"),
+                    RelativePosition::new(3).expect("gain position"),
+                    ScoreMagnitude::new(34).expect("loss"),
+                    RelativePosition::new(-4).expect("loss position"),
+                ),
+                Vec::new(),
+            )],
+            provenance: provenance(),
+        })
+    }
+}
+
 fn model_records() -> Vec<ModelGeneScoreRecord> {
     vec![ModelGeneScoreRecord::new(
         GencodeGeneId::from_str("ENSG00000000001.1").expect("GENCODE gene"),
@@ -1750,6 +1779,40 @@ async fn the_status_response_reports_no_installed_naming_vintage() {
         status["scoring_identity"],
         scoring_identity().as_str(),
         "gene naming stays outside the scoring identity"
+    );
+}
+
+#[tokio::test]
+async fn the_model_route_names_a_versioned_accession_from_its_stable_form() {
+    let response = app(state_with_worker(Box::new(NamedRecordWorker)))
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"variants":["GRCh38:chr1:2:A:C"]}"#))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: Value = serde_json::from_slice(&body(response).await).expect("JSON response");
+    let modeled = &value["results"][0]["records"][0];
+    assert_eq!(modeled["gene"], "ENSG00000157764.1");
+    assert_eq!(modeled["stable_gene"], "ENSG00000157764");
+    assert_eq!(
+        modeled["gene_names"],
+        json!({
+            "symbol": "BRAF",
+            "source": "hgnc",
+            "hgnc_id": "HGNC:1097",
+            "ncbi_gene_id": 673,
+            "alias_symbols": ["BRAF1", "BRAF-1"],
+        }),
+        "the model route names the versioned accession from its stable form: {value}"
+    );
+    assert_eq!(
+        value["results"][0]["scoring_identity"],
+        scoring_identity().as_str(),
+        "a named record keeps the scoring identity an unnamed one reports"
     );
 }
 

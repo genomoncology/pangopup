@@ -1,6 +1,6 @@
 # Miniature gene-naming source
 
-`hgnc_complete_set_2026-09-04.tsv` is a ten-row excerpt of the HGNC complete set, monthly release 2026-09-04. It keeps the full 53-column header so it parses exactly like the published file. It carries the published file name because it belongs to that release. Its own size and digest are its own. Only the fetched production file matches the published pin below.
+`hgnc_complete_set_2026-09-04.tsv` is an eleven-row excerpt of the HGNC complete set, monthly release 2026-09-04. It keeps the full 53-column header so it parses exactly like the published file. It carries the published file name because it belongs to that release. Its own size and digest are its own. Only the fetched production file matches the published pin below.
 
 Source: HGNC (HUGO Gene Nomenclature Committee), EMBL-EBI.
 File: `hgnc_complete_set_2026-09-04.tsv`.
@@ -25,6 +25,7 @@ HGNC quotes a field when it holds more than one pipe-separated value, and leaves
 | `ENSG00000169129` | `AFAP1L2` | The score-bundle gene that raises a source-reference ambiguity. |
 | `ENSG00000175658` | `DRD5P2`, `DRD5P3` | Two approved records for one accession. |
 | `ENSG00000185974` | `AC092143.1` | Edited. A clone-derived placeholder symbol on a score-bundle gene. |
+| `ENSG05220017861` | `DDX11L3` | An accession whose numeric part is 5,220,017,861. It does not fit in 32 bits. The index key must be wide enough to carry it without truncating. |
 
 Two cells are edited. Every other byte is verbatim from the published release, including the quoting described above.
 

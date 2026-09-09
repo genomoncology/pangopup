@@ -193,6 +193,7 @@ identity=$(awk '/^## Active scoring identity$/ { on=1; next } on && /^## / { exi
 printf '%s' "$identity" | rg -F -- '`data_set_version` carries the same inputs without the effective CPU policy.' >/dev/null
 printf '%s' "$identity" | rg -F -- 'The gene-name index stays outside the preimage.' >/dev/null
 ! printf '%s' "$identity" | rg -F -- 'installed naming source' >/dev/null
+! printf '%s' "$identity" | rg -F -- 'reports the installed vintage' >/dev/null
 ! printf '%s' "$identity" | rg -F -- 'active policy that can change an answer' >/dev/null
 runtime_data=$(cat ../architecture/runtime-data.md)
 printf '%s' "$runtime_data" | rg -F -- '`data_set_version` gives a consumer one concise version value that no deployment setting moves.' >/dev/null

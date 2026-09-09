@@ -4,7 +4,9 @@
 //! Every assertion here reads the committed index. None of them reaches the
 //! network and none of them needs an installed asset.
 
-use pangopup_index::gene_names::{GeneNameSource, GeneNaming, UnnamedReason, shipped};
+use pangopup_index::gene_names::{
+    GeneNameSource, GeneNaming, UnnamedReason, shipped, shipped_naming_measured,
+};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
@@ -12,12 +14,18 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// The 4096-byte page budget one accession lookup may address. The index is a
-/// sorted key array, a fixed-stride record array and one contiguous string run
-/// per gene, so a lookup addresses the binary-search probes, one record and one
+/// The 4096-byte page budget one accession lookup may address, counted from
+/// opening the index through returning the name. The index is a sorted key
+/// array, a fixed-stride record array and one contiguous string run per gene,
+/// so the whole path addresses the binary-search probes, one record and one
 /// string run. The budget is the bound that keeps the cost independent of how
 /// many genes the index holds.
 const PAGE_BUDGET: u64 = 16;
+
+/// The floor the same measurement may not fall below. A reader that answered
+/// from a structure built beside the index rather than from the index bytes
+/// would address fewer pages than a binary search costs.
+const PAGE_FLOOR: u64 = 2;
 
 fn repository(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -111,17 +119,25 @@ fn the_index_carries_both_sources() {
 
 #[test]
 fn resolving_one_gene_name_addresses_a_bounded_number_of_pages() {
-    let index = shipped();
     for accession in [
         "ENSG00000157764",
         "ENSG00000233887",
         "ENSG00000175658",
         "ENSG00000002079",
     ] {
-        let (_, metrics) = index.naming_measured(accession);
+        // The measurement opens the shipped index and resolves the accession
+        // under one page set. A reader that decoded the whole index at open,
+        // and then answered from a map, would address every page of it here.
+        let (_, metrics) = shipped_naming_measured(accession);
         assert!(
             metrics.unique_pages_addressed <= PAGE_BUDGET,
-            "{accession} addressed {} pages, over the budget of {PAGE_BUDGET}",
+            "{accession} addressed {} pages from open, over the budget of {PAGE_BUDGET}",
+            metrics.unique_pages_addressed
+        );
+        assert!(
+            metrics.unique_pages_addressed >= PAGE_FLOOR,
+            "{accession} addressed {} pages, under the {PAGE_FLOOR} a binary search over the \
+             shipped index costs, so the answer did not come from the index bytes",
             metrics.unique_pages_addressed
         );
     }

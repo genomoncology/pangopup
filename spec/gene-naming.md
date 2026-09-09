@@ -19,6 +19,19 @@ alias symbol can point at several genes, and an alias symbol can be another
 gene's approved symbol. Never match on a previous or alias symbol alone. The
 Ensembl accession remains the only key.
 
+The published compatibility document says the same thing. It states that one
+index ships with the build, and it describes no status field a deployment can
+read for an installed vintage.
+
+```bash
+inventory=$(awk '/^## v0.5.0 response-shape inventory$/ { on=1; next } on && /^## / { exit } on' ../architecture/compatibility.md)
+printf '%s' "$inventory" | rg -F -- 'PangoPup ships one gene-name index with the build.' >/dev/null
+! printf '%s' "$inventory" | rg -F -- 'Status `naming` object' >/dev/null
+! printf '%s' "$inventory" | rg -F -- '`naming.available`' >/dev/null
+! printf '%s' "$inventory" | rg -F -- '`naming.release`' >/dev/null
+printf 'the published inventory describes no installed naming vintage\n' | mustmatch like 'the published inventory describes no installed naming vintage'
+```
+
 ## Two sources and one record
 
 HGNC is the naming authority. Where HGNC reaches an accession, HGNC supplies
