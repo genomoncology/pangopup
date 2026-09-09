@@ -11,11 +11,12 @@ cat >"$root/bin/pangopup" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 
-# The oracles beside this harness carry scoring bytes alone. A real release
-# names every accession the shipped gene-name index reaches, so the stub adds
-# the naming leaf the checker must take back out. Records only: the checker
-# needs one leaf per file and every leaf removable, and an ambiguity's leaf
-# would prove nothing further here.
+# The model oracles beside this harness carry scoring bytes alone. A real
+# release names every accession the shipped gene-name index reaches, so the
+# stub adds the naming leaf the checker must take back out. Records only: a
+# model oracle carries no source-reference ambiguity to name. The SNV groups
+# below no longer come through here. The built executable renders them, so the
+# checker sees a release's own leaves on records and on ambiguities.
 name_records() {
   python3 "$QUALIFICATION_NAME_RECORDS"
 }
@@ -117,7 +118,10 @@ case "$command" in
     printf 'snv\t%s\n' "$bundle" >>"$QUALIFICATION_LOOKUP_LOG"
     mapfile -t expected_variants < <(awk -F '\t' -v group="$group" 'NR > 1 && $2 == group { print $4 }' "$QUALIFICATION_SOURCE/tests/fixtures/snv-regression/requests.tsv")
     [[ "${variants[*]}" == "${expected_variants[*]}" ]] || exit 2
-    name_records < "$QUALIFICATION_SOURCE/tests/fixtures/snv-regression/expected/$group.jsonl"
+    render=("$QUALIFICATION_REAL_PANGOPUP" lookup --bundle "$QUALIFICATION_SNV_FIXTURE_BUNDLE" --format jsonl)
+    for variant in "${variants[@]}"; do render+=(--variant "$variant"); done
+    if [[ $group != unfiltered ]]; then render+=(--gene "$group"); fi
+    exec "${render[@]}"
     ;;
   serve)
     exec python3 - "$QUALIFICATION_SOURCE" <<'PY'
@@ -198,6 +202,8 @@ jq -S -c . "$repo/tests/fixtures/executable-release/model-only-snv.jsonl" \
 cmp "$root/derived-model-only-snv.json" "$root/checked-model-only-snv.json"
 
 export QUALIFICATION_SOURCE=$repo
+export QUALIFICATION_REAL_PANGOPUP=$repo/target/debug/pangopup
+export QUALIFICATION_SNV_FIXTURE_BUNDLE=$repo/tests/fixtures/snv-regression/bundle
 export QUALIFICATION_EXPECTED_HOME=$root/output/home
 export QUALIFICATION_EXPECTED_DATA=$root/data
 export QUALIFICATION_EXPECTED_CACHE=$root/cache
