@@ -20,7 +20,11 @@ use std::{
 };
 
 const APPLICATION_ID: i32 = 0x5047_5043; // PGPC
-const USER_VERSION: i32 = 1;
+const USER_VERSION: i32 = 2;
+/// Layouts earlier releases wrote. A file stamped with one is this
+/// software's own file from another version, not a foreign or a damaged
+/// database, so it is discarded whole rather than refused.
+const EARLIER_USER_VERSIONS: [i32; 1] = [1];
 const VALUE_SCHEMA: &str = "pangopup-model-cache-value-v1";
 const BUSY_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_KEY_BYTES: usize = 16 * 1024;
@@ -319,12 +323,22 @@ pub struct ModelResultCache {
     discarded: bool,
 }
 
+/// What one open found. A cache is handed back for the two cases that opened
+/// one; an earlier layout is recognized from the file's stamp before any table
+/// is read, so nothing is opened for it.
+enum Opened {
+    Matching(ModelResultCache),
+    OtherSetup(ModelResultCache),
+    EarlierLayout,
+}
+
 impl ModelResultCache {
     /// Open an explicitly selected cache. Incompatible/corrupt explicit
     /// databases are returned to the caller rather than deleted. A cache a
-    /// different setup filled is discarded whole, the way a disposable one is:
-    /// the caller is told so it can report it, not left reading rows the
-    /// running setup would never write.
+    /// different setup filled, including one an earlier release wrote, is
+    /// discarded whole, the way a disposable one is: the caller is told so it
+    /// can report it, not left reading rows the running setup would never
+    /// write.
     pub fn open_explicit(
         path: &Path,
         setup: &CacheIdentity,
@@ -364,13 +378,29 @@ impl ModelResultCache {
         limit: EntryLimit,
         create_parent: bool,
     ) -> Result<Self, CacheError> {
-        let (cache, matched) = Self::open_inner(path, setup, limit, create_parent)?;
-        if matched {
-            return Ok(cache);
+        match Self::open_inner(path, setup, limit, create_parent)? {
+            Opened::Matching(cache) => Ok(cache),
+            Opened::OtherSetup(cache) => {
+                drop(cache);
+                Self::replace(path, setup, limit, create_parent)
+            }
+            Opened::EarlierLayout => Self::replace(path, setup, limit, create_parent),
         }
-        drop(cache);
+    }
+
+    /// Throw the whole file away and open a fresh one recording the running
+    /// setup, then tell the caller so it can report the discard.
+    fn replace(
+        path: &Path,
+        setup: &CacheIdentity,
+        limit: EntryLimit,
+        create_parent: bool,
+    ) -> Result<Self, CacheError> {
         remove_database_family(path)?;
-        let (mut cache, _) = Self::open_inner(path, setup, limit, create_parent)?;
+        let Opened::Matching(mut cache) = Self::open_inner(path, setup, limit, create_parent)?
+        else {
+            return Err(CacheError::Incompatible);
+        };
         cache.discarded = true;
         Ok(cache)
     }
@@ -382,7 +412,7 @@ impl ModelResultCache {
         setup: &CacheIdentity,
         limit: EntryLimit,
         create_parent: bool,
-    ) -> Result<(Self, bool), CacheError> {
+    ) -> Result<Opened, CacheError> {
         validate_absolute(path)?;
         let parent = path
             .parent()
@@ -424,9 +454,18 @@ impl ModelResultCache {
         let user_version: i32 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(map_sqlite)?;
-        if (application_id != 0 && application_id != APPLICATION_ID)
-            || (user_version != 0 && user_version != USER_VERSION)
-        {
+        if application_id != 0 && application_id != APPLICATION_ID {
+            return Err(CacheError::Incompatible);
+        }
+        if user_version != 0 && user_version != USER_VERSION {
+            // Our own file under a layout another release wrote. A software
+            // change is what the recorded setup exists to catch, so discard it
+            // whole and say so rather than refusing the run. Anything else --
+            // a foreign database, a damaged one, a layout this build does not
+            // know -- stays incompatible.
+            if application_id == APPLICATION_ID && EARLIER_USER_VERSIONS.contains(&user_version) {
+                return Ok(Opened::EarlierLayout);
+            }
             return Err(CacheError::Incompatible);
         }
         let initialized = application_id == APPLICATION_ID && user_version == USER_VERSION;
@@ -497,7 +536,11 @@ impl ModelResultCache {
             discarded: false,
         };
         cache.evict_to_limit().map_err(map_sqlite)?;
-        Ok((cache, matched))
+        Ok(if matched {
+            Opened::Matching(cache)
+        } else {
+            Opened::OtherSetup(cache)
+        })
     }
 
     pub fn get(&mut self, key: &CacheKey) -> Result<Option<Vec<ModelGeneScoreRecord>>, CacheError> {
@@ -575,7 +618,11 @@ impl ModelResultCache {
         let old = std::mem::replace(&mut self.connection, placeholder);
         drop(old);
         remove_database_family(&self.path)?;
-        let (mut replacement, _) = Self::open_inner(&self.path, &self.setup, self.limit, true)?;
+        let Opened::Matching(mut replacement) =
+            Self::open_inner(&self.path, &self.setup, self.limit, true)?
+        else {
+            return Err(CacheError::Incompatible);
+        };
         self.connection = std::mem::replace(
             &mut replacement.connection,
             Connection::open_in_memory().map_err(map_sqlite)?,

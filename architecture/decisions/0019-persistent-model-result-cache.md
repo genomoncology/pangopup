@@ -24,7 +24,9 @@ discarded whole when any of them changed. No migration keeps old rows readable.
 Ticket 0040 measured that no thread or worker setting moves any published field,
 so the CPU policy is neither keyed nor recorded. A discard is reported on
 standard error, naming the file, so an explicitly selected database is never
-*silently* replaced.
+*silently* replaced. `user_version` stamps the file layout: a file an earlier
+release's layout wrote is discarded and reported the same way, while a foreign
+or damaged database is still refused rather than deleted.
 
 ## Why
 

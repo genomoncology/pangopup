@@ -2,6 +2,8 @@
 ---
 # An explicitly named cache from an earlier schema fails the run
 
+Closed inside ticket 0058 by its code review. `USER_VERSION` now stamps the file layout, and a file carrying a layout an earlier release wrote is discarded whole and reported, the way any other setup change is, instead of failing the run. A foreign, damaged or later-layout database is still refused rather than deleted. Measured: a `--model-cache` path holding a v0.4.x cache now exits 0, prints one score line, names the discarded file on standard error, and refills. Nothing below is still open.
+
 Ticket 0058 discards a cache file whose recorded setup is not the running setup, and it changed the shape of the cache file to hold that record. A file an earlier release wrote has no setup table at all, so it is not a setup mismatch. It is a schema mismatch, and an explicitly named database is never deleted on one. The run stops instead of throwing the file away and refilling it.
 
 Measured in this checkout on 2026-09-09.
