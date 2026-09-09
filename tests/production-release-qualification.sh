@@ -314,6 +314,92 @@ for replayed in model-M09.jsonl model-only-SNV.jsonl http-snv.txt http-model.txt
   fi
 done
 
+# The two model oracles are the published model's answers, so the harness has to
+# keep replaying their scores. The record's shape is a different matter. The
+# built executable renders a model-route record from committed fixtures alone --
+# the miniature model kernel, the route reference bundle and the route mask --
+# on both routes the release qualifies: the fallback a precomputed miss takes,
+# and the forced route. Nothing about those two records is comparable to the
+# oracles except their shape, and their shape is exactly what the checker
+# describes, because it compares the release's bytes against an oracle it can
+# never move. Require the renderer and each oracle to carry the same keys, in
+# the same order, with the same leaf types, so a field added to, removed from or
+# renamed in a model-route record fails here rather than at qualification time.
+model_shape_cache=$root/model-shape-cache
+install -d -m 700 "$model_shape_cache"
+# The model route writes a result cache. Point it inside this run and clear the
+# four variables that could redirect it, exactly as the runner does, so the
+# render reaches the committed fixtures and nothing an installed profile owns.
+model_render=(
+  env -u PANGOPUP_DATA_DIR -u PANGOPUP_CACHE_DIR -u PANGOPUP_MODEL_CACHE \
+    -u PANGOPUP_MODEL_CACHE_MAX_ENTRIES "XDG_CACHE_HOME=$model_shape_cache"
+  "$real_cli" lookup
+  --variant GRCh38:chr1:5051:A:AC
+  --reference-bundle "$repo/tests/fixtures/reference-route-test/bundle"
+  --mask "$repo/tests/fixtures/route-mask/domains.pgm"
+  --model-bundle "$repo/tests/fixtures/pangolin-model-kernel-mini/bundle"
+  --format jsonl
+)
+"${model_render[@]}" --bundle "$repo/tests/fixtures/snv-regression/bundle" \
+  >"$rendered/model-fallback.jsonl"
+"${model_render[@]}" --model-only >"$rendered/model-only.jsonl"
+python3 - \
+  "$rendered/model-fallback.jsonl" "$repo/tests/fixtures/executable-release/m09.jsonl" \
+    M09-insertion-short-plus \
+  "$rendered/model-only.jsonl" "$repo/tests/fixtures/executable-release/model-only-snv.jsonl" \
+    'model-only SNV' \
+  <<'MODELSHAPE'
+import json
+import pathlib
+import sys
+
+
+def shape(value):
+    """The key structure and leaf types, with list contents left opaque.
+
+    Two model-route records scored from different bundles share no value: the
+    accession, both scores, every position and every provenance identity
+    differ. What they must share is the key set, the key order and the type of
+    each leaf, because the checker compares a release's bytes against an oracle
+    byte for byte.
+    """
+    if isinstance(value, dict):
+        return [[key, shape(item)] for key, item in value.items()]
+    if isinstance(value, list):
+        return "list"
+    if isinstance(value, bool):
+        return "bool"
+    return type(value).__name__
+
+
+def model_shape(path, drop_names):
+    value = json.loads(pathlib.Path(path).read_text(encoding="utf-8").splitlines()[0])
+    assert value["provenance"]["kind"] == "model", f"{path} is not a model-route record"
+    records = value["records"]
+    assert len(records) == 1, f"{path} carries {len(records)} records, not one"
+    record = dict(records[0])
+    if drop_names:
+        # scripts/check-production-qualification.py removes the naming leaf
+        # before it compares, because the oracles carry scoring bytes alone.
+        record.pop("gene_names", None)
+    return [shape(value), shape(record)]
+
+
+arguments = sys.argv[1:]
+assert len(arguments) % 3 == 0 and arguments, "expected rendered/oracle/label triples"
+for index in range(0, len(arguments), 3):
+    rendered_path, oracle_path, label = arguments[index : index + 3]
+    rendered = model_shape(rendered_path, drop_names=True)
+    oracle = model_shape(oracle_path, drop_names=False)
+    assert rendered == oracle, (
+        f"the shipped renderer and the {label} oracle disagree about what a "
+        "model-route record carries, so scripts/check-production-qualification.py "
+        "describes a record the tool no longer prints\n"
+        f"  renderer: {json.dumps(rendered)}\n"
+        f"  oracle:   {json.dumps(oracle)}"
+    )
+MODELSHAPE
+
 # A field added to what the tool prints for a scored record must fail the
 # checker, on each surface the checker compares with its own implementation:
 # the precomputed route and the model route byte for byte, the HTTP score item
@@ -332,12 +418,13 @@ grep -Fq 'scripts/check-production-qualification.py' "$root/drift-add.guidance"
 cp -a "$root/output" "$root/drift-add-model-output"
 sed -i 's/"stable_gene":"\([A-Z0-9]*\)"/"stable_gene":"\1","drift_probe":true/' \
   "$root/drift-add-model-output/model-M09.jsonl"
-if "$repo/scripts/check-production-qualification.py" "$root/drift-add-model-output" "$repo" \
-  >"$root/drift-add-model.out" 2>"$root/drift-add-model.err"; then
+if require_checker_accepts drift-add-model "$root/drift-add-model-output" \
+  2>"$root/drift-add-model.guidance"; then
   printf 'checker accepted a model record carrying a field the oracles do not\n' >&2
   exit 1
 fi
 grep -Fxq 'model oracle mismatch: M09-insertion-short-plus' "$root/drift-add-model.err"
+grep -Fq 'scripts/check-production-qualification.py' "$root/drift-add-model.guidance"
 
 cp -a "$root/output" "$root/drift-remove-output"
 sed -i 's/,"loss_position":-\?[0-9]\+//g' "$root/drift-remove-output/snv-ENSG00000010610.jsonl"
