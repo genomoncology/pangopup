@@ -538,11 +538,20 @@ fn an_explicitly_named_cache_is_discarded_on_a_setup_change_too() {
     assert_eq!(entry_count(&cache), 2, "both variants must be cached first");
 
     let other = setup.with_other_reference(temp.path());
-    succeeded(&run(&other, &[FIRST_VARIANT]));
+    let discarded = run(&other, &[FIRST_VARIANT]);
+    succeeded(&discarded);
     assert_eq!(
         entry_count(&cache),
         1,
         "a chosen cache path is still a shortcut: a setup change discards it whole"
+    );
+    // A chosen file is never replaced silently. The rule the repository already
+    // publishes is satisfied by saying so, not by keeping rows another setup
+    // wrote.
+    let report = String::from_utf8(discarded.stderr).expect("UTF-8 report");
+    assert!(
+        report.contains(&cache.display().to_string()),
+        "discarding a file the caller chose must name it, and this run said: {report:?}"
     );
 }
 
