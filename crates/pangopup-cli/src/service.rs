@@ -1636,7 +1636,11 @@ fn add_service_fields(
     else {
         return Err(());
     };
-    let mut text = String::with_capacity(value.get().len() + input.len() + 128);
+    // The wrapper costs 197 bytes beyond `value` and `input`: the `{"input":`
+    // prefix, two quotes, one comma, two 20-byte key names, two 73-byte
+    // `sha256:` digests, and the closing brace, less the two braces `fields`
+    // drops. A smaller hint reallocates on every item.
+    let mut text = String::with_capacity(value.get().len() + input.len() + 197);
     text.push_str("{\"input\":");
     text.push_str(&serde_json::to_string(input).map_err(|_| ())?);
     text.push(',');
