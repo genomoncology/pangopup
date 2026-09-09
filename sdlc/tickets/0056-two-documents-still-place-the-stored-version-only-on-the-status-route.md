@@ -1,4 +1,6 @@
 ---
+flow: build
+priority: 2
 ---
 # Two documents still place the stored version only on the status route
 

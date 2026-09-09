@@ -1,4 +1,6 @@
 ---
+flow: build
+priority: 3
 ---
 # Five spec gates pass on a cargo filter that matches nothing
 

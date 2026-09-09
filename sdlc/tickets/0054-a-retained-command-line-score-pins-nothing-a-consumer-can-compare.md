@@ -1,4 +1,6 @@
 ---
+flow: build
+priority: 5
 ---
 # A retained command-line score pins nothing a consumer can compare
 
