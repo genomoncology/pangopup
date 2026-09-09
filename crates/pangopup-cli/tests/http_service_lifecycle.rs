@@ -921,6 +921,37 @@ mod installed_success {
         );
         assert_eq!(looked_up["gene_names"]["source"], "hgnc");
         assert_eq!(looked_up["gene_names"]["hgnc_id"], "HGNC:1678");
+
+        // The third way in. An explicit bundle scores the same variant against
+        // the same bundle bytes without resolving a data root. The gene-name
+        // index travels in the executable, so which flag chose the bundle
+        // cannot change what the gene is called.
+        let explicit = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+            .args([
+                "lookup",
+                "--bundle",
+                fixture("snv-regression/bundle").to_str().expect("bundle"),
+                "--variant",
+                "GRCh38:chr12:6801301:G:A",
+            ])
+            .output()
+            .expect("run lookup against an explicit bundle");
+        assert!(
+            explicit.status.success(),
+            "{}",
+            String::from_utf8_lossy(&explicit.stderr)
+        );
+        let explicit = String::from_utf8(explicit.stdout).expect("lookup is UTF-8");
+        let explicit: Value = serde_json::from_str(explicit.lines().next().expect("one result"))
+            .expect("lookup JSON");
+        assert_eq!(
+            explicit["records"][0]["gene_names"], served["gene_names"],
+            "an explicit bundle names the accession exactly as the service does: {explicit}"
+        );
+        assert_eq!(
+            explicit["records"][0], *looked_up,
+            "one variant renders one record whichever way the caller chose its bundle"
+        );
     }
 
     #[test]

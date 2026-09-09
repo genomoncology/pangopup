@@ -4,6 +4,15 @@ set -euo pipefail
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 wrapper="$repository/scripts/run-linux-tests-with-public-failure.sh"
 [[ -x "$wrapper" ]]
+
+# The wrapper's annotation points a CI reader at the `test:` recipe by line
+# number. Nothing else holds that number true, so a recipe added above `test:`
+# would silently aim every reported failure at the wrong line. Check it here
+# instead of remembering it.
+[[ "$(sed -n '30p' "$repository/Makefile")" == test:* ]] || {
+    printf 'Makefile line 30 is no longer the test recipe, so the CI annotation points at the wrong line\n' >&2
+    exit 1
+}
 fixture=$(mktemp -d)
 trap 'rm -rf "$fixture"' EXIT
 fake_bin="$fixture/bin"

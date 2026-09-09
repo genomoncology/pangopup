@@ -100,6 +100,7 @@ fn seven_cli_batches_match_the_direct_oracle_subsets() {
     }
     assert_eq!(groups.len(), 7);
     let executable = env!("CARGO_BIN_EXE_pangopup");
+    let mut total_named = 0_usize;
     for (group, requests) in groups {
         let mut command = Command::new(executable);
         command
@@ -119,13 +120,55 @@ fn seven_cli_batches_match_the_direct_oracle_subsets() {
             String::from_utf8_lossy(&output.stderr)
         );
         assert!(output.stderr.is_empty());
+        // The oracle comes from `pangopup-regression-fixture`, which joins the
+        // source TSV by hand and never calls the CLI renderer or the gene-name
+        // index. That independence is what the comparison is worth, so the
+        // oracle carries scoring bytes alone. Take the naming objects out of
+        // the CLI's output and compare the rest exactly. A naming object that
+        // did not close, or any other new field, still fails here.
+        let (scoring, named) = strip_gene_names(&output.stdout);
         assert_eq!(
-            output.stdout,
+            scoring,
             fs::read(fixture.join("expected").join(format!("{group}.jsonl")))
                 .expect("group oracle"),
-            "{group} output"
+            "{group} scoring bytes"
         );
+        assert!(
+            named > 0,
+            "{group} rendered no gene name, so the shipped index reached nothing"
+        );
+        total_named += named;
     }
+    assert!(
+        total_named >= 900,
+        "the seven batches named {total_named} records, so naming stopped reaching the batch route"
+    );
+}
+
+/// Remove every `gene_names` object and report how many were removed. The
+/// object is a leaf on a record and its own braces are the only ones it
+/// carries, so the scan closes on the first `}` and never crosses a record.
+fn strip_gene_names(rendered: &[u8]) -> (Vec<u8>, usize) {
+    const OPEN: &[u8] = b",\"gene_names\":{";
+    let mut scoring = Vec::with_capacity(rendered.len());
+    let mut removed = 0;
+    let mut rest = rendered;
+    while let Some(at) = rest.windows(OPEN.len()).position(|window| window == OPEN) {
+        scoring.extend_from_slice(&rest[..at]);
+        let body = &rest[at + OPEN.len()..];
+        let close = body
+            .iter()
+            .position(|byte| *byte == b'}')
+            .expect("a gene_names object closes");
+        assert!(
+            !body[..close].contains(&b'{'),
+            "a gene_names object carries no nested object"
+        );
+        rest = &body[close + 1..];
+        removed += 1;
+    }
+    scoring.extend_from_slice(rest);
+    (scoring, removed)
 }
 
 #[cfg(unix)]

@@ -10,6 +10,16 @@ install -d -m 700 "$root/bin"
 cat >"$root/bin/pangopup" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
+
+# The oracles beside this harness carry scoring bytes alone. A real release
+# names every accession the shipped gene-name index reaches, so the stub adds
+# the naming leaf the checker must take back out. Records only: the checker
+# needs one leaf per file and every leaf removable, and an ambiguity's leaf
+# would prove nothing further here.
+name_records() {
+  python3 "$QUALIFICATION_NAME_RECORDS"
+}
+
 command=$1
 shift
 if [[ "${1:-}" == --help ]]; then
@@ -79,13 +89,13 @@ case "$command" in
   lookup)
     if [[ " $* " == *' --model-only '* && " $* " == *' GRCh38:chr12:6801301:G:A '* ]]; then
       printf 'model\n' >>"$QUALIFICATION_LOOKUP_LOG"
-      cat "$QUALIFICATION_SOURCE/tests/fixtures/executable-release/model-only-snv.jsonl"
+      name_records < "$QUALIFICATION_SOURCE/tests/fixtures/executable-release/model-only-snv.jsonl"
       exit
     fi
     if [[ " $* " == *' GRCh38:chr12:6801303:G:GA '* ]]; then
       [[ " $* " != *' --bundle '* ]] || exit 2
       printf 'model\n' >>"$QUALIFICATION_LOOKUP_LOG"
-      cat "$QUALIFICATION_SOURCE/tests/fixtures/executable-release/m09.jsonl"
+      name_records < "$QUALIFICATION_SOURCE/tests/fixtures/executable-release/m09.jsonl"
       exit
     fi
     group=unfiltered
@@ -107,7 +117,7 @@ case "$command" in
     printf 'snv\t%s\n' "$bundle" >>"$QUALIFICATION_LOOKUP_LOG"
     mapfile -t expected_variants < <(awk -F '\t' -v group="$group" 'NR > 1 && $2 == group { print $4 }' "$QUALIFICATION_SOURCE/tests/fixtures/snv-regression/requests.tsv")
     [[ "${variants[*]}" == "${expected_variants[*]}" ]] || exit 2
-    cat "$QUALIFICATION_SOURCE/tests/fixtures/snv-regression/expected/$group.jsonl"
+    name_records < "$QUALIFICATION_SOURCE/tests/fixtures/snv-regression/expected/$group.jsonl"
     ;;
   serve)
     exec python3 - "$QUALIFICATION_SOURCE" <<'PY'
@@ -143,6 +153,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         else:
             result = model
         result = dict(result)
+        result["records"] = [
+            dict(record, gene_names={
+                "symbol": "CD4",
+                "source": "hgnc",
+                "hgnc_id": "HGNC:1678",
+                "ncbi_gene_id": 920,
+                "alias_symbols": ["T4", "Leu-3"],
+            })
+            for record in result["records"]
+        ]
         result["input"] = request["variants"][0]
         result["scoring_identity"] = scoring_identity
         self.emit({"results":[result]})
@@ -154,6 +174,21 @@ PY
 esac
 SH
 chmod 755 "$root/bin/pangopup"
+
+cat >"$root/bin/name-records.py" <<'NAMERECORDS'
+"""Add the naming leaf a real release renders onto every replayed record."""
+import re
+import sys
+
+LEAF = (
+    ',"gene_names":{"symbol":"CD4","source":"hgnc","hgnc_id":"HGNC:1678",'
+    '"ncbi_gene_id":920,"alias_symbols":["T4","Leu-3"]}'
+)
+sys.stdout.write(
+    re.sub(r'("stable_gene":"[A-Z0-9]+")', lambda m: m.group(1) + LEAF, sys.stdin.read())
+)
+NAMERECORDS
+export QUALIFICATION_NAME_RECORDS=$root/bin/name-records.py
 
 jq -S -c '(.provenance) as $provenance | .results[0] | .records |= map(. + {stable_gene: (.gene | sub("\\..*$"; ""))}) | . + {provenance:$provenance}' \
   "$repo/tests/fixtures/container-qualification/production-model-oracle.json" \
@@ -265,6 +300,49 @@ if "$repo/scripts/check-production-qualification.py" "$root/model-only-output" "
   exit 1
 fi
 grep -Fxq 'model-only SNV oracle mismatch' "$root/model-only.err"
+
+cp -a "$root/output" "$root/unnamed-output"
+sed -i 's/,"gene_names":{[^}]*}//g' "$root/unnamed-output/snv-ENSG00000010610.jsonl"
+if "$repo/scripts/check-production-qualification.py" "$root/unnamed-output" "$repo" >"$root/unnamed.out" 2>"$root/unnamed.err"; then
+  printf 'checker accepted a release that named no gene\n' >&2
+  exit 1
+fi
+grep -Fxq 'the release named no gene in snv-ENSG00000010610.jsonl' "$root/unnamed.err"
+
+cp -a "$root/output" "$root/unnamed-model-output"
+sed -i 's/,"gene_names":{[^}]*}//g' "$root/unnamed-model-output/model-M09.jsonl"
+if "$repo/scripts/check-production-qualification.py" "$root/unnamed-model-output" "$repo" >"$root/unnamed-model.out" 2>"$root/unnamed-model.err"; then
+  printf 'checker accepted a model route that named no gene\n' >&2
+  exit 1
+fi
+grep -Fxq 'the release named no gene in M09-insertion-short-plus' "$root/unnamed-model.err"
+
+cp -a "$root/output" "$root/unnamed-http-output"
+python3 - "$root/unnamed-http-output/http-snv.txt" <<'STRIPNAMES'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+head, separator, body = path.read_bytes().partition(b"\r\n\r\n")
+assert separator
+value = json.loads(body)
+for record in value["results"][0]["records"]:
+    record.pop("gene_names", None)
+body = json.dumps(value, separators=(",", ":")).encode() + b"\n"
+head = b"\r\n".join(
+    line
+    for line in head.split(b"\r\n")
+    if not line.lower().startswith(b"content-length:")
+)
+head += b"\r\ncontent-length: " + str(len(body)).encode()
+path.write_bytes(head + separator + body)
+STRIPNAMES
+if "$repo/scripts/check-production-qualification.py" "$root/unnamed-http-output" "$repo" >"$root/unnamed-http.out" 2>"$root/unnamed-http.err"; then
+  printf 'checker accepted an HTTP response that named no gene\n' >&2
+  exit 1
+fi
+grep -Fxq 'HTTP SNV named no gene' "$root/unnamed-http.err"
 
 cp -a "$root/output" "$root/http-output"
 sed -i 's/"version":"0.5.0"/"version":"9.9.9"/' "$root/http-output/http-status.txt"

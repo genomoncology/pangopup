@@ -44,6 +44,11 @@ EXPECTED_SHA256 = {
     "unfiltered": "3d70dab863439ab57c2702dcde7af36732dac763844085687506b9ca25294a58",
 }
 BUNDLE_FIELD = re.compile(br',"bundle_id":"sha256:[0-9a-f]{64}"')
+# The naming leaf on one score record. The oracles come from
+# pangopup-regression-fixture, which joins the source TSV by hand and reads
+# no gene-name index, so they carry scoring bytes alone. Take the naming
+# objects out of what the release printed and compare the rest exactly.
+GENE_NAMES_FIELD = re.compile(br',"gene_names":\{[^{}]*\}')
 TRANSFER = re.compile(
     r"^sync: (?:snv|runtime) \S+ (?:cached|fresh|resume|restart) attempt [1-4]/4 "
     r"\d+/\d+ bytes \((\d+) downloaded, (\d+) resumed\)$"
@@ -80,7 +85,7 @@ def closed_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return value
 
 
-def canonical_snv(path: pathlib.Path) -> bytes:
+def canonical_snv(path: pathlib.Path, *, expect_names: bool = False) -> bytes:
     try:
         content = path.read_bytes()
     except OSError as error:
@@ -88,6 +93,7 @@ def canonical_snv(path: pathlib.Path) -> bytes:
     if not content or not content.endswith(b"\n") or b"\r" in content:
         fail(f"invalid SNV JSONL framing: {path.name}")
     output = bytearray()
+    naming_counts: list[int] = []
     for number, line in enumerate(content[:-1].split(b"\n"), 1):
         try:
             value = json.loads(line, object_pairs_hook=closed_object)
@@ -101,9 +107,15 @@ def canonical_snv(path: pathlib.Path) -> bytes:
         if len(matches) != 1:
             fail(f"bundle identity is not one exact removable field: {path.name}:{number}")
         match = matches[0]
-        output.extend(line[: match.start()])
-        output.extend(line[match.end() :])
+        line = line[: match.start()] + line[match.end() :]
+        line, named = GENE_NAMES_FIELD.subn(b"", line)
+        if b"gene_names" in line:
+            fail(f"gene_names is not an exact removable field: {path.name}:{number}")
+        naming_counts.append(named)
+        output.extend(line)
         output.extend(b"\n")
+    if expect_names and sum(naming_counts) == 0:
+        fail(f"the release named no gene in {path.name}")
     return bytes(output)
 
 
@@ -133,6 +145,25 @@ def json_equal(actual: object, expected: object) -> bool:
             for actual_item, expected_item in zip(actual, expected)
         )
     return actual == expected
+
+
+def scoring_bytes(path: pathlib.Path, label: str) -> bytes:
+    """The released model-route output with its naming leaves removed.
+
+    The model oracles are hand-written scoring records. Both accessions the
+    release scores here are named, so the naming leaf must be present and must
+    come out cleanly.
+    """
+    try:
+        content = path.read_bytes()
+    except OSError as error:
+        fail(f"cannot read model output: {label}: {error}")
+    scoring, named = GENE_NAMES_FIELD.subn(b"", content)
+    if named == 0:
+        fail(f"the release named no gene in {label}")
+    if b"gene_names" in scoring:
+        fail(f"gene_names is not an exact removable field: {label}")
+    return scoring
 
 
 def require_fixture_identities(source: pathlib.Path) -> None:
@@ -234,6 +265,35 @@ def http_body(path: pathlib.Path) -> object:
         fail(f"invalid HTTP JSON: {path.name}: {error}")
 
 
+def without_gene_names(value: object) -> tuple[object, int]:
+    """The same value with every naming leaf removed, and how many came out.
+
+    The service names every accession the shipped index reaches. The oracles
+    beside it carry scoring bytes alone, so the leaf comes out before the two
+    are compared.
+    """
+    if isinstance(value, dict):
+        removed = 0
+        stripped: dict[str, object] = {}
+        for key, item in value.items():
+            if key == "gene_names":
+                removed += 1
+                continue
+            item, count = without_gene_names(item)
+            removed += count
+            stripped[key] = item
+        return stripped, removed
+    if isinstance(value, list):
+        removed = 0
+        items = []
+        for item in value:
+            item, count = without_gene_names(item)
+            removed += count
+            items.append(item)
+        return items, removed
+    return value, 0
+
+
 def require_http_score(
     response: object,
     oracle: object,
@@ -263,6 +323,9 @@ def require_http_score(
     score = dict(result)
     del score["input"]
     del score["scoring_identity"]
+    score, named = without_gene_names(score)
+    if named == 0:
+        fail(f"HTTP {label} named no gene")
     if ignore_bundle_identity:
         score = without_bundle_identity(score)
         oracle = without_bundle_identity(oracle)
@@ -308,7 +371,7 @@ def main() -> None:
     for group in GROUPS:
         actual_path = output / f"snv-{group}.jsonl"
         expected_path = source / "tests/fixtures/snv-regression/expected" / f"{group}.jsonl"
-        actual = canonical_snv(actual_path)
+        actual = canonical_snv(actual_path, expect_names=True)
         expected = canonical_snv(expected_path)
         if actual != expected:
             fail(f"SNV oracle mismatch: {group}")
@@ -317,11 +380,11 @@ def main() -> None:
 
     model_actual = output / "model-M09.jsonl"
     model_expected = source / "tests/fixtures/executable-release/m09.jsonl"
-    if model_actual.read_bytes() != model_expected.read_bytes():
+    if scoring_bytes(model_actual, "M09-insertion-short-plus") != model_expected.read_bytes():
         fail("model oracle mismatch: M09-insertion-short-plus")
     model_only = output / "model-only-SNV.jsonl"
     model_only_expected = source / "tests/fixtures/executable-release/model-only-snv.jsonl"
-    if model_only.read_bytes() != model_only_expected.read_bytes():
+    if scoring_bytes(model_only, "model-only SNV") != model_only_expected.read_bytes():
         fail("model-only SNV oracle mismatch")
     automatic_snv = canonical_snv(output / "snv-ENSG00000010610.jsonl").splitlines()[0]
     if b'"kind":"precomputed"' not in automatic_snv \

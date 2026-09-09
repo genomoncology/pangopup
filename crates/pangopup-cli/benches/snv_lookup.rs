@@ -1,6 +1,6 @@
 use pangopup_cli::{OutputFormat, RenderRequest, render_requests};
 use pangopup_core::{DnaBase, EnsemblGeneId, GenomicPosition, Grch38Snv, ScoreProvider};
-use pangopup_index::BundleOpen;
+use pangopup_index::{BundleOpen, gene_names};
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     collections::BTreeMap,
@@ -84,9 +84,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     benchmark_open(&bundle_path)?;
     let provider = BundleOpen::open(&bundle_path)?;
+    let names = gene_names::shipped();
     for (name, queries) in groups {
         let materialized = materialize(&provider, &queries);
-        let expected_cli = render_requests(OutputFormat::Jsonl, &materialized, None)?;
+        // The CLI names every accession the shipped index reaches, so its
+        // oracle is the same render with the same index. A `None` render here
+        // would compare the CLI against bytes the CLI never prints.
+        let expected_cli = render_requests(OutputFormat::Jsonl, &materialized, Some(&names))?;
         benchmark_cli(&cli, &bundle_path, &name, &queries, &expected_cli)?;
         benchmark_lookup(&provider, &name, &queries)?;
         benchmark_serialization(&name, &materialized, OutputFormat::Jsonl)?;

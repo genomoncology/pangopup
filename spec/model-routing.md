@@ -26,7 +26,7 @@ pangopup lookup \
   --bundle ../tests/fixtures/snv-regression/bundle \
   --variant GRCh38:chr12:6801301:G:A \
   | rg -o '"position":6801301.*"kind":"precomputed"' \
-  | mustmatch like '"position":6801301,"ref":"G","alt":"A","status":"found","records":[{"gene":"ENSG00000010610","stable_gene":"ENSG00000010610","gain_score":"0.00","gain_position":-50,"loss_score":"0.00","loss_position":-50}],"source_reference_ambiguities":[],"provenance":{"kind":"precomputed"'
+  | mustmatch like '"position":6801301,"ref":"G","alt":"A","status":"found","records":[{"gene":"ENSG00000010610","stable_gene":"ENSG00000010610","gene_names":{"symbol":"CD4","source":"hgnc","hgnc_id":"HGNC:1678","ncbi_gene_id":920,"alias_symbols":["T4","Leu-3"]},"gain_score":"0.00","gain_position":-50,"loss_score":"0.00","loss_position":-50}],"source_reference_ambiguities":[],"provenance":{"kind":"precomputed"'
 pangopup lookup \
   --model-only \
   --variant GRCh38:chr1:5051:A:C \

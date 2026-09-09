@@ -55,10 +55,11 @@ impl Error for RenderError {}
 /// Render already-materialized lookup results through the shipped CLI wire
 /// boundary. The binary and performance harness both call this function.
 ///
-/// `names` carries the gene-name index the build ships, or nothing where the
-/// caller opened its own SNV bundle and stays self-contained. An unnamed gene
-/// reports its Ensembl accession alone. The human-readable table gains no
-/// names.
+/// `names` carries the gene-name index the build ships. Every shipped surface
+/// passes it, so one accession gets one name however the caller reached it.
+/// Nothing is the harness form: the regression oracles are produced without
+/// the index so they compare scoring bytes alone. An unnamed gene reports its
+/// Ensembl accession alone. The human-readable table gains no names.
 pub fn render_requests(
     format: OutputFormat,
     requests: &[RenderRequest],

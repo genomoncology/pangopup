@@ -724,10 +724,11 @@ fn run_lookup_with_runtime_opener(
         implicit_cache_path,
         implicit_cache_limit,
     } = arguments;
-    // Gene names are a label store the build carries. They are read only where
-    // a data root is already resolved, so an explicit `--bundle` or explicit
-    // model assets stay self-contained and render the accession alone.
-    let mut names: Option<GeneNameIndex> = None;
+    // Gene names travel with the build, so one executable answers one
+    // accession with one name. Neither an explicit bundle nor explicit model
+    // assets changes what a gene is called: the index is read from the
+    // executable and no path, asset or install step reaches it.
+    let names: GeneNameIndex = gene_names::shipped();
     if model_only {
         for input in &variants {
             if let VariantInput::Literal(variant) = input {
@@ -747,7 +748,6 @@ fn run_lookup_with_runtime_opener(
             }
             None => {
                 let root = data_root(data_dir)?;
-                names = Some(gene_names::shipped());
                 runtime_opener(&root, None)?
             }
         };
@@ -768,7 +768,7 @@ fn run_lookup_with_runtime_opener(
             admission,
             Rendering {
                 format,
-                names: names.as_ref(),
+                names: &names,
             },
             cache_options,
             implicit_cache_path,
@@ -780,7 +780,6 @@ fn run_lookup_with_runtime_opener(
         Some(path) => (BundleOpen::open(&path).map_err(map_open_error)?, None),
         None => {
             let root = data_root(data_dir)?;
-            names = Some(gene_names::shipped());
             let (active, bundle) = open_active_bundle(&root).map_err(map_lookup_asset_error)?;
             (bundle, Some((root, active.bundle_id)))
         }
@@ -814,7 +813,7 @@ fn run_lookup_with_runtime_opener(
         return render_lookup_requests(
             Rendering {
                 format,
-                names: names.as_ref(),
+                names: &names,
             },
             &requests,
         );
@@ -886,7 +885,7 @@ fn run_lookup_with_runtime_opener(
             admission,
             Rendering {
                 format,
-                names: names.as_ref(),
+                names: &names,
             },
             cache_options,
             implicit_cache_path,
@@ -904,7 +903,7 @@ fn run_lookup_with_runtime_opener(
     render_lookup_requests(
         Rendering {
             format,
-            names: names.as_ref(),
+            names: &names,
         },
         &requests,
     )
@@ -1085,17 +1084,19 @@ fn map_lookup_error(error: pangopup_core::LookupError) -> Failure {
 }
 
 /// The wire format and the gene-name index travel together into every render.
+/// The index is not optional here. Every command-line render names every
+/// accession the index reaches, whichever way the caller chose its bundle.
 #[derive(Clone, Copy)]
 struct Rendering<'a> {
     format: OutputFormat,
-    names: Option<&'a GeneNameIndex>,
+    names: &'a GeneNameIndex,
 }
 
 fn render_lookup_requests(
     rendering: Rendering<'_>,
     requests: &[RenderRequest],
 ) -> Result<Vec<u8>, Failure> {
-    render_requests(rendering.format, requests, rendering.names).map_err(|error| Failure {
+    render_requests(rendering.format, requests, Some(rendering.names)).map_err(|error| Failure {
         code: "LOOKUP_CORRUPT",
         message: error.to_string(),
         exit: 1,

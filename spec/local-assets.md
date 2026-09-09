@@ -42,22 +42,20 @@ exclusive guard; under contention status returns promptly with
 `installing: true` and best-effort component observations.
 
 Implicit lookup discovers the active bundle and preserves the exact existing
-scoring bytes. The explicit override remains compatible and cannot be combined
+lookup bytes. The explicit override remains compatible and cannot be combined
 with `--data-dir`.
 
-An explicit bundle stays self-contained. It opens no data root and reports each
-gene by Ensembl accession alone. A resolved data root names every record from
-the gene-name index the build ships. Stripping those names from the implicit
-output leaves the explicit bytes exactly, so naming carries no scoring byte.
+How a caller chose its bundle does not change what a gene is called. The
+gene-name index travels in the executable, so an explicit bundle and a resolved
+data root name the same accession the same way and return the same bytes.
 
 ```bash
 data=$(cd .. && pwd)/target/spec/local-assets/data
 pangopup lookup --bundle ../target/spec/local-assets/bundle --variant GRCh38:chr12:6801301:G:A > ../target/spec/local-assets/explicit.jsonl
 pangopup lookup --data-dir "$data" --variant GRCh38:chr12:6801301:G:A > ../target/spec/local-assets/implicit.jsonl
-! rg -F 'gene_names' ../target/spec/local-assets/explicit.jsonl
+cmp ../target/spec/local-assets/explicit.jsonl ../target/spec/local-assets/implicit.jsonl
+rg -F '"gene_names":{"symbol":"CD4","source":"hgnc"' ../target/spec/local-assets/explicit.jsonl >/dev/null
 rg -F '"gene_names":{"symbol":"CD4","source":"hgnc"' ../target/spec/local-assets/implicit.jsonl >/dev/null
-sed -E 's/,"gene_names":\{[^}]*\}//g' ../target/spec/local-assets/implicit.jsonl > ../target/spec/local-assets/implicit-scoring.jsonl
-cmp ../target/spec/local-assets/explicit.jsonl ../target/spec/local-assets/implicit-scoring.jsonl
 printf 'byte-identical active lookup\n' | mustmatch like 'byte-identical active lookup'
 ```
 
