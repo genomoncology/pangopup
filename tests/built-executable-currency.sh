@@ -37,22 +37,24 @@ fail() { printf 'built executable currency: %s\n' "$*" >&2; exit 1; }
 # Discovered rather than listed, so a third harness cannot start using a built
 # executable without being held to the same rule. The two the repository has
 # today are still named, so a scan that silently matches nothing fails here
-# instead of passing.
+# instead of passing. Both patterns require the match to stand in code: a line
+# that only mentions the build script in a comment is not a call, and a comment
+# naming an executable is not a use.
 guarded=0
 for harness in "$repository"/tests/*.sh; do
     name=$(basename "$harness")
     [[ "$name" != "$self" ]] || continue
-    use_line=$({ grep -nE 'target/debug/[A-Za-z]' "$harness" || true; } | head -n 1 | cut -d: -f1)
+    use_line=$({ grep -nE '^[^#]*target/debug/[A-Za-z]' "$harness" || true; } | head -n 1 | cut -d: -f1)
     [[ -n "$use_line" ]] || continue
     guarded=$((guarded + 1))
-    build_line=$({ grep -nF 'scripts/require-built-commands.sh' "$harness" || true; } | head -n 1 | cut -d: -f1)
+    build_line=$({ grep -nE '^[^#]*scripts/require-built-commands\.sh' "$harness" || true; } | head -n 1 | cut -d: -f1)
     [[ -n "$build_line" ]] \
         || fail "tests/$name uses an executable from target/debug at line $use_line without building it first, so a standalone run compares against whatever the last build left behind"
     [[ "$build_line" -lt "$use_line" ]] \
         || fail "tests/$name builds at line $build_line but first uses target/debug at line $use_line: a missing or stale build has to be answered before the first use, not after"
 done
 for required in production-release-qualification.sh executable-delivery.sh; do
-    grep -qE 'target/debug/[A-Za-z]' "$repository/tests/$required" \
+    grep -qE '^[^#]*target/debug/[A-Za-z]' "$repository/tests/$required" \
         || fail "tests/$required no longer reaches into target/debug, so this scan is checking the wrong files"
 done
 [[ "$guarded" -ge 2 ]] || fail "the scan found $guarded harness(es) using target/debug, so it matched less than the repository holds"
