@@ -45,8 +45,12 @@ for candidate in ./*.md; do
     grep -qF -- "$filter" "$candidate" && carriers+=("${candidate#./}")
 done
 shopt -u nullglob
-where=${carriers[*]-}
-[[ -n "$where" ]] || where='an unidentified spec file'
+# A filter string can appear in more than one spec file, so name every
+# candidate instead of running the filenames together into one unreadable word.
+where="${carriers[0]-an unidentified spec file}"
+for extra in "${carriers[@]:1}"; do
+    where+=" or $extra"
+done
 
 refuse() {
     printf '%s\n' "$output" >&2
