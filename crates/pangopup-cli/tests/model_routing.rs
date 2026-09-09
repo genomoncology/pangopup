@@ -36,11 +36,27 @@ fn fallback_args() -> Vec<String> {
     ]
 }
 
-fn run(args: &[String]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_pangopup"))
-        .args(args)
+/// Run the shipped executable against a private cache home of its own.
+///
+/// The model cache is on by default and its path comes from `XDG_CACHE_HOME`,
+/// or from `HOME` when that is unset. A run that inherits either from the
+/// person running the suite reaches that person's own cache file: it fills it
+/// with rows scored from miniature fixtures, and a cache that is discarded when
+/// the setup that filled it changes would be discarded outright. A private home
+/// per run also keeps one test in this file from filling, evicting or
+/// discarding the cache another test is reading.
+fn isolated(command: &mut Command) -> Output {
+    let home = tempfile::tempdir().expect("private cache home");
+    fs::set_permissions(home.path(), fs::Permissions::from_mode(0o700)).expect("private home");
+    command
+        .env("XDG_CACHE_HOME", home.path())
+        .env("HOME", home.path())
         .output()
         .expect("run pangopup")
+}
+
+fn run(args: &[String]) -> Output {
+    isolated(Command::new(env!("CARGO_BIN_EXE_pangopup")).args(args))
 }
 
 fn modeled_args(variant: &str) -> Vec<String> {
@@ -85,18 +101,18 @@ fn authoritative_installed_hit_ignores_malformed_cache_environment_and_missing_r
     let data = temp.path().join("data");
     pangopup_assets::install_transport(&transport, &data).expect("install miniature SNV");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_pangopup"))
-        .args([
-            "lookup",
-            "--data-dir",
-            data.to_str().expect("UTF-8 data path"),
-            "--variant",
-            "GRCh38:chr12:6801301:G:A",
-        ])
-        .env("PANGOPUP_MODEL_CACHE", "relative/is/invalid")
-        .env("PANGOPUP_MODEL_CACHE_MAX_ENTRIES", "not-a-limit")
-        .output()
-        .expect("run isolated Pangopup");
+    let output = isolated(
+        Command::new(env!("CARGO_BIN_EXE_pangopup"))
+            .args([
+                "lookup",
+                "--data-dir",
+                data.to_str().expect("UTF-8 data path"),
+                "--variant",
+                "GRCh38:chr12:6801301:G:A",
+            ])
+            .env("PANGOPUP_MODEL_CACHE", "relative/is/invalid")
+            .env("PANGOPUP_MODEL_CACHE_MAX_ENTRIES", "not-a-limit"),
+    );
     assert!(
         output.status.success(),
         "{}",
@@ -247,11 +263,11 @@ fn explicit_model_only_bypasses_snv_assets_and_reuses_the_exact_cache() {
     let mut args = model_only_args("GRCh38:chr1:5051:A:C");
     args.extend(["--model-cache".to_owned(), cache.display().to_string()]);
 
-    let first = Command::new(env!("CARGO_BIN_EXE_pangopup"))
-        .args(&args)
-        .env("PANGOPUP_DATA_DIR", "relative/invalid-snv-installation")
-        .output()
-        .expect("first model-only process");
+    let first = isolated(
+        Command::new(env!("CARGO_BIN_EXE_pangopup"))
+            .args(&args)
+            .env("PANGOPUP_DATA_DIR", "relative/invalid-snv-installation"),
+    );
     assert!(
         first.status.success(),
         "{}",
@@ -259,11 +275,11 @@ fn explicit_model_only_bypasses_snv_assets_and_reuses_the_exact_cache() {
     );
     assert!(String::from_utf8_lossy(&first.stdout).contains("\"kind\":\"model\""));
 
-    let second = Command::new(env!("CARGO_BIN_EXE_pangopup"))
-        .args(&args)
-        .env("PANGOPUP_DATA_DIR", "relative/invalid-snv-installation")
-        .output()
-        .expect("second model-only process");
+    let second = isolated(
+        Command::new(env!("CARGO_BIN_EXE_pangopup"))
+            .args(&args)
+            .env("PANGOPUP_DATA_DIR", "relative/invalid-snv-installation"),
+    );
     assert!(second.status.success());
     assert_eq!(second.stdout, first.stdout);
     assert!(second.stderr.is_empty());
@@ -565,4 +581,95 @@ fn busy_cache_open_falls_back_to_model_and_skips_fill() {
         .query_row("SELECT count(*) FROM entries", [], |row| row.get(0))
         .expect("rows after fallback");
     assert_eq!(rows_after, 2, "busy-open fallback must skip cache fill");
+}
+
+/// The path the shipped executable resolves for its default model cache from
+/// one environment, spelled the same way `resolve_model_cache_options` spells
+/// it: `XDG_CACHE_HOME` when it is set, otherwise `HOME/.cache`.
+fn default_model_cache(cache_home: Option<&Path>, home: Option<&Path>) -> PathBuf {
+    let root = match (cache_home, home) {
+        (Some(root), _) => root.to_owned(),
+        (None, Some(home)) => home.join(".cache"),
+        (None, None) => {
+            panic!("neither XDG_CACHE_HOME nor HOME is set, so no default cache exists")
+        }
+    };
+    root.join("pangopup/model-results.sqlite3")
+}
+
+/// What the cache file and its two SQLite sidecars look like right now. `None`
+/// for a file that is not there. A byte length and a modification time together
+/// move on any write, so comparing this across a run says whether the run wrote.
+fn cache_fingerprint(cache: &Path) -> Vec<Option<(u64, std::time::SystemTime)>> {
+    ["", "-wal", "-shm"]
+        .into_iter()
+        .map(|suffix| {
+            fs::metadata(PathBuf::from(format!("{}{suffix}", cache.display())))
+                .ok()
+                .map(|metadata| {
+                    (
+                        metadata.len(),
+                        metadata.modified().expect("modification time"),
+                    )
+                })
+        })
+        .collect()
+}
+
+/// No run in this file may reach the model cache of whoever runs the suite.
+///
+/// The cache is on by default and its path comes from the environment, so a
+/// spawn that does not redirect `XDG_CACHE_HOME` and `HOME` fills the operator's
+/// own file with rows scored from miniature fixtures. A cache that is discarded
+/// when the setup that filled it changes makes that worse: the suite would
+/// discard the operator's cache outright rather than only adding to it.
+#[test]
+fn no_run_here_reaches_the_ambient_model_cache() {
+    // The positive control comes first. These arguments have to be the kind of
+    // run that fills a default cache, and the file has to take the name the
+    // second half watches for -- otherwise the second half proves nothing.
+    let probe = tempfile::tempdir().expect("probe cache home");
+    fs::set_permissions(probe.path(), fs::Permissions::from_mode(0o700)).expect("private probe");
+    let filled = Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        .args(model_only_args("GRCh38:chr1:5051:A:AC"))
+        .env("XDG_CACHE_HOME", probe.path())
+        .env("HOME", probe.path())
+        .output()
+        .expect("run pangopup");
+    assert!(
+        filled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&filled.stderr)
+    );
+    let probed = default_model_cache(Some(probe.path()), Some(probe.path()));
+    assert!(
+        probed.is_file(),
+        "a modelled run with no --model-cache must fill the default cache under its own cache \
+         home, and nothing appeared at {}",
+        probed.display()
+    );
+
+    // The same run through this file's helper must leave the cache the suite
+    // inherited exactly as it found it, whether or not that file exists yet.
+    let ambient = default_model_cache(
+        std::env::var_os("XDG_CACHE_HOME").as_deref().map(Path::new),
+        std::env::var_os("HOME").as_deref().map(Path::new),
+    );
+    assert_ne!(
+        ambient, probed,
+        "the inherited cache home must not be the probe, or this proves nothing"
+    );
+    let before = cache_fingerprint(&ambient);
+    let output = run(&model_only_args("GRCh38:chr1:5051:A:C"));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        cache_fingerprint(&ambient),
+        before,
+        "a run reached {}, the model cache of whoever is running the suite",
+        ambient.display()
+    );
 }

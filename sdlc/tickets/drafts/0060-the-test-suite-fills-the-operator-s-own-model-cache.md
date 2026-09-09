@@ -2,6 +2,8 @@
 ---
 # The test suite fills the operator's own model cache
 
+Closed inside ticket 0058. Ticket 0058 turns this from a growing file into a destroyed one: once a cache is discarded when the setup that filled it changes, a suite run under the operator's own cache home discards that cache rather than only adding to it. The design review for 0058 gave every run in `crates/pangopup-cli/tests/model_routing.rs` a private cache home and added `no_run_here_reaches_the_ambient_model_cache`, which proves no run there touches the inherited one. Nothing below is still open.
+
 `make test` writes rows into the model cache of whoever runs it. The cache is on by default and its path comes from `XDG_CACHE_HOME`, which `make test` does not set, so the suite reaches `~/.cache/pangopup/model-results.sqlite3` on a developer machine and on a CI runner alike.
 
 Measured in this checkout on 2026-09-09.
