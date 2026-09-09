@@ -439,12 +439,12 @@ mod installed_success {
         );
     }
 
-    /// One published status field, or a clear failure naming the field the
-    /// service did not publish.
-    fn published(status: &Value, field: &str) -> String {
-        status[field]
+    /// One published string field of a status object or a score item, or a
+    /// clear failure naming the field the service did not publish.
+    fn published(value: &Value, field: &str) -> String {
+        value[field]
             .as_str()
-            .unwrap_or_else(|| panic!("status must publish {field}: {status}"))
+            .unwrap_or_else(|| panic!("this response must publish {field}: {value}"))
             .to_owned()
     }
 
@@ -580,6 +580,136 @@ mod installed_success {
             published(&other_distance, "data_set_version"),
             published(&one, "data_set_version"),
             "a changed scoring distance must move the data-set version"
+        );
+    }
+
+    /// Start one service under a chosen thread count, read `/v1/status`, score
+    /// one variant, and stop it again. The status object and the single score
+    /// item come back together, so a caller can hold one against the other.
+    fn status_and_item_under_threads(
+        data: &Path,
+        profile: &Path,
+        cache: &Path,
+        threads: &str,
+        variant: &str,
+    ) -> (Value, Value) {
+        let (mut child, address) = start_with_policy(data, profile, cache, "1", threads);
+        let status = request(&address, "GET", "/v1/status", "");
+        let scored = request(
+            &address,
+            "POST",
+            "/v1/score",
+            &format!("{{\"variants\":[\"{variant}\"]}}"),
+        );
+        assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+        assert!(child.wait().expect("service exit").success());
+        assert!(
+            status.starts_with(b"HTTP/1.1 200 OK\r\n"),
+            "{}",
+            String::from_utf8_lossy(&status)
+        );
+        assert!(
+            scored.starts_with(b"HTTP/1.1 200 OK\r\n"),
+            "{}",
+            String::from_utf8_lossy(&scored)
+        );
+        let status: Value = serde_json::from_slice(response_body(&status)).expect("status JSON");
+        let scored: Value = serde_json::from_slice(response_body(&scored)).expect("score JSON");
+        let items = scored["results"].as_array().expect("results");
+        assert_eq!(items.len(), 1, "one submitted variant returns one item");
+        (status, items[0].clone())
+    }
+
+    // The version a consumer stores rides on the record it stores. A thread
+    // count is a deployment setting. It moves the deployment identity and it
+    // moves no answer, so the stored version has to hold still across the two
+    // runs while the identity moves. One variant carries both halves.
+    #[test]
+    fn a_thread_setting_moves_the_item_identity_and_holds_its_data_set_version() {
+        let temp = tempfile::tempdir().expect("temp");
+        let (data, profile, cache) = install_under(
+            temp.path(),
+            "item-version",
+            &fixture("route-mask/domains.pgm"),
+            50,
+        );
+        let variant = "GRCh38:chr1:5051:A:C";
+        // A separate cache per run, so the second run recomputes the variant
+        // instead of reading the first run's row back.
+        let (status_one, item_one) =
+            status_and_item_under_threads(&data, &profile, &cache, "1", variant);
+        let (status_four, item_four) = status_and_item_under_threads(
+            &data,
+            &profile,
+            &cache.with_file_name("item-version-cache-four.sqlite3"),
+            "4",
+            variant,
+        );
+
+        assert_eq!(
+            status_one["model"]["effective_cpu_policy"],
+            "sequential:1/1"
+        );
+        assert_eq!(
+            status_four["model"]["effective_cpu_policy"],
+            "sequential:4/1"
+        );
+        assert_eq!(
+            item_one["provenance"]["kind"], "model",
+            "the compared item must reach the model: {item_one}"
+        );
+
+        // The moved half.
+        assert_ne!(
+            item_one["scoring_identity"], item_four["scoring_identity"],
+            "a thread setting still moves the identity a scored item carries"
+        );
+        assert_eq!(
+            item_one["scoring_identity"], status_one["scoring_identity"],
+            "an item reports the identity its own status response reports"
+        );
+        assert_eq!(
+            item_four["scoring_identity"], status_four["scoring_identity"],
+            "an item reports the identity its own status response reports"
+        );
+
+        // The held half, on that same item.
+        assert_eq!(
+            published(&item_one, "data_set_version"),
+            published(&item_four, "data_set_version"),
+            "a thread setting must not move the version a scored item carries"
+        );
+        assert_eq!(
+            published(&item_one, "data_set_version"),
+            published(&status_one, "data_set_version"),
+            "an item reports the version its own status response reports"
+        );
+        assert_eq!(
+            published(&item_four, "data_set_version"),
+            published(&status_four, "data_set_version"),
+            "an item reports the version its own status response reports"
+        );
+        assert_ne!(
+            published(&item_one, "data_set_version"),
+            item_one["scoring_identity"].as_str().expect("identity"),
+            "the two values must stay distinct, or holding one still proves nothing"
+        );
+
+        // Nothing else on the item moved either.
+        let mut stripped_one = item_one.clone();
+        let mut stripped_four = item_four.clone();
+        for item in [&mut stripped_one, &mut stripped_four] {
+            item.as_object_mut()
+                .expect("item")
+                .remove("scoring_identity");
+            item["provenance"]
+                .as_object_mut()
+                .expect("provenance")
+                .remove("effective_cpu_policy");
+        }
+        assert_eq!(
+            stripped_one, stripped_four,
+            "a thread setting must move no score, position, status or reason"
         );
     }
 
@@ -744,6 +874,9 @@ mod installed_success {
         assert_eq!(value["results"][0]["status"], "found");
         assert_eq!(value["results"][0]["position"], 6_801_301);
         let scoring_identity = value["results"][0]["scoring_identity"].clone();
+        // A consumer stores one version whatever the outcome was, so the
+        // rejected item beside the scored one carries the same two fields.
+        let data_set_version = published(&value["results"][0], "data_set_version");
         assert_eq!(
             value["results"][1],
             serde_json::json!({
@@ -758,7 +891,8 @@ mod installed_success {
                 "source_reference_ambiguities": [],
                 "error": {"code": "MODEL_REJECTED", "message": "scoring failed"},
                 "reason": "unsupported_variant_shape",
-                "scoring_identity": scoring_identity
+                "scoring_identity": scoring_identity,
+                "data_set_version": data_set_version
             })
         );
         assert!(value["results"][1].get("provenance").is_none());
@@ -908,6 +1042,30 @@ mod installed_success {
         let line: Value =
             serde_json::from_str(line.lines().next().expect("one result")).expect("lookup JSON");
         let looked_up = &line["records"][0];
+
+        // The service adds two fields to the item a consumer stores. The
+        // command-line tool adds neither. A `--bundle` lookup opens no
+        // installed runtime profile, so no data-set version is computable on
+        // every command-line path.
+        let served_item = &scored["results"][0];
+        assert!(
+            served_item.get("scoring_identity").is_some(),
+            "a served item carries the deployment identity: {served_item}"
+        );
+        assert!(
+            served_item.get("data_set_version").is_some(),
+            "a served item carries the version a consumer stores: {served_item}"
+        );
+        assert_eq!(
+            line.get("scoring_identity"),
+            None,
+            "the command-line tool prints no service identity: {line}"
+        );
+        assert_eq!(
+            line.get("data_set_version"),
+            None,
+            "the command-line tool prints no data-set version: {line}"
+        );
 
         assert_eq!(served["stable_gene"], "ENSG00000010610");
         assert_eq!(looked_up["stable_gene"], "ENSG00000010610");

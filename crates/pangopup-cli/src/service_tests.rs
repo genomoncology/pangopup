@@ -1096,6 +1096,66 @@ async fn status_and_every_returned_score_item_share_one_scoring_identity() {
     assert_eq!(scored["results"][1]["scoring_identity"], identity);
 }
 
+/// A consumer stores one version beside every outcome it retains. The version
+/// has to ride on the record, whatever the outcome was. This scores a
+/// precomputed item, a modeled item and a rejected item in one request and
+/// holds every one of them to the version the status response reports.
+#[tokio::test]
+async fn every_score_item_carries_the_status_data_set_version_beside_its_scoring_identity() {
+    let (state, _) = state();
+    let router = app(state);
+    let status = router
+        .clone()
+        .oneshot(
+            Request::get("/v1/status")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("status response");
+    let status: Value = serde_json::from_slice(&body(status).await).expect("status JSON");
+    let identity = status["scoring_identity"]
+        .as_str()
+        .expect("status scoring identity")
+        .to_owned();
+    let version = status["data_set_version"]
+        .as_str()
+        .expect("status data-set version")
+        .to_owned();
+    assert_ne!(
+        identity, version,
+        "the two values must stay distinct, or an item carrying one name carries the other value"
+    );
+
+    let scored = router
+        .oneshot(
+            Request::post("/v1/score")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"variants":["GRCh38:chr1:1:A:C","GRCh38:chr1:2:A:C","bad"]}"#,
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("score response");
+    let scored: Value = serde_json::from_slice(&body(scored).await).expect("score JSON");
+    let results = scored["results"].as_array().expect("results").clone();
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0]["provenance"]["kind"], "precomputed");
+    assert_eq!(results[1]["provenance"]["kind"], "model");
+    assert_eq!(results[2]["status"], "rejected");
+    for (index, item) in results.iter().enumerate() {
+        assert_eq!(
+            item["scoring_identity"], identity,
+            "item {index} must keep the scoring identity it carries today: {item}"
+        );
+        assert_eq!(
+            item["data_set_version"], version,
+            "item {index} must carry the version the status response reports: {item}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn status_reports_the_request_contract_from_enforced_boundaries_and_parsers() {
     let (state, _) = state_with_capacity(20);
@@ -1868,12 +1928,13 @@ async fn modeled_http_success_is_pinned_as_one_complete_byte_fixture() {
         .expect("response");
     assert_eq!(response.status(), StatusCode::OK);
     let expected = format!(
-        "{{\"results\":[{{\"input\":\"GRCh38:chr1:2:A:C\",\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":2,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"not_found\",\"records\":[],\"source_reference_ambiguities\":[],\"provenance\":{{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:{}\",\"model_profile\":\"model-v1\",\"effective_cpu_policy\":\"sequential:1/1\",\"reference_bundle_id\":\"sha256:{}\",\"reference_profile\":\"reference-v1\",\"reference_sequence_set_sha256\":\"sha256:{}\",\"mask_bytes\":1,\"mask_sha256\":\"sha256:{}\",\"masked\":true,\"window\":50}},\"scoring_identity\":\"{}\"}}]}}\n",
+        "{{\"results\":[{{\"input\":\"GRCh38:chr1:2:A:C\",\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":2,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"not_found\",\"records\":[],\"source_reference_ambiguities\":[],\"provenance\":{{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:{}\",\"model_profile\":\"model-v1\",\"effective_cpu_policy\":\"sequential:1/1\",\"reference_bundle_id\":\"sha256:{}\",\"reference_profile\":\"reference-v1\",\"reference_sequence_set_sha256\":\"sha256:{}\",\"mask_bytes\":1,\"mask_sha256\":\"sha256:{}\",\"masked\":true,\"window\":50}},\"scoring_identity\":\"{}\",\"data_set_version\":\"{}\"}}]}}\n",
         "1".repeat(64),
         "2".repeat(64),
         "3".repeat(64),
         "4".repeat(64),
         scoring_identity().as_str(),
+        data_set_version().as_str(),
     );
     assert_eq!(body(response).await, expected.as_bytes());
 }
@@ -2935,7 +2996,9 @@ async fn exact_deletion_mismatch_is_an_ordered_item_rejection() {
     assert_eq!(output.results.len(), 2);
     assert_eq!(
         output.results[1].get(),
-        r#"{"input":"GRCh38:chr1:DEL:3:3:C","assembly":"GRCh38","contig":"chr1","position":2,"ref":"AC","alt":"A","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"reason":"reference_mismatch","scoring_identity":"<scoring-identity>"}"#.replace("<scoring-identity>", scoring_identity().as_str())
+        r#"{"input":"GRCh38:chr1:DEL:3:3:C","assembly":"GRCh38","contig":"chr1","position":2,"ref":"AC","alt":"A","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"reason":"reference_mismatch","scoring_identity":"<scoring-identity>","data_set_version":"<data-set-version>"}"#
+            .replace("<scoring-identity>", scoring_identity().as_str())
+            .replace("<data-set-version>", data_set_version().as_str())
     );
     assert_eq!(
         calls.load(Ordering::SeqCst),
@@ -3080,6 +3143,11 @@ fn assert_invalid_item(value: &Value, input: &str, reason: &str) {
     assert_eq!(value["reason"], reason);
     assert!(value.get("provenance").is_none());
     assert_eq!(value["scoring_identity"], scoring_identity().as_str());
+    assert_eq!(
+        value["data_set_version"],
+        data_set_version().as_str(),
+        "a rejected item carries the stored version wherever it carries the identity: {value}"
+    );
 }
 
 #[tokio::test]
@@ -3178,7 +3246,9 @@ async fn mixed_batch_keeps_precomputed_result_and_orders_typed_rejection() {
     assert_eq!(raw.results[0].get(), normal.results[0].get());
     assert_eq!(
         raw.results[1].get(),
-        r#"{"input":"GRCh38:chr1:2:A:C","assembly":"GRCh38","contig":"chr1","position":2,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"reason":"not_in_annotated_gene","scoring_identity":"<scoring-identity>"}"#.replace("<scoring-identity>", scoring_identity().as_str())
+        r#"{"input":"GRCh38:chr1:2:A:C","assembly":"GRCh38","contig":"chr1","position":2,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"reason":"not_in_annotated_gene","scoring_identity":"<scoring-identity>","data_set_version":"<data-set-version>"}"#
+            .replace("<scoring-identity>", scoring_identity().as_str())
+            .replace("<data-set-version>", data_set_version().as_str())
     );
     let value: Value = serde_json::from_slice(&bytes).expect("JSON");
     assert!(value["results"][1].get("provenance").is_none());
@@ -3385,7 +3455,9 @@ async fn mixed_batch_keeps_exact_cache_hit_beside_rejection_without_rescoring() 
     assert_eq!(mixed.results[0].get(), cached_only.results[0].get());
     assert_eq!(
         mixed.results[1].get(),
-        r#"{"input":"GRCh38:chr1:3:A:C","assembly":"GRCh38","contig":"chr1","position":3,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"reason":"not_in_annotated_gene","scoring_identity":"<scoring-identity>"}"#.replace("<scoring-identity>", scoring_identity().as_str())
+        r#"{"input":"GRCh38:chr1:3:A:C","assembly":"GRCh38","contig":"chr1","position":3,"ref":"A","alt":"C","status":"rejected","records":[],"source_reference_ambiguities":[],"error":{"code":"MODEL_REJECTED","message":"scoring failed"},"reason":"not_in_annotated_gene","scoring_identity":"<scoring-identity>","data_set_version":"<data-set-version>"}"#
+            .replace("<scoring-identity>", scoring_identity().as_str())
+            .replace("<data-set-version>", data_set_version().as_str())
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }

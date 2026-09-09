@@ -131,6 +131,10 @@ model = json.loads((source / "tests/fixtures/executable-release/m09.jsonl").read
 model_only_snv = json.loads((source / "tests/fixtures/executable-release/model-only-snv.jsonl").read_bytes())
 automatic_snv = json.loads((source / "tests/fixtures/snv-regression/expected/ENSG00000010610.jsonl").read_text().splitlines()[0])
 scoring_identity = "sha256:" + "1" * 64
+# The deployment identity and the stored data-set version are two different
+# values. The stub keeps them different so a checker that compares an item
+# against the wrong one fails here instead of at a release.
+data_set_version = "sha256:" + "3" * 64
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     def emit(self, value):
@@ -144,7 +148,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         values = {
             "/livez": {"status":"live"},
             "/readyz": {"status":"ready"},
-            "/v1/status": {"version":"0.5.0","readiness":"ready","scoring_identity":scoring_identity},
+            "/v1/status": {"version":"0.5.0","readiness":"ready","scoring_identity":scoring_identity,"data_set_version":data_set_version},
         }
         self.emit(values[self.path])
     def do_POST(self):
@@ -169,6 +173,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         ]
         result["input"] = request["variants"][0]
         result["scoring_identity"] = scoring_identity
+        result["data_set_version"] = data_set_version
         self.emit({"results":[result]})
     def log_message(self, *_): pass
 http.server.ThreadingHTTPServer(("127.0.0.1", 18080), Handler).serve_forever()
@@ -611,6 +616,18 @@ elif mutation == "identity-mismatch":
     item["scoring_identity"] = "sha256:" + "2" * 64
 elif mutation == "status-identity-mismatch":
     value["scoring_identity"] = "sha256:" + "2" * 64
+elif mutation == "missing-version":
+    del item["data_set_version"]
+elif mutation == "version-type":
+    item["data_set_version"] = 7
+elif mutation == "version-malformed":
+    item["data_set_version"] = "sha256:" + "B" * 64
+elif mutation == "version-mismatch":
+    item["data_set_version"] = "sha256:" + "5" * 64
+elif mutation == "status-version-mismatch":
+    value["data_set_version"] = "sha256:" + "5" * 64
+elif mutation == "status-version-missing":
+    del value["data_set_version"]
 elif mutation == "extra-item-property":
     item["transport_extra"] = True
 elif mutation == "record-extra-property":
@@ -634,7 +651,15 @@ PY
     printf 'checker accepted HTTP contract mutation: %s\n' "$label" >&2
     exit 1
   fi
-  grep -Fxq "$expected" "$root/http-contract-$label.err"
+  # Name the expectation and the observed line. A bare `grep -Fxq` here exits
+  # non-zero and prints nothing, so a checker that refuses for the wrong reason
+  # reads as an unexplained failure.
+  if ! grep -Fxq "$expected" "$root/http-contract-$label.err"; then
+    printf 'HTTP contract mutation %s: expected refusal %s, checker printed:\n' \
+      "$label" "$expected" >&2
+    cat "$root/http-contract-$label.err" >&2
+    exit 1
+  fi
 }
 
 expect_http_contract_rejected missing-input http-snv.txt missing-input \
@@ -655,6 +680,22 @@ expect_http_contract_rejected status-identity http-status.txt status-identity-mi
   'HTTP SNV scoring identity mismatch'
 expect_http_contract_rejected extra-item-property http-model-only.txt extra-item-property \
   'HTTP model-only SNV item shape mismatch'
+# The value a consumer stores rides on the item. The release checker holds it
+# to the same five rules it holds the deployment identity to: present, a
+# string, a well-formed digest, equal across items, and equal to the value the
+# status response reports.
+expect_http_contract_rejected missing-version http-snv.txt missing-version \
+  'HTTP SNV item shape mismatch'
+expect_http_contract_rejected version-type http-model.txt version-type \
+  'HTTP model data-set version is invalid'
+expect_http_contract_rejected version-malformed http-model.txt version-malformed \
+  'HTTP model data-set version is invalid'
+expect_http_contract_rejected cross-item-version http-model-only.txt version-mismatch \
+  'HTTP model-only SNV data-set version mismatch'
+expect_http_contract_rejected status-version http-status.txt status-version-mismatch \
+  'HTTP SNV data-set version mismatch'
+expect_http_contract_rejected status-version-missing http-status.txt status-version-missing \
+  'HTTP status data-set version is invalid'
 # A field added to the scored record inside the item, not to the item envelope.
 # `json_equal` is the checker's third and only decoded comparison, so an added
 # field has to be rejected there too or a change to what the tool prints

@@ -152,6 +152,12 @@ cargo test --locked --quiet --package pangopup-cli --features service-test-fixtu
   --test http_service_lifecycle status_publishes_a_recomputable_data_set_version \
   2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
 cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
+  --test http_service_lifecycle a_thread_setting_moves_the_item_identity_and_holds_its_data_set_version \
+  2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
+cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
+  --bin pangopup every_score_item_carries_the_status_data_set_version_beside_its_scoring_identity \
+  2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
+cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
   --test http_service_lifecycle each_route_reports_the_provenance_its_answer_used \
   2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
 cargo test --locked --quiet --package pangopup-assets --lib \
@@ -186,7 +192,9 @@ for statement in \
   'A precomputed item still reports `masked` and `window`. Both values come from the published dataset manifest.' \
   '`bundle_id`, `source_doi` and `source_archive_md5` pin the published dataset a precomputed value came from.' \
   'A modeled score item carries none of those three fields.' \
-  'Both routes answer under one scoring semantics. The status response reports it as `scoring_semantics`.'; do
+  'Both routes answer under one scoring semantics. The status response reports it as `scoring_semantics`.' \
+  'Every score item carries `data_set_version` beside `scoring_identity`. Store the value the item carries. Reaching it takes no second request.' \
+  'The command-line tool prints neither field. A `--bundle` lookup opens no installed runtime profile. No data-set version is computable on every command-line path. What a retained command-line score pins is a separate open question. It has its own ticket.'; do
   printf '%s' "$pinning" | rg -F -- "$statement" >/dev/null
 done
 identity=$(awk '/^## Active scoring identity$/ { on=1; next } on && /^## / { exit } on' ../architecture/service.md)

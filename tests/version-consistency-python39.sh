@@ -151,6 +151,7 @@ try:
             "adds",
             "`data_set_version`, `runtime_profile_id`, and `scoring_semantics`",
         ),
+        ("Every score item", "adds", "`data_set_version`"),
     )
     required_v050_unnamed_shape = (
         "- Unnamed gene: the score record and the source-reference ambiguity carry no"
