@@ -14,6 +14,13 @@ The inside-out tests do assert distinctness. `every_score_item_carries_the_statu
 
 `tests/production-release-qualification.sh:695` and `:697` drive the checker through a stub whose two values already differ, and the mutation list added by 0052 covers a missing, mistyped, malformed, cross-item and status-mismatched version. No mutation makes the two values equal.
 
-Ticket 0052's boundary named the response-shape inventory and the item-shape comparison as what it changes in the release path. It did not ask for a distinctness rule. Nothing here is a defect in what 0052 shipped.
+The status response publishes a third digest, `runtime_profile_id`. Neither the checker nor `tests/production-release-qualification.sh` mentions it anywhere. The three digests hash three different preimages, so a real deployment publishes three different values, and any two of them being equal means a deployment collapsed something it should not have. The checker judges all three.
 
-A successor decides whether the checker should refuse equal status values outright. It also decides what to do with `runtime_profile_id`, a third digest on the same status response that the checker never reads.
+Done, observably:
+
+- The checker refuses a deployment whose status response publishes the same digest under any two of `scoring_identity`, `data_set_version` and `runtime_profile_id`, and says which two names collided.
+- The checker holds `runtime_profile_id` to the same digest pattern it already applies to the other two, and refuses a status response that omits it or publishes it malformed.
+- `tests/production-release-qualification.sh` drives the checker through a stub for each new refusal, so a checker that stopped refusing turns the harness red. Its existing mutations keep passing unchanged.
+- A real deployment that publishes three distinct well-formed digests still qualifies. The checker gains refusals, not a new reason to reject a correct release.
+
+Boundary: this ticket changes `scripts/check-production-qualification.py` and `tests/production-release-qualification.sh`. It does not change any product source under `crates/`, any response shape, any field name, or how any identity is computed. It does not change the item-shape comparison or the response-shape inventory that 0052 shipped, and it does not add a fourth published value for the checker to read.
