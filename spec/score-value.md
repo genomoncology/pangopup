@@ -15,10 +15,10 @@ A rendered score always carries exactly two decimal places and one digit before
 the decimal point. A zero loss renders `0.00` and never `-0.00`.
 
 ```bash
-cargo test --locked --quiet --package pangopup-core --test score_value a_score_value_is_one_of_one_hundred_and_one_exact_hundredths 2>/dev/null \
-  | rg -F '1 passed; 0 failed' >/dev/null
-cargo test --locked --quiet --package pangopup-core --test score_value a_loss_carries_the_same_value_space_with_its_sign_restored 2>/dev/null \
-  | rg -F '1 passed; 0 failed' >/dev/null
+../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-core \
+  --test score_value a_score_value_is_one_of_one_hundred_and_one_exact_hundredths >/dev/null
+../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-core \
+  --test score_value a_loss_carries_the_same_value_space_with_its_sign_restored >/dev/null
 pangopup lookup \
   --bundle ../tests/fixtures/snv-regression/bundle \
   --variant GRCh38:chr12:6801301:G:A \
@@ -40,8 +40,8 @@ The precomputed route does not round. It reads exact hundredths from the
 published dataset and refuses a source value it cannot carry.
 
 ```bash
-cargo test --locked --quiet --package pangopup-engine --lib a_halfway_model_value_rounds_to_the_even_hundredth 2>/dev/null \
-  | rg -F '1 passed; 0 failed' >/dev/null
+../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-engine \
+  --lib a_halfway_model_value_rounds_to_the_even_hundredth >/dev/null
 printf 'a halfway model value rounds to the even hundredth\n' | mustmatch like 'a halfway model value rounds to the even hundredth'
 ```
 
@@ -54,8 +54,8 @@ against one of those two values. The deployment must record which one it
 compared against.
 
 ```bash
-cargo test --locked --quiet --package pangopup-core --test score_value a_threshold_finer_than_one_hundredth_has_no_value_to_compare_against 2>/dev/null \
-  | rg -F '1 passed; 0 failed' >/dev/null
+../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-core \
+  --test score_value a_threshold_finer_than_one_hundredth_has_no_value_to_compare_against >/dev/null
 pangopup lookup \
   --model-only \
   --variant GRCh38:chr1:5051:A:C \
@@ -98,8 +98,8 @@ records the scan.
 score stores that field with it.
 
 ```bash
-cargo test --locked --quiet --package pangopup-engine --lib the_precomputed_and_model_routes_do_not_always_report_the_same_value 2>/dev/null \
-  | rg -F '1 passed; 0 failed' >/dev/null
+../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-engine \
+  --lib the_precomputed_and_model_routes_do_not_always_report_the_same_value >/dev/null
 printf 'the precomputed and model routes do not always report the same value\n' | mustmatch like 'the precomputed and model routes do not always report the same value'
 ```
 
@@ -123,9 +123,9 @@ of answer. A PangoPup version change moves the identity too, and a version
 change can move an answer.
 
 ```bash
-cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
-  --test http_service_lifecycle a_deployment_worker_and_thread_setting_changes_no_modeled_score \
-  2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
+../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-cli \
+  --features service-test-fixtures --test http_service_lifecycle \
+  a_deployment_worker_and_thread_setting_changes_no_modeled_score >/dev/null
 printf 'a deployment worker or thread setting changes no modeled score\n' | mustmatch like 'a deployment worker or thread setting changes no modeled score'
 ```
 

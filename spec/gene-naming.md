@@ -184,9 +184,9 @@ and writes no timestamp. `cargo test` proves it against two miniature source
 excerpts in the checkout, so the proof reaches no network.
 
 ```bash
-cargo test --locked --quiet --package pangopup-build --test gene_name_index \
-  rebuilding_from_identical_source_bytes_produces_identical_index_bytes 2>/dev/null \
-  | rg -F '1 passed; 0 failed' >/dev/null
+../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-build \
+  --test gene_name_index \
+  rebuilding_from_identical_source_bytes_produces_identical_index_bytes >/dev/null
 printf 'the builder is deterministic and no gate reaches the network\n' | mustmatch like 'the builder is deterministic and no gate reaches the network'
 ```
 
@@ -194,8 +194,8 @@ The index answers one accession from a bounded number of memory pages, so the
 cost of a name does not grow with the number of genes the index holds.
 
 ```bash
-cargo test --locked --quiet --package pangopup-index --test gene_names \
-  resolving_one_gene_name_addresses_a_bounded_number_of_pages 2>/dev/null \
-  | rg -F '1 passed; 0 failed' >/dev/null
+../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-index \
+  --test gene_names \
+  resolving_one_gene_name_addresses_a_bounded_number_of_pages >/dev/null
 printf 'one accession costs a bounded number of index pages\n' | mustmatch like 'one accession costs a bounded number of index pages'
 ```

@@ -74,9 +74,12 @@ Array entries and scalar values carry the enforced strings, numbers, and boolean
 The status `model` object reports `planning_millis_per_unit: 10241` from the slowest retained p50 and `full_capacity_planning_seconds` as `ceil(queue_capacity × planning_millis_per_unit / 1000)` with a one-second minimum. The default capacity reports 205 seconds. The same factor and upward-rounded arithmetic produce `Retry-After` from admitted units. Worker count does not divide either value. These retained measurements provide planning guidance. They do not guarantee latency or recommend a client timeout. Strict JSON status consumers must adopt both additive fields before deployment.
 
 ```bash
-cargo test --locked --quiet --package pangopup-assets active_identity >/dev/null 2>&1
-cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures --bin pangopup scoring_identity >/dev/null 2>&1
-cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures --bin pangopup request_contract >/dev/null 2>&1
+../scripts/spec-cargo-test.sh 2 --locked --quiet --package pangopup-assets \
+  active_identity >/dev/null
+../scripts/spec-cargo-test.sh 2 --locked --quiet --package pangopup-cli \
+  --features service-test-fixtures --bin pangopup scoring_identity >/dev/null
+../scripts/spec-cargo-test.sh 3 --locked --quiet --package pangopup-cli \
+  --features service-test-fixtures --bin pangopup request_contract >/dev/null
 printf 'status and every returned HTTP item share one canonical active scoring identity\n' | mustmatch like 'status and every returned HTTP item share one canonical active scoring identity'
 ```
 
@@ -113,7 +116,8 @@ The scoring route requires exactly one parsed `application/json` content type. C
 The optional `gene` filter accepts a stable Ensembl identifier, a versioned GENCODE identifier, or a versioned GENCODE identifier ending in `_PAR_Y`. The route normalizes every accepted form to the stable gene before lookup or model-result filtering. Every structured score record reports the source identity under `gene` and the same stable grouping and filtering identity under `stable_gene`. Precomputed records report the stable identifier in both fields. Model records preserve the exact GENCODE version and `_PAR_Y` identity under `gene`. Consumers must retain `gene` when exact version or PAR identity matters. Adapter tests submit the model-reported versioned forms and reject zero, leading-zero, missing, overflowing, repeated, and unknown suffixes with HTTP 400 and `INVALID_REQUEST`.
 
 ```bash
-cargo test --locked --quiet --package pangopup-cli http_gene_filter_accepts_reported_identity_and_matches_its_stable_gene >/dev/null 2>&1
+../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-cli \
+  http_gene_filter_accepts_reported_identity_and_matches_its_stable_gene >/dev/null
 printf 'HTTP accepts a reported versioned gene filter and matches its stable gene\n' | mustmatch like 'HTTP accepts a reported versioned gene filter and matches its stable gene'
 ```
 
@@ -124,9 +128,9 @@ The current rejection-reason vocabulary is closed: `malformed_variant` identifie
 Each `variants[]` value also accepts `GRCh38:CONTIG:INS:LEFT:RIGHT:SEQUENCE` and `GRCh38:CONTIG:DEL:START:END:SEQUENCE`. Coordinates are one-based. Insertion coordinates must be adjacent. A deletion interval is inclusive, must not start at one, and must have the same length as its submitted sequence. Sequences contain 1–99 uppercase A/C/G/T bases. PangoPup reads the left anchor from its installed GRCh38 reference before routing, caching, queue admission, and inference. Equivalent exact and anchored inputs produce the same canonical response allele and cache identity. A deleted-sequence mismatch becomes the existing normalized item rejection when the left anchor is valid. Boundary and anchor failures become invalid item outcomes. Reference corruption remains a request-level server failure.
 
 ```bash
-cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
-  --test http_service_lifecycle real_executable_ \
-  >/dev/null 2>&1
+../scripts/spec-cargo-test.sh 5 --locked --quiet --package pangopup-cli \
+  --features service-test-fixtures --test http_service_lifecycle \
+  real_executable_ >/dev/null
 printf 'a valid batch returns HTTP 200 with one ordered outcome for every valid or rejected item\n' | mustmatch like 'a valid batch returns HTTP 200 with one ordered outcome for every valid or rejected item'
 ```
 
@@ -145,24 +149,23 @@ The runtime profile declares its own `cpu_policy`. That value describes the asse
 The two scoring routes do not carry provenance to the same depth. [`architecture/compatibility.md`](../architecture/compatibility.md) states which facts a precomputed item leaves out and where a consumer reads them instead. The test below pins both field sets. That statement cannot drift away from the response.
 
 ```bash
-cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
-  --test http_service_lifecycle pinned_values_hold_across_cpu_policies_and_move_with_the_scored_inputs \
-  2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
-cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
-  --test http_service_lifecycle status_publishes_a_recomputable_data_set_version \
-  2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
-cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
-  --test http_service_lifecycle a_thread_setting_moves_the_item_identity_and_holds_its_data_set_version \
-  2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
-cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
-  --bin pangopup every_score_item_carries_the_status_data_set_version_beside_its_scoring_identity \
-  2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
-cargo test --locked --quiet --package pangopup-cli --features service-test-fixtures \
-  --test http_service_lifecycle each_route_reports_the_provenance_its_answer_used \
-  2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
-cargo test --locked --quiet --package pangopup-assets --lib \
-  every_leaf_fact_changes_the_profile_identity \
-  2>/dev/null | rg -F '1 passed; 0 failed' >/dev/null
+../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-cli \
+  --features service-test-fixtures --test http_service_lifecycle \
+  pinned_values_hold_across_cpu_policies_and_move_with_the_scored_inputs >/dev/null
+../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-cli \
+  --features service-test-fixtures --test http_service_lifecycle \
+  status_publishes_a_recomputable_data_set_version >/dev/null
+../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-cli \
+  --features service-test-fixtures --test http_service_lifecycle \
+  a_thread_setting_moves_the_item_identity_and_holds_its_data_set_version >/dev/null
+../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-cli \
+  --features service-test-fixtures --bin pangopup \
+  every_score_item_carries_the_status_data_set_version_beside_its_scoring_identity >/dev/null
+../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-cli \
+  --features service-test-fixtures --test http_service_lifecycle \
+  each_route_reports_the_provenance_its_answer_used >/dev/null
+../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-assets \
+  --lib every_leaf_fact_changes_the_profile_identity >/dev/null
 printf 'the pinned values hold across CPU policies and move with every scoring input\n' | mustmatch like 'the pinned values hold across CPU policies and move with every scoring input'
 ```
 
