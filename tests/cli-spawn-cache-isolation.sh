@@ -28,13 +28,22 @@ helper_relative='crates/pangopup-cli/tests/support/mod.rs'
 # token rather than an accident of spelling.
 token='CARGO_BIN_EXE_pangopup"'
 
+# Cargo's token is not the only way a test can reach the shipped executable. A
+# source can walk to it -- `std::env::current_exe()` and back up out of
+# `deps/`, or `target/debug/pangopup` spelled from the manifest directory --
+# and name the token nowhere. A gate blind to those measures the calling side
+# it can see rather than the calling side that exists, which is how a check
+# stays green while a spawn reaches the operator's cache. Refuse those
+# spellings outside the helper too.
+detour='current_exe|target/(debug|release)/pangopup'
+
 fail() { printf 'cli spawn cache isolation: %s\n' "$*" >&2; exit 1; }
 
 # Refuse the tree rooted at $1 whose spawn helper is the file at $2, relative to
 # that root. Prints its counts on acceptance and its reason on refusal.
 examine() {
     local root=$1 helper=$2
-    local sources=() occurrences strays scanned
+    local sources=() occurrences strays detours scanned
 
     while IFS= read -r source; do sources+=("$source"); done < <(
         find "$root" -type f -name '*.rs' -not -path '*/target/*' | sort
@@ -60,6 +69,14 @@ examine() {
         return 1
     fi
 
+    detours=$(grep -nE -- "$detour" "${sources[@]}" | grep -vF -- "$root/$helper" || true)
+    if [[ -n "$detours" ]]; then
+        printf 'these sources reach the shipped executable by path instead of by name, so they spawn it outside %s and inherit the cache home of whoever runs the suite:\n' \
+            "$helper" >&2
+        printf '%s\n' "$detours" | sed -E 's#^'"$root"'/#  #; s/:([0-9]+):.*/:\1/' >&2
+        return 1
+    fi
+
     printf 'examined %s Rust source(s), %s spawn(s), all through %s\n' \
         "$scanned" "$(printf '%s\n' "$occurrences" | grep -c .)" "$helper"
 }
@@ -76,11 +93,11 @@ trap 'rm -rf "$fixtures"' EXIT
 plant() {
     local tree=$1 path=$2 spawn=$3
     mkdir -p "$tree/$(dirname "$path")"
-    if [[ "$spawn" == spawns ]]; then
-        printf 'fn go() { Command::new(env!("%s)); }\n' "$token" >"$tree/$path"
-    else
-        printf 'fn go() {}\n' >"$tree/$path"
-    fi
+    case "$spawn" in
+        spawns) printf 'fn go() { Command::new(env!("%s)); }\n' "$token" >"$tree/$path" ;;
+        detours) printf 'fn go() { Command::new(root().join("target/debug/pangopup")); }\n' >"$tree/$path" ;;
+        *) printf 'fn go() {}\n' >"$tree/$path" ;;
+    esac
 }
 
 expect_refusal() {
@@ -111,6 +128,14 @@ stray="$fixtures/stray"
 plant "$stray" "$helper_relative" spawns
 plant "$stray" 'crates/pangopup-cli/tests/macos_cli_boundary.rs' spawns
 expect_refusal "$stray" 'crates/pangopup-cli/tests/macos_cli_boundary.rs:1'
+
+# A source that walks to `target/debug/pangopup` names the token nowhere, so the
+# stray check above cannot see it. It is still a spawn of the shipped
+# executable outside the helper.
+detour_tree="$fixtures/detour"
+plant "$detour_tree" "$helper_relative" spawns
+plant "$detour_tree" 'crates/pangopup-cli/tests/macos_cli_boundary.rs' detours
+expect_refusal "$detour_tree" 'crates/pangopup-cli/tests/macos_cli_boundary.rs:1'
 
 clean="$fixtures/clean"
 plant "$clean" "$helper_relative" spawns
