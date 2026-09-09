@@ -1,0 +1,33 @@
+{
+  "index": {
+    "file": "gene-names.pgn",
+    "bytes": 2319183,
+    "sha256": "sha256:e34dfa717eb90accbe9a61327d330ce046f626a152426de7bec3d11062e692b3"
+  },
+  "counts": {
+    "accessions": 46587,
+    "named_by_hgnc": 42355,
+    "named_by_ncbi": 4184,
+    "unnamed": 48
+  },
+  "sources": [
+    {
+      "publisher": "HUGO Gene Nomenclature Committee (HGNC), EMBL-EBI",
+      "file": "hgnc_complete_set_2026-09-04.tsv",
+      "url": "https://storage.googleapis.com/public-download-files/hgnc/archive/archive/monthly/tsv/hgnc_complete_set_2026-09-04.tsv",
+      "bytes": 16903161,
+      "sha256": "sha256:6f43d6ff43aa9fdfa5fb2f20a20a7cace66e6e02e2a0dcf19d9b726e2e248d20",
+      "rows": 45045,
+      "refetchable": true
+    },
+    {
+      "publisher": "National Center for Biotechnology Information (NCBI), U.S. National Library of Medicine",
+      "file": "Homo_sapiens.gene_info.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz",
+      "bytes": 5180589,
+      "sha256": "sha256:09d7ebe7fb2ade8f0c4449e6e36bdeb7cf0300e380897041cbf0a1f0f4c9d992",
+      "rows": 193887,
+      "refetchable": false
+    }
+  ]
+}

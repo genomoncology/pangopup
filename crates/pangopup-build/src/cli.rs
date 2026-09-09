@@ -27,12 +27,13 @@ pub(crate) enum Leaf {
     RuntimeTransportUnpack,
     RuntimeReleasePrepare,
     ExecutableReleasePrepare,
+    NamingBuild,
     NamingInspect,
 }
 
 impl Leaf {
     #[cfg(test)]
-    const ALL: [Self; 26] = [
+    const ALL: [Self; 27] = [
         Self::Inspect,
         Self::PrototypeRoundtrip,
         Self::PrototypeOpen,
@@ -58,6 +59,7 @@ impl Leaf {
         Self::RuntimeTransportUnpack,
         Self::RuntimeReleasePrepare,
         Self::ExecutableReleasePrepare,
+        Self::NamingBuild,
         Self::NamingInspect,
     ];
 }
@@ -248,11 +250,18 @@ const ENTRIES: &[Entry] = &[
         summary: "Prepare the deterministic Linux x86_64 executable release set.",
     },
     Entry {
+        leaf: Leaf::NamingBuild,
+        namespace: Some("naming"),
+        action: "build",
+        synopsis: "naming build --hgnc <HGNC_COMPLETE_SET_TSV> --ncbi <NCBI_GENE_INFO> --output <INDEX>",
+        summary: "Build the gene-name index from a dated HGNC release and an NCBI gene information file, and record what it was built from.",
+    },
+    Entry {
         leaf: Leaf::NamingInspect,
         namespace: Some("naming"),
         action: "inspect",
-        synopsis: "naming inspect <NAMING_SOURCE_FILE>",
-        summary: "Report what a dated gene naming source yields for every Ensembl accession.",
+        synopsis: "naming inspect --index <INDEX> <ENSG_ACCESSION>...",
+        summary: "Report what a gene-name index holds for the Ensembl accessions named on the command line.",
     },
 ];
 

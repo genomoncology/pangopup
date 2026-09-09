@@ -11,7 +11,7 @@ use pangopup_build::{
         ConvertArguments, EvidenceArguments, convert_model_bundle, create_model_evidence,
         inspect_model_bundle, qualify_model_bundle,
     },
-    naming::inspect_naming_source,
+    naming::{build_gene_name_index, inspect_gene_name_index, provenance_document},
     prepare_benchmark_corpus, prototype_open, prototype_roundtrip,
     reference::{build_reference_bundle, inspect_reference_bundle, reference_window},
     runtime_profile::prepare_runtime_profile,
@@ -47,7 +47,7 @@ fn main() -> ExitCode {
         }
         Some("runtime-release") => json_usage("runtime-release requires prepare"),
         Some("executable-release") => json_usage("executable-release requires prepare"),
-        Some("naming") => json_usage("naming requires inspect"),
+        Some("naming") => json_usage("naming requires build or inspect"),
         Some(_) => unreachable!("closed namespace catalog"),
         None => json_failure(&CommandError::new("CLI_USAGE", LEGACY_USAGE)),
     }
@@ -137,19 +137,54 @@ fn dispatch(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
         | Leaf::RuntimeTransportUnpack => runtime_transport_command(leaf, arguments),
         Leaf::RuntimeReleasePrepare => runtime_release_command(arguments),
         Leaf::ExecutableReleasePrepare => executable_release_command(arguments),
-        Leaf::NamingInspect => naming_command(arguments),
+        Leaf::NamingBuild => naming_build_command(arguments),
+        Leaf::NamingInspect => naming_inspect_command(arguments),
     }
 }
 
-fn naming_command(arguments: &[std::ffi::OsString]) -> ExitCode {
-    let [source] = arguments else {
-        return json_usage("naming inspect requires one naming source file");
+fn naming_build_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let Ok(values) = parse_exact_flags(arguments, &["--hgnc", "--ncbi", "--output"]) else {
+        return json_usage("naming build requires --hgnc, --ncbi, and --output exactly once");
+    };
+    let output = Path::new(values[2]);
+    let report = match build_gene_name_index(Path::new(values[0]), Path::new(values[1]), output) {
+        Ok(report) => report,
+        Err(error) => return json_failure(&error),
+    };
+    // The record is written beside the index the same command produced, so
+    // the two can never describe different bytes.
+    let record = output.with_file_name("provenance.json");
+    match provenance_document(&report)
+        .and_then(|document| std::fs::write(&record, document).map_err(write_failed))
+    {
+        Ok(()) => json_success(&report),
+        Err(error) => json_failure(&error),
+    }
+}
+
+fn naming_inspect_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let [flag, index, accessions @ ..] = arguments else {
+        return json_usage("naming inspect requires --index and one or more accessions");
+    };
+    if flag != "--index" || accessions.is_empty() {
+        return json_usage("naming inspect requires --index and one or more accessions");
+    }
+    let Some(accessions) = accessions
+        .iter()
+        .map(|accession| accession.to_str().map(ToOwned::to_owned))
+        .collect::<Option<Vec<String>>>()
+    else {
+        return json_usage("naming inspect accessions must be UTF-8");
     };
     let mut stdout = std::io::stdout().lock();
-    match inspect_naming_source(Path::new(source), &mut stdout) {
+    match inspect_gene_name_index(Path::new(index), &accessions, &mut stdout) {
         Ok(()) => ExitCode::SUCCESS,
-        Err(error) => json_failure(&CommandError::new(error.kind().code(), error.to_string())),
+        Err(error) => json_failure(&error),
     }
+}
+
+fn write_failed(error: std::io::Error) -> CommandError {
+    CommandError::new("OUTPUT_IO", error.to_string())
 }
 
 fn executable_release_command(arguments: &[std::ffi::OsString]) -> ExitCode {

@@ -1,4 +1,4 @@
-.PHONY: lint test spec
+.PHONY: lint test spec gene-name-index
 
 # pangopup-build is the offline Linux builder. Its tests need Linux syscalls and
 # a corpus fixture that is not in the checkout, and `source_fingerprint` hashes
@@ -55,3 +55,24 @@ spec:          ## outside-in CLI contracts
 	rm -rf target/spec-cache
 	install -d -m 700 target/spec-cache
 	XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/debug:$$PATH" mustmatch test $(SPEC_PATHS)
+
+# Maintainer-run. This target reaches the network. No gate invokes it. It is
+# defined after the gates so that no gate recipe can name it.
+#
+# HGNC publishes an immutable dated monthly TSV. NCBI replaces
+# Homo_sapiens.gene_info.gz at a fixed URL and keeps no dated archive, so a
+# later run reads different NCBI bytes. The committed index and the record
+# beside it are the durable artifacts.
+HGNC_RELEASE := 2026-09-04
+HGNC_TSV_URL := https://storage.googleapis.com/public-download-files/hgnc/archive/archive/monthly/tsv/hgnc_complete_set_$(HGNC_RELEASE).tsv
+NCBI_GENE_INFO_URL := https://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz
+NAMING_SOURCES := target/naming-sources
+
+gene-name-index:  ## maintainer-run: download both naming sources and rebuild the committed index
+	install -d -m 755 $(NAMING_SOURCES)
+	curl --fail --location --output $(NAMING_SOURCES)/hgnc_complete_set_$(HGNC_RELEASE).tsv $(HGNC_TSV_URL)
+	curl --fail --location --output $(NAMING_SOURCES)/Homo_sapiens.gene_info.gz $(NCBI_GENE_INFO_URL)
+	cargo run --locked --quiet --package pangopup-build -- naming build \
+	  --hgnc $(NAMING_SOURCES)/hgnc_complete_set_$(HGNC_RELEASE).tsv \
+	  --ncbi $(NAMING_SOURCES)/Homo_sapiens.gene_info.gz \
+	  --output assets/gene-names/gene-names.pgn

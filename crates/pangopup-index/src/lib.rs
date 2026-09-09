@@ -1,5 +1,8 @@
 //! Private, explicitly decoded Pangopup runtime formats.
 
+/// The gene-name index the build carries.
+pub mod gene_names;
+
 /// Production, domains-only GENCODE mask mmap provider.
 pub mod mask;
 
