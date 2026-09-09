@@ -76,8 +76,8 @@ if SMOKE_LOG="$smoke_log" SMOKE_SCRIPT="$changed_smoke" \
 fi
 rmdir "$fake_cache_parent"
 
+"$repo/scripts/require-built-commands.sh"
 real_cli="$repo/target/debug/pangopup"
-[[ -x "$real_cli" && ! -L "$real_cli" ]]
 unsafe_cache="/tmp/pangopup-smoke-unsafe-$PPID-$$.sqlite3"
 [[ ! -e "$unsafe_cache" && ! -L "$unsafe_cache" ]]
 if "$real_cli" lookup \

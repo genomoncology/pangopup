@@ -203,13 +203,10 @@ cmp "$root/derived-model-only-snv.json" "$root/checked-model-only-snv.json"
 
 # The stub delegates the seven SNV groups to the built executable and the
 # comparison below re-renders them, so nothing past this point runs without it.
-# Check before the first use, not after, or a missing build reports itself as a
-# failed qualification command.
+# Build before the first use, not after, or a stale or missing build reports
+# itself as a failed qualification command.
+"$repo/scripts/require-built-commands.sh"
 real_cli=$repo/target/debug/pangopup
-[[ -x "$real_cli" && ! -L "$real_cli" ]] || {
-  printf 'build the command-line tool before this harness: cargo build --package pangopup-cli\n' >&2
-  exit 1
-}
 
 export QUALIFICATION_SOURCE=$repo
 export QUALIFICATION_REAL_PANGOPUP=$real_cli

@@ -75,7 +75,7 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo check --locked --target aarch64-unknown-linux-gnu --package pangopup-cli
       - name: Test the portable native service fixture
-        run: cargo test --locked --package pangopup-cli --features service-test-fixtures --test http_service_lifecycle installed_success
+        run: scripts/run-service-fixture-tests.sh
       - name: Run Linux tests with public failure evidence
         shell: bash
         run: scripts/run-linux-tests-with-public-failure.sh
@@ -184,7 +184,7 @@ jobs:
           cargo test --locked --package pangopup-assets
           cargo test --locked --package pangopup-cli --test macos_cli_boundary
           cargo test --locked --package pangopup-build --test runtime_release
-          cargo test --locked --package pangopup-cli --features service-test-fixtures --test http_service_lifecycle installed_success
+          scripts/run-service-fixture-tests.sh
       - run: make lint
       - run: make test
       - run: make spec
