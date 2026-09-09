@@ -1,6 +1,6 @@
 ---
 flow: build
-priority: 2
+priority: 3
 ---
 # The release checker accepts one value published under both identity names
 
