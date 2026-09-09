@@ -73,15 +73,14 @@ COMPATIBILITY_DOCUMENTS = (
 V050_COMPATIBILITY_DOCUMENT = "architecture/compatibility.md"
 V050_RESPONSE_SHAPE_HEADING = "## v0.5.0 response-shape inventory"
 V050_RESPONSE_SHAPE_INVENTORY = (
-    ("Status response root", "adds", "`naming`"),
-    ("Status `naming` object", "carries", "`available` and `release`"),
     ("Every structured score record", "adds", "`gene_names`"),
     ("Every source-reference ambiguity", "adds", "`gene_names`"),
     (
         "Score-record `gene_names` object",
         "carries",
-        "`symbol`, `hgnc_id`, `ncbi_gene_id`, `prev_symbols`, and `alias_symbols`",
+        "`symbol`, `source`, `hgnc_id`, `ncbi_gene_id`, `prev_symbols`, and `alias_symbols`",
     ),
+    ("Score-record `gene_names.source`", "reports", "`hgnc` or `ncbi`"),
     (
         "Status response root",
         "adds",
@@ -90,8 +89,12 @@ V050_RESPONSE_SHAPE_INVENTORY = (
 )
 V050_UNNAMED_GENE_SHAPE = (
     "- Unnamed gene: the score record and the source-reference ambiguity carry no"
-    " `gene_names` object, and a named gene omits `ncbi_gene_id`, `prev_symbols`,"
-    " and `alias_symbols` where the naming source supplies none."
+    " `gene_names` object, and a named gene omits `hgnc_id`, `ncbi_gene_id`,"
+    " `prev_symbols`, and `alias_symbols` where its naming source supplies none."
+)
+V050_NAMING_NOTE = (
+    "PangoPup ships one gene-name index with the build. No status field reports an"
+    " installed naming vintage. A deployment cannot vary the names PangoPup returns."
 )
 V050_DEPLOYMENT_ORDER = (
     "Deploy strict consumer support for the complete response-shape inventory"
@@ -109,6 +112,12 @@ NAMING_SOURCE_CLAIMS = (
     "16903161",
     "6f43d6ff43aa9fdfa5fb2f20a20a7cace66e6e02e2a0dcf19d9b726e2e248d20",
     "Creative Commons Public Domain (CC0)",
+)
+NCBI_SOURCE_CLAIMS = (
+    "National Center for Biotechnology Information",
+    "Homo_sapiens.gene_info.gz",
+    "https://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz",
+    "NCBI replaces this file at a fixed URL and publishes no dated archive of it.",
 )
 GENCODE_ANNOTATION_CLAIMS = (
     "gencode.v38.annotation.gtf.gz",
@@ -585,6 +594,7 @@ def check_gene_naming_compatibility() -> None:
         V050_UNNAMED_GENE_SHAPE,
         V050_DEPLOYMENT_ORDER,
         AMBIGUOUS_SYMBOL_GUIDANCE,
+        V050_NAMING_NOTE,
     ):
         require_in_section(
             "response-shape compatibility",
@@ -593,7 +603,7 @@ def check_gene_naming_compatibility() -> None:
             claim,
         )
     attribution = read(ATTRIBUTION_DOCUMENT)
-    for claim in NAMING_SOURCE_CLAIMS + GENCODE_ANNOTATION_CLAIMS:
+    for claim in NAMING_SOURCE_CLAIMS + NCBI_SOURCE_CLAIMS + GENCODE_ANNOTATION_CLAIMS:
         if claim not in attribution:
             fail("attribution", ATTRIBUTION_DOCUMENT, claim)
 

@@ -28,24 +28,25 @@ PangoPup published no v0.4.0 container. The first published container carrying t
 
 PangoPup v0.5.0 changes response shapes from v0.4.1:
 
-- Status response root: adds `naming`.
-- Status `naming` object: carries `available` and `release`.
 - Every structured score record: adds `gene_names`.
 - Every source-reference ambiguity: adds `gene_names`.
-- Score-record `gene_names` object: carries `symbol`, `hgnc_id`, `ncbi_gene_id`, `prev_symbols`, and `alias_symbols`.
+- Score-record `gene_names` object: carries `symbol`, `source`, `hgnc_id`, `ncbi_gene_id`, `prev_symbols`, and `alias_symbols`.
+- Score-record `gene_names.source`: reports `hgnc` or `ncbi`.
 - Status response root: adds `data_set_version`, `runtime_profile_id`, and `scoring_semantics`.
 
-- Unnamed gene: the score record and the source-reference ambiguity carry no `gene_names` object, and a named gene omits `ncbi_gene_id`, `prev_symbols`, and `alias_symbols` where the naming source supplies none.
+- Unnamed gene: the score record and the source-reference ambiguity carry no `gene_names` object, and a named gene omits `hgnc_id`, `ncbi_gene_id`, `prev_symbols`, and `alias_symbols` where its naming source supplies none.
 
 Permissive JSON readers that ignore unknown properties remain compatible. Strict readers must accept the complete response-shape inventory before a producer emits it.
 
 Deploy strict consumer support for the complete response-shape inventory before deploying PangoPup v0.5.0.
 
-`naming.available` is `false` when no naming source is installed. Every score record and every source-reference ambiguity then reports its Ensembl accession alone. `naming.release` names the installed naming vintage. A consumer reads it to tell one vintage from another.
+PangoPup ships one gene-name index with the build. No status field reports an installed naming vintage. A deployment cannot vary the names PangoPup returns.
+
+`gene_names.source` names the authority that supplied the symbol. HGNC names a gene wherever HGNC reaches it. NCBI names the rest. A gene NCBI names carries no `hgnc_id`.
 
 `prev_symbols` and `alias_symbols` are ambiguous. One symbol can point at several genes, and one can be another gene's approved symbol. Never match on them alone. `stable_gene` remains the only key.
 
-Installing, updating or removing a naming source does not move `scoring_identity`. A naming refresh changes no score. Unchanged scores stay one data-set version.
+The gene-name index does not move `scoring_identity`. A name changes no score. Unchanged scores stay one data-set version.
 
 ## Score values
 

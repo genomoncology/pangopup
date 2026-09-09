@@ -63,10 +63,32 @@ Ensembl accession belongs to:
   License text: https://creativecommons.org/publicdomain/zero/1.0/
 
 HGNC publishes no upstream checksum file for this release. Pangopup pins the
-dated release member by byte count and its own computed digest. The naming
-source is never embedded in an index bundle, a runtime profile or the
-container image. It installs through the offline asset path and reaches no
-network at scoring time or at service start.
+dated release member by byte count and its own computed digest. Pangopup reads
+this file only when a maintainer rebuilds the committed gene-name index. The
+file itself is never embedded in an index bundle, a runtime profile or the
+container image, and Pangopup reaches no network at scoring time or at service
+start.
+
+NCBI gene naming source
+-----------------------
+
+Pangopup reads the following separately licensed file to name an Ensembl
+accession that HGNC does not reach:
+
+  Title: NCBI Gene, Homo sapiens gene_info
+  Publisher: National Center for Biotechnology Information (NCBI), U.S. National
+             Library of Medicine
+  Source: https://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz
+  Size: 5180589 bytes
+  SHA-256: 09d7ebe7fb2ade8f0c4449e6e36bdeb7cf0300e380897041cbf0a1f0f4c9d992
+  Terms: NCBI names no separate licence and refers to its own policies
+  Terms text: https://www.ncbi.nlm.nih.gov/home/about/policies/
+
+NCBI replaces this file at a fixed URL and publishes no dated archive of it. The
+recorded bytes cannot be fetched again. Pangopup pins the bytes it read by byte
+count and its own computed digest, and the committed gene-name index built from
+them is the durable artifact. Pangopup reads this file only when a maintainer
+rebuilds that index.
 
 GENCODE annotation
 ------------------

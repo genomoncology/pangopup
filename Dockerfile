@@ -5,6 +5,7 @@ WORKDIR /source
 COPY Cargo.toml Cargo.lock ./
 COPY LICENSE NOTICE ./
 COPY assets/notices ./assets/notices
+COPY assets/gene-names ./assets/gene-names
 COPY release-profiles ./release-profiles
 COPY crates ./crates
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \

@@ -2,6 +2,8 @@
 !Cargo.toml
 !Cargo.lock
 !assets/
+!assets/gene-names/
+!assets/gene-names/gene-names.pgn
 !assets/notices/
 !assets/notices/GENCODE-v38-NOTICE
 !assets/notices/SNV-BUNDLE-NOTICE-v1
