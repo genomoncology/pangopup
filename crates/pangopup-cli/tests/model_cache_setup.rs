@@ -598,3 +598,290 @@ fn a_discarded_cache_is_reported_and_a_kept_one_is_silent() {
         "the report must name the file it discarded, and this run said: {report:?}"
     );
 }
+
+/// The `application_id` this software stamps on a cache file, read back from a
+/// file the shipped executable wrote. Reading it rather than naming it keeps
+/// the earlier-layout fixture below the same software's own file.
+fn this_softwares_application_id(setup: &Setup, cache_home: &Path) -> i32 {
+    let cache = default_cache_path(cache_home);
+    succeeded(&score(setup, cache_home, &[FIRST_VARIANT]));
+    let stamp: i32 = open_cache(&cache)
+        .expect("cache database")
+        .pragma_query_value(None, "application_id", |row| row.get(0))
+        .expect("read application id");
+    remove_cache_family(&cache);
+    stamp
+}
+
+/// The `user_version` this software stamps on a cache file. A test that needs a
+/// layout later than this build knows adds one to it, rather than naming a
+/// number that a future layout bump would silently make meaningless.
+fn this_softwares_user_version(path: &Path) -> i32 {
+    open_cache(path)
+        .expect("cache database")
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("read user version")
+}
+
+fn remove_cache_family(path: &Path) {
+    for suffix in ["", "-wal", "-shm"] {
+        let member = PathBuf::from(format!("{}{suffix}", path.display()));
+        match fs::remove_file(&member) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => panic!("remove {}: {error}", member.display()),
+        }
+    }
+}
+
+/// Give a fixture file the private permissions the cache requires of its own
+/// files, so a run reaches the file's contents rather than refusing its mode.
+fn make_private(path: &Path) {
+    let parent = path.parent().expect("cache parent");
+    fs::create_dir_all(parent).expect("cache directory");
+    fs::set_permissions(parent, fs::Permissions::from_mode(0o700)).expect("private directory");
+    for suffix in ["", "-wal", "-shm"] {
+        let member = PathBuf::from(format!("{}{suffix}", path.display()));
+        if member.exists() {
+            fs::set_permissions(&member, fs::Permissions::from_mode(0o600)).expect("private file");
+        }
+    }
+}
+
+/// A row an earlier release wrote, recognizable wherever it survives.
+const EARLIER_ROW: &str = "row-written-by-an-earlier-release";
+
+/// The cache file v0.4.1 wrote: this software's own `application_id` stamped
+/// with layout 1, and an `entries` table whose key still carried the identity
+/// columns this ticket moved out of it. The DDL is copied from the tagged
+/// release, so it is frozen rather than drifting with the running build.
+///
+/// This is the file already sitting on an operator's disk. Reaching the layout
+/// this build writes means passing through it, so it is the one upgrade every
+/// operator makes.
+fn write_earlier_layout_cache(path: &Path, application_id: i32) {
+    make_private(path);
+    let connection = rusqlite::Connection::open(path).expect("create earlier-layout cache");
+    connection
+        .execute_batch(&format!(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA application_id={application_id};
+             PRAGMA user_version=1;
+             CREATE TABLE metadata (
+               singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+               next_write_sequence INTEGER NOT NULL CHECK(next_write_sequence > 0)
+             ) STRICT;
+             INSERT INTO metadata VALUES(1, 2);
+             CREATE TABLE entries (
+               key_digest TEXT PRIMARY KEY,
+               key_json BLOB NOT NULL,
+               contig TEXT NOT NULL,
+               position INTEGER NOT NULL,
+               reference TEXT NOT NULL,
+               alternate TEXT NOT NULL,
+               scoring_semantics TEXT NOT NULL,
+               model_bundle_id TEXT NOT NULL,
+               model_profile TEXT NOT NULL,
+               model_representation TEXT NOT NULL,
+               cpu_policy TEXT NOT NULL,
+               reference_bundle_id TEXT NOT NULL,
+               reference_profile TEXT NOT NULL,
+               reference_sequence_set_sha256 TEXT NOT NULL,
+               mask_bytes INTEGER NOT NULL,
+               mask_sha256 TEXT NOT NULL,
+               masking_policy TEXT NOT NULL,
+               window INTEGER NOT NULL,
+               value_json BLOB NOT NULL,
+               write_sequence INTEGER NOT NULL CHECK(write_sequence > 0)
+             ) STRICT;
+             INSERT INTO entries VALUES(
+               '{EARLIER_ROW}', CAST('{EARLIER_ROW}' AS BLOB),
+               'chr1', 5051, 'A', 'AC',
+               'pangopup-variant-score-v1', '{EARLIER_ROW}', 'mini', 'singleton',
+               'sequential:1/1', '{EARLIER_ROW}', 'route-test', '{EARLIER_ROW}',
+               260, '{EARLIER_ROW}', 'pangolin-gencode-v38-order-sensitive-v1', 50,
+               CAST('{EARLIER_ROW}' AS BLOB), 1
+             );"
+        ))
+        .expect("write the earlier layout");
+    drop(connection);
+    make_private(path);
+    assert!(
+        whole_file(path).contains(EARLIER_ROW),
+        "the fixture must plant a row an earlier release wrote"
+    );
+}
+
+/// An operator upgrading from v0.4.1 meets a file this build cannot read row by
+/// row. The ticket settles that such a file is discarded and refilled, and that
+/// the discard is reported. Neither may become a destroyed file nobody heard
+/// about, and neither may cost the caller an answer.
+#[test]
+fn a_default_cache_an_earlier_release_wrote_is_discarded_and_reported() {
+    let temp = private_temp();
+    let setup = Setup::fixtures();
+    let cache = default_cache_path(temp.path());
+    let application_id = this_softwares_application_id(&setup, temp.path());
+    write_earlier_layout_cache(&cache, application_id);
+
+    let upgraded = score(&setup, temp.path(), &[FIRST_VARIANT]);
+    let scored = succeeded(&upgraded);
+    assert!(
+        scored.contains("\"kind\":\"model\""),
+        "an upgrade must still answer: {scored}"
+    );
+    assert!(
+        !whole_file(&cache).contains(EARLIER_ROW),
+        "no row an earlier release wrote may stay readable after the upgrade"
+    );
+    assert_eq!(
+        entry_count(&cache),
+        1,
+        "the file an earlier release wrote is discarded whole, leaving only the row this run wrote"
+    );
+    assert!(
+        recorded_setup(&cache).contains(env!("CARGO_PKG_VERSION")),
+        "the refilled file must record the running software version"
+    );
+    let report = String::from_utf8(upgraded.stderr).expect("UTF-8 report");
+    assert!(
+        report.to_ascii_lowercase().contains("cache")
+            && report.contains(&cache.display().to_string()),
+        "an upgrade that threw the operator's cache away must say so and name the file, and this \
+         run said: {report:?}"
+    );
+}
+
+/// The same upgrade against a file the caller chose. Here a refusal is the
+/// louder failure: the run dies and the operator scores nothing until they
+/// delete a file by hand. A chosen file is still never replaced in silence, so
+/// the discard is named.
+#[test]
+fn a_chosen_cache_an_earlier_release_wrote_is_discarded_rather_than_fatal() {
+    let temp = private_temp();
+    let setup = Setup::fixtures();
+    let cache = temp.path().join("chosen.sqlite3");
+    let application_id = this_softwares_application_id(&setup, temp.path());
+    write_earlier_layout_cache(&cache, application_id);
+
+    let upgraded = run_with_chosen_cache(&setup, temp.path(), &cache, &[FIRST_VARIANT]);
+    let scored = succeeded(&upgraded);
+    assert!(
+        scored.contains("\"kind\":\"model\""),
+        "a chosen cache an earlier release wrote must not take the run down: {scored}"
+    );
+    assert!(
+        !whole_file(&cache).contains(EARLIER_ROW),
+        "no row an earlier release wrote may stay readable after the upgrade"
+    );
+    assert_eq!(
+        entry_count(&cache),
+        1,
+        "the chosen file is discarded whole, leaving only the row this run wrote"
+    );
+    let report = String::from_utf8(upgraded.stderr).expect("UTF-8 report");
+    assert!(
+        report.contains(&cache.display().to_string()),
+        "discarding a file the caller chose must name it, and this run said: {report:?}"
+    );
+}
+
+fn run_with_chosen_cache(
+    setup: &Setup,
+    cache_home: &Path,
+    cache: &Path,
+    variants: &[&str],
+) -> Output {
+    let mut args = vec!["lookup".to_owned(), "--model-only".to_owned()];
+    for variant in variants {
+        args.push("--variant".to_owned());
+        args.push((*variant).to_owned());
+    }
+    args.extend(setup.args());
+    args.extend(["--model-cache".to_owned(), cache.display().to_string()]);
+    Command::new(env!("CARGO_BIN_EXE_pangopup"))
+        .args(&args)
+        .env("XDG_CACHE_HOME", cache_home)
+        .env("HOME", cache_home)
+        .output()
+        .expect("run pangopup")
+}
+
+/// Recognizing this software's own earlier layout must not have widened into
+/// recognizing anything. A file this build cannot identify is refused, and a
+/// file the caller chose is left exactly where it is for them to inspect.
+///
+/// The later layout is the sharp case: an operator who runs an older build
+/// against a newer file must get a refusal, never a newer file destroyed by an
+/// older one that thought it knew better.
+#[test]
+fn a_foreign_damaged_or_later_cache_is_refused_and_never_deleted() {
+    let temp = private_temp();
+    let setup = Setup::fixtures();
+    let mut refused = 0;
+    for (what, damage) in [
+        (
+            "a database belonging to another application",
+            &(|path: &Path| {
+                open_cache(path)
+                    .expect("cache database")
+                    .pragma_update(None, "application_id", 0x4f54_4845_i32)
+                    .expect("stamp another application");
+            }) as &dyn Fn(&Path),
+        ),
+        ("a layout later than this build writes", &|path: &Path| {
+            let later = this_softwares_user_version(path) + 1;
+            open_cache(path)
+                .expect("cache database")
+                .pragma_update(None, "user_version", later)
+                .expect("stamp a later layout");
+        }),
+        ("this layout with a table missing", &|path: &Path| {
+            open_cache(path)
+                .expect("cache database")
+                .execute_batch("DROP TABLE setup;")
+                .expect("drop the setup table");
+        }),
+        ("a file that is not a database at all", &|path: &Path| {
+            fs::write(path, b"this is not a SQLite database").expect("write garbage");
+        }),
+        ("a database cut in half", &|path: &Path| {
+            let bytes = fs::read(path).expect("read cache");
+            fs::write(path, &bytes[..bytes.len() / 2]).expect("truncate cache");
+        }),
+    ] {
+        let cache = temp.path().join(format!("{}.sqlite3", refused));
+        succeeded(&run_with_chosen_cache(
+            &setup,
+            temp.path(),
+            &cache,
+            &[FIRST_VARIANT],
+        ));
+        damage(&cache);
+        make_private(&cache);
+        let before = fs::read(&cache).unwrap_or_else(|error| panic!("read {what}: {error}"));
+
+        let output = run_with_chosen_cache(&setup, temp.path(), &cache, &[SECOND_VARIANT]);
+        assert!(
+            !output.status.success(),
+            "{what} must refuse the run rather than be treated as this release's own file"
+        );
+        assert!(
+            output.stdout.is_empty(),
+            "{what} must answer nothing from a file this build cannot read: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let report = String::from_utf8(output.stderr).expect("UTF-8 report");
+        assert!(
+            report.contains("MODEL_CACHE_INVALID"),
+            "{what} must be reported as an invalid cache, and this run said: {report:?}"
+        );
+        assert_eq!(
+            fs::read(&cache).unwrap_or_else(|error| panic!("read {what} after: {error}")),
+            before,
+            "{what} sits at a path the caller chose, so it must be left exactly as it was found"
+        );
+        refused += 1;
+    }
+    assert_eq!(refused, 5, "every damaged form must be exercised");
+}

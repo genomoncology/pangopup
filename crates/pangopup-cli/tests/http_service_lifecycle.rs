@@ -1383,6 +1383,90 @@ mod installed_success {
             "a service on another setup must leave no row the command-line tool filled readable"
         );
     }
+
+    /// Start a service, read `/v1/status` so it is known to be up, stop it, and
+    /// hand back everything it wrote to standard error. Standard error is
+    /// drained before the wait, so a report cannot be lost to a closed pipe.
+    fn stderr_of_a_run(data: &Path, profile: &Path, cache: &Path, workers: &str) -> String {
+        let (mut child, address) = start_with_policy(data, profile, cache, workers, "1");
+        let response = request(&address, "GET", "/v1/status", "");
+        assert!(
+            response.starts_with(b"HTTP/1.1 200 OK\r\n"),
+            "{}",
+            String::from_utf8_lossy(&response)
+        );
+        assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+        let mut reported = String::new();
+        child
+            .stderr
+            .as_mut()
+            .expect("stderr")
+            .read_to_string(&mut reported)
+            .expect("read stderr");
+        assert!(child.wait().expect("service exit").success());
+        reported
+    }
+
+    // An operator restarting the service after an upgrade or an asset change
+    // has to be able to tell a cold cache from one this start threw away. The
+    // command line says so; the service performs the same discard, so it says
+    // so too. It says so once, naming the file, however many workers open the
+    // same cache behind it, and it says nothing at all when it kept what it
+    // found.
+    #[test]
+    fn the_service_reports_the_cache_it_discarded_once_and_stays_silent_otherwise() {
+        let temp = tempfile::tempdir().expect("temp");
+        let (_filled_data, _filled_profile, cache) = install_under(
+            temp.path(),
+            "reported",
+            &fixture("route-mask/domains.pgm"),
+            50,
+        );
+        fill_from_command_line(
+            &cache,
+            temp.path(),
+            &["GRCh38:chr1:5051:A:AC", "GRCh38:chr1:5051:A:C"],
+        );
+        assert_eq!(
+            cached_rows(&cache),
+            2,
+            "the command-line tool must fill the cache first"
+        );
+
+        let (data, profile, _) = install_under(
+            temp.path(),
+            "reported-other-mask",
+            &fixture("gencode-mask-mini/domains.pgm"),
+            50,
+        );
+        let discarded = stderr_of_a_run(&data, &profile, &cache, "3");
+        assert_eq!(
+            cached_rows(&cache),
+            0,
+            "this start must be the one that discards, or the report below proves nothing"
+        );
+        let named: Vec<&str> = discarded
+            .lines()
+            .filter(|line| line.contains(&cache.display().to_string()))
+            .collect();
+        assert_eq!(
+            named.len(),
+            1,
+            "a service that discarded a cache must say so exactly once, naming the file, and this \
+             start said: {discarded:?}"
+        );
+        assert!(
+            named[0].to_ascii_lowercase().contains("cache"),
+            "the report must be readable as a discarded cache, and this start said: {discarded:?}"
+        );
+
+        let kept = stderr_of_a_run(&data, &profile, &cache, "3");
+        assert!(
+            !kept.contains(&cache.display().to_string()),
+            "a restart that kept the cache it found must report no discard, and this start said: \
+             {kept:?}"
+        );
+    }
 }
 
 #[cfg(unix)]
