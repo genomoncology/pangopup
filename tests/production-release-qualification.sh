@@ -201,8 +201,18 @@ jq -S -c . "$repo/tests/fixtures/executable-release/model-only-snv.jsonl" \
   >"$root/checked-model-only-snv.json"
 cmp "$root/derived-model-only-snv.json" "$root/checked-model-only-snv.json"
 
+# The stub delegates the seven SNV groups to the built executable and the
+# comparison below re-renders them, so nothing past this point runs without it.
+# Check before the first use, not after, or a missing build reports itself as a
+# failed qualification command.
+real_cli=$repo/target/debug/pangopup
+[[ -x "$real_cli" && ! -L "$real_cli" ]] || {
+  printf 'build the command-line tool before this harness: cargo build --package pangopup-cli\n' >&2
+  exit 1
+}
+
 export QUALIFICATION_SOURCE=$repo
-export QUALIFICATION_REAL_PANGOPUP=$repo/target/debug/pangopup
+export QUALIFICATION_REAL_PANGOPUP=$real_cli
 export QUALIFICATION_SNV_FIXTURE_BUNDLE=$repo/tests/fixtures/snv-regression/bundle
 export QUALIFICATION_EXPECTED_HOME=$root/output/home
 export QUALIFICATION_EXPECTED_DATA=$root/data
@@ -241,11 +251,6 @@ require_checker_accepts check "$root/output"
 # The seven SNV groups need no published asset. The built executable scores
 # them against the repository SNV fixture bundle and prints the release's own
 # bytes, so the qualification output must be exactly those bytes.
-real_cli=$repo/target/debug/pangopup
-[[ -x "$real_cli" && ! -L "$real_cli" ]] || {
-  printf 'build the command-line tool before this harness: cargo build --package pangopup-cli\n' >&2
-  exit 1
-}
 rendered=$root/rendered
 install -d -m 700 "$rendered"
 groups=(
