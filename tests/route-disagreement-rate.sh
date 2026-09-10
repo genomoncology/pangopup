@@ -17,9 +17,13 @@ set -euo pipefail
 #   2. Its counts are internally consistent: each published percentage is the
 #      arithmetic of the counts beside it, over a denominator larger than zero.
 #      A measurement over no records proves nothing and is refused here.
-#   3. The named variant set is reachable. Its manifest is a committed file and
-#      holds exactly the number of variants the artifact declares, so a later
-#      reader re-runs the same set instead of a list that lived in a shell.
+#   3. The named variant set is reachable and large enough to state a rate. Its
+#      manifest is a committed file holding exactly the number of variants the
+#      artifact declares, so a later reader re-runs the same set instead of a
+#      list that lived in a shell; the artifact states the rule the set was
+#      drawn by; and the set and both denominators clear their floors. One
+#      disagreement in five records is the defect this ticket exists to fix, so
+#      a rate published over a handful of records is refused here.
 #   4. The two published documents no longer disclaim a rate, carry the
 #      artifact's own numbers, link to it, and report value disagreement and
 #      position disagreement as two separate numbers -- a sentence about values
@@ -28,11 +32,15 @@ set -euo pipefail
 #      one of those sentences and fails here.
 #   5. The artifact's sentence about zero scores appears in the published
 #      contract word for word, so how zeros were treated cannot be dropped from
-#      the statement while staying in the evidence.
+#      the statement while staying in the evidence. Its sentence about the
+#      limit of the evidence appears there word for word too.
 #
-# What this does not prove: that the measurement is correct. Nothing short of
-# re-running it proves that. This proves the published number is the measured
-# number and the measured number is reachable.
+# What this does not prove: that the measurement is correct. This check reads a
+# recorded artifact and never re-runs the measurement, so numbers typed by hand
+# into that artifact would satisfy it. Nothing short of re-running the
+# measurement closes that, which is why the contract has to say so itself. The
+# `evidence-limit` sentence is that disclosure, and check 5 holds it in the
+# published text rather than leaving it in this comment.
 
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
@@ -47,8 +55,18 @@ score_value_section='## The two routes'
 counts=(variant-set-size compared-records value-disagreements \
     position-compared-records position-disagreements)
 percents=(value-disagreement-percent position-disagreement-percent)
-required=(variant-set variant-set-manifest "${counts[@]}" "${percents[@]}" \
-    zero-score-treatment measured)
+required=(variant-set variant-set-rule variant-set-manifest "${counts[@]}" \
+    "${percents[@]}" zero-score-treatment evidence-limit measured)
+
+# A rate needs enough records to be a rate. The ticket's complaint is that one
+# disagreement in five records supports no number at all, so a set or a
+# denominator too small to state one is refused here. The position denominator
+# carries a lower floor because both routes score most records zero and a zero
+# score carries no comparable position, which leaves the position-comparable
+# subset a fraction of the value one.
+minimum_variants=1000
+minimum_compared=1000
+minimum_position_compared=100
 
 fail() { printf 'route disagreement rate: %s\n' "$*" >&2; exit 1; }
 
@@ -113,6 +131,11 @@ examine() {
         return 1
     }
 
+    grep -q '^## Method$' "$artifact" || {
+        printf '%s has no `## Method` section, so the rule its variant set was drawn by is written down nowhere\n' "$artifact_relative" >&2
+        return 1
+    }
+
     grep -q '^## Reproducing$' "$artifact" || {
         printf '%s has no `## Reproducing` section, so a later reader cannot get the same number again\n' "$artifact_relative" >&2
         return 1
@@ -158,6 +181,23 @@ examine() {
     (( rows == measured[variant-set-size] )) || {
         printf '%s holds %s variant(s) and %s declares a set of %s\n' \
             "${measured[variant-set-manifest]}" "$rows" "$artifact_relative" "${measured[variant-set-size]}" >&2
+        return 1
+    }
+
+    # --- the set and its denominators are large enough to state a rate ---
+    (( measured[variant-set-size] >= minimum_variants )) || {
+        printf 'the variant set holds %s variant(s), fewer than the %s a published rate needs\n' \
+            "${measured[variant-set-size]}" "$minimum_variants" >&2
+        return 1
+    }
+    (( measured[compared-records] >= minimum_compared )) || {
+        printf 'compared-records is %s, fewer than the %s a published value rate needs\n' \
+            "${measured[compared-records]}" "$minimum_compared" >&2
+        return 1
+    }
+    (( measured[position-compared-records] >= minimum_position_compared )) || {
+        printf 'position-compared-records is %s, fewer than the %s a published position rate needs\n' \
+            "${measured[position-compared-records]}" "$minimum_position_compared" >&2
         return 1
     }
 
@@ -224,6 +264,13 @@ examine() {
                 "$relative" "$artifact_relative" "${measured[zero-score-treatment]}" >&2
             return 1
         }
+        # No gate re-runs this measurement, so the contract states that limit
+        # where the number is read instead of leaving it in the evidence file.
+        printf '%s' "$text" | grep -qF -- "${measured[evidence-limit]}" || {
+            printf '%s does not carry the limit of its own evidence: %s says "%s"\n' \
+                "$relative" "$artifact_relative" "${measured[evidence-limit]}" >&2
+            return 1
+        }
     done
 
     printf '%s disagreement on value (%s%%) and %s on position (%s%%) over %s, published and recorded alike\n' \
@@ -265,17 +312,23 @@ plant() {
 
 ```measurement
 variant-set: fixture-set-v1
+variant-set-rule: Every SNV on the fixture contig in dataset order.
 variant-set-manifest: planning/artifacts/fixture-set.tsv
-variant-set-size: 4
-compared-records: 5
-value-disagreements: 1
-value-disagreement-percent: 20.00
-position-compared-records: 2
-position-disagreements: 1
-position-disagreement-percent: 50.00
+variant-set-size: 1000
+compared-records: 1200
+value-disagreements: 24
+value-disagreement-percent: 2.00
+position-compared-records: 200
+position-disagreements: 3
+position-disagreement-percent: 1.50
 zero-score-treatment: A record carrying a zero score on either route is left out of the position comparison and kept in the value comparison.
+evidence-limit: This rate was measured once against the shipped assets and no gate re-runs it.
 measured: 2026-09-10
 ```
+
+## Method
+
+Every SNV on the fixture contig in dataset order.
 
 ## Reproducing
 
@@ -284,8 +337,10 @@ bash planning/artifacts/fixture-rerun.sh
 ```
 ARTIFACT
 
-    printf 'GRCh38:chr1:1:A:T\nGRCh38:chr1:2:A:T\n\n# a comment\nGRCh38:chr1:3:A:T\nGRCh38:chr1:4:A:T\n' \
-        >"$tree/planning/artifacts/fixture-set.tsv"
+    {
+        printf '# a comment\n\n'
+        seq 1 1000 | sed -E 's|^|GRCh38:chr1:|; s|$|:A:T|'
+    } >"$tree/planning/artifacts/fixture-set.tsv"
 
     cat >"$tree/$compatibility_relative" <<'COMPAT'
 # Compatibility
@@ -293,11 +348,12 @@ ARTIFACT
 ## Score values
 
 A precomputed score and a modeled score are not interchangeable. Both routes
-were run over fixture-set-v1, a set of 4 variants, on 2026-09-10. The two routes
-report a different value on 20.00 percent of the compared records. They report a
-different position on 50.00 percent of the records comparable on position. A
-record carrying a zero score on either route is left out of the position
-comparison and kept in the value comparison. The measurement is
+were run over fixture-set-v1, a set of 1,000 variants, on 2026-09-10. The two
+routes report a different value on 2.00 percent of the compared records. They
+report a different position on 1.50 percent of the records comparable on
+position. A record carrying a zero score on either route is left out of the
+position comparison and kept in the value comparison. This rate was measured
+once against the shipped assets and no gate re-runs it. The measurement is
 [the artifact](../planning/artifacts/0059-route-disagreement-rate.md).
 
 ## What a consumer pins
@@ -310,8 +366,8 @@ COMPAT
 
 ## The two routes
 
-The two routes disagree on the value for 20.00 percent of the compared records
-and on the position for 50.00 percent of the records comparable on position. The
+The two routes disagree on the value for 2.00 percent of the compared records
+and on the position for 1.50 percent of the records comparable on position. The
 measurement is
 [the artifact](../planning/artifacts/0059-route-disagreement-rate.md).
 
@@ -354,6 +410,25 @@ retype() {
     sed -i -E "s|^$key: .*|$key: $value|" "$target"
 }
 
+# Rewrite several `key: value` lines of the measurement block together, for a
+# case whose one change has to keep the block's arithmetic consistent.
+retype_many() {
+    local target=$1
+    shift
+    while (( $# )); do
+        retype "$target" "$1" "$2"
+        shift 2
+    done
+}
+
+# Shrink the fixture's variant set to a handful, manifest and declaration alike.
+shrink_set() {
+    local target=$1 rows=$2
+    printf 'GRCh38:chr1:1:A:T\nGRCh38:chr1:2:A:T\nGRCh38:chr1:3:A:T\nGRCh38:chr1:4:A:T\n' \
+        | head -n "$rows" >"$target"
+    retype "$artifact_relative" variant-set-size "$rows"
+}
+
 # A fixture repository with one thing changed. `$@` after the name is a command
 # run inside the tree. A mutation that changes no byte is a broken fixture, not
 # a passing check, so the tree is fingerprinted around it.
@@ -384,14 +459,24 @@ expect_refusal "$(mutate no-rerun drop "$artifact_relative" '^## Reproducing$')"
     'cannot get the same number again'
 expect_refusal "$(mutate empty-denominator retype "$artifact_relative" position-compared-records 0)" \
     'was measured over nothing'
-expect_refusal "$(mutate impossible-count retype "$artifact_relative" value-disagreements 9)" \
+expect_refusal "$(mutate impossible-count retype "$artifact_relative" value-disagreements 9000)" \
     'exceeds compared-records'
-expect_refusal "$(mutate bad-arithmetic retype "$artifact_relative" value-disagreement-percent 2.00)" \
+expect_refusal "$(mutate bad-arithmetic retype "$artifact_relative" value-disagreement-percent 9.00)" \
     'is not that percentage'
 expect_refusal "$(mutate unreachable-set rm -f planning/artifacts/fixture-set.tsv)" \
     'not a file in the repository'
-expect_refusal "$(mutate wrong-size retype "$artifact_relative" variant-set-size 3)" \
-    'declares a set of 3'
+expect_refusal "$(mutate wrong-size retype "$artifact_relative" variant-set-size 1001)" \
+    'declares a set of 1001'
+expect_refusal "$(mutate no-method drop "$artifact_relative" '^## Method$')" \
+    'written down nowhere'
+expect_refusal "$(mutate handful-of-variants shrink_set planning/artifacts/fixture-set.tsv 4)" \
+    'fewer than the 1000 a published rate needs'
+expect_refusal "$(mutate handful-of-records retype_many "$artifact_relative" \
+    compared-records 500 value-disagreements 10)" \
+    'compared-records is 500, fewer than the 1000'
+expect_refusal "$(mutate handful-of-positions retype_many "$artifact_relative" \
+    position-compared-records 40 position-disagreements 1 position-disagreement-percent 2.50)" \
+    'position-compared-records is 40, fewer than the 100'
 expect_refusal "$(mutate still-disclaims swap "$compatibility_relative" \
     'A precomputed score and a modeled score are not interchangeable.' \
     'No rate of disagreement is claimed.')" \
@@ -400,26 +485,30 @@ expect_refusal "$(mutate unlinked swap "$compatibility_relative" \
     '[the artifact](../planning/artifacts/0059-route-disagreement-rate.md)' 'somewhere')" \
     'cannot reach the evidence'
 expect_refusal "$(mutate drifted-number swap "$compatibility_relative" \
-    'a different value on 20.00 percent' 'a different value on 19.00 percent')" \
-    'no sentence reporting 20.00 as the value disagreement'
+    'a different value on 2.00 percent' 'a different value on 1.90 percent')" \
+    'no sentence reporting 2.00 as the value disagreement'
 expect_refusal "$(mutate collapsed-pair swap "$compatibility_relative" \
-    'They report a different position on 50.00 percent of the records comparable on position.' '')" \
-    'no sentence reporting 50.00 as the position disagreement'
+    'They report a different position on 1.50 percent of the records comparable on position.' '')" \
+    'no sentence reporting 1.50 as the position disagreement'
 expect_refusal "$(mutate spec-drifted swap "$score_value_relative" \
-    'on the position for 50.00 percent' 'on the position for 20.00 percent')" \
-    'no sentence reporting 50.00 as the position disagreement'
+    'on the position for 1.50 percent' 'on the position for 2.00 percent')" \
+    'no sentence reporting 1.50 as the position disagreement'
 expect_refusal "$(mutate unnamed-set swap "$compatibility_relative" \
-    'over fixture-set-v1, a set of 4 variants' 'over a set of 4 variants')" \
+    'over fixture-set-v1, a set of 1,000 variants' 'over a set of 1,000 variants')" \
     'without naming the variant set'
 expect_refusal "$(mutate undated swap "$compatibility_relative" ', on 2026-09-10.' '.')" \
     'without the date'
 expect_refusal "$(mutate unsized swap "$compatibility_relative" \
-    'a set of 4 variants' 'a set of variants')" \
+    'a set of 1,000 variants' 'a set of variants')" \
     'without the size of the set'
 expect_refusal "$(mutate silent-on-zeros swap "$compatibility_relative" \
     'A record carrying a zero score on either route is left out of the position comparison and kept in the value comparison.' \
     'Zeros went somewhere.')" \
     'does not carry how zero scores were treated'
+expect_refusal "$(mutate silent-on-limit swap "$compatibility_relative" \
+    'This rate was measured once against the shipped assets and no gate re-runs it.' \
+    'The measurement is sound.')" \
+    'does not carry the limit of its own evidence'
 expect_refusal "$(mutate no-section drop "$compatibility_relative" '^## Score values$')" \
     'read no published statement'
 
