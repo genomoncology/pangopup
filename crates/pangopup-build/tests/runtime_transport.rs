@@ -10,7 +10,10 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
     fs,
+    os::{fd::AsRawFd, unix::ffi::OsStrExt},
     path::{Path, PathBuf},
+    process::{Command, Stdio},
+    time::{Duration, Instant},
 };
 use tempfile::tempdir;
 
@@ -406,4 +409,135 @@ fn hardlinked_profile_and_payload_inputs_are_rejected() {
         )
         .is_err()
     );
+}
+
+/// Longest a bounded `runtime-transport verify` child may take before this test
+/// declares it stopped. Generous against a slow machine, finite against a
+/// member the command can never finish opening.
+const VERIFY_DEADLINE: Duration = Duration::from_secs(30);
+
+struct BoundedVerify {
+    returned: bool,
+    code: Option<i32>,
+    stderr: String,
+}
+
+/// Runs `runtime-transport verify` in a child process under a wall-clock
+/// deadline. The child is killed and reaped when the deadline passes, so a
+/// member the command cannot finish opening fails this test instead of
+/// stopping the suite. Output goes to files rather than pipes so polling the
+/// child can never block on a full pipe buffer.
+fn verify_under_deadline(scratch: &Path, transport: &Path) -> BoundedVerify {
+    let stderr_path = scratch.join("verify.stderr");
+    let stdout_path = scratch.join("verify.stdout");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pangopup-build"))
+        .args(["runtime-transport", "verify", "--transport"])
+        .arg(transport)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(fs::File::create(&stdout_path).expect("stdout")))
+        .stderr(Stdio::from(fs::File::create(&stderr_path).expect("stderr")))
+        .spawn()
+        .expect("spawn verify");
+    let deadline = Instant::now() + VERIFY_DEADLINE;
+    let status = loop {
+        match child.try_wait().expect("poll verify") {
+            Some(status) => break Some(status),
+            None if Instant::now() >= deadline => {
+                child.kill().expect("kill stopped verify");
+                child.wait().expect("reap stopped verify");
+                break None;
+            }
+            None => std::thread::sleep(Duration::from_millis(25)),
+        }
+    };
+    BoundedVerify {
+        returned: status.is_some(),
+        code: status.and_then(|status| status.code()),
+        stderr: String::from_utf8(fs::read(&stderr_path).expect("read stderr")).expect("UTF-8"),
+    }
+}
+
+/// A label, the member to spoil, and how to spoil it.
+type ShapeCase = (&'static str, &'static str, fn(&Path, &str));
+
+fn replace_member_with_fifo(transport: &Path, member: &str) {
+    let path = transport.join(member);
+    fs::remove_file(&path).expect("remove member");
+    let name = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("member path");
+    let made = unsafe { libc::mkfifo(name.as_ptr(), 0o644) };
+    assert_eq!(made, 0, "mkfifo {}", path.display());
+}
+
+fn replace_member_with_directory(transport: &Path, member: &str) {
+    let path = transport.join(member);
+    fs::remove_file(&path).expect("remove member");
+    fs::create_dir(&path).expect("directory member");
+}
+
+/// Binds through `/proc/self/fd` because a socket address is capped near 108
+/// bytes and a temporary directory path can be longer than that on its own.
+fn replace_member_with_socket(transport: &Path, member: &str) {
+    fs::remove_file(transport.join(member)).expect("remove member");
+    let held = fs::File::open(transport).expect("hold transport");
+    let short = PathBuf::from(format!("/proc/self/fd/{}", held.as_raw_fd())).join(member);
+    let listener = std::os::unix::net::UnixListener::bind(&short).expect("socket member");
+    drop(listener);
+    drop(held);
+}
+
+/// A member that is not a regular file is refused by name, whatever kind of
+/// non-regular file it is, and the command always returns. A FIFO is the kind
+/// that stops the command today: `open` on it waits for a writer that never
+/// arrives. The two FIFO rows sit on a stored member and on a raw member
+/// because verify opens those on two different paths.
+#[test]
+fn a_member_that_is_not_a_regular_file_is_refused_by_name_and_verify_returns() {
+    let temp = tempdir().expect("temp");
+    let (packed, _) = pack_fixture(temp.path(), "shapes");
+
+    let intact = verify_under_deadline(temp.path(), &packed);
+    assert!(
+        intact.returned,
+        "verify did not return on an intact transport"
+    );
+    assert_eq!(
+        intact.code,
+        Some(0),
+        "an intact transport must still verify: {}",
+        intact.stderr
+    );
+
+    let cases: [ShapeCase; 4] = [
+        ("fifo-raw", "model-NOTICE", replace_member_with_fifo),
+        ("fifo-stored", "model.onnx.zst", replace_member_with_fifo),
+        ("directory", "mask-NOTICE", replace_member_with_directory),
+        ("socket", "reference-NOTICE", replace_member_with_socket),
+    ];
+    for (label, member, spoil) in cases {
+        let transport = temp.path().join(format!("shapes-{label}"));
+        copy_directory(&packed, &transport);
+        spoil(&transport, member);
+
+        let observed = verify_under_deadline(temp.path(), &transport);
+        assert!(
+            observed.returned,
+            "{label}: verify never returned on a {member} that is not a regular file"
+        );
+        assert_eq!(
+            observed.code,
+            Some(1),
+            "{label}: verify must refuse a {member} that is not a regular file, stderr {}",
+            observed.stderr
+        );
+        assert!(
+            observed.stderr.contains("PART_SET_INVALID"),
+            "{label}: a member that is not a regular file is a bad member set, got {}",
+            observed.stderr
+        );
+        assert!(
+            observed.stderr.contains(member),
+            "{label}: the refusal must name the member, got {}",
+            observed.stderr
+        );
+    }
 }

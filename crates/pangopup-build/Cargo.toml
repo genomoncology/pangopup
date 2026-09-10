@@ -23,6 +23,7 @@ zstd = { version = "=0.13.3", features = ["zstdmt"] }
 [dev-dependencies]
 pangopup-assets = { path = "../pangopup-assets", features = ["test-read-audit"] }
 pangopup-index = { path = "../pangopup-index", features = ["test-read-audit"] }
+libc = "0.2.188"
 tempfile = "3.27.0"
 
 [build-dependencies]
