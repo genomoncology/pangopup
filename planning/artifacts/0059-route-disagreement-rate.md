@@ -28,8 +28,8 @@ non-zero-records: 381
 non-zero-value-disagreement-percent: 0.52
 denominator-composition: 2,409 of the 2,790 compared records score zero on both sides on both routes, so 86 percent of the value denominator is two routes agreeing that nothing happened, and 381 records carry a non-zero score on at least one route.
 zero-score-treatment: A gene record enters the position comparison only on a side whose score is non-zero on both routes, and every record both routes answered stays in the value comparison, zero scores included.
-position-mechanism: The published dataset rounds the model's 101-value window array to hundredths and reports the first position attaining the winning hundredth, while PangoPup finds the extremum of the raw array and rounds afterwards.
-position-ordering: Both routes break a tie to the lowest position, so a precomputed position is never later than a modeled one for the same call.
+position-mechanism: PangoPup finds the extremum of the raw 101-value window array and rounds afterwards, and the published dataset appears to round the array to hundredths first and report the first position attaining the winning hundredth. That reduction is inferred from replaying the rule against PangoPup's own arrays, where it reproduces 16 of the 17 observed position disagreements; the upstream software cannot be read from here.
+position-ordering: PangoPup breaks a tie to the lowest position and the inferred upstream rule does the same, which would put a precomputed position at or before a modeled one for the same call. That ordering held on all 395 comparable sides of the 379 records measured and none broke it, but it rests on an inferred rule over one set of one substitution class and is an observation, not a guarantee to build on.
 evidence-limit: This rate was measured once on one host against the shipped v0.5.0 assets and no gate re-runs it.
 measured: 2026-09-10
 ```
@@ -190,20 +190,29 @@ said positions diverge more widely than values. It now has a number.
    large: `GRCh38:chr6:161000000:A:C` scores `0.47` on both routes and reports
    the gain at `-49` from the published dataset and at `27` from the model. A
    consumer must not compare a precomputed position against a modeled one.
-3. The position disagreements are a reduction rule, not a defect. The published
-   dataset rounds the model's 101-value window array to hundredths and reports
-   the first position attaining the winning hundredth, while PangoPup finds the
-   extremum of the raw array and rounds afterwards. Replaying that rule on
-   PangoPup's own raw arrays reproduces 16 of the 17 observed position
-   disagreements exactly. The seventeenth,
-   `GRCh38:chr4:101500000:G:T`, misses the rounding boundary at the published
-   position by 1.6e-5 of raw float drift. In every one of the 17 the published
-   position is the second- or third-largest value in PangoPup's own array, so
-   the two routes read the same array and pick different peaks out of it. Both
-   routes break a tie to the lowest position, so a precomputed position is never
-   later than a modeled one for the same call. The per-record file beside this
-   artifact carries every comparable side, and none of them breaks that
-   ordering.
+3. The position disagreements look like a reduction rule rather than a defect,
+   and that half of the explanation is inferred. PangoPup's own half is read
+   from the source: it finds the extremum of the raw 101-value window array and
+   rounds afterwards, breaking a tie to the lowest index. The upstream software
+   that built the published dataset cannot be read from here, so its rule was
+   guessed and tested. Replaying a rule that rounds the array to hundredths
+   first and reports the first position attaining the winning hundredth
+   reproduces 16 of the 17 observed position disagreements exactly. The
+   seventeenth, `GRCh38:chr4:101500000:G:T`, misses the rounding boundary at the
+   published position by 1.6e-5 of raw float drift. In every one of the 17 the
+   published position is the second- or third-largest value in PangoPup's own
+   array, so the two routes read the same array and pick different peaks out of
+   it. A rule that reproduces 16 of 17 is a good explanation, not a reading of
+   the producer, and no claim here rests on more than that.
+
+   The inferred rule would order the two positions one way: both sides break a
+   tie to the lowest index, so a precomputed position would fall at or before a
+   modeled one for the same call. That ordering was checked side by side and it
+   held on all 395 comparable sides of the 379 comparable records, with no
+   exception. It is what 395 sides of one transversion-only set on one build
+   showed, resting on a rule nobody here can read. Do not build on it as a
+   guarantee: it is bounded by the evidence in this artifact, and a
+   transition-bearing set or a later dataset could break it.
 4. Most of the set is not comparable on position at all. 2,411 of the 2,790
    compared records fall out of the position comparison, and 2,409 of those are
    zero on both sides on both routes rather than zero on one side of one route.
@@ -242,8 +251,14 @@ produced, so step 2 alone reproduces the numbers from a committed input.
 #    bundle gain, bundle gain position, bundle loss, bundle loss position,
 #    model gain, model gain position, model loss, model loss position,
 #    tab-separated under that exact header. Every position is an integer on
-#    every row, including a row whose score beside it is zero: the engine's own
-#    sentinel is -50 and it is written out rather than blanked.
+#    every row, including a row whose score beside it is zero, so nothing is
+#    blanked. A bundle position of -50 beside a zero bundle score is the
+#    published dataset's sentinel, and every one of the 5,184 zero bundle sides
+#    here carries it. A model position beside a zero model score is not a
+#    sentinel at all: it is wherever the model's own extremum fell, and it lands
+#    on -50 for 2,467 of the 5,184 zero model sides and on one of the other 100
+#    positions for the rest. Read no position beside a zero score on either
+#    route.
 ```
 
 That file is `planning/artifacts/0059-route-disagreement-records.tsv`. It holds

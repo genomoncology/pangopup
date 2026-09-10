@@ -37,8 +37,12 @@ set -euo pipefail
 #   6. The published position figure carries the mechanism behind it. A rate
 #      with no explanation cannot be told from a defect in this code, so the
 #      contract states why the two routes address the same call differently and
-#      states the one-sided guarantee that follows: a precomputed position is
-#      never later than a modeled one.
+#      states the one-sided ordering that follows: a precomputed position falls
+#      at or before a modeled one. Half of that mechanism is inferred from a
+#      black-box replay rather than read from the producer, and the ordering is
+#      an observation over the measured set rather than a promise, so this
+#      check holds whatever the artifact says word for word and never asserts
+#      the mechanism on its own.
 #   7. The per-record result of the measurement is a committed file, not a
 #      summary somebody kept. Every published count is recomputed from it, it
 #      covers the whole named variant set rather than a sample of it, and the
@@ -359,11 +363,11 @@ examine() {
         return 1
     }
 
-    # The guarantee the contract publishes, checked against the records instead
+    # The ordering the contract publishes, checked against the records instead
     # of pinned as prose: on every comparable side, the precomputed position is
     # at or before the modeled one.
     (( recomputed[violations] == 0 )) || {
-        printf '%s holds %s record(s) whose precomputed position is later than the modeled one, %s among them, so the published guarantee that a precomputed position is never later is false\n' \
+        printf '%s holds %s record(s) whose precomputed position is later than the modeled one, %s among them, so the published ordering that a precomputed position falls at or before a modeled one is false on its own records\n' \
             "${measured[raw-records]}" "${recomputed[violations]}" "${recomputed[sample]}" >&2
         return 1
     }
@@ -453,20 +457,20 @@ examine() {
 
         # A position figure with no mechanism beside it reads as a defect in
         # this code. The contract states why the two routes address the same
-        # call differently, and states the one-sided guarantee that follows.
+        # call differently, and states the one-sided ordering that follows.
         printf '%s' "$text" | grep -qF -- "${measured[position-mechanism]}" || {
             printf '%s reports a position disagreement rate without the mechanism behind it: %s says "%s"\n' \
                 "$relative" "$artifact_relative" "${measured[position-mechanism]}" >&2
             return 1
         }
         printf '%s' "$text" | grep -qF -- "${measured[position-ordering]}" || {
-            printf '%s does not carry the one-sided ordering guarantee: %s says "%s"\n' \
+            printf '%s does not carry the one-sided ordering statement: %s says "%s"\n' \
                 "$relative" "$artifact_relative" "${measured[position-ordering]}" >&2
             return 1
         }
     done
 
-    printf '%s disagreement on value (%s%%) and %s on position (%s%%) over %s, published and recorded alike; the ordering guarantee held over %s comparable record(s)\n' \
+    printf '%s disagreement on value (%s%%) and %s on position (%s%%) over %s, published and recorded alike; the published ordering held over %s comparable record(s)\n' \
         "${measured[value-disagreements]}" "${measured[value-disagreement-percent]}" \
         "${measured[position-disagreements]}" "${measured[position-disagreement-percent]}" \
         "${measured[variant-set]}" "${recomputed[position-compared-records]}"
@@ -767,7 +771,7 @@ expect_refusal "$(mutate silent-on-mechanism swap "$compatibility_relative" \
 expect_refusal "$(mutate silent-on-ordering swap "$compatibility_relative" \
     'A precomputed position is never later than a modeled one for the same call.' \
     'Either position can be the earlier one.')" \
-    'does not carry the one-sided ordering guarantee'
+    'does not carry the one-sided ordering statement'
 
 # --- the per-record result -----------------------------------------------------
 expect_refusal "$(mutate no-records rm -f planning/artifacts/fixture-records.tsv)" \
