@@ -79,7 +79,12 @@ records. Four records agree on the value. One does not.
 `GRCh38:chr10:114306065:A:T` reports `0.06` at position 12 from the published
 dataset and `0.02` at position 13 from the model. A consumer must not treat a
 precomputed score and a modeled score as the same measurement. Five gene records
-cannot establish a rate. This file claims no rate of disagreement.
+cannot establish a rate, so both routes were run over a larger set. They report a
+different value on 0.07 percent of the 2,790 gene records both answered and a
+different position on 4.49 percent of the 379 records comparable on position.
+[`planning/artifacts/0059-route-disagreement-rate.md`](../planning/artifacts/0059-route-disagreement-rate.md)
+records that measurement, the set it was drawn over, and how zero scores were
+treated.
 
 Positions diverge more widely than values. A zero score carries no meaningful
 position on either route. The published dataset reports `-50` beside almost every
