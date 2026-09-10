@@ -665,20 +665,20 @@ impl ModelResultCache {
         let old = std::mem::replace(&mut self.connection, placeholder);
         drop(old);
         remove_database_family(&self.path)?;
-        let Opened::Matching(mut replacement) =
+        let Opened::Matching(replacement) =
             Self::open_inner(&self.path, &self.setup, self.limit, true)?
         else {
             return Err(CacheError::Incompatible);
         };
-        self.connection = std::mem::replace(
-            &mut replacement.connection,
-            Connection::open_in_memory().map_err(map_sqlite)?,
-        );
-        self.pending_checkpoint = replacement.pending_checkpoint;
+        // `remove_database_family` propagated any failure but a missing file,
+        // so the file really went, the tables this open created are empty, and
+        // the trim inside the open found nothing to destroy. Nothing has to
+        // carry across but the connection and what describes it.
+        debug_assert_eq!(replacement.counters.evictions, 0);
         // The file at the path is the one this call just created, so the
         // captured identity has to follow it or the next operation would judge
         // its own recovery a foreign replacement and retire.
-        self.judged = replacement.judged;
+        self.adopt(replacement).map_err(map_sqlite)?;
         // Every destruction is its own event and costs its own rows, so every
         // one of them is said. `get` reaches here only on the read that failed,
         // never on the lookups that follow, and the identity check ahead of it
@@ -717,12 +717,22 @@ impl ModelResultCache {
     /// per row, catches it.
     ///
     /// On a difference the path is re-opened once through `open_inner`, which
-    /// reads the replacement's recorded setup and destroys nothing. An exact
-    /// setup match is taken up, so every row served afterwards was written
-    /// under the running setup; that is what a peer recovering from a file it
-    /// could not read leaves behind. Any other setup, an earlier layout, an
-    /// unreadable file, or a path that no longer names a file retires the cache
-    /// for the life of the process. Nothing is created to replace what went.
+    /// reads the replacement's recorded setup and destroys no row it did not
+    /// have to trim. An exact setup match is taken up, so every row served
+    /// afterwards was written under the running setup; that is what a peer
+    /// recovering from a file it could not read leaves behind. Any other setup,
+    /// an earlier layout, an unreadable file, or a path that no longer names a
+    /// file retires the cache for the life of the process. This call creates
+    /// nothing itself, though a disposable default's re-open creates a fresh
+    /// file when the path names none, and that file is then taken up.
+    ///
+    /// Contention is the one cause that is not a verdict. The take-up trims the
+    /// replacement to the running limit, and a peer holding the write lock
+    /// makes that trim fail as `Busy`. Nothing was destroyed and nothing is
+    /// wrong with either file, so the cache declines the operation in hand --
+    /// a get counts a miss, a put stores nothing -- and probes again next time.
+    /// SQLite already waited out the lock inside the trim, so nothing waits
+    /// here.
     fn holds_the_file_at_its_path(&mut self) -> bool {
         if self.retired {
             return false;
@@ -733,17 +743,24 @@ impl ModelResultCache {
             Err(_) => return self.retire(),
         }
         match Self::open_inner(&self.path, &self.setup, self.limit, self.disposable_default) {
-            Ok(Opened::Matching(mut replacement)) => {
-                let Ok(placeholder) = Connection::open_in_memory() else {
-                    return self.retire();
-                };
-                self.connection = std::mem::replace(&mut replacement.connection, placeholder);
-                self.judged = replacement.judged;
-                self.pending_checkpoint = replacement.pending_checkpoint;
-                true
-            }
+            Ok(Opened::Matching(replacement)) => self.adopt(replacement).is_ok() || self.retire(),
+            Err(CacheError::Busy) => false,
             _ => self.retire(),
         }
+    }
+
+    /// Serve from the file a fresh open holds instead of the one in hand. The
+    /// open trimmed that file to the running entry limit, and this cache's
+    /// counters are the only place those destroyed rows are said, so the count
+    /// crosses over with the connection rather than dying with the short-lived
+    /// open that ordered the trim.
+    fn adopt(&mut self, mut replacement: Self) -> Result<(), rusqlite::Error> {
+        let placeholder = Connection::open_in_memory()?;
+        self.connection = std::mem::replace(&mut replacement.connection, placeholder);
+        self.judged = replacement.judged;
+        self.pending_checkpoint = replacement.pending_checkpoint;
+        self.counters.evictions += replacement.counters.evictions;
+        Ok(())
     }
 
     /// Store a successful complete result. A write failure is deliberately
