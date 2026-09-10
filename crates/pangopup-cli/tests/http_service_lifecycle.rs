@@ -170,20 +170,39 @@ mod installed_success {
         workers: &str,
         threads: &str,
     ) -> (Running, String) {
-        let mut child = support::pangopup()
-            .args([
-                "serve",
-                "--listen",
-                "127.0.0.1:0",
-                "--data-dir",
-                data.to_str().expect("data"),
-                "--model-cache",
-                cache.to_str().expect("cache"),
-                "--model-workers",
-                workers,
-                "--model-threads",
-                threads,
-            ])
+        start_service(data, profile, Some(cache), None, workers, threads)
+    }
+
+    /// Start a service. `cache` names the model cache on the command line;
+    /// `None` leaves the service on its disposable default, which is the only
+    /// cache it ever destroys for being unreadable, and `cache_home` is the
+    /// private directory that default lives under.
+    fn start_service(
+        data: &Path,
+        profile: &Path,
+        cache: Option<&Path>,
+        cache_home: Option<&Path>,
+        workers: &str,
+        threads: &str,
+    ) -> (Running, String) {
+        let mut spawn = support::pangopup().args([
+            "serve",
+            "--listen",
+            "127.0.0.1:0",
+            "--data-dir",
+            data.to_str().expect("data"),
+            "--model-workers",
+            workers,
+            "--model-threads",
+            threads,
+        ]);
+        if let Some(cache) = cache {
+            spawn = spawn.args(["--model-cache", cache.to_str().expect("cache")]);
+        }
+        if let Some(home) = cache_home {
+            spawn = spawn.env("XDG_CACHE_HOME", home).env("HOME", home);
+        }
+        let mut child = spawn
             .env("PANGOPUP_SERVICE_TEST_PROFILE", profile)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -1392,7 +1411,23 @@ mod installed_success {
     /// hand back everything it wrote to standard error. Standard error is
     /// drained before the wait, so a report cannot be lost to a closed pipe.
     fn stderr_of_a_run(data: &Path, profile: &Path, cache: &Path, workers: &str) -> String {
-        let (mut child, address) = start_with_policy(data, profile, cache, workers, "1");
+        drained(start_with_policy(data, profile, cache, workers, "1"))
+    }
+
+    /// The same, for a service left on the disposable default cache under
+    /// `cache_home`.
+    fn stderr_of_a_default_run(data: &Path, profile: &Path, cache_home: &Path) -> String {
+        drained(start_service(
+            data,
+            profile,
+            None,
+            Some(cache_home),
+            "1",
+            "1",
+        ))
+    }
+
+    fn drained((mut child, address): (Running, String)) -> String {
         let response = request(&address, "GET", "/v1/status", "");
         assert!(
             response.starts_with(b"HTTP/1.1 200 OK\r\n"),
@@ -1470,6 +1505,85 @@ mod installed_success {
             "a restart that kept the cache it found must report no discard, and this start said: \
              {kept:?}"
         );
+    }
+
+    /// The other reason the service destroys a cache. A default cache this
+    /// build cannot read -- garbage, another application's database, a layout a
+    /// later release wrote -- is deleted whole and refilled, exactly as a setup
+    /// change is, and the operator has to be told which of the two happened.
+    ///
+    /// Only the disposable default is ever destroyed for being unreadable: an
+    /// explicitly named cache refuses instead, and every other service test
+    /// here names its cache on the command line. So this is the only shape of
+    /// run that reaches the service's report at all.
+    #[test]
+    fn the_service_reports_a_default_cache_it_destroyed_because_it_could_not_be_read() {
+        let temp = tempfile::tempdir().expect("temp");
+        let (data, profile, _) = install_under(
+            temp.path(),
+            "unreadable",
+            &fixture("route-mask/domains.pgm"),
+            50,
+        );
+
+        let home = temp.path().join("unreadable-cache-home");
+        let directory = home.join("pangopup");
+        fs::create_dir_all(&directory).expect("cache home");
+        for private in [&home, &directory] {
+            fs::set_permissions(private, fs::Permissions::from_mode(0o700)).expect("private");
+        }
+        let cache = directory.join("model-results.sqlite3");
+        fs::write(&cache, b"not sqlite at all").expect("write a file no build can read");
+        fs::set_permissions(&cache, fs::Permissions::from_mode(0o600)).expect("private cache");
+
+        let destroyed = named_report(&stderr_of_a_default_run(&data, &profile, &home), &cache);
+
+        let kept = stderr_of_a_default_run(&data, &profile, &home);
+        assert!(
+            !kept.contains(&cache.display().to_string()),
+            "the refilled cache matches, so the restart that kept it must report nothing, and \
+             this start said: {kept:?}"
+        );
+
+        // The wording a setup change earns, read from a run of this same
+        // service rather than spelled here, so this pins no prose and still
+        // holds the two causes apart.
+        let (other_data, other_profile, _) = install_under(
+            temp.path(),
+            "unreadable-other-mask",
+            &fixture("gencode-mask-mini/domains.pgm"),
+            50,
+        );
+        let setup_change = named_report(
+            &stderr_of_a_default_run(&other_data, &other_profile, &home),
+            &cache,
+        );
+        assert_ne!(
+            destroyed.trim(),
+            setup_change.trim(),
+            "a file this build could not read is not a setup change, and reporting it as one \
+             sends the operator looking for an upgrade nobody made"
+        );
+    }
+
+    /// The one line a start wrote about `cache`. A start that said nothing, or
+    /// said it more than once, fails here rather than further down.
+    fn named_report(reported: &str, cache: &Path) -> String {
+        let named: Vec<&str> = reported
+            .lines()
+            .filter(|line| line.contains(&cache.display().to_string()))
+            .collect();
+        assert_eq!(
+            named.len(),
+            1,
+            "a service that destroyed a cache must say so exactly once, naming the file, and this \
+             start said: {reported:?}"
+        );
+        assert!(
+            named[0].to_ascii_lowercase().contains("cache"),
+            "the report must be readable as a discarded cache, and this start said: {reported:?}"
+        );
+        named[0].to_owned()
     }
 }
 
