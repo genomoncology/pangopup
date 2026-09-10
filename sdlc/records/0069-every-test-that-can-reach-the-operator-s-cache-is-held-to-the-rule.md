@@ -17,4 +17,6 @@ One repair landed here. The detour scan exempted `/src/`, which matched any dire
 
 `crates/pangopup-cli/tests/macos_cli_boundary.rs` is `#![cfg(target_os = "macos")]`. Its two converted spawns were type-checked and never executed, here or in any earlier stage; `.github/workflows/ci.yml:185` is the only place that file runs.
 
-Two findings stay open as drafts. 0070 records that a caller can point its cache home back at the operator's after the helper has set it, and that both of this ticket's assertions would stay green. 0071 records that the shell qualification harnesses run the executable directly, outside a gate that reads `*.rs` only.
+The helper hands the caller the `Command` it built, so a caller can set `XDG_CACHE_HOME` again afterwards and replace the private path. Both of this ticket's assertions stay green when it does. Every caller that overrides today points at a directory the test owns, and reaching the operator's cache would take reading `HOME` out of the suite's environment and passing it back, which is a deliberate act rather than a lapse of habit. Closing it means the helper stops handing out a raw `Command` and takes a typed cache home instead. That is accepted as it stands and is not open work.
+
+One finding stays open as a draft. 0071 records that the shell qualification harnesses run the executable directly, outside a gate that reads `*.rs` only.
