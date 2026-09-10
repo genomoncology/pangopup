@@ -322,6 +322,9 @@ pub struct ModelResultCache {
     pending_checkpoint: bool,
     discarded: bool,
     unreadable: bool,
+    /// The file this cache judged, as `(dev, ino)` read just after the open.
+    judged: (u64, u64),
+    retired: bool,
 }
 
 /// What one open found. A cache is handed back for the two cases that opened
@@ -540,6 +543,7 @@ impl ModelResultCache {
         validate_schema(&connection)?;
         let matched = RecordedSetup::read(&connection)? == running;
         set_family_permissions(path)?;
+        let judged = file_identity(path)?;
         let mut cache = Self {
             connection,
             path: path.to_owned(),
@@ -550,6 +554,8 @@ impl ModelResultCache {
             pending_checkpoint: !initialized,
             discarded: false,
             unreadable: false,
+            judged,
+            retired: false,
         };
         cache.evict_to_limit().map_err(map_sqlite)?;
         Ok(if matched {
@@ -560,6 +566,10 @@ impl ModelResultCache {
     }
 
     pub fn get(&mut self, key: &CacheKey) -> Result<Option<Vec<ModelGeneScoreRecord>>, CacheError> {
+        if !self.holds_the_file_at_its_path() {
+            self.counters.misses += 1;
+            return Ok(None);
+        }
         match self.get_inner(key) {
             Err(CacheError::Sqlite(_)) if self.disposable_default => {
                 self.recreate_default()?;
@@ -644,7 +654,57 @@ impl ModelResultCache {
             Connection::open_in_memory().map_err(map_sqlite)?,
         );
         self.pending_checkpoint = replacement.pending_checkpoint;
+        // The file at the path is the one this call just created, so the
+        // captured identity has to follow it or the next operation would judge
+        // its own recovery a foreign replacement and retire.
+        self.judged = replacement.judged;
         Ok(())
+    }
+
+    /// Whether this cache may still touch the file at its path.
+    ///
+    /// The recorded setup is judged once, at the open, and that judgement is
+    /// about the file the connection opened. Another process discarding that
+    /// file unlinks it and creates a fresh one at the same path, so the
+    /// connection goes on reading rows out of a file nobody can reach and
+    /// writing rows that die with the process. One `stat` per operation, never
+    /// per row, catches it.
+    ///
+    /// On a difference the path is re-opened once through `open_inner`, which
+    /// reads the replacement's recorded setup and destroys nothing. An exact
+    /// setup match is taken up, so every row served afterwards was written
+    /// under the running setup; that is what a peer recovering from a file it
+    /// could not read leaves behind. Any other setup, an earlier layout, an
+    /// unreadable file, or a path that no longer names a file retires the cache
+    /// for the life of the process. Nothing is created to replace what went.
+    fn holds_the_file_at_its_path(&mut self) -> bool {
+        if self.retired {
+            return false;
+        }
+        match file_identity(&self.path) {
+            Ok(current) if current == self.judged => return true,
+            Ok(_) => {}
+            Err(_) => {
+                self.retired = true;
+                return false;
+            }
+        }
+        match Self::open_inner(&self.path, &self.setup, self.limit, self.disposable_default) {
+            Ok(Opened::Matching(mut replacement)) => {
+                let Ok(placeholder) = Connection::open_in_memory() else {
+                    self.retired = true;
+                    return false;
+                };
+                self.connection = std::mem::replace(&mut replacement.connection, placeholder);
+                self.judged = replacement.judged;
+                self.pending_checkpoint = replacement.pending_checkpoint;
+                true
+            }
+            _ => {
+                self.retired = true;
+                false
+            }
+        }
     }
 
     /// Store a successful complete result. A write failure is deliberately
@@ -654,6 +714,9 @@ impl ModelResultCache {
         key: &CacheKey,
         records: &[ModelGeneScoreRecord],
     ) -> Result<(), CacheError> {
+        if !self.holds_the_file_at_its_path() {
+            return Ok(());
+        }
         let result = self.put_inner(key, records);
         if result.is_err() {
             self.counters.write_failures += 1;
@@ -1157,6 +1220,21 @@ fn set_family_permissions(path: &Path) -> Result<(), CacheError> {
         }
     }
     Ok(())
+}
+
+/// Which file the path names, as `(dev, ino)`.
+///
+/// rusqlite exposes no descriptor, so this is a `stat` of the path rather than
+/// an `fstat` of the connection's own file: a replacement landing between the
+/// open and this call would be captured instead of the file actually held.
+/// `st_ino` is reused freely once nothing holds the old file, and is not stable
+/// on every filesystem; the cache lives under `XDG_CACHE_HOME`, which is local
+/// on the supported platforms, and a cache whose file is being replaced is by
+/// definition still holding it, so its number cannot be handed out underneath
+/// it.
+fn file_identity(path: &Path) -> io::Result<(u64, u64)> {
+    let metadata = fs::metadata(path)?;
+    Ok((metadata.dev(), metadata.ino()))
 }
 
 fn remove_database_family(path: &Path) -> Result<(), CacheError> {
