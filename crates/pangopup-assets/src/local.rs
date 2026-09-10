@@ -1718,24 +1718,36 @@ pub(crate) fn open_held_regular(
     io_kind: AssetErrorKind,
     invalid_kind: AssetErrorKind,
 ) -> Result<(File, fs::Metadata), AssetError> {
+    // O_NONBLOCK so the open itself cannot wait: a writerless FIFO or a
+    // blocking character device would otherwise never reach the kind check
+    // below. It has no effect on reads from a regular file.
     let file = open_at(
         parent.file.as_raw_fd(),
         name,
-        libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
         0,
     )
     .map_err(|error| {
-        let kind = if error.raw_os_error() == Some(libc::ELOOP) {
-            invalid_kind
-        } else {
-            io_kind
-        };
-        AssetError::new(kind, error.to_string())
+        // ELOOP is a symlink and ENXIO a socket. Both name a kind the open
+        // refuses outright, so they are a bad member rather than an IO fault.
+        // Every other errno stays an IO fault.
+        match error.raw_os_error() {
+            Some(libc::ELOOP) | Some(libc::ENXIO) => {
+                AssetError::new(invalid_kind, format!("{name} is not a regular file"))
+            }
+            _ => AssetError::new(io_kind, error.to_string()),
+        }
     })?;
     let metadata = file
         .metadata()
         .map_err(|error| AssetError::new(io_kind, error.to_string()))?;
-    if !metadata.file_type().is_file() || metadata.dev() != parent.dev {
+    if !metadata.file_type().is_file() {
+        return Err(AssetError::new(
+            invalid_kind,
+            format!("{name} is not a regular file"),
+        ));
+    }
+    if metadata.dev() != parent.dev {
         return Err(AssetError::new(
             invalid_kind,
             "held directory entry is not a same-filesystem regular file",
