@@ -61,7 +61,11 @@ score, position, status, reason or provenance field, and adds no route, flag or
 output. It publishes no new measurement and re-measures nothing. It does not
 restate the response shape: `architecture/compatibility.md` remains the one
 place the full shape is enumerated, and this ticket does not revisit what ticket
-0056 settles about where a stored version is stated. It does not document splice
-scores as clinical evidence, which is ticket 0078. It does not correct the index
-payload figure, which is ticket 0079. It names no private consumer of this
+0056 settles about where a stored version is stated. It does not correct the
+index payload figure, which is ticket 0079. It names no private consumer of this
 software under any circumstances.
+
+This repository does not tell a reader what a score is evidence for. It says
+what the software computes and where the number came from. Interpretation,
+evidence strength and clinical classification are outside what this repository
+speaks to, and this ticket does not open that door.
