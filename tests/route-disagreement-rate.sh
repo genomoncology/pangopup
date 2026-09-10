@@ -151,7 +151,7 @@ derive() {
                 if ((gain && bgp != mgp) || (loss && blp != mlp)) position_disagreements++
                 if ((gain && bgp > mgp) || (loss && blp > mlp)) {
                     violations++
-                    if (violations == 1) sample = $1 " / " $2
+                    if (violations == 1) sample = $1 "/" $2
                 }
             }
         }
@@ -363,7 +363,7 @@ examine() {
     # of pinned as prose: on every comparable side, the precomputed position is
     # at or before the modeled one.
     (( recomputed[violations] == 0 )) || {
-        printf '%s holds %s comparable side(s) where the precomputed position is later than the modeled one, %s among them, so the published guarantee that a precomputed position is never later is false\n' \
+        printf '%s holds %s record(s) whose precomputed position is later than the modeled one, %s among them, so the published guarantee that a precomputed position is never later is false\n' \
             "${measured[raw-records]}" "${recomputed[violations]}" "${recomputed[sample]}" >&2
         return 1
     }
@@ -466,10 +466,10 @@ examine() {
         }
     done
 
-    printf '%s disagreement on value (%s%%) and %s on position (%s%%) over %s, published and recorded alike\n' \
+    printf '%s disagreement on value (%s%%) and %s on position (%s%%) over %s, published and recorded alike; the ordering guarantee held over %s comparable record(s)\n' \
         "${measured[value-disagreements]}" "${measured[value-disagreement-percent]}" \
         "${measured[position-disagreements]}" "${measured[position-disagreement-percent]}" \
-        "${measured[variant-set]}"
+        "${measured[variant-set]}" "${recomputed[position-compared-records]}"
 }
 
 # --- the check refuses what it exists to refuse ------------------------------
