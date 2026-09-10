@@ -663,4 +663,23 @@ mod tests {
         );
         assert_eq!(actual.as_bytes(), expected.as_bytes());
     }
+
+    /// Ticket 0052 settled what an HTTP score item carries, and ticket 0054
+    /// must not move it. `service.rs` builds every completed score item from
+    /// `render_result_raw`, which calls the same `render_jsonl` the
+    /// command-line tool calls. That shared call is the one place the
+    /// command-line version could reach the service surface, so it is where the
+    /// boundary is held.
+    #[test]
+    fn the_service_rendering_carries_no_command_line_software_version() {
+        for request in status_matrix() {
+            let rendered =
+                render_result_raw(request.result().clone(), None).expect("service rendering");
+            assert!(
+                !rendered.get().contains("software_version"),
+                "an HTTP score item must not gain the command-line version: {}",
+                rendered.get()
+            );
+        }
+    }
 }

@@ -197,7 +197,7 @@ for statement in \
   'A modeled score item carries none of those three fields.' \
   'Both routes answer under one scoring semantics. The status response reports it as `scoring_semantics`.' \
   'Every score item carries `data_set_version` beside `scoring_identity`. Store the value the item carries. Reaching it takes no second request.' \
-  'The command-line tool prints neither field. A `--bundle` lookup opens no installed runtime profile. No data-set version is computable on every command-line path. What a retained command-line score pins is a separate open question. It has its own ticket.'; do
+  'The command-line tool prints neither field. A `--bundle` lookup opens no installed runtime profile. No data-set version is computable on every command-line path.'; do
   printf '%s' "$pinning" | rg -F -- "$statement" >/dev/null
 done
 identity=$(awk '/^## Active scoring identity$/ { on=1; next } on && /^## / { exit } on' ../architecture/service.md)

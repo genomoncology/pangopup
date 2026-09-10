@@ -152,6 +152,15 @@ try:
             "`data_set_version`, `runtime_profile_id`, and `scoring_semantics`",
         ),
         ("Every score item", "adds", "`data_set_version`"),
+        # Ticket 0054. The HTTP item names the deployment it came from; the
+        # command-line line names the software that printed it. Both belong in
+        # the one inventory a strict consumer reads before it accepts either
+        # surface.
+        (
+            "Every command-line score line",
+            "adds",
+            "`provenance.software_version`",
+        ),
     )
     required_v050_unnamed_shape = (
         "- Unnamed gene: the score record and the source-reference ambiguity carry no"

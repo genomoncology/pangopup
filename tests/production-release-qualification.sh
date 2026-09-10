@@ -185,7 +185,14 @@ SH
 chmod 755 "$root/bin/pangopup"
 
 cat >"$root/bin/name-records.py" <<'NAMERECORDS'
-"""Add the naming leaf a real release renders onto every replayed record."""
+"""Add what a real release renders onto every replayed line.
+
+Two things. The naming leaf on every record, and the software version at the end
+of the line's provenance. Neither is in the oracle beside this harness: the
+oracle carries the published model's scoring bytes, and a version baked into it
+would have to be regenerated on every release.
+"""
+import os
 import re
 import sys
 
@@ -193,9 +200,11 @@ LEAF = (
     ',"gene_names":{"symbol":"CD4","source":"hgnc","hgnc_id":"HGNC:1678",'
     '"ncbi_gene_id":920,"alias_symbols":["T4","Leu-3"]}'
 )
-sys.stdout.write(
-    re.sub(r'("stable_gene":"[A-Z0-9]+")', lambda m: m.group(1) + LEAF, sys.stdin.read())
-)
+STAMP = ',"software_version":"%s"' % os.environ["QUALIFICATION_SOFTWARE_VERSION"]
+line = re.sub(r'("stable_gene":"[A-Z0-9]+")', lambda m: m.group(1) + LEAF, sys.stdin.read())
+line, stamped = re.subn(r'("window":\d+)\}\}', lambda m: m.group(1) + STAMP + "}}", line)
+assert stamped == 1, "the replayed line has one provenance object to stamp"
+sys.stdout.write(line)
 NAMERECORDS
 export QUALIFICATION_NAME_RECORDS=$root/bin/name-records.py
 
@@ -212,6 +221,13 @@ cmp "$root/derived-model-only-snv.json" "$root/checked-model-only-snv.json"
 # itself as a failed qualification command.
 "$repo/scripts/require-built-commands.sh"
 real_cli=$repo/target/debug/pangopup
+# Ticket 0054. The replayed model lines carry the software version a real
+# release stamps, and the version they carry is the one the shipped executable
+# reports rather than a literal written here, so the replay and the release
+# cannot drift apart.
+QUALIFICATION_SOFTWARE_VERSION=$("$real_cli" --version | awk '{ print $2 }')
+export QUALIFICATION_SOFTWARE_VERSION
+[[ -n $QUALIFICATION_SOFTWARE_VERSION ]]
 
 export QUALIFICATION_SOURCE=$repo
 export QUALIFICATION_REAL_PANGOPUP=$real_cli
@@ -316,6 +332,24 @@ for replayed in model-M09.jsonl model-only-SNV.jsonl http-snv.txt http-model.txt
   fi
 done
 
+# The software version parts company with the naming leaf here. A command-line
+# line names the software that printed it. An HTTP score item does not: ticket
+# 0052 settled what that item carries and ticket 0054 left it alone. So the
+# replayed command-line outputs must carry the stamp and the replayed HTTP
+# bodies must not.
+for stamped in model-M09.jsonl model-only-SNV.jsonl snv-ENSG00000010610.jsonl; do
+  if ! grep -Fq "\"software_version\":\"$QUALIFICATION_SOFTWARE_VERSION\"" "$root/output/$stamped"; then
+    printf '%s carries no software version for this release\n' "$stamped" >&2
+    exit 1
+  fi
+done
+for unstamped in http-snv.txt http-model.txt http-model-only.txt http-status.txt; do
+  if grep -Fq 'software_version' "$root/output/$unstamped"; then
+    printf 'the HTTP surface gained the command-line software version in %s\n' "$unstamped" >&2
+    exit 1
+  fi
+done
+
 # The two model oracles are the published model's answers, so the harness has to
 # keep replaying their scores. The record's shape is a different matter. The
 # built executable renders a model-route record from committed fixtures alone --
@@ -384,6 +418,15 @@ def model_shape(path, drop_names):
         # scripts/check-production-qualification.py removes the naming leaf
         # before it compares, because the oracles carry scoring bytes alone.
         record.pop("gene_names", None)
+        # It removes the software version for the same reason. Ticket 0054 put
+        # the version on every command-line line; an oracle that carried one
+        # would have to be regenerated on every release.
+        provenance = dict(value["provenance"])
+        assert provenance.pop("software_version", None), (
+            f"{path} names no software version, so the renderer and the oracle "
+            "cannot be compared on the field this release adds"
+        )
+        value = dict(value, provenance=provenance)
     return [shape(value), shape(record)]
 
 
@@ -540,6 +583,51 @@ if "$repo/scripts/check-production-qualification.py" "$root/unnamed-model-output
   exit 1
 fi
 grep -Fxq 'the release named no gene in M09-insertion-short-plus' "$root/unnamed-model.err"
+
+# Ticket 0054. A retained command-line score names the software that produced
+# it, so the release checker holds `provenance.software_version` to the same
+# three rules it holds the published bundle identity and naming leaf to: it is
+# present on every printed line, it is one exact removable field, and it names
+# the version this release actually is. The fixture oracles carry no version --
+# they would have to be regenerated on every release if they did -- so the
+# checker takes the field back out before it compares bytes, exactly as it does
+# for the naming leaf.
+cp -a "$root/output" "$root/unstamped-output"
+sed -i 's/,"software_version":"[^"]*"//g' "$root/unstamped-output/snv-ENSG00000010610.jsonl"
+if "$repo/scripts/check-production-qualification.py" "$root/unstamped-output" "$repo" >"$root/unstamped.out" 2>"$root/unstamped.err"; then
+  printf 'checker accepted a release that stamped no software version\n' >&2
+  exit 1
+fi
+grep -Fxq 'the release stamped no software version in snv-ENSG00000010610.jsonl' \
+  "$root/unstamped.err"
+
+cp -a "$root/output" "$root/malformed-stamp-output"
+sed -i '1s/"software_version":"[^"]*"/"software_version":""/' \
+  "$root/malformed-stamp-output/snv-ENSG00000010610.jsonl"
+if "$repo/scripts/check-production-qualification.py" "$root/malformed-stamp-output" "$repo" >"$root/malformed-stamp.out" 2>"$root/malformed-stamp.err"; then
+  printf 'checker accepted a malformed software version\n' >&2
+  exit 1
+fi
+grep -Fxq 'software_version is not an exact removable field: snv-ENSG00000010610.jsonl:1' \
+  "$root/malformed-stamp.err"
+
+cp -a "$root/output" "$root/wrong-stamp-output"
+sed -i '1s/"software_version":"[^"]*"/"software_version":"9.9.9"/' \
+  "$root/wrong-stamp-output/snv-ENSG00000010610.jsonl"
+if "$repo/scripts/check-production-qualification.py" "$root/wrong-stamp-output" "$repo" >"$root/wrong-stamp.out" 2>"$root/wrong-stamp.err"; then
+  printf 'checker accepted a software version this release is not\n' >&2
+  exit 1
+fi
+grep -Fxq 'software version mismatch: snv-ENSG00000010610.jsonl:1' "$root/wrong-stamp.err"
+
+cp -a "$root/output" "$root/unstamped-model-output"
+sed -i 's/,"software_version":"[^"]*"//g' "$root/unstamped-model-output/model-M09.jsonl"
+if "$repo/scripts/check-production-qualification.py" "$root/unstamped-model-output" "$repo" >"$root/unstamped-model.out" 2>"$root/unstamped-model.err"; then
+  printf 'checker accepted a model route that stamped no software version\n' >&2
+  exit 1
+fi
+grep -Fxq 'the release stamped no software version in M09-insertion-short-plus' \
+  "$root/unstamped-model.err"
 
 cp -a "$root/output" "$root/unnamed-http-output"
 python3 - "$root/unnamed-http-output/http-snv.txt" <<'STRIPNAMES'

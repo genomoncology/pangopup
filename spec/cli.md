@@ -223,3 +223,28 @@ pangopup assets runtime status
 ```text expect=old-runtime-status contains
 {"status":"error","code":"CLI_USAGE"
 ```
+
+## What a retained command-line score pins
+
+A system that keeps `pangopup lookup` output can name every asset that answered
+and, until ticket 0054, could not name the software that answered. A PangoPup
+version change can move an answer with every asset unchanged, so the version is
+part of what a retained line has to carry. `architecture/compatibility.md` is the
+one place the whole response-shape inventory is enumerated, and it states what a
+retained command-line score pins.
+
+```bash
+pinning=$(awk '/^## What a consumer pins$/ { on=1; next } on && /^## / { exit } on' ../architecture/compatibility.md)
+for statement in \
+  'Every command-line score line carries `provenance.software_version`. It is the plain version of the PangoPup that printed the line, not a digest.' \
+  'A retained command-line score pins the assets its provenance names and the software version beside them. It does not pin the runtime profile, so it is not a `data_set_version` and never stands in for one.'; do
+  printf '%s' "$pinning" | rg -F -- "$statement" >/dev/null
+done
+# A negative pin written `! cmd` never fails a block: `set -e` is defined to
+# ignore a pipeline that begins with `!`. Say it as a test with an exit.
+if printf '%s' "$pinning" | rg -F -- 'What a retained command-line score pins is a separate open question. It has its own ticket.' >/dev/null; then
+  printf 'compatibility.md still defers what a retained command-line score pins\n' >&2
+  exit 1
+fi
+printf 'a retained command-line score names its software\n' | mustmatch like 'a retained command-line score names its software'
+```
