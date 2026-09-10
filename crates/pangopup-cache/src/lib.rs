@@ -2005,7 +2005,8 @@ mod tests {
                     .get::<_, i64>(0))
                 .expect("count the peer's rows"),
             3,
-            "a declined put stores nothing and trims nothing, so the file at the path still holds              exactly the three rows the peer put there"
+            "a declined put stores nothing and trims nothing, so the file at the path still \
+             holds exactly the three rows the peer put there"
         );
 
         filling.execute_batch("ROLLBACK").expect("the peer is done");
@@ -2145,7 +2146,8 @@ mod tests {
                 .expect("another setup takes the path");
         assert!(
             other.discarded_earlier_setup(),
-            "the second open must have discarded the file the first one holds, or the verdict              this test is about never happens"
+            "the second open must have discarded the file the first one holds, or the verdict \
+             this test is about never happens"
         );
         other
             .put(&key(20), &records())
@@ -2162,7 +2164,8 @@ mod tests {
             .expect("a peer puts the running setup back at the path");
         assert!(
             peer.discarded_earlier_setup(),
-            "the peer must have discarded the other setup's file, so what sits at the path now              records the running setup"
+            "the peer must have discarded the other setup's file, so what sits at the path now \
+             records the running setup"
         );
         peer.put(&key(30), &records()).expect("the peer fills it");
         drop(peer);
@@ -2171,7 +2174,8 @@ mod tests {
             held.get(&key(30))
                 .expect("read after the running setup returns"),
             None,
-            "retirement for a verdict is for the life of the process, even when the file that              later sits at the path records this very setup"
+            "retirement for a verdict is for the life of the process, even when the file that \
+             later sits at the path records this very setup"
         );
     }
 
@@ -2196,7 +2200,8 @@ mod tests {
                 ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default()),
                 Err(CacheError::Sqlite(_) | CacheError::Incompatible)
             ),
-            "the file at the path must really be one this build cannot read, or this test proves              nothing"
+            "the file at the path must really be one this build cannot read, or this test \
+             proves nothing"
         );
 
         assert_eq!(
