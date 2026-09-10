@@ -178,7 +178,7 @@ for statement in \
   'A worker or thread change moves `scoring_identity` and never moves `data_set_version`.'; do
   printf '%s' "$readme" | rg -F -- "$statement" >/dev/null
 done
-! printf '%s' "$readme" | rg -F -- 'Store this identity as the data-set version' >/dev/null
+printf '%s' "$readme" | ../scripts/spec-refutes.sh --absent -F -- 'Store this identity as the data-set version'
 pinning=$(awk '/^## What a consumer pins$/ { on=1; next } on && /^## / { exit } on' ../architecture/compatibility.md)
 for statement in \
   'Store `data_set_version` as the data-set version when a system has one version field.' \
@@ -203,11 +203,11 @@ done
 identity=$(awk '/^## Active scoring identity$/ { on=1; next } on && /^## / { exit } on' ../architecture/service.md)
 printf '%s' "$identity" | rg -F -- '`data_set_version` carries the same inputs without the effective CPU policy.' >/dev/null
 printf '%s' "$identity" | rg -F -- 'The gene-name index stays outside the preimage.' >/dev/null
-! printf '%s' "$identity" | rg -F -- 'installed naming source' >/dev/null
-! printf '%s' "$identity" | rg -F -- 'reports the installed vintage' >/dev/null
-! printf '%s' "$identity" | rg -F -- 'active policy that can change an answer' >/dev/null
+printf '%s' "$identity" | ../scripts/spec-refutes.sh --absent -F -- 'installed naming source'
+printf '%s' "$identity" | ../scripts/spec-refutes.sh --absent -F -- 'reports the installed vintage'
+printf '%s' "$identity" | ../scripts/spec-refutes.sh --absent -F -- 'active policy that can change an answer'
 runtime_data=$(cat ../architecture/runtime-data.md)
 printf '%s' "$runtime_data" | rg -F -- '`data_set_version` gives a consumer one concise version value that no deployment setting moves.' >/dev/null
-! printf '%s' "$runtime_data" | rg -F -- 'This environment identity gives a consumer one concise version value.' >/dev/null
+printf '%s' "$runtime_data" | ../scripts/spec-refutes.sh --absent -F -- 'This environment identity gives a consumer one concise version value.'
 printf 'a consumer can cite a document for what to pin\n' | mustmatch like 'a consumer can cite a document for what to pin'
 ```

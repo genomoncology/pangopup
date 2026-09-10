@@ -50,14 +50,14 @@ pangopup-build release upload-asset \
 ```bash
 test ! -e ../target/spec/snv-release/removed-uploader
 test ! -e ../crates/pangopup-assets/src/release_upload_linux.rs
-! rg -n 'release_upload_linux|upload_release_asset|UploadAssetOutcome' \
+../scripts/spec-refutes.sh --absent -n -- 'release_upload_linux|upload_release_asset|UploadAssetOutcome' \
   ../crates/pangopup-assets/src ../crates/pangopup-build/src ../crates/pangopup-build/tests
 test "$(rg -l 'ReleaseUpload|RELEASE_UPLOAD' \
   ../crates/pangopup-assets/src ../crates/pangopup-build/src ../crates/pangopup-build/tests)" = \
   ../crates/pangopup-assets/src/error.rs
 test "$(rg -o 'ReleaseUpload' ../crates/pangopup-assets/src/error.rs | wc -l)" = 2
 test "$(rg -o 'RELEASE_UPLOAD' ../crates/pangopup-assets/src/error.rs | wc -l)" = 1
-! rg -n 'AssetErrorKind::ReleaseUpload' \
+../scripts/spec-refutes.sh --absent -n -- 'AssetErrorKind::ReleaseUpload' \
   ../crates/pangopup-assets/src ../crates/pangopup-build/src ../crates/pangopup-build/tests
 printf 'removed uploader has no side effects\n' | mustmatch like 'removed uploader has no side effects'
 ```

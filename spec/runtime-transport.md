@@ -53,8 +53,8 @@ cmp ../target/spec/runtime-transport/unpacked/mask/domains.pgm ../tests/fixtures
 ```
 
 The transport is a closed ten-file set. Extra, substituted, truncated,
-corrupted, symlinked, and non-regular members fail before an unpacked
-destination can be published.
+corrupted, and symlinked members fail before an unpacked destination can be
+published.
 
 ```bash run id=runtime-transport-extra exit=1 stream=stderr
 cp -R ../target/spec/runtime-transport/first ../target/spec/runtime-transport/extra
@@ -80,20 +80,24 @@ pangopup-build runtime-transport unpack --transport ../target/spec/runtime-trans
 test ! -e ../target/spec/runtime-transport/not-published
 cp -R ../target/spec/runtime-transport/first ../target/spec/runtime-transport/corrupt
 printf X >> ../target/spec/runtime-transport/corrupt/model.onnx.zst
-! pangopup-build runtime-transport verify --transport ../target/spec/runtime-transport/corrupt
+../scripts/spec-refutes.sh --fails pangopup-build runtime-transport verify --transport ../target/spec/runtime-transport/corrupt
 cp -R ../target/spec/runtime-transport/first ../target/spec/runtime-transport/substituted
 printf changed > ../target/spec/runtime-transport/substituted/model-NOTICE
-! pangopup-build runtime-transport verify --transport ../target/spec/runtime-transport/substituted
+../scripts/spec-refutes.sh --fails pangopup-build runtime-transport verify --transport ../target/spec/runtime-transport/substituted
 cp -R ../target/spec/runtime-transport/first ../target/spec/runtime-transport/symlinked
 rm ../target/spec/runtime-transport/symlinked/mask-NOTICE
 ln -s model-NOTICE ../target/spec/runtime-transport/symlinked/mask-NOTICE
-! pangopup-build runtime-transport verify --transport ../target/spec/runtime-transport/symlinked
-cp -R ../target/spec/runtime-transport/first ../target/spec/runtime-transport/fifo
-rm ../target/spec/runtime-transport/fifo/model-NOTICE
-mkfifo ../target/spec/runtime-transport/fifo/model-NOTICE
-! pangopup-build runtime-transport verify --transport ../target/spec/runtime-transport/fifo
+../scripts/spec-refutes.sh --fails pangopup-build runtime-transport verify --transport ../target/spec/runtime-transport/symlinked
 test ! -e ../target/spec/runtime-transport/not-published
+printf 'a corrupt, substituted or symlinked member is refused and publishes nothing\n' | mustmatch like 'a corrupt, substituted or symlinked member is refused and publishes nothing'
 ```
+
+A member that is not a regular file is not pinned here. `pangopup-build
+runtime-transport verify` opens every member, a FIFO member has no writer, and
+the open never returns, so a live pin on one stops this gate instead of failing
+it. The pin and the transport that built it are removed until verify refuses a
+member that is not a regular file. The defect is carried as
+`sdlc/tickets/drafts/0082-a-fifo-in-a-runtime-transport-stops-verify-instead-of-being-refused.md`.
 
 An occupied output is never replaced. The exact flag grammar fails before
 opening any supplied path.

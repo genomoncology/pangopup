@@ -43,9 +43,9 @@ done
 hero='![PangoPup lookup-first performance overview showing mmap SNV lookup, CPU ONNX model fallback, SQLite reuse, and measured resource use](docs/images/pangopup-performance.png)'
 test "$(grep -Fxc "$hero" ../README.md)" = 1
 test "$(grep -Fo '![' ../README.md | wc -l | tr -d '[:space:]')" = 1
-! rg -i '<[[:space:]]*(img|picture|source)([[:space:]/>])' ../README.md
-! rg -F 'docs/images/pangopup.svg' ../README.md
-! rg -F 'docs/images/genomoncology.png' ../README.md
+../scripts/spec-refutes.sh --absent -i -- '<[[:space:]]*(img|picture|source)([[:space:]/>])' ../README.md
+../scripts/spec-refutes.sh --absent -F -- 'docs/images/pangopup.svg' ../README.md
+../scripts/spec-refutes.sh --absent -F -- 'docs/images/genomoncology.png' ../README.md
 printf 'one hero, maker attribution, and accessible overview precede Quick start\n' | mustmatch like 'one hero, maker attribution, and accessible overview precede Quick start'
 ```
 
@@ -70,7 +70,7 @@ for text in \
   'deletion'; do
   printf '%s' "$opening" | rg -F "$text" >/dev/null
 done
-! rg -n '^## (Introduction|What it predicts|What it does not do|Limitations)' ../README.md
+../scripts/spec-refutes.sh --absent -n -- '^## (Introduction|What it predicts|What it does not do|Limitations)' ../README.md
 printf 'opening explains the product directly\n' | mustmatch like 'opening explains the product directly'
 ```
 
@@ -94,7 +94,7 @@ for text in \
   'network-free'; do
   printf '%s' "$quick" | rg -F "$text" >/dev/null
 done
-! printf '%s' "$quick" | rg -i 'docker|pangopup serve|/v1/score|git clone|cargo build' >/dev/null
+printf '%s' "$quick" | ../scripts/spec-refutes.sh --absent -i -- 'docker|pangopup serve|/v1/score|git clone|cargo build'
 printf 'CLI quick start is complete and bounded\n' | mustmatch like 'CLI quick start is complete and bounded'
 ```
 
@@ -263,9 +263,9 @@ for phrase in \
   'make lint' \
   'make test' \
   'make spec'; do
-  ! rg -F "$phrase" ../README.md >/dev/null
+  ../scripts/spec-refutes.sh --absent -F -- "$phrase" ../README.md
 done
-! rg -n '\]\(AGENTS\.md' ../README.md
+../scripts/spec-refutes.sh --absent -n -- '\]\(AGENTS\.md' ../README.md
 planning_links=$(rg -o '\]\(planning/[^)]+' ../README.md)
 test "$planning_links" = "$(printf '%s\n' \
   '](planning/artifacts/004-snv-lookup-performance.md' \

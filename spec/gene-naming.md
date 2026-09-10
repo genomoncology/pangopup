@@ -26,9 +26,9 @@ read for an installed vintage.
 ```bash
 inventory=$(awk '/^## v0.5.0 response-shape inventory$/ { on=1; next } on && /^## / { exit } on' ../architecture/compatibility.md)
 printf '%s' "$inventory" | rg -F -- 'PangoPup ships one gene-name index with the build.' >/dev/null
-! printf '%s' "$inventory" | rg -F -- 'Status `naming` object' >/dev/null
-! printf '%s' "$inventory" | rg -F -- '`naming.available`' >/dev/null
-! printf '%s' "$inventory" | rg -F -- '`naming.release`' >/dev/null
+printf '%s' "$inventory" | ../scripts/spec-refutes.sh --absent -F -- 'Status `naming` object'
+printf '%s' "$inventory" | ../scripts/spec-refutes.sh --absent -F -- '`naming.available`'
+printf '%s' "$inventory" | ../scripts/spec-refutes.sh --absent -F -- '`naming.release`'
 printf 'the published inventory describes no installed naming vintage\n' | mustmatch like 'the published inventory describes no installed naming vintage'
 ```
 
@@ -126,8 +126,8 @@ data=$(cd .. && pwd)/target/spec/gene-naming/data
 pangopup lookup --data-dir "$data" --variant GRCh38:chr12:6801301:G:A --format table > ../target/spec/gene-naming/table.txt
 head -1 ../target/spec/gene-naming/table.txt | mustmatch like 'ASSEMBLY	CONTIG	POS	REF	ALT	STATUS	GENE	GAIN_SCORE	GAIN_POS	LOSS_SCORE	LOSS_POS	SOURCE_REF	PUBLISHED_ALTS	OMITTED_ALT	BUNDLE_ID'
 rg -F 'ENSG00000010610' ../target/spec/gene-naming/table.txt >/dev/null
-! rg -F 'CD4' ../target/spec/gene-naming/table.txt
-! rg -F 'HGNC' ../target/spec/gene-naming/table.txt
+../scripts/spec-refutes.sh --absent -F -- 'CD4' ../target/spec/gene-naming/table.txt
+../scripts/spec-refutes.sh --absent -F -- 'HGNC' ../target/spec/gene-naming/table.txt
 printf 'the human-readable table gains no names\n' | mustmatch like 'the human-readable table gains no names'
 ```
 
@@ -138,7 +138,7 @@ data=$(cd .. && pwd)/target/spec/gene-naming/data
 pangopup lookup --data-dir "$data" --variant GRCh38:chr12:6801301:G:A \
   | sed -E 's/,"gene_names":\{[^}]*\}//g' > ../target/spec/gene-naming/stripped.jsonl
 rg -F '"gene":"ENSG00000010610"' ../target/spec/gene-naming/stripped.jsonl >/dev/null
-! rg -F 'gene_names' ../target/spec/gene-naming/stripped.jsonl
+../scripts/spec-refutes.sh --absent -F -- 'gene_names' ../target/spec/gene-naming/stripped.jsonl
 printf 'a naming object carries no scoring byte\n' | mustmatch like 'a naming object carries no scoring byte'
 ```
 
@@ -152,9 +152,9 @@ gate invokes it, and no gate reaches the network.
 ```bash
 rg -F 'gene-name-index:' ../Makefile >/dev/null
 rg -F 'assets/gene-names/gene-names.pgn' ../Makefile >/dev/null
-! awk '/^lint:/,/^$/' ../Makefile | rg -F 'gene-name-index'
-! awk '/^test:/,/^$/' ../Makefile | rg -F 'gene-name-index'
-! awk '/^spec:/,/^$/' ../Makefile | rg -F 'gene-name-index'
+awk '/^lint:/,/^$/' ../Makefile | ../scripts/spec-refutes.sh --absent -F -- 'gene-name-index'
+awk '/^test:/,/^$/' ../Makefile | ../scripts/spec-refutes.sh --absent -F -- 'gene-name-index'
+awk '/^spec:/,/^$/' ../Makefile | ../scripts/spec-refutes.sh --absent -F -- 'gene-name-index'
 printf 'the download target exists and no gate invokes it\n' | mustmatch like 'the download target exists and no gate invokes it'
 ```
 
