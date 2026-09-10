@@ -1982,6 +1982,14 @@ mod tests {
         );
         held.put(&key(60), &records())
             .expect("a busy replacement is not an error the caller has to handle");
+        assert_eq!(
+            filling
+                .query_row("SELECT count(*) FROM entries", [], |row| row
+                    .get::<_, i64>(0))
+                .expect("count the peer's rows"),
+            3,
+            "a declined put stores nothing and trims nothing, so the file at the path still holds              exactly the three rows the peer put there"
+        );
 
         filling.execute_batch("ROLLBACK").expect("the peer is done");
 
@@ -2096,6 +2104,101 @@ mod tests {
             reader.get(&key(20)).expect("hit"),
             Some(records()),
             "while the row the peer paid for is untouched"
+        );
+    }
+
+    // The same probe that must forgive contention must go on treating a verdict
+    // as terminal, and a replacement recording another setup is a verdict. The
+    // exemption contention earns has to be narrower than the branch it sits in:
+    // once this cache has walked away for a verdict, a later file at the path
+    // recording the running setup is not taken up either. Without this, an
+    // implementation that declined every failed probe instead of only a busy one
+    // would look correct.
+    #[test]
+    fn a_replacement_recording_another_setup_retires_the_cache_for_good() {
+        let temp = private_temp();
+        let path = temp.path().join("cache.sqlite3");
+        let mut held =
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default()).expect("open");
+        held.put(&key(10), &records()).expect("put");
+        assert_eq!(held.get(&key(10)).expect("hit"), Some(records()));
+
+        let mut other =
+            ModelResultCache::open_explicit(&path, &other_setup(), EntryLimit::default())
+                .expect("another setup takes the path");
+        assert!(
+            other.discarded_earlier_setup(),
+            "the second open must have discarded the file the first one holds, or the verdict              this test is about never happens"
+        );
+        other
+            .put(&key(20), &records())
+            .expect("the other setup fills it");
+        drop(other);
+
+        assert_eq!(
+            held.get(&key(20)).expect("read across a setup change"),
+            None,
+            "a replacement recording another setup is a verdict, so the cache walks away"
+        );
+
+        let mut peer = ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default())
+            .expect("a peer puts the running setup back at the path");
+        assert!(
+            peer.discarded_earlier_setup(),
+            "the peer must have discarded the other setup's file, so what sits at the path now              records the running setup"
+        );
+        peer.put(&key(30), &records()).expect("the peer fills it");
+        drop(peer);
+
+        assert_eq!(
+            held.get(&key(30))
+                .expect("read after the running setup returns"),
+            None,
+            "retirement for a verdict is for the life of the process, even when the file that              later sits at the path records this very setup"
+        );
+    }
+
+    // The other half of the same boundary. A replacement this build cannot read
+    // at all is a verdict too, and the exemption must not reach it: the probe
+    // fails, the cache retires, and a sound same-setup file arriving afterwards
+    // is not taken up.
+    #[test]
+    fn a_replacement_this_build_cannot_read_retires_the_cache_for_good() {
+        let temp = private_temp();
+        let path = temp.path().join("cache.sqlite3");
+        let mut held =
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default()).expect("open");
+        held.put(&key(10), &records()).expect("put");
+        assert_eq!(held.get(&key(10)).expect("hit"), Some(records()));
+
+        remove_database_family(&path).expect("the peer throws the file away");
+        fs::write(&path, b"not sqlite").expect("and leaves something unreadable at the path");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).expect("mode");
+        assert!(
+            matches!(
+                ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default()),
+                Err(CacheError::Sqlite(_) | CacheError::Incompatible)
+            ),
+            "the file at the path must really be one this build cannot read, or this test proves              nothing"
+        );
+
+        assert_eq!(
+            held.get(&key(10))
+                .expect("read with an unreadable file at the path"),
+            None,
+            "a replacement this build cannot read is a verdict, so the cache walks away"
+        );
+
+        remove_database_family(&path).expect("the unreadable file goes");
+        let mut peer = ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default())
+            .expect("a peer puts a sound file recording the running setup back");
+        peer.put(&key(20), &records()).expect("the peer fills it");
+        drop(peer);
+
+        assert_eq!(
+            held.get(&key(20)).expect("read after a sound file returns"),
+            None,
+            "retirement for a file this build could not read is for the life of the process"
         );
     }
 
