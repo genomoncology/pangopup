@@ -20,7 +20,7 @@ mod installed_success {
         fs,
         io::{BufRead, BufReader, Read, Write},
         net::TcpStream,
-        os::unix::fs::PermissionsExt,
+        os::unix::fs::{MetadataExt, PermissionsExt},
         path::{Path, PathBuf},
         process::Stdio,
         thread,
@@ -1762,6 +1762,151 @@ mod installed_success {
             setup_change.trim(),
             "a file this build could not read is not a setup change, and reporting it as one \
              sends the operator looking for an upgrade nobody made"
+        );
+    }
+
+    /// Retiring is not destroying, and until now it was also not spoken. A
+    /// service that walks away from a file another setup replaced underneath it
+    /// stops answering from it and stops writing to it for the rest of its
+    /// life. That is the right answer and it is invisible: the service goes
+    /// cold with no upgrade, no restart and no error, and the lever that fixes
+    /// it is the restart nobody knows to make.
+    ///
+    /// So it says so, once for the process however many caches it opened,
+    /// naming the file, and it says something other than what it says when it
+    /// destroyed one -- nothing was destroyed here and the replacement is left
+    /// where it is.
+    #[test]
+    fn the_service_says_so_once_when_it_retires_a_cache_a_second_process_replaced() {
+        let temp = tempfile::tempdir().expect("temp");
+        let (data, profile, cache) = install_under(
+            temp.path(),
+            "retired",
+            &fixture("route-mask/domains.pgm"),
+            50,
+        );
+        let variant = "GRCh38:chr1:5051:A:C";
+
+        // A service whose file nobody touches has nothing to say about it.
+        let (child, address) = start_with_policy(&data, &profile, &cache, "1", "1");
+        let served = score_one(&address, variant);
+        assert!(
+            served["records"][0]["gain_score"].is_string(),
+            "the control run must publish a score: {served}"
+        );
+        let quiet = drained((child, address));
+        assert!(
+            !quiet.contains(&cache.display().to_string()),
+            "a service whose cache file was never replaced must say nothing about it, and this \
+             run said: {quiet:?}"
+        );
+
+        let (child, address) = start_with_policy(&data, &profile, &cache, "1", "1");
+        let before = score_one(&address, variant);
+        assert!(
+            before["records"][0]["gain_score"].is_string(),
+            "the run must be answering out of its cache before the file is replaced: {before}"
+        );
+        let other = other_model_bundle(temp.path());
+        fill_from_command_line_with_model(&cache, temp.path(), &other, &[variant]);
+        let after = score_one(&address, variant);
+        assert!(
+            after["records"][0]["gain_score"].is_string(),
+            "retiring the cache must not cost the caller an answer: {after}"
+        );
+        let reported = drained((child, address));
+        let retired = named_report(&reported, &cache);
+
+        // The wording a destroyed file earns, read from a start of this same
+        // service rather than spelled here. The file now records the other
+        // setup, so this start is the one that discards it.
+        let destroyed = named_report(&stderr_of_a_run(&data, &profile, &cache, "1"), &cache);
+        assert_ne!(
+            retired.trim(),
+            destroyed.trim(),
+            "a process that walked away from a file destroyed nothing and left the replacement \
+             alone; reporting that as a discard tells the operator rows were thrown away that \
+             were not, and hides that a restart is the lever"
+        );
+    }
+
+    /// The service's side of a file that becomes unreadable after it was
+    /// opened. A second process takes the row table away without replacing the
+    /// file, so the service is still holding the file it judged -- there is
+    /// nothing to walk away from -- and the next read fails. The disposable
+    /// default is removed whole and reopened empty in the middle of a run that
+    /// has already been answering out of it.
+    ///
+    /// Only the disposable default is ever destroyed this way, so this is the
+    /// only shape of service run that reaches it.
+    #[test]
+    fn the_service_says_so_when_a_read_destroys_the_default_cache_it_opened() {
+        let temp = tempfile::tempdir().expect("temp");
+        let (data, profile, _) = install_under(
+            temp.path(),
+            "mid-run",
+            &fixture("route-mask/domains.pgm"),
+            50,
+        );
+        let home = temp.path().join("mid-run-cache-home");
+        let directory = home.join("pangopup");
+        fs::create_dir_all(&directory).expect("cache home");
+        for private in [&home, &directory] {
+            fs::set_permissions(private, fs::Permissions::from_mode(0o700)).expect("private");
+        }
+        let cache = directory.join("model-results.sqlite3");
+
+        let (child, address) = start_service(&data, &profile, None, Some(&home), "1", "1");
+        let filled = score_one(&address, "GRCh38:chr1:5051:A:C");
+        assert!(
+            filled["records"][0]["gain_score"].is_string(),
+            "the run must fill the default cache before it is damaged: {filled}"
+        );
+        assert_eq!(
+            cached_rows(&cache),
+            1,
+            "the service must have opened and filled the default cache"
+        );
+
+        let held = fs::metadata(&cache).expect("cache file").ino();
+        rusqlite::Connection::open(&cache)
+            .expect("open the cache the service holds")
+            .execute_batch("DROP TABLE entries;")
+            .expect("take the row table away");
+        assert_eq!(
+            fs::metadata(&cache).expect("cache file").ino(),
+            held,
+            "this must damage the file the service judged rather than replace it, or the service \
+             walks away instead of destroying anything"
+        );
+
+        let served = score_one(&address, "GRCh38:chr1:5051:A:AC");
+        assert!(
+            served["records"][0]["gain_score"].is_string(),
+            "a default cache destroyed in the middle of a run must not cost the caller an \
+             answer: {served}"
+        );
+        assert!(
+            cached_rows(&cache) >= 1,
+            "the read must have destroyed the file and reopened it empty, which is what puts the \
+             row table back; a run that left the damaged file alone is not the run this test is \
+             about"
+        );
+        let reported = drained((child, address));
+        let destroyed = named_report(&reported, &cache);
+
+        // The wording a file this build could not open earns, read from a start
+        // of this same service. The two happen at different moments and only
+        // the first is reported today.
+        fs::write(&cache, b"not sqlite at all").expect("write a file no build can read");
+        fs::set_permissions(&cache, fs::Permissions::from_mode(0o600)).expect("private cache");
+        let unreadable = named_report(&stderr_of_a_default_run(&data, &profile, &home), &cache);
+        assert_ne!(
+            destroyed.trim(),
+            unreadable.trim(),
+            "a file this service opened and then could not read is not a file it could not open; \
+             the open already reports the second, and reporting the first as it hides that the \
+             loss happened after the service was already answering"
         );
     }
 

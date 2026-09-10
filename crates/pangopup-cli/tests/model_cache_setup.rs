@@ -988,3 +988,210 @@ fn a_default_cache_destroyed_because_it_could_not_be_read_is_reported() {
     }
     assert_eq!(destroyed, 3, "every unreadable form must be exercised");
 }
+
+/// The one line a run wrote about `cache`. A run that said nothing about it, or
+/// said something about it more than once, fails here rather than further down.
+fn named_report(output: &Output, cache: &Path) -> String {
+    let reported = String::from_utf8(output.stderr.clone()).expect("UTF-8 report");
+    let named: Vec<&str> = reported
+        .lines()
+        .filter(|line| line.contains(&cache.display().to_string()))
+        .collect();
+    assert_eq!(
+        named.len(),
+        1,
+        "a run that destroyed a cache must say so exactly once, naming the file, and this run \
+         said: {reported:?}"
+    );
+    assert!(
+        named[0].to_ascii_lowercase().contains("cache"),
+        "the report must be readable as something that happened to a cache, and this run said: \
+         {reported:?}"
+    );
+    named[0].to_owned()
+}
+
+/// The sentence a setup change earns, read from a run of the shipped
+/// executable rather than spelled here, so a test that holds two causes apart
+/// pins no prose. Leaves the default cache removed.
+fn report_for_a_setup_change(setup: &Setup, cache_home: &Path, cache: &Path) -> String {
+    remove_cache_family(cache);
+    succeeded(&score(setup, cache_home, &[FIRST_VARIANT]));
+    let changed = score(
+        &setup.with_other_reference(cache_home),
+        cache_home,
+        &[FIRST_VARIANT],
+    );
+    succeeded(&changed);
+    let report = named_report(&changed, cache);
+    remove_cache_family(cache);
+    report
+}
+
+/// The sentence a file this build cannot read earns, read the same way. Leaves
+/// the default cache removed.
+fn report_for_an_unreadable_file(setup: &Setup, cache_home: &Path, cache: &Path) -> String {
+    remove_cache_family(cache);
+    succeeded(&score(setup, cache_home, &[FIRST_VARIANT]));
+    fs::write(cache, b"not sqlite at all").expect("write a file no build can read");
+    make_private(cache);
+    let destroyed = score(setup, cache_home, &[FIRST_VARIANT]);
+    succeeded(&destroyed);
+    let report = named_report(&destroyed, cache);
+    remove_cache_family(cache);
+    report
+}
+
+/// Three causes destroy a default cache, and each sends the operator somewhere
+/// different. A file another setup filled means an asset or a release changed
+/// under a run that is still the run the operator asked for. A file this build
+/// cannot read means damage. A file an earlier layout wrote means this release
+/// reads the on-disk shape differently from the release that wrote it, and the
+/// release note is what explains it.
+///
+/// Reporting the third as the first sends an operator hunting an asset change
+/// nobody made, and away from the note that would have answered them. So the
+/// layout cause is its own report: it names the layout, and it is neither of
+/// the other two.
+#[test]
+fn a_default_cache_discarded_for_its_layout_says_so_rather_than_naming_another_setup() {
+    let temp = private_temp();
+    let setup = Setup::fixtures();
+    let cache = default_cache_path(temp.path());
+    let application_id = this_softwares_application_id(&setup, temp.path());
+
+    let setup_change = report_for_a_setup_change(&setup, temp.path(), &cache);
+    let unreadable = report_for_an_unreadable_file(&setup, temp.path(), &cache);
+
+    write_earlier_layout_cache(&cache, application_id);
+    let upgraded = score(&setup, temp.path(), &[FIRST_VARIANT]);
+    let scored = succeeded(&upgraded);
+    assert!(
+        scored.contains("\"kind\":\"model\""),
+        "reading the layout as an earlier one must not cost the caller an answer: {scored}"
+    );
+    assert!(
+        !whole_file(&cache).contains(EARLIER_ROW),
+        "no row an earlier layout wrote may stay readable, or this run discarded nothing and the \
+         report below is about nothing"
+    );
+    let layout = named_report(&upgraded, &cache);
+
+    assert_ne!(
+        layout.trim(),
+        setup_change.trim(),
+        "an earlier layout is not another setup, and reporting it as one sends the operator \
+         after an asset change nobody made"
+    );
+    assert_ne!(
+        layout.trim(),
+        unreadable.trim(),
+        "an earlier layout is this software's own file, read by a release that writes another \
+         shape; reporting it as damage sends the operator after a broken disk"
+    );
+    assert!(
+        layout.to_ascii_lowercase().contains("layout"),
+        "the report must name the layout as the cause, so the operator reaches the release note \
+         that explains it, and this run said: {layout:?}"
+    );
+}
+
+/// Grow one stored row until its value spills into overflow pages, then write
+/// garbage over those pages. The file still opens: its header, its schema and
+/// its row count are untouched, so nothing about it is judged at the open. The
+/// read of that one row is what fails.
+///
+/// This is the file that becomes unreadable after it was opened -- a damaged
+/// disk, or another process writing over it -- reproduced without a race.
+fn damage_one_stored_row(cache: &Path) {
+    let variant_alternate = FIRST_VARIANT.rsplit(':').next().expect("alternate");
+    let connection = open_cache(cache).expect("cache database");
+    connection
+        .execute_batch("PRAGMA journal_mode=DELETE;")
+        .expect("leave write-ahead logging");
+    let grown = connection
+        .execute(
+            "UPDATE entries SET value_json=zeroblob(200000) WHERE alternate=?1",
+            [variant_alternate],
+        )
+        .expect("grow one stored value");
+    assert_eq!(
+        grown, 1,
+        "the fixture must grow the row the run below asks for, or that run reads a row that was \
+         never damaged"
+    );
+    connection
+        .execute_batch("VACUUM; PRAGMA journal_mode=WAL;")
+        .expect("compact and restore write-ahead logging");
+    drop(connection);
+
+    let length = fs::metadata(cache).expect("cache size").len();
+    assert!(
+        length > 150_000,
+        "the grown value must have spilled into overflow pages, and the file is {length} bytes"
+    );
+    let from = length - 100_000;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .open(cache)
+        .expect("open the cache for damage");
+    std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(from)).expect("seek");
+    std::io::Write::write_all(&mut file, &vec![0x5a; 100_000]).expect("write over the tail");
+    std::io::Write::flush(&mut file).expect("flush");
+    drop(file);
+    make_private(cache);
+}
+
+/// The fourth way a default cache is destroyed, and the one nothing says a word
+/// about. The file opens cleanly, so neither cause reported at the open applies
+/// to it; then a lookup cannot read a row out of it, and the whole file is
+/// removed and reopened empty in the middle of the run. The operator is told a
+/// cold cache and goes looking for nothing.
+#[test]
+fn a_default_cache_destroyed_by_a_read_after_it_opened_is_reported_when_it_is_destroyed() {
+    let temp = private_temp();
+    let setup = Setup::fixtures();
+    let cache = default_cache_path(temp.path());
+
+    let setup_change = report_for_a_setup_change(&setup, temp.path(), &cache);
+    let unreadable = report_for_an_unreadable_file(&setup, temp.path(), &cache);
+
+    succeeded(&score(
+        &setup,
+        temp.path(),
+        &[FIRST_VARIANT, SECOND_VARIANT],
+    ));
+    assert_eq!(
+        entry_count(&cache),
+        2,
+        "this starts from a cache holding rows the operator paid for"
+    );
+    damage_one_stored_row(&cache);
+
+    let destroyed = score(&setup, temp.path(), &[FIRST_VARIANT]);
+    let scored = succeeded(&destroyed);
+    assert!(
+        scored.contains("\"kind\":\"model\""),
+        "a file destroyed in the middle of a run sits at the disposable default, so it must not \
+         cost the caller an answer: {scored}"
+    );
+    assert_eq!(
+        entry_count(&cache),
+        1,
+        "the file was destroyed whole in the middle of the run, leaving only the row that run \
+         wrote, or the report below is about nothing"
+    );
+    let report = named_report(&destroyed, &cache);
+    assert_ne!(
+        report.trim(),
+        setup_change.trim(),
+        "a file destroyed by a read is not a setup change, and reporting it as one sends the \
+         operator after an upgrade nobody made"
+    );
+    assert_ne!(
+        report.trim(),
+        unreadable.trim(),
+        "a file this build opened and then could not read is not a file it could not open; the \
+         two happen at different moments and the second one is the one the open already reports"
+    );
+}
