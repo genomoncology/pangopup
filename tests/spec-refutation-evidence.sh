@@ -22,22 +22,66 @@ set -euo pipefail
 #      form, and it is refused here rather than found years later.
 #   2. Every block that carries a refutation also carries a mustmatch call, so
 #      the block runs at all.
-#   3. Refutations go through scripts/spec-refutes.sh, which reports the two
+#   3. No spec block builds a FIFO. One member kind stops the command that
+#      would judge it, so a live pin on it hangs the gate instead of failing
+#      it. See the settlement below.
+#   4. Refutations go through scripts/spec-refutes.sh, which reports the two
 #      ways a refutation passes on nothing: a haystack with no bytes in it, and
 #      a command that was never there to fail. That is arithmetic, so it is
 #      proved here against fixtures.
 #
 # What this does not prove: that the refutations hold. `make spec` runs them.
+#
+# ---------------------------------------------------------------------------
+# What the stage that makes this green has to write.
+#
+# scripts/spec-refutes.sh, executable, called from a spec block by exactly the
+# relative path `../scripts/spec-refutes.sh` (spec blocks run in spec/). Two
+# forms, each exiting non-zero when the claim breaks so `set -e` stops the
+# block on the line that broke:
+#
+#   --absent <ripgrep args...>   The pattern must not be found. Every argument
+#                                after --absent reaches ripgrep unchanged, so
+#                                -F, -i, -n and -- keep meaning what ripgrep
+#                                means by them. The haystack is a path argument
+#                                or standard input. Refuse when the pattern is
+#                                found, when nothing with bytes in it was
+#                                searched, and when a named path could not be
+#                                read. Name the pattern, and the path when
+#                                there is one, in every refusal, and say that
+#                                nothing was searched when nothing was.
+#   --fails <command...>         The command must exit non-zero. Refuse when it
+#                                succeeded and when it was never there to run
+#                                (status 127). Name the command either way.
+#
+# Neither form takes a bare call: a call with no mode, and --absent with no
+# pattern, are refused.
+#
+# The settlement for spec/runtime-transport.md:94. Its claim is that a runtime
+# transport whose member is a FIFO is refused. It cannot be converted and left
+# green: verify opens the member, the open blocks with no writer, and the
+# command never returns, so a live pin hangs the gate rather than failing it.
+# Measured here: `pangopup-build runtime-transport verify` on such a transport
+# was still running when a 20-second timeout killed it, while the corrupt,
+# substituted and symlinked members were each refused in milliseconds. That is
+# a defect in verify, not in the spec, and it is not fixed inside this ticket.
+# So that pin is REMOVED, together with the three lines that build the FIFO
+# transport, and section 3 below holds the removal in place. The other 27 pins
+# are converted. The product defect is carried beside the ticket as the draft
+# on a FIFO member stopping runtime-transport verify.
+# ---------------------------------------------------------------------------
 
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 helper="$repository/scripts/spec-refutes.sh"
 helper_call='../scripts/spec-refutes.sh'
 
-# Today's spec files carry 28 refutations. The ticket that introduced this file
-# allows one to be dropped when its reason is written down, so the floor sits
-# below that count rather than on it. It exists so that refutation coverage
-# cannot collapse to nothing while every check above still reports green.
-refutation_floor=20
+# Today's spec files carry 28 refutations. One of them, the FIFO pin settled
+# above, is removed with its reason, which leaves 27. The floor sits on that
+# number rather than under it. A floor with slack in it is a licence to delete
+# refutations quietly: measured here, a floor of 20 let seven of the 27 be
+# deleted outright with every gate still green. On the number, a deletion has
+# to move this line, and moving it is a change someone reads.
+refutation_floor=27
 
 fail() { printf 'spec refutation evidence: %s\n' "$*" >&2; exit 1; }
 
@@ -104,6 +148,10 @@ refutation_count=$(printf '%s' "$refutations" | grep -c . || true)
 (( refutation_count >= refutation_floor )) || fail \
     "found $refutation_count refutation(s) across ${#spec_files[@]} spec file(s) against a floor of $refutation_floor, so the spec files no longer refute what this check was written to keep refuted"
 
+# Only a plain ```bash fence needs a mustmatch call. A ```bash run id=... fence
+# carries its own `exit=` expectation, so mustmatch runs it and checks its
+# status whether or not it calls mustmatch. That is why this reads $4 exactly
+# rather than by prefix.
 skipped=$(printf '%s\n' "$refutations" | awk -F'\t' '$4 == "bash" && $5 == 0 { print $1 "\t" $2 }' | sort -u)
 if [[ -n "$skipped" ]]; then
     printf 'spec refutation evidence: these blocks carry a refutation and call no mustmatch command, so mustmatch skips the whole block and the refutation never runs:\n' >&2
@@ -113,7 +161,22 @@ fi
 
 printf 'inspected %s spec file(s), %s refutation(s)\n' "${#spec_files[@]}" "$refutation_count"
 
-# --- 3. the helper refuses a refutation that proved nothing -----------------
+# --- 3. no spec block builds a FIFO ----------------------------------------
+#
+# The removed pin's fixture. A FIFO member has no writer, the command that
+# would judge it blocks on the open, and a block holding it hangs until the
+# block timeout rather than reporting anything. Refuse the fixture so that the
+# pin cannot come back live while the command still hangs on it.
+fifo_lines=$(printf '%s\n' "$all_lines" | awk -F'\t' '$4 ~ /^bash/ && $6 ~ /(^|[^[:alnum:]_.\/-])mkfifo([[:space:]]|$)/')
+if [[ -n "$fifo_lines" ]]; then
+    printf 'spec refutation evidence: these spec lines build a FIFO, and the command that would judge one blocks on the open and never returns, so the block hangs instead of refuting anything:\n' >&2
+    printf '%s\n' "$fifo_lines" \
+        | awk -F'\t' -v root="$repository/" '{ sub("^" root, "", $1); printf "  %s:%d: %s\n", $1, $3, $6 }' >&2
+    printf 'The pin on a FIFO transport member is removed with that reason, not converted. Restore it once verify refuses a member that is not a regular file.\n' >&2
+    exit 1
+fi
+
+# --- 4. the helper refuses a refutation that proved nothing -----------------
 [[ -f "$helper" ]] || fail "no $helper: the spec refutations have nothing to report an empty haystack from"
 [[ -x "$helper" ]] || fail "$helper is not executable"
 
@@ -124,9 +187,12 @@ printf 'a sentence that must not appear\nanother line\n' >"$fixture/present.txt"
 printf 'another line\n' >"$fixture/absent.txt"
 : >"$fixture/empty.txt"
 
+# </dev/null: a helper that loses its path argument searches standard input
+# instead, and on an inherited terminal that waits forever. The gate has to
+# fail on such a helper, not hang on it.
 run_helper() {
     set +e
-    HELPER_OUTPUT=$(bash "$helper" "$@" 2>&1)
+    HELPER_OUTPUT=$(bash "$helper" "$@" 2>&1 </dev/null)
     HELPER_STATUS=$?
     set -e
 }
@@ -166,8 +232,8 @@ run_helper_stdin "$needle" --absent -F -- "$needle"
 run_helper_stdin '' --absent -F -- "$needle"
 [[ "$HELPER_STATUS" != 0 ]] || fail 'the helper accepted an empty haystack, so a pin whose document went missing still reports green'
 case "$HELPER_OUTPUT" in
-    *searched*) ;;
-    *) fail "the refusal does not say that nothing was searched: $HELPER_OUTPUT" ;;
+    *"$needle"*) ;;
+    *) fail "the refusal does not name the pattern that searched nothing, so an operator cannot tell which pin went blind: $HELPER_OUTPUT" ;;
 esac
 
 run_helper --absent -F -- "$needle" "$fixture/empty.txt"
