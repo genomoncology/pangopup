@@ -2139,8 +2139,16 @@ mod tests {
     /// appended to it is proved the moment it is appended, and
     /// `tests/model-cache-layout-history.sh` holds the list itself to what the
     /// repository's history shows was written.
+    ///
+    /// The file goes whole, and the cause it goes for is its own. An earlier
+    /// layout is this software's own file read by a release that writes another
+    /// shape; another setup is an asset or a release change under a run.
+    /// `discarded_earlier_setup` answers for the second cause alone, so a
+    /// caller reading it can print the sentence it names. The sentence an
+    /// earlier layout earns is read from a real run in
+    /// `crates/pangopup-cli/tests/model_cache_setup.rs`.
     #[test]
-    fn every_layout_an_earlier_release_wrote_is_discarded_whole_and_reported() {
+    fn every_layout_an_earlier_release_wrote_is_discarded_whole_and_is_not_another_setup() {
         assert!(
             !EARLIER_USER_VERSIONS.is_empty(),
             "this build stamps layout {USER_VERSION}, so a layout before it was written and is \
@@ -2175,9 +2183,11 @@ mod tests {
                     )
                 });
             assert!(
-                cache.discarded_earlier_setup(),
-                "destroying the file layout {layout} wrote must be reported, or an operator \
-                 cannot tell a cold cache from a lost one"
+                !cache.discarded_earlier_setup(),
+                "the file layout {layout} wrote went because this release reads the on-disk \
+                 shape differently from the release that wrote it, and the release note is what \
+                 explains that; answering for it here sends the operator after an asset change \
+                 nobody made and away from the note that would have answered them"
             );
             assert_eq!(
                 cache.entry_count().expect("row count"),

@@ -1814,6 +1814,14 @@ mod installed_success {
             after["records"][0]["gain_score"].is_string(),
             "retiring the cache must not cost the caller an answer: {after}"
         );
+        // Retiring happens once and is spoken once. Every lookup after it walks
+        // the same retired cache, so a report written where the cache is found
+        // retired, rather than where it retires, would repeat here.
+        let again = score_one(&address, variant);
+        assert!(
+            again["records"][0]["gain_score"].is_string(),
+            "a retired cache must go on answering out of the running setup: {again}"
+        );
         let reported = drained((child, address));
         let retired = named_report(&reported, &cache);
 
@@ -1920,12 +1928,14 @@ mod installed_success {
         assert_eq!(
             named.len(),
             1,
-            "a service that destroyed a cache must say so exactly once, naming the file, and this \
-             start said: {reported:?}"
+            "a service that destroyed or retired a cache must say so exactly once for the \
+             process, naming the file, however many caches it opened and however many lookups \
+             follow; this start said: {reported:?}"
         );
         assert!(
             named[0].to_ascii_lowercase().contains("cache"),
-            "the report must be readable as a discarded cache, and this start said: {reported:?}"
+            "the report must be readable as something that happened to a cache, and this start \
+             said: {reported:?}"
         );
         named[0].to_owned()
     }
