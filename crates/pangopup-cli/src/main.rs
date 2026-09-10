@@ -961,7 +961,12 @@ fn complete_model_batch(
                 // Saying so is what keeps a chosen database from being replaced
                 // silently, and it is how an operator tells a cold cache from a
                 // broken one.
-                if cache.discarded_earlier_setup() {
+                if cache.discarded_unreadable_file() {
+                    eprintln!(
+                        "discarded model cache {}: this build could not read it",
+                        options.path.display()
+                    );
+                } else if cache.discarded_earlier_setup() {
                     eprintln!(
                         "discarded model cache {}: another setup filled it",
                         options.path.display()

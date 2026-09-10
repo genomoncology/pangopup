@@ -825,7 +825,12 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
     // keeps a chosen database from being replaced silently, and it is how an
     // operator restarting after an upgrade tells a cold cache from a lost one.
     let handler_cache = open_cache(&cache_options, &setup)?;
-    if handler_cache.discarded_earlier_setup() {
+    if handler_cache.discarded_unreadable_file() {
+        eprintln!(
+            "discarded model cache {}: this build could not read it",
+            cache_options.path.display()
+        );
+    } else if handler_cache.discarded_earlier_setup() {
         eprintln!(
             "discarded model cache {}: another setup filled it",
             cache_options.path.display()

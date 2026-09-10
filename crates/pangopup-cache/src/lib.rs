@@ -321,6 +321,7 @@ pub struct ModelResultCache {
     counters: CacheCounters,
     pending_checkpoint: bool,
     discarded: bool,
+    unreadable: bool,
 }
 
 /// What one open found. A cache is handed back for the two cases that opened
@@ -357,8 +358,14 @@ impl ModelResultCache {
         match Self::open_matching(path, setup, limit, true) {
             Ok(cache) => Ok(cache),
             Err(CacheError::Incompatible | CacheError::Sqlite(_)) => {
+                // The file could not be read at all: not a database, another
+                // application's, or a layout no release of this software wrote.
+                // The reopen creates a fresh file and so matches, which is why
+                // the discard has to be recorded here rather than in `replace`.
                 remove_database_family(path)?;
-                Self::open_matching(path, setup, limit, true)
+                let mut cache = Self::open_matching(path, setup, limit, true)?;
+                cache.unreadable = true;
+                Ok(cache)
             }
             Err(error) => Err(error),
         }
@@ -367,6 +374,14 @@ impl ModelResultCache {
     /// Whether opening this cache discarded a file another setup had filled.
     pub fn discarded_earlier_setup(&self) -> bool {
         self.discarded
+    }
+
+    /// Whether opening this cache destroyed a file this build could not read.
+    /// A separate cause from a setup change and reported separately: an
+    /// operator told that another setup filled a corrupt file goes looking for
+    /// an upgrade nobody made.
+    pub fn discarded_unreadable_file(&self) -> bool {
+        self.unreadable
     }
 
     /// Judge the recorded setup once, at open. On any difference the whole file
@@ -534,6 +549,7 @@ impl ModelResultCache {
             counters: CacheCounters::default(),
             pending_checkpoint: !initialized,
             discarded: false,
+            unreadable: false,
         };
         cache.evict_to_limit().map_err(map_sqlite)?;
         Ok(if matched {
