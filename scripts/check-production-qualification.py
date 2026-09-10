@@ -49,6 +49,13 @@ BUNDLE_FIELD = re.compile(br',"bundle_id":"sha256:[0-9a-f]{64}"')
 # no gene-name index, so they carry scoring bytes alone. Take the naming
 # objects out of what the release printed and compare the rest exactly.
 GENE_NAMES_FIELD = re.compile(br',"gene_names":\{[^{}]*\}')
+# Ticket 0054. The software version on a command-line score line. The oracles
+# beside the checker carry no version -- one baked into them would have to be
+# regenerated on every release -- so the field comes back out before the bytes
+# are compared, exactly as the naming leaf does. The pattern is exactly as wide
+# as the field: a strip that reached past either end of it would hide a real
+# oracle difference behind the one field this release adds.
+SOFTWARE_VERSION_FIELD = re.compile(br',"software_version":"([^"\\]+)"')
 TRANSFER = re.compile(
     r"^sync: (?:snv|runtime) \S+ (?:cached|fresh|resume|restart) attempt [1-4]/4 "
     r"\d+/\d+ bytes \((\d+) downloaded, (\d+) resumed\)$"
@@ -85,7 +92,9 @@ def closed_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return value
 
 
-def canonical_snv(path: pathlib.Path, *, expect_names: bool = False) -> bytes:
+def canonical_snv(
+    path: pathlib.Path, *, expect_names: bool = False, version: str | None = None
+) -> bytes:
     try:
         content = path.read_bytes()
     except OSError as error:
@@ -94,6 +103,7 @@ def canonical_snv(path: pathlib.Path, *, expect_names: bool = False) -> bytes:
         fail(f"invalid SNV JSONL framing: {path.name}")
     output = bytearray()
     naming_counts: list[int] = []
+    version_counts: list[int] = []
     for number, line in enumerate(content[:-1].split(b"\n"), 1):
         try:
             value = json.loads(line, object_pairs_hook=closed_object)
@@ -112,10 +122,19 @@ def canonical_snv(path: pathlib.Path, *, expect_names: bool = False) -> bytes:
         if b"gene_names" in line:
             fail(f"gene_names is not an exact removable field: {path.name}:{number}")
         naming_counts.append(named)
+        for stamp in SOFTWARE_VERSION_FIELD.finditer(line):
+            if version is not None and stamp.group(1).decode("utf-8") != version:
+                fail(f"software version mismatch: {path.name}:{number}")
+        line, stamped = SOFTWARE_VERSION_FIELD.subn(b"", line)
+        if b"software_version" in line:
+            fail(f"software_version is not an exact removable field: {path.name}:{number}")
+        version_counts.append(stamped)
         output.extend(line)
         output.extend(b"\n")
     if expect_names and sum(naming_counts) == 0:
         fail(f"the release named no gene in {path.name}")
+    if version is not None and sum(version_counts) == 0:
+        fail(f"the release stamped no software version in {path.name}")
     return bytes(output)
 
 
@@ -147,12 +166,13 @@ def json_equal(actual: object, expected: object) -> bool:
     return actual == expected
 
 
-def scoring_bytes(path: pathlib.Path, label: str) -> bytes:
-    """The released model-route output with its naming leaves removed.
+def scoring_bytes(path: pathlib.Path, label: str, version: str | None = None) -> bytes:
+    """The released model-route output with its naming leaves and version removed.
 
     The model oracles are hand-written scoring records. Both accessions the
     release scores here are named, so the naming leaf must be present and must
-    come out cleanly.
+    come out cleanly. The software version reads the same way: the oracle carries
+    none, so the release's stamp comes out before the scoring bytes are compared.
     """
     try:
         content = path.read_bytes()
@@ -163,7 +183,45 @@ def scoring_bytes(path: pathlib.Path, label: str) -> bytes:
         fail(f"the release named no gene in {label}")
     if b"gene_names" in scoring:
         fail(f"gene_names is not an exact removable field: {label}")
+    for stamp in SOFTWARE_VERSION_FIELD.finditer(scoring):
+        if version is not None and stamp.group(1).decode("utf-8") != version:
+            fail(f"software version mismatch: {label}")
+    scoring, stamped = SOFTWARE_VERSION_FIELD.subn(b"", scoring)
+    if b"software_version" in scoring:
+        fail(f"software_version is not an exact removable field: {label}")
+    if version is not None and stamped == 0:
+        fail(f"the release stamped no software version in {label}")
     return scoring
+
+
+def release_version(source: pathlib.Path) -> str:
+    """The version this release is, read from the source tree it was built from.
+
+    The checker has no other independent source for it. Read it only once the
+    oracle identities have confirmed the tree, so a substituted source fails on
+    the identity it substituted rather than on a missing manifest.
+    """
+    try:
+        manifest = (source / "Cargo.toml").read_text(encoding="utf-8")
+    except OSError as error:
+        fail(f"cannot read workspace manifest: {error}")
+    versions = []
+    in_workspace_package = False
+    for line in manifest.splitlines():
+        stripped = line.strip()
+        if stripped == "[workspace.package]":
+            in_workspace_package = True
+            continue
+        if stripped.startswith("["):
+            in_workspace_package = False
+            continue
+        if in_workspace_package:
+            match = re.fullmatch(r'version\s*=\s*"([^"\\]+)"', stripped)
+            if match is not None:
+                versions.append(match.group(1))
+    if len(versions) != 1:
+        fail("workspace manifest names no single release version")
+    return versions[0]
 
 
 def require_fixture_identities(source: pathlib.Path) -> None:
@@ -349,6 +407,7 @@ def main() -> None:
         fail("qualification directories are unsafe")
 
     require_fixture_identities(source)
+    version = release_version(source)
 
     reuse_installed = len(sys.argv) == 4
     require_ready(output / "sync-online.json", {"reused"} if reuse_installed else {"installed"})
@@ -378,7 +437,7 @@ def main() -> None:
     for group in GROUPS:
         actual_path = output / f"snv-{group}.jsonl"
         expected_path = source / "tests/fixtures/snv-regression/expected" / f"{group}.jsonl"
-        actual = canonical_snv(actual_path, expect_names=True)
+        actual = canonical_snv(actual_path, expect_names=True, version=version)
         expected = canonical_snv(expected_path)
         if actual != expected:
             fail(f"SNV oracle mismatch: {group}")
@@ -387,11 +446,11 @@ def main() -> None:
 
     model_actual = output / "model-M09.jsonl"
     model_expected = source / "tests/fixtures/executable-release/m09.jsonl"
-    if scoring_bytes(model_actual, "M09-insertion-short-plus") != model_expected.read_bytes():
+    if scoring_bytes(model_actual, "M09-insertion-short-plus", version) != model_expected.read_bytes():
         fail("model oracle mismatch: M09-insertion-short-plus")
     model_only = output / "model-only-SNV.jsonl"
     model_only_expected = source / "tests/fixtures/executable-release/model-only-snv.jsonl"
-    if scoring_bytes(model_only, "model-only SNV") != model_only_expected.read_bytes():
+    if scoring_bytes(model_only, "model-only SNV", version) != model_only_expected.read_bytes():
         fail("model-only SNV oracle mismatch")
     automatic_snv = canonical_snv(output / "snv-ENSG00000010610.jsonl").splitlines()[0]
     if b'"kind":"precomputed"' not in automatic_snv \

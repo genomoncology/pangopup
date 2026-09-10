@@ -34,6 +34,7 @@ PangoPup v0.5.0 changes response shapes from v0.4.1:
 - Score-record `gene_names.source`: reports `hgnc` or `ncbi`.
 - Status response root: adds `data_set_version`, `runtime_profile_id`, and `scoring_semantics`.
 - Every score item: adds `data_set_version`.
+- Every command-line score line: adds `provenance.software_version`.
 
 - Unnamed gene: the score record and the source-reference ambiguity carry no `gene_names` object, and a named gene omits `hgnc_id`, `ncbi_gene_id`, `prev_symbols`, and `alias_symbols` where its naming source supplies none.
 
@@ -75,7 +76,7 @@ A consumer stores one value beside every retained score and compares it later. S
 
 Every score item carries `data_set_version` beside `scoring_identity`. Store the value the item carries. Reaching it takes no second request.
 
-The command-line tool prints neither field. A `--bundle` lookup opens no installed runtime profile. No data-set version is computable on every command-line path. What a retained command-line score pins is a separate open question. It has its own ticket.
+The command-line tool prints neither field. A `--bundle` lookup opens no installed runtime profile. No data-set version is computable on every command-line path. Every command-line score line carries `provenance.software_version`. It is the plain version of the PangoPup that printed the line, not a digest. A retained command-line score pins the assets its provenance names and the software version beside them. It does not pin the runtime profile, so it is not a `data_set_version` and never stands in for one.
 
 `scoring_identity` also hashes the effective CPU policy. A thread change moves it. Measurement on one host and one build found no score that a thread change moved. The `## Score values` section above states what that measurement covered and when to repeat it. `scoring_identity` keeps its value and its place on the status response and on every score item.
 

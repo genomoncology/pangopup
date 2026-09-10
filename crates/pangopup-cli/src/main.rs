@@ -1115,15 +1115,20 @@ fn render_lookup_requests(
     requests: &[RenderRequest],
 ) -> Result<Vec<u8>, Failure> {
     // Ticket 0054. This is the seam the version reaches the printed line
-    // through, and it still passes nothing, so every proof that a retained
-    // command-line score names its software is red.
-    render_requests(rendering.format, requests, Some(rendering.names), None).map_err(|error| {
-        Failure {
-            code: "LOOKUP_CORRUPT",
-            message: error.to_string(),
-            exit: 1,
-            details: None,
-        }
+    // through. Every command-line render names the version this build reports
+    // through `--version`, so a retained score names the software that produced
+    // it. The HTTP surface does not come through here.
+    render_requests(
+        rendering.format,
+        requests,
+        Some(rendering.names),
+        Some(env!("CARGO_PKG_VERSION")),
+    )
+    .map_err(|error| Failure {
+        code: "LOOKUP_CORRUPT",
+        message: error.to_string(),
+        exit: 1,
+        details: None,
     })
 }
 
