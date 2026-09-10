@@ -60,13 +60,21 @@ impl Error for RenderError {}
 /// Nothing is the harness form: the regression oracles are produced without
 /// the index so they compare scoring bytes alone. An unnamed gene reports its
 /// Ensembl accession alone. The human-readable table gains no names.
+///
+/// `version` is the PangoPup version the caller wants named in `provenance`.
+/// It reads the same way: the command-line tool passes the version it reports
+/// through `--version`, and nothing is the harness form, so an oracle keeps
+/// comparing bytes that no release moves. The HTTP surface reaches this
+/// renderer through `render_result_raw`, which passes nothing. Ticket 0052
+/// settled what an HTTP score item carries and ticket 0054 left it alone.
 pub fn render_requests(
     format: OutputFormat,
     requests: &[RenderRequest],
     names: Option<&GeneNameIndex>,
+    version: Option<&str>,
 ) -> Result<Vec<u8>, RenderError> {
     match format {
-        OutputFormat::Jsonl => render_jsonl(requests, names),
+        OutputFormat::Jsonl => render_jsonl(requests, names, version),
         OutputFormat::Table => render_table(requests),
     }
 }
@@ -77,7 +85,7 @@ pub fn render_result_raw(
     result: RoutedResult,
     names: Option<&GeneNameIndex>,
 ) -> Result<Box<serde_json::value::RawValue>, RenderError> {
-    let mut bytes = render_jsonl(&[RenderRequest::from_routed(result)], names)?;
+    let mut bytes = render_jsonl(&[RenderRequest::from_routed(result)], names, None)?;
     if bytes.pop() != Some(b'\n') {
         return Err(RenderError("lookup result serialization failed"));
     }
@@ -102,6 +110,7 @@ fn precomputed_status(result: &LookupResult) -> &'static str {
 fn render_jsonl(
     requests: &[RenderRequest],
     names: Option<&GeneNameIndex>,
+    version: Option<&str>,
 ) -> Result<Vec<u8>, RenderError> {
     let mut output = Vec::new();
     for request in requests {
@@ -135,6 +144,7 @@ fn render_jsonl(
                         source_archive_md5: provenance.source_archive_md5(),
                         masked: provenance.masked(),
                         window: provenance.window(),
+                        software_version: version,
                     },
                 };
                 serde_json::to_writer(&mut output, &line)
@@ -161,7 +171,10 @@ fn render_jsonl(
                         .map(|record| JsonModelRecord::new(record, names))
                         .collect(),
                     source_reference_ambiguities: [],
-                    provenance: JsonModelProvenance::from(provenance),
+                    provenance: JsonModelProvenance {
+                        software_version: version,
+                        ..JsonModelProvenance::from(provenance)
+                    },
                 };
                 serde_json::to_writer(&mut output, &line)
                     .map_err(|_| RenderError("lookup result serialization failed"))?;
@@ -304,6 +317,8 @@ struct JsonPrecomputedProvenance<'a> {
     source_archive_md5: &'a str,
     masked: bool,
     window: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    software_version: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -320,6 +335,8 @@ struct JsonModelProvenance<'a> {
     mask_sha256: &'a str,
     masked: bool,
     window: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    software_version: Option<&'a str>,
 }
 
 impl<'a> From<&'a ModelProvenance> for JsonModelProvenance<'a> {
@@ -337,6 +354,7 @@ impl<'a> From<&'a ModelProvenance> for JsonModelProvenance<'a> {
             mask_sha256: value.mask_sha256(),
             masked: value.masked(),
             window: value.window(),
+            software_version: None,
         }
     }
 }
@@ -526,7 +544,7 @@ mod tests {
             "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":4,\"ref\":\"A\",\"alt\":\"C\",\"status\":\"not_found\",\"records\":[],\"source_reference_ambiguities\":[],\"provenance\":{\"kind\":\"precomputed\",\"bundle_id\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"source_doi\":\"10.5281/zenodo.15649338\",\"source_archive_md5\":\"679ef0b50e511b6102b4b88fbf811108\",\"masked\":true,\"window\":50}}\n",
         );
         assert_eq!(
-            render_requests(OutputFormat::Jsonl, &status_matrix(), None).expect("render"),
+            render_requests(OutputFormat::Jsonl, &status_matrix(), None, None).expect("render"),
             expected.as_bytes()
         );
     }
@@ -542,7 +560,8 @@ mod tests {
             "GRCh38\tchr1\t3\tA\tC\tmixed\tENSG00000000005\t.\t.\t.\t.\tN\tA,C,G\tT\tsha256:0000000000000000000000000000000000000000000000000000000000000000\n",
             "GRCh38\tchr1\t4\tA\tC\tnot_found\t.\t.\t.\t.\t.\t.\t.\t.\tsha256:0000000000000000000000000000000000000000000000000000000000000000\n",
         );
-        let actual = render_requests(OutputFormat::Table, &status_matrix(), None).expect("render");
+        let actual =
+            render_requests(OutputFormat::Table, &status_matrix(), None, None).expect("render");
         assert_eq!(actual, expected.as_bytes());
         assert_eq!(actual.last(), Some(&b'\n'));
         assert_eq!(actual.iter().filter(|byte| **byte == b'\n').count(), 7);
@@ -599,6 +618,7 @@ mod tests {
             mask_sha256: "sha256:4444444444444444444444444444444444444444444444444444444444444444",
             masked: true,
             window: 50,
+            software_version: None,
         }
     }
 
@@ -672,9 +692,25 @@ mod tests {
     /// boundary is held.
     #[test]
     fn the_service_rendering_carries_no_command_line_software_version() {
-        for request in status_matrix() {
+        let matrix = status_matrix();
+        assert_eq!(
+            matrix.len(),
+            4,
+            "the status matrix is the four score-item shapes the service renders"
+        );
+        for request in matrix {
             let rendered =
                 render_result_raw(request.result().clone(), None).expect("service rendering");
+            // A rendering that carried no provenance would satisfy the
+            // negative below without proving anything, so the item is
+            // confirmed to be a real score item first.
+            assert!(
+                rendered
+                    .get()
+                    .contains("\"provenance\":{\"kind\":\"precomputed\""),
+                "the service rendering is not a score item: {}",
+                rendered.get()
+            );
             assert!(
                 !rendered.get().contains("software_version"),
                 "an HTTP score item must not gain the command-line version: {}",

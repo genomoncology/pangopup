@@ -107,6 +107,52 @@ impl Spawn {
     }
 }
 
+/// The version the shipped executable reports through `--version`.
+///
+/// Ticket 0054 put that version on every command-line result line, so a test
+/// that pins printed bytes has to know it. Reading it from the executable
+/// keeps the pin alive across a release: a literal would have to be rewritten
+/// every time the version moves, and a stale literal would pass for the wrong
+/// reason.
+pub fn software_version() -> String {
+    let output = pangopup()
+        .arg("--version")
+        .output()
+        .expect("run pangopup --version");
+    assert!(output.status.success(), "--version failed");
+    let line = String::from_utf8(output.stdout).expect("UTF-8 version line");
+    line.trim()
+        .strip_prefix("pangopup ")
+        .expect("the version line names the tool")
+        .to_owned()
+}
+
+/// The exact bytes ticket 0054 adds to a result line, for the version the
+/// shipped executable reports.
+pub fn software_version_field() -> String {
+    format!(",\"software_version\":\"{}\"", software_version())
+}
+
+/// Remove every occurrence of `needle` from `bytes` and report how many were
+/// removed. `needle` is an exact byte string, so nothing wider than it can be
+/// taken out and a comparison that follows still sees every other difference.
+pub fn strip_exact(bytes: &[u8], needle: &[u8]) -> (Vec<u8>, usize) {
+    assert!(!needle.is_empty(), "an exact strip needs a needle");
+    let mut kept = Vec::with_capacity(bytes.len());
+    let mut removed = 0;
+    let mut rest = bytes;
+    while let Some(at) = rest
+        .windows(needle.len())
+        .position(|window| window == needle)
+    {
+        kept.extend_from_slice(&rest[..at]);
+        rest = &rest[at + needle.len()..];
+        removed += 1;
+    }
+    kept.extend_from_slice(rest);
+    (kept, removed)
+}
+
 impl Deref for Running {
     type Target = Child;
 

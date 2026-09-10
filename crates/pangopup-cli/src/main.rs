@@ -1114,11 +1114,16 @@ fn render_lookup_requests(
     rendering: Rendering<'_>,
     requests: &[RenderRequest],
 ) -> Result<Vec<u8>, Failure> {
-    render_requests(rendering.format, requests, Some(rendering.names)).map_err(|error| Failure {
-        code: "LOOKUP_CORRUPT",
-        message: error.to_string(),
-        exit: 1,
-        details: None,
+    // Ticket 0054. This is the seam the version reaches the printed line
+    // through, and it still passes nothing, so every proof that a retained
+    // command-line score names its software is red.
+    render_requests(rendering.format, requests, Some(rendering.names), None).map_err(|error| {
+        Failure {
+            code: "LOOKUP_CORRUPT",
+            message: error.to_string(),
+            exit: 1,
+            details: None,
+        }
     })
 }
 

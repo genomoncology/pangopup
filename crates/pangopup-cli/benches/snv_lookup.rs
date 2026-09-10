@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // The CLI names every accession the shipped index reaches, so its
         // oracle is the same render with the same index. A `None` render here
         // would compare the CLI against bytes the CLI never prints.
-        let expected_cli = render_requests(OutputFormat::Jsonl, &materialized, Some(&names))?;
+        let expected_cli = render_requests(OutputFormat::Jsonl, &materialized, Some(&names), None)?;
         benchmark_cli(&cli, &bundle_path, &name, &queries, &expected_cli)?;
         benchmark_lookup(&provider, &name, &queries)?;
         benchmark_serialization(&name, &materialized, OutputFormat::Jsonl)?;
@@ -304,7 +304,7 @@ fn benchmark_serialization(
         })
         .sum();
     let (times, output, calls, bytes, delta) = sample(|| {
-        let rendered = render_requests(format, materialized, None).expect("render");
+        let rendered = render_requests(format, materialized, None, None).expect("render");
         black_box(rendered.len())
     });
     let format_name = match format {

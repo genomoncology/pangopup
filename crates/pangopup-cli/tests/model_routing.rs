@@ -129,7 +129,17 @@ fn real_file_backed_model_route_json_table_and_filter_are_exact() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(output.stderr.is_empty());
+    // Ticket 0054 puts the running version last in the provenance object of
+    // every command-line line. The rest of the line is pinned byte for byte as
+    // it always was: the stamp is spliced into the literal from what the
+    // shipped executable reports, so this pin still fails on any other moved
+    // byte and needs no rewrite when the version moves.
     let expected = "{\"assembly\":\"GRCh38\",\"contig\":\"chr1\",\"position\":5051,\"ref\":\"A\",\"alt\":\"AC\",\"status\":\"found\",\"records\":[{\"gene\":\"ENSG00000000001.1\",\"stable_gene\":\"ENSG00000000001\",\"gain_score\":\"0.33\",\"gain_position\":-50,\"loss_score\":\"0.00\",\"loss_position\":-50,\"warnings\":[\"no_annotated_sites\"]}],\"source_reference_ambiguities\":[],\"provenance\":{\"kind\":\"model\",\"scoring_semantics\":\"pangopup-variant-score-v1\",\"model_bundle_id\":\"sha256:aba3f0a07075f24cc5c3c59eb4312176bae4f2886db8946500280b19e686edca\",\"model_profile\":\"pangopup-model-kernel-mini-v1\",\"effective_cpu_policy\":\"sequential:1/1\",\"reference_bundle_id\":\"sha256:6773713ad79462b8bfb2bce7f194041e85a0804b38f68282c965adc5f43f9493\",\"reference_profile\":\"pangopup-reference-route-test-v1\",\"reference_sequence_set_sha256\":\"sha256:afb720dad5979f65694dab6ae80a497ef56db434d7d346e79cdcb0e7da97e0b3\",\"mask_bytes\":260,\"mask_sha256\":\"sha256:004f9f95be50b92fd5c67ca44a785e950c20e5455a903ad9350b68c91566f827\",\"masked\":true,\"window\":50}}\n";
+    let expected = expected.replace(
+        "\"window\":50}}",
+        &format!("\"window\":50{}}}}}", support::software_version_field()),
+    );
+    let expected = expected.as_str();
     assert_eq!(output.stdout, expected.as_bytes());
 
     let mut round_trip = modeled_args("GRCh38:chr1:5051:A:AC");
@@ -386,7 +396,16 @@ fn hit_only_missing_assets_model_required_grammar_and_rejection_are_stable() {
             line.contains("\"contig\":\"chr10\",\"position\":1,\"ref\":\"A\",\"alt\":\"C\"")
         })
         .expect("frozen miss");
-    assert_eq!(output.stdout, format!("{expected}\n").as_bytes());
+    // The frozen oracle carries scoring bytes alone; ticket 0054 added the
+    // running version to what the executable prints. Take that one exact field
+    // back out and the line must equal the frozen oracle byte for byte. The
+    // strip is the whole field and nothing wider, and it is built from the
+    // version this build reports, so a missing stamp, a wrong version or any
+    // other moved byte still fails here.
+    let stamp = support::software_version_field();
+    let (unstamped, stamped) = support::strip_exact(&output.stdout, stamp.as_bytes());
+    assert_eq!(stamped, 1, "the frozen miss names the software once");
+    assert_eq!(unstamped, format!("{expected}\n").into_bytes());
 
     let missing = vec![
         "lookup".to_owned(),

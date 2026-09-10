@@ -620,6 +620,34 @@ if "$repo/scripts/check-production-qualification.py" "$root/wrong-stamp-output" 
 fi
 grep -Fxq 'software version mismatch: snv-ENSG00000010610.jsonl:1' "$root/wrong-stamp.err"
 
+# The checker takes the software version back out before it compares bytes, so
+# the strip has to be exactly as wide as the field. A strip that reached past
+# either end of it would hide a real oracle difference behind the one field this
+# release adds. Probe both sides: put a field the oracles do not carry
+# immediately before the stamp and immediately after it, and the checker must
+# reject each one on the oracle rather than swallow it.
+cp -a "$root/output" "$root/strip-width-before-output"
+sed -i '1s/,"software_version":/,"drift_probe":true,"software_version":/' \
+  "$root/strip-width-before-output/snv-ENSG00000010610.jsonl"
+if require_checker_accepts strip-width-before "$root/strip-width-before-output" \
+  2>"$root/strip-width-before.guidance"; then
+  printf 'checker swallowed a field printed before the software version\n' >&2
+  exit 1
+fi
+# Any rejection proves the probe was not swallowed, so the message is held to
+# naming the record rather than to one of the checker's several refusals.
+grep -Fq 'ENSG00000010610' "$root/strip-width-before.err"
+
+cp -a "$root/output" "$root/strip-width-after-output"
+sed -i '1s/\("software_version":"[^"]*"\)/\1,"drift_probe":true/' \
+  "$root/strip-width-after-output/snv-ENSG00000010610.jsonl"
+if require_checker_accepts strip-width-after "$root/strip-width-after-output" \
+  2>"$root/strip-width-after.guidance"; then
+  printf 'checker swallowed a field printed after the software version\n' >&2
+  exit 1
+fi
+grep -Fq 'ENSG00000010610' "$root/strip-width-after.err"
+
 cp -a "$root/output" "$root/unstamped-model-output"
 sed -i 's/,"software_version":"[^"]*"//g' "$root/unstamped-model-output/model-M09.jsonl"
 if "$repo/scripts/check-production-qualification.py" "$root/unstamped-model-output" "$repo" >"$root/unstamped-model.out" 2>"$root/unstamped-model.err"; then

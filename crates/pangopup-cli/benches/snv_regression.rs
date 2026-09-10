@@ -119,7 +119,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .collect();
         let exact = materialize_routed(&router, &selected);
         assert_eq!(
-            render_requests(OutputFormat::Jsonl, &exact, None).expect("render exactness"),
+            render_requests(OutputFormat::Jsonl, &exact, None, None).expect("render exactness"),
             expected,
             "routed benchmark oracle for {size} requests"
         );
@@ -147,7 +147,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     result.records().len() + result.source_reference_ambiguities().len()
                 })
                 .sum();
-            let output = render_requests(OutputFormat::Jsonl, &rendered, None).expect("render");
+            let output =
+                render_requests(OutputFormat::Jsonl, &rendered, None, None).expect("render");
             black_box(&output);
             (results, output.len())
         });

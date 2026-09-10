@@ -69,13 +69,10 @@ fn run_args(args: &[String]) -> Output {
 
 /// The version this build reports elsewhere. A consumer compares a retained
 /// line against a running deployment, so the two must be the same string.
+/// `support` owns the one reading of it, so every test in the suite that pins
+/// printed bytes compares against the same string.
 fn reported_version() -> String {
-    let output = run(support::pangopup().arg("--version"));
-    let line = String::from_utf8(output.stdout).expect("UTF-8 version");
-    line.trim()
-        .strip_prefix("pangopup ")
-        .expect("the version line names the tool")
-        .to_owned()
+    support::software_version()
 }
 
 fn stamped_field(version: &str) -> String {

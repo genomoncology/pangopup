@@ -78,6 +78,7 @@ fn all_one_thousand_direct_tsv_expectations_pass_one_real_provider() {
                 OutputFormat::Jsonl,
                 &[RenderRequest::new(snv, result)],
                 None,
+                None,
             )
             .expect("production renderer"),
         );
@@ -100,6 +101,7 @@ fn seven_cli_batches_match_the_direct_oracle_subsets() {
             .push(request);
     }
     assert_eq!(groups.len(), 7);
+    let stamp = support::software_version_field();
     let mut total_named = 0_usize;
     for (group, requests) in groups {
         let mut spawn = support::pangopup();
@@ -128,6 +130,19 @@ fn seven_cli_batches_match_the_direct_oracle_subsets() {
         // the CLI's output and compare the rest exactly. A naming object that
         // did not close, or any other new field, still fails here.
         let (scoring, named) = strip_gene_names(&output.stdout);
+        // Ticket 0054 added the running version to every printed line for the
+        // same reason the oracle has no naming leaf: the oracle carries
+        // scoring bytes alone and would have to be regenerated on every
+        // release if it carried a version. The strip is the whole field and
+        // nothing wider, built from the version this build reports, so a line
+        // that named some other version keeps its stamp and fails the byte
+        // comparison below rather than being tidied away.
+        let (scoring, stamped) = support::strip_exact(&scoring, stamp.as_bytes());
+        assert_eq!(
+            stamped,
+            output.stdout.iter().filter(|byte| **byte == b'\n').count(),
+            "{group} left a printed line without a software version"
+        );
         assert_eq!(
             scoring,
             fs::read(fixture.join("expected").join(format!("{group}.jsonl")))
