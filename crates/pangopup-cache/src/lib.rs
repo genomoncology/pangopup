@@ -557,12 +557,17 @@ impl ModelResultCache {
             judged,
             retired: false,
         };
+        if !matched {
+            // Nothing this open may keep. `open_matching` throws this file
+            // away whole and `holds_the_file_at_its_path` only reads the
+            // verdict off it, so trimming it to the running limit would only
+            // destroy rows -- rows that belong to whichever process actually
+            // judged the file, when the caller is a running cache probing a
+            // replacement it is about to walk away from.
+            return Ok(Opened::OtherSetup(cache));
+        }
         cache.evict_to_limit().map_err(map_sqlite)?;
-        Ok(if matched {
-            Opened::Matching(cache)
-        } else {
-            Opened::OtherSetup(cache)
-        })
+        Ok(Opened::Matching(cache))
     }
 
     pub fn get(&mut self, key: &CacheKey) -> Result<Option<Vec<ModelGeneScoreRecord>>, CacheError> {
@@ -1815,6 +1820,51 @@ mod tests {
             Some(records()),
             "and what it writes lands in the file at its path, not in one only it can see"
         );
+    }
+
+    // Retiring reads a verdict off the file at the path; it does not take the
+    // file over. The bounded limit belongs to this process, and the rows in a
+    // file another setup filled belong to the process that judged it, so the
+    // probe that ends in retirement must leave every one of them where it is.
+    // A default limit is far above what a fixture writes, so the limit here is
+    // small enough that an eviction would show.
+    #[test]
+    fn a_cache_that_retires_evicts_nothing_from_the_file_it_walked_away_from() {
+        let temp = private_temp();
+        let path = temp.path().join("cache.sqlite3");
+        let mut held =
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::Bounded(1)).expect("open");
+        held.put(&key(1), &records()).expect("put");
+        assert_eq!(held.get(&key(1)).expect("hit"), Some(records()));
+
+        let mut replacing =
+            ModelResultCache::open_explicit(&path, &other_setup(), EntryLimit::Unlimited)
+                .expect("replacing open");
+        assert!(replacing.discarded_earlier_setup());
+        for n in 10..15 {
+            replacing.put(&key(n), &records()).expect("refill");
+        }
+        assert_eq!(replacing.entry_count().expect("count"), 5);
+        drop(replacing);
+
+        assert_eq!(held.get(&key(1)).expect("read"), None, "must retire");
+
+        let mut reader =
+            ModelResultCache::open_explicit(&path, &other_setup(), EntryLimit::Unlimited)
+                .expect("reopen");
+        assert!(!reader.discarded_earlier_setup());
+        assert_eq!(
+            reader.entry_count().expect("count"),
+            5,
+            "the retiring cache must not have evicted rows from a file it never judged"
+        );
+        for n in 10..15 {
+            assert_eq!(
+                reader.get(&key(n)).expect("read"),
+                Some(records()),
+                "row {n} the replacing process paid for is still readable"
+            );
+        }
     }
 
     #[test]
