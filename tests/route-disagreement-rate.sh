@@ -34,7 +34,17 @@ set -euo pipefail
 #      contract word for word, so how zeros were treated cannot be dropped from
 #      the statement while staying in the evidence. Its sentence about the
 #      limit of the evidence appears there word for word too.
-#   6. The value denominator is broken out. Most of the compared records are
+#   6. The published position figure carries the mechanism behind it. A rate
+#      with no explanation cannot be told from a defect in this code, so the
+#      contract states why the two routes address the same call differently and
+#      states the one-sided guarantee that follows: a precomputed position is
+#      never later than a modeled one.
+#   7. The per-record result of the measurement is a committed file, not a
+#      summary somebody kept. Every published count is recomputed from it, it
+#      covers the whole named variant set rather than a sample of it, and the
+#      one-sided guarantee is checked against it record by record instead of
+#      being taken on the contract's word.
+#   8. The value denominator is broken out. Most of the compared records are
 #      scored zero on both sides by both routes, which is agreement a consumer
 #      gets for free, so the artifact declares how many and publishes a second
 #      value figure over the records that carry a call. The two parts have to
@@ -44,8 +54,8 @@ set -euo pipefail
 #      hides what its denominator is made of misleads the consumer it is for.
 #
 # What this does not prove: that the measurement is correct. This check reads a
-# recorded artifact and never re-runs the measurement, so numbers typed by hand
-# into that artifact would satisfy it. Nothing short of re-running the
+# recorded artifact and never re-runs the measurement, so a per-record file typed
+# by hand would satisfy it. Nothing short of re-running the
 # measurement closes that, which is why the contract has to say so itself. The
 # `evidence-limit` sentence is that disclosure, and check 5 holds it in the
 # published text rather than leaving it in this comment.
@@ -65,9 +75,9 @@ counts=(variant-set-size compared-records value-disagreements \
     both-routes-zero-records non-zero-records)
 percents=(value-disagreement-percent position-disagreement-percent \
     non-zero-value-disagreement-percent)
-required=(variant-set variant-set-rule variant-set-manifest "${counts[@]}" \
-    "${percents[@]}" denominator-composition zero-score-treatment evidence-limit \
-    measured)
+required=(variant-set variant-set-rule variant-set-manifest raw-records \
+    "${counts[@]}" "${percents[@]}" denominator-composition zero-score-treatment \
+    position-mechanism position-ordering evidence-limit measured)
 
 # A rate needs enough records to be a rate. The ticket's complaint is that one
 # disagreement in five records supports no number at all, so a set or a
@@ -102,6 +112,61 @@ field() {
 # 12345 -> 12,345. The published prose groups large counts; the artifact does
 # not, so a count is looked for in both spellings.
 grouped() { printf '%s' "$1" | sed -E ':a;s/([0-9]+)([0-9]{3})/\1,\2/;ta'; }
+
+# The columns of the per-record output, in order. A file whose first line is
+# anything else is not read, so a reordered or renamed column is refused rather
+# than silently miscounted.
+raw_header=$'variant\tstable_gene\tbundle_gain\tbundle_gain_position\tbundle_loss\tbundle_loss_position\tmodel_gain\tmodel_gain_position\tmodel_loss\tmodel_loss_position'
+
+# Recompute every published count from the per-record output at $1, and count the
+# comparable sides where the precomputed position is later than the modeled one.
+# Prints one `key=value` run on success; prints why it stopped and exits 2 on a
+# row it cannot read, because a row awk reads as zero would be counted as two
+# routes agreeing about nothing.
+derive() {
+    awk -F'\t' '
+        NR == 1 { next }
+        {
+            if (NF != 10) { printf "row %d carries %d field(s), not 10\n", NR, NF; bad = 1; exit 2 }
+            for (i = 3; i <= 9; i += 2)
+                if ($i !~ /^-?[01][.][0-9][0-9]$/) { printf "row %d carries \"%s\" where a score belongs\n", NR, $i; bad = 1; exit 2 }
+            for (i = 4; i <= 10; i += 2)
+                if ($i !~ /^-?[0-9]+$/) { printf "row %d carries \"%s\" where a position belongs\n", NR, $i; bad = 1; exit 2 }
+
+            rows++
+            if (!($1 in seen)) { seen[$1] = 1; variants++ }
+
+            bg = $3 + 0; bgp = $4 + 0; bl = $5 + 0; blp = $6 + 0
+            mg = $7 + 0; mgp = $8 + 0; ml = $9 + 0; mlp = $10 + 0
+
+            if (bg != mg || bl != ml) value_disagreements++
+            if (bg == 0 && bl == 0 && mg == 0 && ml == 0) both_zero++; else non_zero++
+
+            # Ticket 0040: a position is comparable only where the score beside
+            # it is non-zero on both routes.
+            gain = (bg != 0 && mg != 0)
+            loss = (bl != 0 && ml != 0)
+            if (gain || loss) {
+                position_compared++
+                if ((gain && bgp != mgp) || (loss && blp != mlp)) position_disagreements++
+                if ((gain && bgp > mgp) || (loss && blp > mlp)) {
+                    violations++
+                    if (violations == 1) sample = $1 " / " $2
+                }
+            }
+        }
+        END {
+            if (bad) exit 2
+            printf "rows=%d variants=%d value-disagreements=%d both-routes-zero-records=%d non-zero-records=%d position-compared-records=%d position-disagreements=%d violations=%d sample=%s\n", \
+                rows, variants, value_disagreements, both_zero, non_zero, \
+                position_compared, position_disagreements, violations, sample
+        }
+    ' "$1"
+}
+
+# The variant column of the per-record output, and the variants of a manifest.
+raw_variants() { awk -F'\t' 'NR > 1 { print $1 }' "$1" | sort -u; }
+set_variants() { grep -vE '^[[:space:]]*(#|$)' "$1" | awk '{ print $1 }' | sort -u; }
 
 # Refuse the repository rooted at $1. Prints its reason on refusal and its
 # counts on acceptance.
@@ -231,6 +296,78 @@ examine() {
         return 1
     }
 
+    # --- the per-record result is committed, whole, and adds up ---
+    #
+    # The summary above is a claim about records nobody kept. This reads the
+    # records themselves, recomputes every count the statement publishes, and
+    # checks the one-sided ordering guarantee side by side rather than trusting
+    # the sentence that states it.
+    local raw=$root/${measured[raw-records]} derived pair
+    [[ -f "$raw" ]] || {
+        printf 'the measurement names %s as its per-record result, which is not a file in the repository, so the published counts rest on a run nothing kept\n' \
+            "${measured[raw-records]}" >&2
+        return 1
+    }
+    [[ $(head -n 1 "$raw") == "$raw_header" ]] || {
+        printf '%s does not begin with the ten per-record columns, so nothing can be recomputed from it\n' \
+            "${measured[raw-records]}" >&2
+        return 1
+    }
+    derived=$(derive "$raw") || {
+        printf '%s cannot be read record by record: %s\n' "${measured[raw-records]}" "$derived" >&2
+        return 1
+    }
+
+    declare -A recomputed=()
+    for pair in $derived; do recomputed[${pair%%=*}]=${pair#*=}; done
+
+    (( recomputed[rows] > 0 )) || {
+        printf '%s holds no records, so every published count was recomputed from nothing\n' \
+            "${measured[raw-records]}" >&2
+        return 1
+    }
+    (( recomputed[rows] == measured[compared-records] )) || {
+        printf '%s holds %s record(s) and %s declares compared-records %s\n' \
+            "${measured[raw-records]}" "${recomputed[rows]}" "$artifact_relative" \
+            "${measured[compared-records]}" >&2
+        return 1
+    }
+    for key in value-disagreements both-routes-zero-records non-zero-records \
+        position-compared-records position-disagreements; do
+        (( recomputed[$key] == measured[$key] )) || {
+            printf '%s yields %s of %s and %s declares %s, so the published number is not the one its records support\n' \
+                "${measured[raw-records]}" "${recomputed[$key]}" "$key" \
+                "$artifact_relative" "${measured[$key]}" >&2
+            return 1
+        }
+    done
+
+    # The set is the population the rate is about. A per-record file covering
+    # part of it publishes a rate over a sample while naming the whole.
+    local uncovered stranger
+    uncovered=$(comm -23 <(set_variants "$manifest") <(raw_variants "$raw") | wc -l)
+    (( uncovered == 0 )) || {
+        printf '%s answers %s of the %s variants in %s and says nothing about %s of them, so the rate is published over a sample of the set it names\n' \
+            "${measured[raw-records]}" "${recomputed[variants]}" "${measured[variant-set-size]}" \
+            "${measured[variant-set-manifest]}" "$uncovered" >&2
+        return 1
+    }
+    stranger=$(comm -13 <(set_variants "$manifest") <(raw_variants "$raw") | wc -l)
+    (( stranger == 0 )) || {
+        printf '%s carries %s variant(s) that are not in %s, so it was measured over some other set\n' \
+            "${measured[raw-records]}" "$stranger" "${measured[variant-set-manifest]}" >&2
+        return 1
+    }
+
+    # The guarantee the contract publishes, checked against the records instead
+    # of pinned as prose: on every comparable side, the precomputed position is
+    # at or before the modeled one.
+    (( recomputed[violations] == 0 )) || {
+        printf '%s holds %s comparable side(s) where the precomputed position is later than the modeled one, %s among them, so the published guarantee that a precomputed position is never later is false\n' \
+            "${measured[raw-records]}" "${recomputed[violations]}" "${recomputed[sample]}" >&2
+        return 1
+    }
+
     # --- the published documents say what the artifact measured ---
     for document in \
         "$compatibility_relative|$compatibility_section|full" \
@@ -313,6 +450,20 @@ examine() {
                 "$relative" "$artifact_relative" "${measured[evidence-limit]}" >&2
             return 1
         }
+
+        # A position figure with no mechanism beside it reads as a defect in
+        # this code. The contract states why the two routes address the same
+        # call differently, and states the one-sided guarantee that follows.
+        printf '%s' "$text" | grep -qF -- "${measured[position-mechanism]}" || {
+            printf '%s reports a position disagreement rate without the mechanism behind it: %s says "%s"\n' \
+                "$relative" "$artifact_relative" "${measured[position-mechanism]}" >&2
+            return 1
+        }
+        printf '%s' "$text" | grep -qF -- "${measured[position-ordering]}" || {
+            printf '%s does not carry the one-sided ordering guarantee: %s says "%s"\n' \
+                "$relative" "$artifact_relative" "${measured[position-ordering]}" >&2
+            return 1
+        }
     done
 
     printf '%s disagreement on value (%s%%) and %s on position (%s%%) over %s, published and recorded alike\n' \
@@ -356,18 +507,21 @@ plant() {
 variant-set: fixture-set-v1
 variant-set-rule: Every SNV on the fixture contig in dataset order.
 variant-set-manifest: planning/artifacts/fixture-set.tsv
+raw-records: planning/artifacts/fixture-records.tsv
 variant-set-size: 1000
 compared-records: 1200
 value-disagreements: 24
 value-disagreement-percent: 2.00
-position-compared-records: 200
-position-disagreements: 3
-position-disagreement-percent: 1.50
+position-compared-records: 380
+position-disagreements: 19
+position-disagreement-percent: 5.00
 both-routes-zero-records: 800
 non-zero-records: 400
 non-zero-value-disagreement-percent: 6.00
 denominator-composition: 800 of the 1,200 compared records score zero on both routes, and 400 carry a score.
 zero-score-treatment: A record carrying a zero score on either route is left out of the position comparison and kept in the value comparison.
+position-mechanism: The published dataset reports the first position whose score rounds to the reported hundredth, and the model reports the position of its own extremum.
+position-ordering: A precomputed position is never later than a modeled one for the same call.
 evidence-limit: This rate was measured once against the shipped assets and no gate re-runs it.
 measured: 2026-09-10
 ```
@@ -388,6 +542,27 @@ ARTIFACT
         seq 1 1000 | sed -E 's|^|GRCh38:chr1:|; s|$|:A:T|'
     } >"$tree/planning/artifacts/fixture-set.tsv"
 
+    # The per-record result the block above summarises: 1,200 records over the
+    # 1,000 variants of the set, 800 of them scored zero on both sides by both
+    # routes, 24 disagreeing on a value, 380 comparable on position and 19 of
+    # those disagreeing, every one of them with the precomputed position at or
+    # before the modeled one.
+    {
+        printf '%s\n' "$raw_header"
+        awk 'BEGIN {
+            OFS = "\t"
+            for (i = 1; i <= 1200; i++) {
+                variant = sprintf("GRCh38:chr1:%d:A:T", (i - 1) % 1000 + 1)
+                gene = sprintf("ENSG%08d", i)
+                if (i <= 800)                    print variant, gene, "0.00", -50, "0.00", -50, "0.00", -50, "0.00", -50
+                else if (i <= 820)               print variant, gene, "0.10",  -5, "0.00", -50, "0.00", -50, "0.00", -50
+                else if (i <= 824)               print variant, gene, "0.10",  -5, "0.00", -50, "0.20",  -5, "0.00", -50
+                else if (i <= 843)               print variant, gene, "0.10",  -5, "0.00", -50, "0.10",   7, "0.00", -50
+                else                             print variant, gene, "0.10",  -5, "0.00", -50, "0.10",  -5, "0.00", -50
+            }
+        }'
+    } >"$tree/planning/artifacts/fixture-records.tsv"
+
     cat >"$tree/$compatibility_relative" <<'COMPAT'
 # Compatibility
 
@@ -396,9 +571,11 @@ ARTIFACT
 A precomputed score and a modeled score are not interchangeable. Both routes
 were run over fixture-set-v1, a set of 1,000 variants, on 2026-09-10. The two
 routes report a different value on 2.00 percent of the compared records. They
-report a different position on 1.50 percent of the records comparable on
-position. 800 of the 1,200 compared records score zero on both routes, and 400
-carry a score. Over the records that carry a score they report a different value
+report a different position on 5.00 percent of the records comparable on
+position. The published dataset reports the first position whose score rounds to
+the reported hundredth, and the model reports the position of its own extremum.
+A precomputed position is never later than a modeled one for the same call. 800
+of the 1,200 compared records score zero on both routes, and 400 carry a score. Over the records that carry a score they report a different value
 on 6.00 percent. A record carrying a zero score on either route is left out of the
 position comparison and kept in the value comparison. This rate was measured
 once against the shipped assets and no gate re-runs it. The measurement is
@@ -415,7 +592,7 @@ COMPAT
 ## The two routes
 
 The two routes disagree on the value for 2.00 percent of the compared records
-and on the position for 1.50 percent of the records comparable on position. Over
+and on the position for 5.00 percent of the records comparable on position. Over
 the 400 records that carry a score they disagree on the value for 6.00 percent.
 The measurement is
 [the artifact](../planning/artifacts/0059-route-disagreement-rate.md).
@@ -522,7 +699,8 @@ expect_refusal "$(mutate handful-of-variants shrink_set planning/artifacts/fixtu
     'fewer than the 1000 a published rate needs'
 expect_refusal "$(mutate handful-of-records retype_many "$artifact_relative" \
     compared-records 500 value-disagreements 10 both-routes-zero-records 300 \
-    non-zero-records 200 non-zero-value-disagreement-percent 5.00)" \
+    non-zero-records 200 non-zero-value-disagreement-percent 5.00 \
+    position-compared-records 190 position-disagreement-percent 10.00)" \
     'compared-records is 500, fewer than the 1000'
 expect_refusal "$(mutate handful-of-positions retype_many "$artifact_relative" \
     position-compared-records 40 position-disagreements 1 position-disagreement-percent 2.50)" \
@@ -538,11 +716,11 @@ expect_refusal "$(mutate drifted-number swap "$compatibility_relative" \
     'a different value on 2.00 percent' 'a different value on 1.90 percent')" \
     'no sentence reporting 2.00 as the value disagreement'
 expect_refusal "$(mutate collapsed-pair swap "$compatibility_relative" \
-    'They report a different position on 1.50 percent of the records comparable on position.' '')" \
-    'no sentence reporting 1.50 as the position disagreement'
+    'They report a different position on 5.00 percent of the records comparable on position.' '')" \
+    'no sentence reporting 5.00 as the position disagreement'
 expect_refusal "$(mutate spec-drifted swap "$score_value_relative" \
-    'on the position for 1.50 percent' 'on the position for 2.00 percent')" \
-    'no sentence reporting 1.50 as the position disagreement'
+    'on the position for 5.00 percent' 'on the position for 2.00 percent')" \
+    'no sentence reporting 5.00 as the position disagreement'
 expect_refusal "$(mutate unnamed-set swap "$compatibility_relative" \
     'over fixture-set-v1, a set of 1,000 variants' 'over a set of 1,000 variants')" \
     'without naming the variant set'
@@ -580,6 +758,41 @@ expect_refusal "$(mutate silent-on-limit swap "$compatibility_relative" \
     'does not carry the limit of its own evidence'
 expect_refusal "$(mutate no-section drop "$compatibility_relative" '^## Score values$')" \
     'read no published statement'
+
+# --- the mechanism behind the position figure --------------------------------
+expect_refusal "$(mutate silent-on-mechanism swap "$compatibility_relative" \
+    'The published dataset reports the first position whose score rounds to the reported hundredth, and the model reports the position of its own extremum.' \
+    'The positions differ.')" \
+    'without the mechanism behind it'
+expect_refusal "$(mutate silent-on-ordering swap "$compatibility_relative" \
+    'A precomputed position is never later than a modeled one for the same call.' \
+    'Either position can be the earlier one.')" \
+    'does not carry the one-sided ordering guarantee'
+
+# --- the per-record result -----------------------------------------------------
+expect_refusal "$(mutate no-records rm -f planning/artifacts/fixture-records.tsv)" \
+    'which is not a file in the repository, so the published counts rest on a run nothing kept'
+expect_refusal "$(mutate renamed-column sed -i '1s/bundle_gain_position/bundle_gain_pos/' \
+    planning/artifacts/fixture-records.tsv)" \
+    'does not begin with the ten per-record columns'
+expect_refusal "$(mutate unreadable-record sed -i '2s/0\.00/none/' \
+    planning/artifacts/fixture-records.tsv)" \
+    'where a score belongs'
+expect_refusal "$(mutate records-truncated sed -i '3,202d' \
+    planning/artifacts/fixture-records.tsv)" \
+    'holds 1000 record(s) and'
+expect_refusal "$(mutate records-contradict-count sed -i '826s/0\.10\t7/0.10\t-5/' \
+    planning/artifacts/fixture-records.tsv)" \
+    'yields 18 of position-disagreements'
+expect_refusal "$(mutate records-sample-the-set sed -i \
+    's|^GRCh38:chr1:[0-9]*:A:T|GRCh38:chr1:1:A:T|' planning/artifacts/fixture-records.tsv)" \
+    'is published over a sample of the set it names'
+expect_refusal "$(mutate records-from-another-set sed -i \
+    '2s|^GRCh38:chr1:1:A:T|GRCh38:chr9:1:A:T|' planning/artifacts/fixture-records.tsv)" \
+    'variant(s) that are not in'
+expect_refusal "$(mutate precomputed-position-later sed -i '827s/0\.10\t-5/0.10\t9/' \
+    planning/artifacts/fixture-records.tsv)" \
+    'later than the modeled one'
 
 clean="$fixtures/clean"
 plant "$clean"
