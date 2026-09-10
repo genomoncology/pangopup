@@ -679,10 +679,17 @@ impl ModelResultCache {
         // captured identity has to follow it or the next operation would judge
         // its own recovery a foreign replacement and retire.
         self.judged = replacement.judged;
-        report_once(&format!(
+        // Every destruction is its own event and costs its own rows, so every
+        // one of them is said. `get` reaches here only on the read that failed,
+        // never on the lookups that follow, and the identity check ahead of it
+        // hands the recreated file to every other cache rather than letting a
+        // second one destroy it, so one destruction is one line. Saying it once
+        // for the life of the process would hide a file being destroyed over
+        // and over, which is the fault an operator most needs to see.
+        eprintln!(
             "destroyed model cache {}: it could not be read after it opened",
             self.path.display()
-        ));
+        );
         Ok(())
     }
 
@@ -1269,11 +1276,13 @@ fn file_identity(path: &Path) -> io::Result<(u64, u64)> {
     Ok((metadata.dev(), metadata.ino()))
 }
 
-/// Say once for this process what happened to a cache file, on the stream the
+/// Say once for this process that a cache was retired, on the stream the
 /// reports at open already use. A process opens one cache per worker beside the
-/// one its handler holds, and they all share the file, so a report per cache
-/// would say the same thing several times over; a report per lookup would
-/// repeat it for the rest of the run.
+/// one its handler holds, they all share the file, and each retires on its own
+/// once the file underneath it is gone, so a report per cache would say the
+/// same thing several times over. Retiring is terminal and per-file, so
+/// collapsing it loses no event: the key is the whole sentence, and a second
+/// file at a second path still earns its own line.
 fn report_once(sentence: &str) {
     static SAID: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     let mut said = SAID

@@ -820,7 +820,9 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
     .map_err(map_cache_error)?;
     let cache_options = resolve_model_cache_options(options.cache_path, options.cache_limit)?;
     // The first open judges the recorded setup. The rest match what it left, so
-    // only this one can discard and only this one reports it. A discard is not
+    // only this one can discard at the open and only this one reports that. What
+    // happens to the file later -- destroyed by a read, or walked away from --
+    // is said where it happens, by whichever cache reached it. A discard is not
     // an error: the service still starts and still answers. Saying so is what
     // keeps a chosen database from being replaced silently, and it is how an
     // operator restarting after an upgrade tells a cold cache from a lost one.
