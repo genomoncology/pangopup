@@ -1531,6 +1531,135 @@ mod tests {
         assert_eq!(cache.entry_count().expect("recreated"), 0);
     }
 
+    /// Another setup, differing in one recorded value. A cache opened under it
+    /// at a filled path discards that file whole, the way ticket 0058 settled.
+    fn other_setup() -> CacheIdentity {
+        CacheIdentity::new(
+            &format!("sha256:{:064x}", 9),
+            "model",
+            "singleton",
+            &format!("sha256:{:064x}", 2),
+            "reference",
+            &format!("sha256:{:064x}", 3),
+            260,
+            &format!("sha256:{:064x}", 4),
+        )
+        .expect("identity")
+    }
+
+    // The setup is judged when the file opens, which is what keeps a hit cheap.
+    // That judgement covers the file it was made about and nothing else. Once
+    // another setup has discarded that file and put its own in its place, the
+    // rows the first cache still holds open belong to a file no longer at the
+    // path, and it may not answer from them. It must not answer from the
+    // replacement either: that file was judged by the process that made it, not
+    // by this one.
+    #[test]
+    fn a_cache_stops_answering_once_its_file_has_been_replaced() {
+        let temp = private_temp();
+        let path = temp.path().join("cache.sqlite3");
+        let mut held =
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default()).expect("open");
+        held.put(&key(10), &records()).expect("put");
+        assert_eq!(
+            held.get(&key(10)).expect("hit"),
+            Some(records()),
+            "the row has to be found before the file is replaced, or a later miss proves nothing"
+        );
+
+        let mut replacing =
+            ModelResultCache::open_explicit(&path, &other_setup(), EntryLimit::default())
+                .expect("replacing open");
+        assert!(
+            replacing.discarded_earlier_setup(),
+            "the second open must have discarded the file the first one is holding open"
+        );
+        replacing.put(&key(20), &records()).expect("refill");
+
+        assert_eq!(
+            held.get(&key(10)).expect("read after replacement"),
+            None,
+            "a cache whose file another setup discarded must stop answering from the rows it \
+             still holds open"
+        );
+        assert_eq!(
+            held.get(&key(20)).expect("read after replacement"),
+            None,
+            "and must not reach into the file that took its place, which it never judged"
+        );
+        assert_eq!(
+            replacing.get(&key(20)).expect("hit"),
+            Some(records()),
+            "the process that judged the file at the path keeps its own rows"
+        );
+    }
+
+    // Retiring is not destroying. The file the replacing process filled is the
+    // one every later open judges, so a cache that has stopped answering must
+    // leave it exactly as it found it.
+    #[test]
+    fn a_cache_that_stopped_answering_leaves_the_file_that_replaced_it_alone() {
+        let temp = private_temp();
+        let path = temp.path().join("cache.sqlite3");
+        let mut held =
+            ModelResultCache::open_default(&path, &setup(), EntryLimit::default()).expect("open");
+        held.put(&key(10), &records()).expect("put");
+        {
+            let mut replacing =
+                ModelResultCache::open_default(&path, &other_setup(), EntryLimit::default())
+                    .expect("replacing open");
+            replacing.put(&key(20), &records()).expect("refill");
+        }
+
+        assert_eq!(
+            held.get(&key(10)).expect("read"),
+            None,
+            "the held cache has to have stopped answering before what it does next means anything"
+        );
+        let _ = held.put(&key(30), &records());
+
+        let mut reader =
+            ModelResultCache::open_explicit(&path, &other_setup(), EntryLimit::default())
+                .expect("reopen");
+        assert!(
+            !reader.discarded_earlier_setup(),
+            "the retired cache must not have destroyed or restamped the file that replaced it"
+        );
+        assert_eq!(
+            reader.get(&key(20)).expect("hit"),
+            Some(records()),
+            "the row the replacing process paid for must still be there"
+        );
+        assert_eq!(
+            reader.get(&key(30)).expect("read"),
+            None,
+            "a retired cache must not write into a file it never judged"
+        );
+    }
+
+    // A disposable default that throws its own file away and opens a fresh one
+    // is holding the file at its path, not a replaced one. It has to go on
+    // storing and finding rows.
+    #[test]
+    fn a_disposable_default_that_recreated_itself_still_stores_and_finds_rows() {
+        let temp = private_temp();
+        let path = temp.path().join("cache.sqlite3");
+        let mut cache =
+            ModelResultCache::open_default(&path, &setup(), EntryLimit::default()).expect("open");
+        cache
+            .connection
+            .execute_batch("DROP TABLE entries")
+            .expect("simulate damaged database");
+        assert_eq!(cache.get(&key(1)).expect("recovered miss"), None);
+
+        cache.put(&key(1), &records()).expect("put after recreate");
+        assert_eq!(
+            cache.get(&key(1)).expect("hit after recreate"),
+            Some(records()),
+            "a cache that recreated its own file must go on answering from it"
+        );
+    }
+
     #[test]
     fn unsafe_paths_are_rejected_and_family_is_private() {
         let temp = private_temp();

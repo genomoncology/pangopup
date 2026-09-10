@@ -27,6 +27,7 @@ mod installed_success {
     };
 
     use crate::support::{self, Running};
+    use rusqlite::OptionalExtension;
 
     fn fixture(relative: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1224,6 +1225,23 @@ mod installed_success {
     /// routes reach one setup by different means: the service opens an
     /// installed runtime profile, the tool is handed three asset paths.
     fn fill_from_command_line(cache: &Path, home: &Path, variants: &[&str]) -> Vec<Value> {
+        fill_from_command_line_with_model(
+            cache,
+            home,
+            &fixture("pangolin-model-kernel-mini/bundle"),
+            variants,
+        )
+    }
+
+    /// The same, against a named model bundle. A bundle whose declared identity
+    /// differs is another setup, so the run it drives discards whatever the
+    /// cache file records and fills a new file in its place.
+    fn fill_from_command_line_with_model(
+        cache: &Path,
+        home: &Path,
+        model: &Path,
+        variants: &[&str],
+    ) -> Vec<Value> {
         let mut args = vec!["lookup".to_owned(), "--model-only".to_owned()];
         for variant in variants {
             args.push("--variant".to_owned());
@@ -1231,9 +1249,7 @@ mod installed_success {
         }
         args.extend([
             "--model-bundle".to_owned(),
-            fixture("pangolin-model-kernel-mini/bundle")
-                .display()
-                .to_string(),
+            model.display().to_string(),
             "--reference-bundle".to_owned(),
             fixture("reference-route-test/bundle").display().to_string(),
             "--mask".to_owned(),
@@ -1404,6 +1420,189 @@ mod installed_success {
             cached_rows(&cache),
             0,
             "a service on another setup must leave no row the command-line tool filled readable"
+        );
+    }
+
+    /// A copy of the miniature model bundle that declares a different converter
+    /// environment. Every scored member is byte-identical, so the answer the
+    /// copy produces cannot move; only the setup the cache records does.
+    fn other_model_bundle(temp: &Path) -> PathBuf {
+        let model = temp.join("other-model");
+        fs::create_dir_all(&model).expect("bundle copy directory");
+        let from = fixture("pangolin-model-kernel-mini/bundle");
+        for entry in fs::read_dir(&from).expect("read model bundle") {
+            let entry = entry.expect("model bundle entry");
+            fs::copy(entry.path(), model.join(entry.file_name())).expect("copy bundle member");
+        }
+        let manifest_path = model.join("manifest.json");
+        let mut manifest: Value =
+            serde_json::from_slice(&fs::read(&manifest_path).expect("read manifest"))
+                .expect("manifest JSON");
+        manifest["conversion"]["environment"]["numpy"] = Value::String("0.0.0".to_owned());
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec(&manifest).expect("manifest bytes"),
+        )
+        .expect("write manifest");
+        model
+    }
+
+    /// Rewrite the stored score of one cached variant to a value no run
+    /// produces, leaving everything else in the file alone. A published score
+    /// that came out of a stored row is then visible in the answer itself.
+    ///
+    /// The rewrite fails rather than passing quietly when the file holds no row
+    /// for that variant, so no assertion about a served row can pass on a
+    /// fixture that never stored one.
+    fn forge_stored_score(cache: &Path, variant: &str, centi: i64) {
+        let (contig, position, reference, alternate) = split_variant(variant);
+        let connection = rusqlite::Connection::open(cache).expect("open cache");
+        let stored: Vec<u8> = connection
+            .query_row(
+                "SELECT value_json FROM entries
+                 WHERE contig=?1 AND position=?2 AND reference=?3 AND alternate=?4",
+                rusqlite::params![contig, position, reference, alternate],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|error| panic!("the cache file holds no row for {variant}: {error}"));
+        let mut value: Value = serde_json::from_slice(&stored).expect("stored value is JSON");
+        let records = value["records"].as_array_mut().expect("stored records");
+        assert_eq!(
+            records.len(),
+            1,
+            "this fixture forges one stored score, and the row for {variant} holds {}",
+            records.len()
+        );
+        assert_ne!(
+            records[0]["gain"], centi,
+            "the forged score must differ from the stored one, or serving the stored row would \
+             look like a recomputed answer"
+        );
+        records[0]["gain"] = Value::from(centi);
+        let changed = connection
+            .execute(
+                "UPDATE entries SET value_json=?5
+                 WHERE contig=?1 AND position=?2 AND reference=?3 AND alternate=?4",
+                rusqlite::params![
+                    contig,
+                    position,
+                    reference,
+                    alternate,
+                    serde_json::to_vec(&value).expect("forged value bytes")
+                ],
+            )
+            .expect("forge stored score");
+        assert_eq!(
+            changed, 1,
+            "the forge must reach exactly the row for {variant}"
+        );
+    }
+
+    /// Whether the file at this path holds a stored score of this value for
+    /// this variant. A replacement leaves none of the rows the replaced file
+    /// held, so this is how a test sees that the replacement really happened.
+    fn holds_stored_score(cache: &Path, variant: &str, centi: i64) -> bool {
+        let (contig, position, reference, alternate) = split_variant(variant);
+        let connection = rusqlite::Connection::open(cache).expect("open cache");
+        let stored: Option<Vec<u8>> = connection
+            .query_row(
+                "SELECT value_json FROM entries
+                 WHERE contig=?1 AND position=?2 AND reference=?3 AND alternate=?4",
+                rusqlite::params![contig, position, reference, alternate],
+                |row| row.get(0),
+            )
+            .optional()
+            .expect("read stored row");
+        stored.is_some_and(|bytes| {
+            let value: Value = serde_json::from_slice(&bytes).expect("stored value is JSON");
+            value["records"][0]["gain"] == centi
+        })
+    }
+
+    fn split_variant(variant: &str) -> (String, i64, String, String) {
+        let fields: Vec<&str> = variant.split(':').collect();
+        assert_eq!(fields.len(), 5, "a submitted variant names five fields");
+        (
+            fields[1].to_owned(),
+            fields[2].parse().expect("position"),
+            fields[3].to_owned(),
+            fields[4].to_owned(),
+        )
+    }
+
+    /// Score one variant through a running service and hand back its item.
+    fn score_one(address: &str, variant: &str) -> Value {
+        let scored = request(
+            address,
+            "POST",
+            "/v1/score",
+            &format!("{{\"variants\":[\"{variant}\"]}}"),
+        );
+        assert!(
+            scored.starts_with(b"HTTP/1.1 200 OK\r\n"),
+            "{}",
+            String::from_utf8_lossy(&scored)
+        );
+        let scored: Value = serde_json::from_slice(response_body(&scored)).expect("score JSON");
+        let items = scored["results"].as_array().expect("results");
+        assert_eq!(items.len(), 1, "one submitted variant returns one item");
+        items[0].clone()
+    }
+
+    // Judging the setup once, when the file opens, is sound only while the file
+    // the process judged is still the file at its path. A second process
+    // running other assets discards that file whole and fills a new one in its
+    // place. The process still holding the old one must not go on answering
+    // from it, and must not answer from the new one either: neither is a file
+    // it judged. It answers with what its own setup computes.
+    //
+    // Both files are made to hold a score for the asked variant that no run
+    // produces, and the two differ, so an answer that came out of either one is
+    // visible in the published score rather than inferred from a counter.
+    // Nothing here races: the second process has exited before the service is
+    // asked again.
+    #[test]
+    fn the_service_never_answers_from_a_cache_file_a_second_process_replaced() {
+        const HELD_OPEN: i64 = 77;
+        const REPLACEMENT: i64 = 88;
+        let temp = tempfile::tempdir().expect("temp");
+        let (data, profile, cache) = install_under(
+            temp.path(),
+            "held-open",
+            &fixture("route-mask/domains.pgm"),
+            50,
+        );
+        let variant = "GRCh38:chr1:5051:A:C";
+        let (mut child, address) = start_with_policy(&data, &profile, &cache, "1", "1");
+
+        let computed = score_one(&address, variant);
+        let answer = computed["records"][0]["gain_score"].clone();
+        assert!(
+            answer.is_string(),
+            "the service must publish a score for the variant it is asked twice: {computed}"
+        );
+        // Fails rather than passing quietly if the service stored no row for
+        // this variant, so a later answer that is not the stored one cannot be
+        // read as a guarantee the service never had one to serve.
+        forge_stored_score(&cache, variant, HELD_OPEN);
+
+        let other = other_model_bundle(temp.path());
+        fill_from_command_line_with_model(&cache, temp.path(), &other, &[variant]);
+        assert!(
+            !holds_stored_score(&cache, variant, HELD_OPEN),
+            "a second process running other assets must have discarded the file the service holds \
+             open, and this one left the service's row in place"
+        );
+        forge_stored_score(&cache, variant, REPLACEMENT);
+
+        let served = score_one(&address, variant);
+        assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+        assert!(child.wait().expect("service exit").success());
+        assert_eq!(
+            served["records"][0]["gain_score"], answer,
+            "the service must publish what its own setup computes, and not a score stored in a \
+             file it never judged: neither the one it held open through the replacement nor the \
+             one the second process left in its place. It published: {served}"
         );
     }
 
