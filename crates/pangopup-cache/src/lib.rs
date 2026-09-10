@@ -1919,6 +1919,186 @@ mod tests {
         }
     }
 
+    // A peer filling a replacement that records this same setup holds that
+    // file's write lock while it fills. The probe that takes the replacement up
+    // trims it to this process's entry limit, and a trim against that lock
+    // fails as `Busy`. Contention is not a verdict about the file: nothing was
+    // destroyed, and the file at the path is one this cache may serve from the
+    // moment the peer is done with it. A busy probe therefore serves no row and
+    // retires nothing, and the next operation takes the replacement up.
+    //
+    // The peer here is a second writer holding a real lock on the real file,
+    // not an injected error, because the whole claim is about what contention
+    // does.
+    #[test]
+    fn a_busy_same_setup_replacement_is_taken_up_once_it_is_free() {
+        let temp = private_temp();
+        let path = temp.path().join("cache.sqlite3");
+        let mut held =
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::Bounded(1)).expect("open");
+        held.put(&key(1), &records()).expect("put");
+        assert_eq!(held.get(&key(1)).expect("hit"), Some(records()));
+        let judged = path.metadata().expect("the file it judged").ino();
+
+        // What a peer recovering from a file it could not read leaves behind:
+        // the judged file is gone and a fresh one recording this same setup
+        // sits at the path, holding more rows than this cache's limit allows.
+        remove_database_family(&path).expect("the peer throws the file away");
+        let mut peer = ModelResultCache::open_default(&path, &setup(), EntryLimit::Unlimited)
+            .expect("the peer opens a fresh file");
+        assert!(
+            !peer.discarded_earlier_setup(),
+            "the peer created a fresh file rather than discarding another setup's, so this \
+             fixture must not be exercising a setup change"
+        );
+        for n in 50..53 {
+            peer.put(&key(n), &records()).expect("the peer fills it");
+        }
+        assert_ne!(
+            path.metadata().expect("identity").ino(),
+            judged,
+            "the file at the path must really be another file, or this test proves nothing"
+        );
+        drop(peer);
+
+        // The peer is mid-fill and holds the write lock, so the trim the
+        // take-up performs cannot run.
+        let filling = Connection::open(&path).expect("the peer's next fill");
+        filling
+            .execute_batch("BEGIN IMMEDIATE")
+            .expect("the peer holds the write lock");
+
+        assert_eq!(
+            held.get(&key(52))
+                .expect("read while the replacement is busy"),
+            None,
+            "a cache that has not taken the replacement up may serve no row out of it"
+        );
+        assert_eq!(
+            held.get(&key(1))
+                .expect("read while the replacement is busy"),
+            None,
+            "and none out of the file that is no longer at its path either"
+        );
+        held.put(&key(60), &records())
+            .expect("a busy replacement is not an error the caller has to handle");
+
+        filling.execute_batch("ROLLBACK").expect("the peer is done");
+
+        assert_eq!(
+            held.get(&key(52)).expect("read once the peer is done"),
+            Some(records()),
+            "a moment's contention must not cost the cache a replacement recording its own setup \
+             for the rest of the process's life"
+        );
+        held.put(&key(61), &records())
+            .expect("put once the peer is done");
+        let mut reader = ModelResultCache::open_explicit(&path, &setup(), EntryLimit::Unlimited)
+            .expect("reopen");
+        assert_eq!(
+            reader.get(&key(61)).expect("hit"),
+            Some(records()),
+            "and what it writes afterwards lands in the file at its path, not in one only it can \
+             see"
+        );
+    }
+
+    // The open that takes a replacement up trims that file to this process's
+    // entry limit. Those rows are destroyed, and the counters this cache keeps
+    // are the only place that says so, so they have to reach the cache that
+    // ordered the trim instead of dying with the short-lived open that did it.
+    #[test]
+    fn evictions_the_take_up_of_a_replacement_performs_reach_the_counters() {
+        let temp = private_temp();
+        let path = temp.path().join("cache.sqlite3");
+        let mut held =
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::Bounded(1)).expect("open");
+        held.put(&key(1), &records()).expect("put");
+        assert_eq!(
+            held.counters().evictions,
+            0,
+            "nothing has been evicted yet, so anything counted later came from the take-up"
+        );
+
+        remove_database_family(&path).expect("the peer throws the file away");
+        let mut peer = ModelResultCache::open_default(&path, &setup(), EntryLimit::Unlimited)
+            .expect("the peer opens a fresh file");
+        assert!(
+            !peer.discarded_earlier_setup(),
+            "the peer created a fresh file rather than discarding another setup's, so this \
+             fixture must not be exercising a setup change"
+        );
+        for n in 50..53 {
+            peer.put(&key(n), &records()).expect("the peer fills it");
+        }
+        drop(peer);
+
+        assert_eq!(
+            held.get(&key(52)).expect("read after the take-up"),
+            Some(records()),
+            "the replacement records this setup, so it is taken up"
+        );
+        assert_eq!(
+            held.entry_count().expect("count"),
+            1,
+            "the take-up trimmed the replacement to this cache's limit, or there is no eviction \
+             to count"
+        );
+        assert_eq!(
+            held.counters().evictions,
+            2,
+            "every row the take-up destroyed is counted where this cache counts every other \
+             eviction"
+        );
+    }
+
+    // Contention is the only cause that leaves a cache in service. A path that
+    // no longer names a file it can open is a verdict, not a moment, and ticket
+    // 0068 settled that it retires the cache for the life of the process: a
+    // file appearing at the path afterwards, even one recording the running
+    // setup, is not taken up.
+    #[test]
+    fn a_path_that_names_no_file_retires_the_cache_for_good() {
+        let temp = private_temp();
+        let path = temp.path().join("cache.sqlite3");
+        let mut held =
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default()).expect("open");
+        held.put(&key(10), &records()).expect("put");
+        assert_eq!(held.get(&key(10)).expect("hit"), Some(records()));
+
+        remove_database_family(&path).expect("the file is taken away");
+        assert_eq!(
+            held.get(&key(10)).expect("read with no file at the path"),
+            None,
+            "a cache whose path names no file may serve nothing"
+        );
+
+        let mut peer = ModelResultCache::open_default(&path, &setup(), EntryLimit::default())
+            .expect("a peer puts a file back");
+        peer.put(&key(20), &records()).expect("the peer fills it");
+        drop(peer);
+
+        assert_eq!(
+            held.get(&key(20)).expect("read after a file returns"),
+            None,
+            "retirement for a cause that is not contention is for the life of the process"
+        );
+        held.put(&key(30), &records())
+            .expect("a retired cache accepts the call and stores nothing");
+        let mut reader = ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default())
+            .expect("reopen");
+        assert_eq!(
+            reader.get(&key(30)).expect("read"),
+            None,
+            "and a retired cache writes into no file"
+        );
+        assert_eq!(
+            reader.get(&key(20)).expect("hit"),
+            Some(records()),
+            "while the row the peer paid for is untouched"
+        );
+    }
+
     #[test]
     fn unsafe_paths_are_rejected_and_family_is_private() {
         let temp = private_temp();
