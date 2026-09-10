@@ -1640,23 +1640,102 @@ mod tests {
     // A disposable default that throws its own file away and opens a fresh one
     // is holding the file at its path, not a replaced one. It has to go on
     // storing and finding rows.
+    //
+    // A second handle is held on the file across the recreate on purpose. The
+    // inode of an unlinked file is freed the moment nothing holds it, and this
+    // filesystem hands the very same number straight back, so a recreate with
+    // nothing holding the old file lands on the same identity and a cache that
+    // never refreshed what it captured would look correct. Holding the old file
+    // open pins that number, forcing the recreated file to a different one, so
+    // this test fails if the recreate does not refresh the captured identity.
     #[test]
     fn a_disposable_default_that_recreated_itself_still_stores_and_finds_rows() {
         let temp = private_temp();
         let path = temp.path().join("cache.sqlite3");
         let mut cache =
             ModelResultCache::open_default(&path, &setup(), EntryLimit::default()).expect("open");
+        let pinned = fs::File::open(&path).expect("pin the file the recreate throws away");
+        let before = path.metadata().expect("identity before").ino();
         cache
             .connection
             .execute_batch("DROP TABLE entries")
             .expect("simulate damaged database");
         assert_eq!(cache.get(&key(1)).expect("recovered miss"), None);
+        assert_ne!(
+            path.metadata().expect("identity after").ino(),
+            before,
+            "the recreate has to land on a file of another identity, or this test cannot tell a \
+             refreshed capture from a stale one"
+        );
+        drop(pinned);
 
         cache.put(&key(1), &records()).expect("put after recreate");
         assert_eq!(
             cache.get(&key(1)).expect("hit after recreate"),
             Some(records()),
             "a cache that recreated its own file must go on answering from it"
+        );
+    }
+
+    // A replacement that records the running setup is not a foreign file. The
+    // shape a peer leaves behind when it recovers from a file it could not read
+    // (ticket 0067) or from a runtime failure: the file at the path is gone and
+    // a fresh one recording this same setup stands in its place. Retiring here
+    // would cost a long-running service its cache for the rest of its life
+    // because another process repaired something, so the cache takes up the
+    // file at its path instead. Every row it serves afterwards was still
+    // written under its own setup, which is all ticket 0058 ever promised.
+    #[test]
+    fn a_cache_takes_up_a_replacement_that_records_its_own_setup() {
+        let temp = private_temp();
+        let path = temp.path().join("cache.sqlite3");
+        let mut held =
+            ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default()).expect("open");
+        let judged = path.metadata().expect("the file it judged").ino();
+        held.put(&key(10), &records()).expect("put");
+        assert_eq!(
+            held.get(&key(10)).expect("hit"),
+            Some(records()),
+            "the row has to be found before the file is replaced, or a later miss proves nothing"
+        );
+
+        // What a peer's recovery leaves behind: the file the held cache judged
+        // is unlinked and a fresh one recording this same setup is at the path.
+        remove_database_family(&path).expect("the peer throws the file away");
+        let peer = ModelResultCache::open_default(&path, &setup(), EntryLimit::default())
+            .expect("the peer opens a fresh file");
+        assert!(
+            !peer.discarded_earlier_setup(),
+            "the peer created a fresh file rather than discarding another setup's, so this \
+             fixture must not be exercising a setup change"
+        );
+        assert_ne!(
+            path.metadata().expect("identity").ino(),
+            judged,
+            "the file at the path must really be another file, or this test proves nothing"
+        );
+        drop(peer);
+
+        held.put(&key(20), &records())
+            .expect("put after replacement");
+        assert_eq!(
+            held.get(&key(10)).expect("read after replacement"),
+            None,
+            "the rows that died with the replaced file are gone, and a cache that answered from \
+             them would still be reading a file no longer at its path"
+        );
+        assert_eq!(
+            held.get(&key(20)).expect("read after replacement"),
+            Some(records()),
+            "a cache whose file was replaced by one recording its own setup goes on working"
+        );
+
+        let mut reader = ModelResultCache::open_explicit(&path, &setup(), EntryLimit::default())
+            .expect("reopen");
+        assert_eq!(
+            reader.get(&key(20)).expect("hit"),
+            Some(records()),
+            "and what it writes lands in the file at its path, not in one only it can see"
         );
     }
 
