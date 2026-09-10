@@ -15,6 +15,7 @@ v0.5.0 assets.
 variant-set: snv-stride-500k-v1
 variant-set-rule: Every position that is a multiple of 500,000 on chr1 through chr22, chrX and chrY, kept when the published SNV dataset answers one of the four candidate SNVs built there.
 variant-set-manifest: planning/artifacts/0059-route-disagreement-set.tsv
+raw-records: planning/artifacts/0059-route-disagreement-records.tsv
 variant-set-size: 2615
 compared-records: 2790
 value-disagreements: 2
@@ -27,6 +28,8 @@ non-zero-records: 381
 non-zero-value-disagreement-percent: 0.52
 denominator-composition: 2,409 of the 2,790 compared records score zero on both sides on both routes, so 86 percent of the value denominator is two routes agreeing that nothing happened, and 381 records carry a non-zero score on at least one route.
 zero-score-treatment: A gene record enters the position comparison only on a side whose score is non-zero on both routes, and every record both routes answered stays in the value comparison, zero scores included.
+position-mechanism: The published dataset rounds the model's 101-value window array to hundredths and reports the first position attaining the winning hundredth, while PangoPup finds the extremum of the raw array and rounds afterwards.
+position-ordering: Both routes break a tie to the lowest position, so a precomputed position is never later than a modeled one for the same call.
 evidence-limit: This rate was measured once on one host against the shipped v0.5.0 assets and no gate re-runs it.
 measured: 2026-09-10
 ```
@@ -109,7 +112,7 @@ value figure below is measured over those 381.
 
 ## Host and build
 
-- Commit `d78e948009045bc4bcf5b490e4674b80110f44de`, PangoPup 0.5.0, release build.
+- Commit `276b40a15e3568b190d14a6f002aca20bf019eb9`, PangoPup 0.5.0, release build.
 - AMD Ryzen 7 5825U, 16 logical CPUs, Linux 6.17.0-35-generic x86_64.
 - SNV bundle `sha256:c4c4162b34a73ecd8c44d379f9e4fbc4e5e07869af1967a6695b8d439d2819b3`.
 - Model bundle `sha256:4d8f2b8e7ee2dbf5d555c56693280d78d04ee2d0cf3346dfc35066e2a90aae43`.
@@ -187,12 +190,26 @@ said positions diverge more widely than values. It now has a number.
    large: `GRCh38:chr6:161000000:A:C` scores `0.47` on both routes and reports
    the gain at `-49` from the published dataset and at `27` from the model. A
    consumer must not compare a precomputed position against a modeled one.
-3. Most of the set is not comparable on position at all. 2,411 of the 2,790
+3. The position disagreements are a reduction rule, not a defect. The published
+   dataset rounds the model's 101-value window array to hundredths and reports
+   the first position attaining the winning hundredth, while PangoPup finds the
+   extremum of the raw array and rounds afterwards. Replaying that rule on
+   PangoPup's own raw arrays reproduces 16 of the 17 observed position
+   disagreements exactly. The seventeenth,
+   `GRCh38:chr4:101500000:G:T`, misses the rounding boundary at the published
+   position by 1.6e-5 of raw float drift. In every one of the 17 the published
+   position is the second- or third-largest value in PangoPup's own array, so
+   the two routes read the same array and pick different peaks out of it. Both
+   routes break a tie to the lowest position, so a precomputed position is never
+   later than a modeled one for the same call. The per-record file beside this
+   artifact carries every comparable side, and none of them breaks that
+   ordering.
+4. Most of the set is not comparable on position at all. 2,411 of the 2,790
    compared records fall out of the position comparison, and 2,409 of those are
    zero on both sides on both routes rather than zero on one side of one route.
    That is the 0040 result restated on this set: a position beside a zero score
    is not a position a consumer reads.
-4. The rate is low enough that it changes no guidance a consumer follows. The
+5. The rate is low enough that it changes no guidance a consumer follows. The
    contract already says a consumer must record which route answered and must
    not treat the two scores as one measurement. Nothing here weakens or
    strengthens that, so this ticket files no successor.
@@ -219,13 +236,34 @@ Join the two JSONL streams on the variant and `stable_gene`, then count as
 `## Method` describes. The manifest beside this file is the set the run above
 produced, so step 2 alone reproduces the numbers from a committed input.
 
+```
+# 3. Write one row per compared gene record.
+#    variant, stable_gene, then the four scores and four positions in the order
+#    bundle gain, bundle gain position, bundle loss, bundle loss position,
+#    model gain, model gain position, model loss, model loss position,
+#    tab-separated under that exact header. Every position is an integer on
+#    every row, including a row whose score beside it is zero: the engine's own
+#    sentinel is -50 and it is written out rather than blanked.
+```
+
+That file is `planning/artifacts/0059-route-disagreement-records.tsv`. It holds
+all 2790 compared records, not a sample of them, and every count in the
+`measurement` block above is recomputed from it by
+`tests/route-disagreement-rate.sh` rather than read from this prose.
+
 Run on 2026-09-10 against a scratch copy of the installed runtime:
 
 ```
 2615 variants scored through the model in 14 concurrent processes,
-34 minutes 30 seconds of wall clock, 2,790 gene records joined,
+33 minutes 1 second of wall clock, 2,790 gene records joined,
 2 value disagreements and 17 position disagreements.
 ```
 
 No gate re-runs any of this. `tests/route-disagreement-rate.sh` holds the
-published statement to the block above and to the manifest, and nothing more.
+published statement to the block above, to the manifest and to the per-record
+file, and nothing more.
+
+The run recorded here is the second. The first, on the same set and the same
+assets, produced the same nine counts and the same 19 disagreeing records. Both
+routes are deterministic on one host and one build, so a third run reproduces
+them again.
