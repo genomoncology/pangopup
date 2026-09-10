@@ -34,6 +34,14 @@ set -euo pipefail
 #      contract word for word, so how zeros were treated cannot be dropped from
 #      the statement while staying in the evidence. Its sentence about the
 #      limit of the evidence appears there word for word too.
+#   6. The value denominator is broken out. Most of the compared records are
+#      scored zero on both sides by both routes, which is agreement a consumer
+#      gets for free, so the artifact declares how many and publishes a second
+#      value figure over the records that carry a call. The two parts have to
+#      add up to the whole, the position denominator cannot exceed the part
+#      carrying a call, the contract carries the composition sentence word for
+#      word, and both documents carry the second figure. A published rate that
+#      hides what its denominator is made of misleads the consumer it is for.
 #
 # What this does not prove: that the measurement is correct. This check reads a
 # recorded artifact and never re-runs the measurement, so numbers typed by hand
@@ -53,10 +61,13 @@ score_value_section='## The two routes'
 # Every field the published statement is made of. A statement missing any one of
 # them is a number without the context that makes it readable.
 counts=(variant-set-size compared-records value-disagreements \
-    position-compared-records position-disagreements)
-percents=(value-disagreement-percent position-disagreement-percent)
+    position-compared-records position-disagreements \
+    both-routes-zero-records non-zero-records)
+percents=(value-disagreement-percent position-disagreement-percent \
+    non-zero-value-disagreement-percent)
 required=(variant-set variant-set-rule variant-set-manifest "${counts[@]}" \
-    "${percents[@]}" zero-score-treatment evidence-limit measured)
+    "${percents[@]}" denominator-composition zero-score-treatment evidence-limit \
+    measured)
 
 # A rate needs enough records to be a rate. The ticket's complaint is that one
 # disagreement in five records supports no number at all, so a set or a
@@ -146,6 +157,7 @@ examine() {
     local -a pairs=(
         "value-disagreements compared-records value-disagreement-percent"
         "position-disagreements position-compared-records position-disagreement-percent"
+        "value-disagreements non-zero-records non-zero-value-disagreement-percent"
     )
     local pair
     for pair in "${pairs[@]}"; do
@@ -169,6 +181,24 @@ examine() {
             return 1
         }
     done
+
+    # --- the denominator is broken out and the parts add up ---
+    #
+    # Every compared record is either scored zero on both sides by both routes
+    # or carries a non-zero score somewhere. A record comparable on position
+    # carries one on both routes, so it is one of the latter.
+    (( measured[both-routes-zero-records] + measured[non-zero-records] == measured[compared-records] )) || {
+        printf 'both-routes-zero-records (%s) and non-zero-records (%s) do not add up to compared-records (%s) in %s\n' \
+            "${measured[both-routes-zero-records]}" "${measured[non-zero-records]}" \
+            "${measured[compared-records]}" "$artifact_relative" >&2
+        return 1
+    }
+    (( measured[position-compared-records] <= measured[non-zero-records] )) || {
+        printf 'position-compared-records (%s) exceeds non-zero-records (%s) in %s, which no record can do\n' \
+            "${measured[position-compared-records]}" "${measured[non-zero-records]}" \
+            "$artifact_relative" >&2
+        return 1
+    }
 
     # --- the named variant set is reachable ---
     manifest=$root/${measured[variant-set-manifest]}
@@ -242,6 +272,13 @@ examine() {
                 "$relative" "${measured[position-disagreement-percent]}" "$artifact_relative" >&2
             return 1
         }
+        # The full denominator is mostly two routes agreeing about zero, so the
+        # figure over the records that carry a call stands beside it.
+        printf '%s' "$sentences" | grep -F -- "${measured[non-zero-value-disagreement-percent]}" | grep -qi 'value' || {
+            printf '%s carries no sentence reporting %s as the value disagreement over the records carrying a score, which %s records\n' \
+                "$relative" "${measured[non-zero-value-disagreement-percent]}" "$artifact_relative" >&2
+            return 1
+        }
 
         [[ "$key" == full ]] || continue
 
@@ -257,6 +294,11 @@ examine() {
         }
         printf '%s' "$text" | grep -qE -- "$(grouped "${measured[variant-set-size]}")|${measured[variant-set-size]}" || {
             printf '%s states a rate without the size of the set it was measured over\n' "$relative" >&2
+            return 1
+        }
+        printf '%s' "$text" | grep -qF -- "${measured[denominator-composition]}" || {
+            printf '%s does not carry what its value denominator is made of: %s says "%s"\n' \
+                "$relative" "$artifact_relative" "${measured[denominator-composition]}" >&2
             return 1
         }
         printf '%s' "$text" | grep -qF -- "${measured[zero-score-treatment]}" || {
@@ -321,6 +363,10 @@ value-disagreement-percent: 2.00
 position-compared-records: 200
 position-disagreements: 3
 position-disagreement-percent: 1.50
+both-routes-zero-records: 800
+non-zero-records: 400
+non-zero-value-disagreement-percent: 6.00
+denominator-composition: 800 of the 1,200 compared records score zero on both routes, and 400 carry a score.
 zero-score-treatment: A record carrying a zero score on either route is left out of the position comparison and kept in the value comparison.
 evidence-limit: This rate was measured once against the shipped assets and no gate re-runs it.
 measured: 2026-09-10
@@ -351,7 +397,9 @@ A precomputed score and a modeled score are not interchangeable. Both routes
 were run over fixture-set-v1, a set of 1,000 variants, on 2026-09-10. The two
 routes report a different value on 2.00 percent of the compared records. They
 report a different position on 1.50 percent of the records comparable on
-position. A record carrying a zero score on either route is left out of the
+position. 800 of the 1,200 compared records score zero on both routes, and 400
+carry a score. Over the records that carry a score they report a different value
+on 6.00 percent. A record carrying a zero score on either route is left out of the
 position comparison and kept in the value comparison. This rate was measured
 once against the shipped assets and no gate re-runs it. The measurement is
 [the artifact](../planning/artifacts/0059-route-disagreement-rate.md).
@@ -367,8 +415,9 @@ COMPAT
 ## The two routes
 
 The two routes disagree on the value for 2.00 percent of the compared records
-and on the position for 1.50 percent of the records comparable on position. The
-measurement is
+and on the position for 1.50 percent of the records comparable on position. Over
+the 400 records that carry a score they disagree on the value for 6.00 percent.
+The measurement is
 [the artifact](../planning/artifacts/0059-route-disagreement-rate.md).
 
 ## What a deployment setting moves
@@ -472,7 +521,8 @@ expect_refusal "$(mutate no-method drop "$artifact_relative" '^## Method$')" \
 expect_refusal "$(mutate handful-of-variants shrink_set planning/artifacts/fixture-set.tsv 4)" \
     'fewer than the 1000 a published rate needs'
 expect_refusal "$(mutate handful-of-records retype_many "$artifact_relative" \
-    compared-records 500 value-disagreements 10)" \
+    compared-records 500 value-disagreements 10 both-routes-zero-records 300 \
+    non-zero-records 200 non-zero-value-disagreement-percent 5.00)" \
     'compared-records is 500, fewer than the 1000'
 expect_refusal "$(mutate handful-of-positions retype_many "$artifact_relative" \
     position-compared-records 40 position-disagreements 1 position-disagreement-percent 2.50)" \
@@ -501,6 +551,25 @@ expect_refusal "$(mutate undated swap "$compatibility_relative" ', on 2026-09-10
 expect_refusal "$(mutate unsized swap "$compatibility_relative" \
     'a set of 1,000 variants' 'a set of variants')" \
     'without the size of the set'
+expect_refusal "$(mutate composition-does-not-add-up retype "$artifact_relative" \
+    both-routes-zero-records 900)" \
+    'do not add up to compared-records'
+expect_refusal "$(mutate positions-beyond-scored retype_many "$artifact_relative" \
+    position-compared-records 500 position-disagreements 30 position-disagreement-percent 6.00)" \
+    'exceeds non-zero-records'
+expect_refusal "$(mutate bad-scored-arithmetic retype "$artifact_relative" \
+    non-zero-value-disagreement-percent 9.00)" \
+    'is not that percentage'
+expect_refusal "$(mutate hides-second-figure swap "$compatibility_relative" \
+    'Over the records that carry a score they report a different value on 6.00 percent.' '')" \
+    'no sentence reporting 6.00 as the value disagreement over the records carrying a score'
+expect_refusal "$(mutate spec-hides-second-figure swap "$score_value_relative" \
+    'they disagree on the value for 6.00 percent' 'they disagree on the value for 2.00 percent')" \
+    'no sentence reporting 6.00 as the value disagreement over the records carrying a score'
+expect_refusal "$(mutate silent-on-composition swap "$compatibility_relative" \
+    '800 of the 1,200 compared records score zero on both routes, and 400 carry a score.' \
+    'The denominator is fine.')" \
+    'does not carry what its value denominator is made of'
 expect_refusal "$(mutate silent-on-zeros swap "$compatibility_relative" \
     'A record carrying a zero score on either route is left out of the position comparison and kept in the value comparison.' \
     'Zeros went somewhere.')" \

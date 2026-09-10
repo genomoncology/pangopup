@@ -82,6 +82,10 @@ precomputed score and a modeled score as the same measurement. Five gene records
 cannot establish a rate, so both routes were run over a larger set. They report a
 different value on 0.07 percent of the 2,790 gene records both answered and a
 different position on 4.49 percent of the 379 records comparable on position.
+Read the first figure with its denominator in view. 2,409 of those 2,790 records
+score zero on both sides on both routes, so most of that agreement is two routes
+agreeing that nothing happened. Over the 381 records where either route reports a
+non-zero score, they report a different value on 0.52 percent.
 [`planning/artifacts/0059-route-disagreement-rate.md`](../planning/artifacts/0059-route-disagreement-rate.md)
 records that measurement, the set it was drawn over, and how zero scores were
 treated.

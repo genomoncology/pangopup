@@ -22,6 +22,10 @@ value-disagreement-percent: 0.07
 position-compared-records: 379
 position-disagreements: 17
 position-disagreement-percent: 4.49
+both-routes-zero-records: 2409
+non-zero-records: 381
+non-zero-value-disagreement-percent: 0.52
+denominator-composition: 2,409 of the 2,790 compared records score zero on both sides on both routes, so 86 percent of the value denominator is two routes agreeing that nothing happened, and 381 records carry a non-zero score on at least one route.
 zero-score-treatment: A gene record enters the position comparison only on a side whose score is non-zero on both routes, and every record both routes answered stays in the value comparison, zero scores included.
 evidence-limit: This rate was measured once on one host against the shipped v0.5.0 assets and no gate re-runs it.
 measured: 2026-09-10
@@ -46,6 +50,18 @@ contig order and then ascending position.
 
 The rule names no gene and no variant. A later reader who walks the same stride
 over the same bundle gets the same file.
+
+**What the rule leaves out.** Tying the alternate base to the reference base
+through one cycle makes every probe a transversion. `A→C`, `C→G`, `G→T` and
+`T→A` each cross the purine/pyrimidine boundary, so the set holds 2,615
+transversions and no transitions, while real variant traffic runs about two
+transitions to every transversion. The set is also narrowed to positions the
+published dataset covers. The 3,549 probed positions that dropped out are the
+ones the dataset answers `not_found` at on all four candidates. That
+survivorship is the population the contract statement is about, not a distortion
+of it. The transversion-only shape is a distortion. Splice-site sequence is not
+base-symmetric, so a transition-bearing set could move either figure, and
+neither figure should be read as covering transitions.
 
 **The two routes.** The published runtime installation was copied to a scratch
 data root and every run was pointed at the copy with `--data-dir`. The
@@ -76,6 +92,21 @@ denominator and stays in the value denominator. The gap between the two
 denominators — 2,411 records — is what the zero scores cost the position
 measurement.
 
+**What the value denominator contains.** The 2,790 compared records are not 2,790
+calls the two routes had to agree about. A record that agrees on value renders
+the same `gain_score` and the same `loss_score` on both routes, so for an
+agreeing record a side is non-zero on both routes exactly when it is non-zero at
+all. An agreeing record therefore falls out of the position comparison only when
+its gain and its loss are both zero on both routes. Both value disagreements are
+outside the position comparison as well, each one a side that is zero on one
+route and non-zero on the other. The 2,411 records the position comparison drops
+are therefore 2,409 records scored zero on both sides by both routes plus those
+two. 86 percent of the value denominator is two routes agreeing that nothing
+happened. A consumer gets that agreement for free and must not read it as
+agreement about a call. 381 records carry a non-zero score on at least one
+route. 379 of those carry one on both routes on the same side. The second
+value figure below is measured over those 381.
+
 ## Host and build
 
 - Commit `d78e948009045bc4bcf5b490e4674b80110f44de`, PangoPup 0.5.0, release build.
@@ -96,10 +127,22 @@ measurement.
 | records disagreeing on a value | 2 |
 | records comparable on position | 379 |
 | records disagreeing on a comparable position | 17 |
+| records scored zero on both sides by both routes | 2409 |
+| records carrying a non-zero score on at least one route | 381 |
+| records disagreeing on a value, of those 381 | 2 |
 
 The two routes report a different value on **0.07 percent** of the
 2790 compared records and a different position on **4.49 percent**
 of the 379 records comparable on position.
+
+Read the value figure with its denominator in view. 2,409 of the 2,790 compared
+records score zero on both sides on both routes, so 86 percent of that
+denominator is two routes agreeing that nothing happened. Over the 381 records
+where either route reports a non-zero score, the two routes report a different
+value on **0.52 percent**. That is seven times the rate over the full
+denominator. Both figures are true and neither replaces the other: 0.07 percent is what a
+consumer sees across a stride of the covered genome, and 0.52 percent is what a
+consumer sees among the records that carry a call.
 
 Value disagreement is rare and position disagreement is not. The two figures are
 two orders of magnitude apart, which is what the existing warning meant when it
@@ -135,16 +178,20 @@ said positions diverge more widely than values. It now has a number.
    records out of 2,790 disagree, one where the published dataset reports `0.00`
    and the model reports `0.01`, and one where the published dataset reports
    `0.09` and the model reports `0.00`. Both differences are one or two
-   hundredths at the bottom of the scale.
+   hundredths at the bottom of the scale. Most of that agreement is agreement
+   about zero: 2,409 of the 2,790 records are `0.00` on both sides on both
+   routes. Among the 381 records where either route reports a non-zero score the
+   disagreement rate is 0.52 percent, and both disagreements live there.
 2. The two routes disagree on position far more often. 17 of the 379 records
    comparable on position carry a different position, and the differences are
    large: `GRCh38:chr6:161000000:A:C` scores `0.47` on both routes and reports
    the gain at `-49` from the published dataset and at `27` from the model. A
    consumer must not compare a precomputed position against a modeled one.
 3. Most of the set is not comparable on position at all. 2,411 of the 2,790
-   compared records score zero on at least one side of one route, which is the
-   0040 result restated on this set: a position beside a zero score is not a
-   position a consumer reads.
+   compared records fall out of the position comparison, and 2,409 of those are
+   zero on both sides on both routes rather than zero on one side of one route.
+   That is the 0040 result restated on this set: a position beside a zero score
+   is not a position a consumer reads.
 4. The rate is low enough that it changes no guidance a consumer follows. The
    contract already says a consumer must record which route answered and must
    not treat the two scores as one measurement. Nothing here weakens or
