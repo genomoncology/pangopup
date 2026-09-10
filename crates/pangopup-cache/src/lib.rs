@@ -11,11 +11,12 @@ use rusqlite::{Connection, ErrorCode, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashSet},
     fmt, fs, io,
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     str::FromStr,
+    sync::{Mutex, OnceLock},
     time::Duration,
 };
 
@@ -322,6 +323,7 @@ pub struct ModelResultCache {
     pending_checkpoint: bool,
     discarded: bool,
     unreadable: bool,
+    earlier_layout: bool,
     /// The file this cache judged, as `(dev, ino)` read just after the open.
     judged: (u64, u64),
     retired: bool,
@@ -387,6 +389,14 @@ impl ModelResultCache {
         self.unreadable
     }
 
+    /// Whether opening this cache discarded a file an earlier layout wrote. Its
+    /// own cause and reported separately: nothing about the assets changed, the
+    /// release did, and an operator told another setup filled the file goes
+    /// looking for an upgrade nobody made instead of reading the release note.
+    pub fn discarded_earlier_layout(&self) -> bool {
+        self.earlier_layout
+    }
+
     /// Judge the recorded setup once, at open. On any difference the whole file
     /// goes, leaving no earlier row readable, and the reopened file records the
     /// running setup. No migration keeps old rows readable and none is wanted.
@@ -400,14 +410,21 @@ impl ModelResultCache {
             Opened::Matching(cache) => Ok(cache),
             Opened::OtherSetup(cache) => {
                 drop(cache);
-                Self::replace(path, setup, limit, create_parent)
+                let mut cache = Self::replace(path, setup, limit, create_parent)?;
+                cache.discarded = true;
+                Ok(cache)
             }
-            Opened::EarlierLayout => Self::replace(path, setup, limit, create_parent),
+            Opened::EarlierLayout => {
+                let mut cache = Self::replace(path, setup, limit, create_parent)?;
+                cache.earlier_layout = true;
+                Ok(cache)
+            }
         }
     }
 
     /// Throw the whole file away and open a fresh one recording the running
-    /// setup, then tell the caller so it can report the discard.
+    /// setup. The caller raises the flag for the cause it found, so the report
+    /// names that cause rather than standing for both.
     fn replace(
         path: &Path,
         setup: &CacheIdentity,
@@ -415,11 +432,9 @@ impl ModelResultCache {
         create_parent: bool,
     ) -> Result<Self, CacheError> {
         remove_database_family(path)?;
-        let Opened::Matching(mut cache) = Self::open_inner(path, setup, limit, create_parent)?
-        else {
+        let Opened::Matching(cache) = Self::open_inner(path, setup, limit, create_parent)? else {
             return Err(CacheError::Incompatible);
         };
-        cache.discarded = true;
         Ok(cache)
     }
 
@@ -554,6 +569,7 @@ impl ModelResultCache {
             pending_checkpoint: !initialized,
             discarded: false,
             unreadable: false,
+            earlier_layout: false,
             judged,
             retired: false,
         };
@@ -663,7 +679,25 @@ impl ModelResultCache {
         // captured identity has to follow it or the next operation would judge
         // its own recovery a foreign replacement and retire.
         self.judged = replacement.judged;
+        report_once(&format!(
+            "destroyed model cache {}: it could not be read after it opened",
+            self.path.display()
+        ));
         Ok(())
+    }
+
+    /// Stop touching the file at this path for the life of this cache, and say
+    /// so. Nothing was destroyed and whatever now sits at the path is left
+    /// where it is, so a process that goes cold here has a restart as its lever
+    /// and nothing else would say so.
+    fn retire(&mut self) -> bool {
+        self.retired = true;
+        report_once(&format!(
+            "stopped using model cache {}: it no longer holds the file it opened, so restart to \
+             use what is there now",
+            self.path.display()
+        ));
+        false
     }
 
     /// Whether this cache may still touch the file at its path.
@@ -689,26 +723,19 @@ impl ModelResultCache {
         match file_identity(&self.path) {
             Ok(current) if current == self.judged => return true,
             Ok(_) => {}
-            Err(_) => {
-                self.retired = true;
-                return false;
-            }
+            Err(_) => return self.retire(),
         }
         match Self::open_inner(&self.path, &self.setup, self.limit, self.disposable_default) {
             Ok(Opened::Matching(mut replacement)) => {
                 let Ok(placeholder) = Connection::open_in_memory() else {
-                    self.retired = true;
-                    return false;
+                    return self.retire();
                 };
                 self.connection = std::mem::replace(&mut replacement.connection, placeholder);
                 self.judged = replacement.judged;
                 self.pending_checkpoint = replacement.pending_checkpoint;
                 true
             }
-            _ => {
-                self.retired = true;
-                false
-            }
+            _ => self.retire(),
         }
     }
 
@@ -1240,6 +1267,22 @@ fn set_family_permissions(path: &Path) -> Result<(), CacheError> {
 fn file_identity(path: &Path) -> io::Result<(u64, u64)> {
     let metadata = fs::metadata(path)?;
     Ok((metadata.dev(), metadata.ino()))
+}
+
+/// Say once for this process what happened to a cache file, on the stream the
+/// reports at open already use. A process opens one cache per worker beside the
+/// one its handler holds, and they all share the file, so a report per cache
+/// would say the same thing several times over; a report per lookup would
+/// repeat it for the rest of the run.
+fn report_once(sentence: &str) {
+    static SAID: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let mut said = SAID
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if said.insert(sentence.to_owned()) {
+        eprintln!("{sentence}");
+    }
 }
 
 fn remove_database_family(path: &Path) -> Result<(), CacheError> {

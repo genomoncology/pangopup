@@ -966,6 +966,11 @@ fn complete_model_batch(
                         "discarded model cache {}: this build could not read it",
                         options.path.display()
                     );
+                } else if cache.discarded_earlier_layout() {
+                    eprintln!(
+                        "discarded model cache {}: an earlier layout wrote it",
+                        options.path.display()
+                    );
                 } else if cache.discarded_earlier_setup() {
                     eprintln!(
                         "discarded model cache {}: another setup filled it",

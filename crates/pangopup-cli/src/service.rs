@@ -830,6 +830,11 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
             "discarded model cache {}: this build could not read it",
             cache_options.path.display()
         );
+    } else if handler_cache.discarded_earlier_layout() {
+        eprintln!(
+            "discarded model cache {}: an earlier layout wrote it",
+            cache_options.path.display()
+        );
     } else if handler_cache.discarded_earlier_setup() {
         eprintln!(
             "discarded model cache {}: another setup filled it",
