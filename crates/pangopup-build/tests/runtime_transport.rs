@@ -10,7 +10,10 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
     fs,
-    os::{fd::AsRawFd, unix::ffi::OsStrExt},
+    os::{
+        fd::AsRawFd,
+        unix::{ffi::OsStrExt, fs::FileTypeExt, fs::PermissionsExt},
+    },
     path::{Path, PathBuf},
     process::{Command, Stdio},
     time::{Duration, Instant},
@@ -457,8 +460,11 @@ fn verify_under_deadline(scratch: &Path, transport: &Path) -> BoundedVerify {
     }
 }
 
-/// A label, the member to spoil, and how to spoil it.
-type ShapeCase = (&'static str, &'static str, fn(&Path, &str));
+/// A label, the member to spoil, how to spoil it, and the error code the
+/// refusal must carry. The code is per row because the boundary row is here to
+/// prove that the reclassification of a member that is not a regular file did
+/// not swallow a genuine IO fault with it.
+type ShapeCase = (&'static str, &'static str, fn(&Path, &str), &'static str);
 
 fn replace_member_with_fifo(transport: &Path, member: &str) {
     let path = transport.join(member);
@@ -483,13 +489,41 @@ fn replace_member_with_socket(transport: &Path, member: &str) {
     let listener = std::os::unix::net::UnixListener::bind(&short).expect("socket member");
     drop(listener);
     drop(held);
+    let kind = fs::symlink_metadata(transport.join(member)).expect("socket member");
+    assert!(
+        kind.file_type().is_socket(),
+        "the socket fixture did not leave a socket at {member}"
+    );
+}
+
+/// A regular member the process cannot read. It is the boundary of the rule
+/// under test: a member that is a regular file and fails to open is an IO
+/// fault, and must stay one after a member that is not a regular file becomes
+/// a bad member set.
+fn make_member_unreadable(transport: &Path, member: &str) {
+    let path = transport.join(member);
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).expect("unreadable member");
+    assert!(
+        fs::read(&path).is_err(),
+        "the unreadable fixture can still be read, so it measures nothing"
+    );
 }
 
 /// A member that is not a regular file is refused by name, whatever kind of
 /// non-regular file it is, and the command always returns. A FIFO is the kind
 /// that stops the command today: `open` on it waits for a writer that never
-/// arrives. The two FIFO rows sit on a stored member and on a raw member
-/// because verify opens those on two different paths.
+/// arrives.
+///
+/// Verify reaches every member through the one inventory pass in
+/// `require_transport_inventory_held`, which opens each name before either the
+/// raw-member loop or the stored-frame reader runs. So both FIFO rows land on
+/// the same open today. The stored row stays because a stored member has a
+/// second opener behind that pass, and it must be refused as a bad member
+/// rather than as a corrupt frame if the order ever changes.
+///
+/// The last row is the boundary. A member that is a regular file and cannot be
+/// opened is still an IO fault, so widening the refusal to cover every member
+/// that is not a regular file must not swallow it.
 #[test]
 fn a_member_that_is_not_a_regular_file_is_refused_by_name_and_verify_returns() {
     let temp = tempdir().expect("temp");
@@ -507,13 +541,45 @@ fn a_member_that_is_not_a_regular_file_is_refused_by_name_and_verify_returns() {
         intact.stderr
     );
 
-    let cases: [ShapeCase; 4] = [
-        ("fifo-raw", "model-NOTICE", replace_member_with_fifo),
-        ("fifo-stored", "model.onnx.zst", replace_member_with_fifo),
-        ("directory", "mask-NOTICE", replace_member_with_directory),
-        ("socket", "reference-NOTICE", replace_member_with_socket),
+    assert_ne!(
+        unsafe { libc::geteuid() },
+        0,
+        "this test measures a permission boundary and cannot run as root"
+    );
+
+    let cases: [ShapeCase; 5] = [
+        (
+            "fifo-raw",
+            "model-NOTICE",
+            replace_member_with_fifo,
+            "PART_SET_INVALID",
+        ),
+        (
+            "fifo-stored",
+            "model.onnx.zst",
+            replace_member_with_fifo,
+            "PART_SET_INVALID",
+        ),
+        (
+            "directory",
+            "mask-NOTICE",
+            replace_member_with_directory,
+            "PART_SET_INVALID",
+        ),
+        (
+            "socket",
+            "reference-NOTICE",
+            replace_member_with_socket,
+            "PART_SET_INVALID",
+        ),
+        (
+            "unreadable",
+            "reference-manifest.json",
+            make_member_unreadable,
+            "INPUT_IO",
+        ),
     ];
-    for (label, member, spoil) in cases {
+    for (label, member, spoil, code) in cases {
         let transport = temp.path().join(format!("shapes-{label}"));
         copy_directory(&packed, &transport);
         spoil(&transport, member);
@@ -521,23 +587,31 @@ fn a_member_that_is_not_a_regular_file_is_refused_by_name_and_verify_returns() {
         let observed = verify_under_deadline(temp.path(), &transport);
         assert!(
             observed.returned,
-            "{label}: verify never returned on a {member} that is not a regular file"
+            "{label}: verify never returned on a spoiled {member}"
         );
         assert_eq!(
             observed.code,
             Some(1),
-            "{label}: verify must refuse a {member} that is not a regular file, stderr {}",
+            "{label}: verify must refuse a spoiled {member}, stderr {}",
             observed.stderr
         );
         assert!(
-            observed.stderr.contains("PART_SET_INVALID"),
-            "{label}: a member that is not a regular file is a bad member set, got {}",
+            observed.stderr.contains(code),
+            "{label}: the refusal must carry {code}, got {}",
             observed.stderr
         );
-        assert!(
-            observed.stderr.contains(member),
-            "{label}: the refusal must name the member, got {}",
-            observed.stderr
-        );
+        if code == "PART_SET_INVALID" {
+            assert!(
+                observed.stderr.contains(member),
+                "{label}: the refusal must name the member, got {}",
+                observed.stderr
+            );
+        } else {
+            assert!(
+                !observed.stderr.contains("PART_SET_INVALID"),
+                "{label}: an unreadable regular member is an IO fault, not a bad member set, got {}",
+                observed.stderr
+            );
+        }
     }
 }

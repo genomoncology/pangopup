@@ -92,12 +92,23 @@ test ! -e ../target/spec/runtime-transport/not-published
 printf 'a corrupt, substituted or symlinked member is refused and publishes nothing\n' | mustmatch like 'a corrupt, substituted or symlinked member is refused and publishes nothing'
 ```
 
-A member that is not a regular file is not pinned here. `pangopup-build
-runtime-transport verify` opens every member, a FIFO member has no writer, and
-the open never returns, so a live pin on one stops this gate instead of failing
-it. The pin and the transport that built it are removed until verify refuses a
-member that is not a regular file. The defect is carried as
-`sdlc/tickets/drafts/0082-a-fifo-in-a-runtime-transport-stops-verify-instead-of-being-refused.md`.
+A member that is not a regular file is refused by name. A FIFO is the kind that
+used to stop the command rather than be judged: verify opened every member and
+checked what it had opened only afterwards, and an open of a writerless FIFO
+waits. `timeout` bounds the command here so that this block fails rather than
+hangs if that ever comes back.
+
+```bash run id=runtime-transport-not-regular exit=1 stream=stderr
+rm -rf ../target/spec/runtime-transport/fifo
+cp -R ../target/spec/runtime-transport/first ../target/spec/runtime-transport/fifo
+rm ../target/spec/runtime-transport/fifo/model-NOTICE
+mkfifo ../target/spec/runtime-transport/fifo/model-NOTICE
+timeout -k 5 20 pangopup-build runtime-transport verify --transport ../target/spec/runtime-transport/fifo
+```
+
+```text expect=runtime-transport-not-regular exact
+{"status":"error","code":"PART_SET_INVALID","message":"model-NOTICE is not a regular file","details":null}
+```
 
 An occupied output is never replaced. The exact flag grammar fails before
 opening any supplied path.
