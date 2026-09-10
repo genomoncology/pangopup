@@ -65,9 +65,17 @@ on_disk_shape() {
 # given as `<where>=<path>`. Prints its counts on acceptance and its reason on
 # refusal.
 examine() {
-    local current=$1 where path stamp shape
+    local current=$1 where path stamp shape state
     shift
-    local current_stamp current_shape named examined=0
+    # The states already judged, one `<layout> <shape>` line each. Two commits
+    # that stamp the same layout on the same on-disk shape are one state: they
+    # hand the rules below identical inputs, so the second can only reach the
+    # verdict the first already reached. Counting them separately would make
+    # the number climb with every commit that reflows a doc comment, reporting
+    # a history this never read and hiding a squashed one behind a large
+    # number. Deduplicating on the judged pair is also what keeps the number
+    # meaning what it says: a layout state, not a commit.
+    local current_stamp current_shape named examined=0 states=''
 
     current_stamp=$(layout_stamp "$current")
     current_shape=$(on_disk_shape "$current")
@@ -100,6 +108,11 @@ examine() {
                 "$where" >&2
             return 1
         fi
+        state="$stamp $shape"
+        if grep -qxF -- "$state" <<<"$states"; then
+            continue
+        fi
+        states+="$state"$'\n'
         examined=$((examined + 1))
 
         if [[ "$stamp" == "$current_stamp" && "$shape" != "$current_shape" ]]; then
@@ -121,7 +134,8 @@ examine() {
         return 1
     fi
 
-    printf 'examined %s earlier layout(s) against layout %s\n' "$examined" "$current_stamp"
+    printf 'examined %s distinct earlier layout state(s) against layout %s\n' \
+        "$examined" "$current_stamp"
 }
 
 # --- the scanner refuses what it exists to refuse ---------------------------
@@ -214,6 +228,18 @@ examine "$fixtures/layout-bumped" "v9.9.9=$fixtures/released" >/dev/null \
 plant layout-bumped-twice 3 '1, 2' minted_json
 examine "$fixtures/layout-bumped-twice" "v9.9.8=$fixtures/released" "v9.9.9=$fixtures/layout-bumped" >/dev/null \
     || fail 'the scanner read only part of EARLIER_USER_VERSIONS, so it refuses every history with more than one earlier layout in it'
+
+# The count is the gate's own non-vacuity claim, so it has to measure what was
+# judged. Two commits stamping one layout on one shape hand the rules identical
+# inputs and reach one verdict, so they are one state. A count that instead
+# climbed with every commit touching the file would report a history this gate
+# never read, and would hide a squashed one behind a large number.
+counted=$(examine "$fixtures/layout-bumped" "v9.9.9=$fixtures/released" "later=$fixtures/unchanged") \
+    || fail 'the scanner refused two earlier commits that carry one layout state between them'
+case "$counted" in
+    'examined 1 distinct earlier layout state(s)'*) ;;
+    *) fail "two commits carrying one layout state must be counted once, and this said: $counted" ;;
+esac
 
 # --- the real history -------------------------------------------------------
 
