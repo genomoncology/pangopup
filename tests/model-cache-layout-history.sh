@@ -86,6 +86,13 @@ examine() {
     for pair in "$@"; do
         where=${pair%%=*}
         path=${pair#*=}
+        # A state whose source is byte-for-byte the running one is the tree
+        # judging itself. It cannot disagree, so counting it would let a
+        # squashed, re-initialized or single-commit history print a number and
+        # prove nothing.
+        if cmp -s "$current" "$path"; then
+            continue
+        fi
         stamp=$(layout_stamp "$path")
         shape=$(on_disk_shape "$path")
         if [[ -z "$stamp" || -z ${shape// /} ]]; then
@@ -109,7 +116,7 @@ examine() {
     done
 
     if (( examined == 0 )); then
-        printf 'found no earlier checkout carrying %s, so this check read no earlier layout and proved nothing\n' \
+        printf 'found no state of %s that differs from the one in the tree, so this check compared the tree only with itself, read no earlier layout and proved nothing\n' \
             "$source_relative" >&2
         return 1
     fi
@@ -159,6 +166,11 @@ expect_refusal() {
 
 plant released 1 '' value_json
 plant unchanged 1 '' value_json
+# A commit that touches the cache source without moving the layout it stamps or
+# the shape it writes. The gate must accept it and must still count it, so the
+# fixture differs from the release somewhere the gate does not read.
+printf '// a comment is not a layout change\n' >>"$fixtures/unchanged"
+plant identical 1 '' value_json
 plant shape-moved-silently 1 '' scored_json
 plant layout-bumped 2 '1' scored_json
 plant layout-bumped-unnamed 2 '' scored_json
@@ -185,6 +197,11 @@ expect_refusal 'proved nothing about it' \
 
 # No release carrying the cache at all is not a pass.
 expect_refusal 'proved nothing' "$fixtures/released"
+# Neither is a history whose only earlier state is the running source itself.
+# A squashed, re-initialized or single-commit clone reaches this, and before it
+# was refused the gate reported `examined 1 earlier layout(s)` and passed on a
+# comparison it had made with itself.
+expect_refusal 'proved nothing' "$fixtures/released" "itself=$fixtures/identical"
 
 examine "$fixtures/unchanged" "v9.9.9=$fixtures/released" >/dev/null \
     || fail 'the scanner refused a build whose shape and stamp both match the release, which is the shape it exists to accept'
@@ -214,7 +231,10 @@ trap 'rm -rf "$fixtures" "$history"' EXIT
 # replaced without ever being tagged -- layout 2 was -- and a file stamped with
 # it still sits on the disk of anyone who ran that build, so a scan reading
 # tags alone measures the history it finds convenient rather than the history
-# that exists. Identical blobs are read once.
+# that exists. Identical blobs are read once, and a blob equal to the source in
+# the tree is not counted at all -- on a clean checkout the newest commit that
+# touched the file carries exactly that blob, and the tree cannot disagree with
+# itself.
 earlier=()
 seen=' '
 while IFS= read -r revision; do
@@ -227,7 +247,7 @@ while IFS= read -r revision; do
 done < <(git -C "$repository" tag; git -C "$repository" log --format=%H -- "$source_relative")
 
 if (( ${#earlier[@]} == 0 )); then
-    fail "found no earlier checkout carrying $source_relative, so this check read no earlier layout and proved nothing. A clone with no history reaches this: fetch it."
+    fail "found no earlier commit carrying $source_relative, so this check read no earlier layout and proved nothing. A clone with no history reaches this: fetch it."
 fi
 
 examine "$repository/$source_relative" "${earlier[@]}" || exit 1
