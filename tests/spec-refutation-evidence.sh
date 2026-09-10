@@ -16,19 +16,23 @@ set -euo pipefail
 # ```bash block that calls no `mustmatch` command, so a refutation moved into
 # such a block is inert even when it is written correctly.
 #
-# This file holds three things shut.
+# This file holds five things shut.
 #
 #   1. No line inside a spec fenced block starts with `!`. That is the inert
 #      form, and it is refused here rather than found years later.
 #   2. Every block that carries a refutation also carries a mustmatch call, so
 #      the block runs at all.
-#   3. No spec block builds a FIFO. One member kind stops the command that
+#   3. Every refutation that is not the receiving end of a pipe names a path.
+#      One that names neither reads whatever standard input the gate inherited,
+#      and on a terminal that read never returns.
+#   4. No spec block builds a FIFO. One member kind stops the command that
 #      would judge it, so a live pin on it hangs the gate instead of failing
 #      it. See the settlement below.
-#   4. Refutations go through scripts/spec-refutes.sh, which reports the two
-#      ways a refutation passes on nothing: a haystack with no bytes in it, and
-#      a command that was never there to fail. That is arithmetic, so it is
-#      proved here against fixtures.
+#   5. Refutations go through scripts/spec-refutes.sh, which reports the ways a
+#      refutation passes on nothing: a haystack with no bytes in it, a command
+#      that was never there to fail, and a lost path argument that turns the
+#      haystack into an inherited terminal the helper would read forever. That
+#      is arithmetic, so it is proved here against fixtures.
 #
 # What this does not prove: that the refutations hold. `make spec` runs them.
 #
@@ -161,7 +165,41 @@ fi
 
 printf 'inspected %s spec file(s), %s refutation(s)\n' "${#spec_files[@]}" "$refutation_count"
 
-# --- 3. no spec block builds a FIFO ----------------------------------------
+# --- 3. a refutation that is not piped names its haystack -------------------
+#
+# The same hole in its last shape. A call whose path argument goes missing has
+# no haystack but standard input, and standard input in a spec block is
+# whatever the gate inherited. On a terminal that read never returns: the block
+# stops instead of failing, and a stopped gate reports nothing either. The
+# helper refuses such a call at run time. This keeps one out of spec/ in the
+# first place, and it is checkable without handing a terminal to a background
+# reader, which would stop this whole process group on SIGTTIN.
+unhaystacked=$(printf '%s\n' "$all_lines" | awk -F'\t' -v call="$helper_call" '
+    $4 !~ /^bash/ { next }
+    {
+        if (pending != "") {
+            pending = pending " " $6
+            if ($6 !~ /\\$/) { check(pendfile, pendline, pending); pending = "" }
+            next
+        }
+        if (!index($6, call " --absent")) next
+        if ($6 ~ ("[|][[:space:]]*" "\\.\\./scripts/spec-refutes\\.sh")) next
+        if ($6 ~ /\\$/) { pending = $6; pendfile = $1; pendline = $3; next }
+        check($1, $3, $6)
+    }
+    function check(f, l, text) {
+        rest = substr(text, index(text, call " --absent") + length(call " --absent"))
+        if (rest !~ /[[:space:]]\.\.\//) printf "%s\t%d\t%s\n", f, l, text
+    }
+')
+if [[ -n "$unhaystacked" ]]; then
+    printf 'spec refutation evidence: these refutations are not piped anything and name no path, so each one reads whatever standard input the gate inherited instead of a haystack:\n' >&2
+    printf '%s\n' "$unhaystacked" \
+        | awk -F'\t' -v root="$repository/" '{ sub("^" root, "", $1); printf "  %s:%d: %s\n", $1, $2, $3 }' >&2
+    exit 1
+fi
+
+# --- 4. no spec block builds a FIFO ----------------------------------------
 #
 # The removed pin's fixture. A FIFO member has no writer, the command that
 # would judge it blocks on the open, and a block holding it hangs until the
@@ -176,7 +214,7 @@ if [[ -n "$fifo_lines" ]]; then
     exit 1
 fi
 
-# --- 4. the helper refuses a refutation that proved nothing -----------------
+# --- 5. the helper refuses a refutation that proved nothing -----------------
 [[ -f "$helper" ]] || fail "no $helper: the spec refutations have nothing to report an empty haystack from"
 [[ -x "$helper" ]] || fail "$helper is not executable"
 
@@ -276,3 +314,6 @@ run_helper
 
 run_helper --absent
 [[ "$HELPER_STATUS" != 0 ]] || fail 'the helper accepted --absent with no pattern, so a gate that names nothing reads as green'
+
+run_helper --fails
+[[ "$HELPER_STATUS" != 0 ]] || fail 'the helper accepted --fails with no command, so a gate that names nothing reads as green'

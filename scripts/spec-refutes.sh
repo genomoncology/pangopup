@@ -19,8 +19,9 @@ set -uo pipefail
 # green when nobody is looking at them.
 #
 # It never reads the caller's standard input except as the haystack of an
-# --absent call that names no path. A gate that inherits a terminal and reads
-# it waits forever, and a gate has to fail rather than wedge.
+# --absent call that names no path, and it refuses that call when standard
+# input is a terminal. A gate that inherits a terminal and reads it waits
+# forever, and a gate has to fail rather than wedge.
 #
 # tests/spec-refutation-evidence.sh holds this contract and the spec files that
 # depend on it.
@@ -71,6 +72,12 @@ absent() {
         haystack_args=("${paths[@]}")
         where="${paths[*]}"
     else
+        # A path argument that went missing leaves the haystack as whatever the
+        # gate inherited. On a terminal that read never returns, so the pin
+        # stops the gate instead of failing it. Refuse rather than wedge.
+        if [[ -t 0 ]]; then
+            refuse "no path is named and standard input is a terminal, so the refutation of '$pattern' would wait forever instead of searching anything"
+        fi
         local text
         text=$(cat)
         [[ -n $text ]] || refuse "the text piped in holds no bytes, so the refutation of '$pattern' searched nothing"
