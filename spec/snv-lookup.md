@@ -48,6 +48,16 @@ printf '%s\n' \
   '{"assembly":"GRCh38","contig":"chr1","position":105,"ref":"A","alt":"C","status":"ambiguous_source_reference","records":[],"source_reference_ambiguities":[{"gene":"ENSG00000000004","source_ref":"N","published_alts":["C","G","T"],"omitted_alt":"A"}],"provenance":{"kind":"precomputed","bundle_id":"sha256:<digest>","source_doi":"10.5281/zenodo.15649338","source_archive_md5":"679ef0b50e511b6102b4b88fbf811108","masked":true,"window":50}}' \
   '{"assembly":"GRCh38","contig":"chr1","position":3,"ref":"G","alt":"C","status":"mixed","records":[{"gene":"ENSG00000000003","stable_gene":"ENSG00000000003","gene_names":{"symbol":"TSPAN6","source":"hgnc","hgnc_id":"HGNC:11858","ncbi_gene_id":7105,"prev_symbols":["TM4SF6"],"alias_symbols":["T245","TSPAN-6"]},"gain_score":"0.00","gain_position":-50,"loss_score":"0.00","loss_position":-50}],"source_reference_ambiguities":[{"gene":"ENSG00000000004","source_ref":"N","published_alts":["A","C","G"],"omitted_alt":"T"}],"provenance":{"kind":"precomputed","bundle_id":"sha256:<digest>","source_doi":"10.5281/zenodo.15649338","source_archive_md5":"679ef0b50e511b6102b4b88fbf811108","masked":true,"window":50}}' \
   '{"assembly":"GRCh38","contig":"chr1","position":1,"ref":"A","alt":"C","status":"not_found","records":[],"source_reference_ambiguities":[],"provenance":{"kind":"precomputed","bundle_id":"sha256:<digest>","source_doi":"10.5281/zenodo.15649338","source_archive_md5":"679ef0b50e511b6102b4b88fbf811108","masked":true,"window":50}}' > "$expected"
+# Ticket 0054. Every command-line score line names the software that printed
+# it. Splice the stamp into the expectation from what the shipped executable
+# reports, so the pinned bytes above stay exactly as they are and no release
+# rewrites them.
+version=$(pangopup --version | awk '{ print $2 }')
+printf '%s\n' "$version" | rg -q '^[0-9]+\.[0-9]+\.[0-9]+' || exit 1
+sed -i -E 's/"window":50\}\}$/"window":50,"software_version":"'"$version"'"}}/' "$expected"
+# Count the shipped output, not the expectation the splice just wrote: a
+# splice that matched nothing must not be able to agree with itself.
+test "$(rg -c --fixed-strings "\"software_version\":\"$version\"" "$normalized")" -eq 4
 cmp "$expected" "$normalized"
 printf 'exact JSONL status matrix\n' | mustmatch like 'exact JSONL status matrix'
 ```

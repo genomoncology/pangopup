@@ -135,6 +135,11 @@ def canonical_snv(
         fail(f"the release named no gene in {path.name}")
     if version is not None and sum(version_counts) == 0:
         fail(f"the release stamped no software version in {path.name}")
+    # Every printed line names the software, not some line in the file. A file
+    # where one line kept the stamp satisfies the count above and still hides a
+    # renderer that stopped stamping, so hold each line to exactly one.
+    if version is not None and any(count != 1 for count in version_counts):
+        fail(f"the release left a printed line without a software version in {path.name}")
     return bytes(output)
 
 

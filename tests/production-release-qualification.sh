@@ -601,6 +601,18 @@ fi
 grep -Fxq 'the release stamped no software version in snv-ENSG00000010610.jsonl' \
   "$root/unstamped.err"
 
+# The stamp is on every printed line, not on one line of the file. A renderer
+# that named the software once and then stopped must fail here, so strip the
+# last line's stamp alone and leave every other line as the release printed it.
+cp -a "$root/output" "$root/partly-stamped-output"
+sed -i '$s/,"software_version":"[^"]*"//' "$root/partly-stamped-output/snv-ENSG00000010610.jsonl"
+if "$repo/scripts/check-production-qualification.py" "$root/partly-stamped-output" "$repo" >"$root/partly-stamped.out" 2>"$root/partly-stamped.err"; then
+  printf 'checker accepted a release that stamped only some of its printed lines\n' >&2
+  exit 1
+fi
+grep -Fxq 'the release left a printed line without a software version in snv-ENSG00000010610.jsonl' \
+  "$root/partly-stamped.err"
+
 cp -a "$root/output" "$root/malformed-stamp-output"
 sed -i '1s/"software_version":"[^"]*"/"software_version":""/' \
   "$root/malformed-stamp-output/snv-ENSG00000010610.jsonl"
