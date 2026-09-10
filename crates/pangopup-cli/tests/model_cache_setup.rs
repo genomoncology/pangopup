@@ -887,3 +887,104 @@ fn a_foreign_damaged_or_later_cache_is_refused_and_never_deleted() {
     }
     assert_eq!(refused, 5, "every damaged form must be exercised");
 }
+
+/// The other way a default cache is destroyed. A file this build cannot read --
+/// garbage, another application's database, a layout a later release wrote --
+/// is deleted whole and refilled, exactly as a setup change is, and until now
+/// only the setup change was spoken. The operator who upgrades, downgrades and
+/// upgrades again meets the third case in practice: an older binary opening a
+/// newer file destroys it without a word.
+///
+/// Both destructions cost the same rows, so both are reported, and the two are
+/// not reported the same way. An operator told that another setup filled a file
+/// that was actually corrupt goes looking for an upgrade nobody made.
+#[test]
+fn a_default_cache_destroyed_because_it_could_not_be_read_is_reported() {
+    let temp = private_temp();
+    let setup = Setup::fixtures();
+    let cache = default_cache_path(temp.path());
+
+    // The wording a setup change already earns, read from a run rather than
+    // spelled here, so this test pins no prose and still holds the two causes
+    // apart.
+    succeeded(&score(&setup, temp.path(), &[FIRST_VARIANT]));
+    let changed = score(
+        &setup.with_other_reference(temp.path()),
+        temp.path(),
+        &[FIRST_VARIANT],
+    );
+    succeeded(&changed);
+    let setup_change = String::from_utf8(changed.stderr).expect("UTF-8 report");
+    assert!(
+        setup_change.contains(&cache.display().to_string()),
+        "a setup change already names the file it discarded, and this run said: {setup_change:?}"
+    );
+
+    let mut destroyed = 0;
+    for (what, damage) in [
+        (
+            "a file that is not a database at all",
+            &(|path: &Path| {
+                fs::write(path, b"not sqlite at all").expect("write garbage");
+            }) as &dyn Fn(&Path),
+        ),
+        (
+            "a database belonging to another application",
+            &|path: &Path| {
+                open_cache(path)
+                    .expect("cache database")
+                    .pragma_update(None, "application_id", 0x4f54_4845_i32)
+                    .expect("stamp another application");
+            },
+        ),
+        ("a layout later than this build writes", &|path: &Path| {
+            let later = this_softwares_user_version(path) + 1;
+            open_cache(path)
+                .expect("cache database")
+                .pragma_update(None, "user_version", later)
+                .expect("stamp a later layout");
+        }),
+    ] {
+        remove_cache_family(&cache);
+        succeeded(&score(
+            &setup,
+            temp.path(),
+            &[FIRST_VARIANT, SECOND_VARIANT],
+        ));
+        assert_eq!(
+            entry_count(&cache),
+            2,
+            "{what} starts from a cache holding rows the operator paid for"
+        );
+        damage(&cache);
+        make_private(&cache);
+
+        let destroyed_run = score(&setup, temp.path(), &[FIRST_VARIANT]);
+        let scored = succeeded(&destroyed_run);
+        assert!(
+            scored.contains("\"kind\":\"model\""),
+            "{what} sits at the disposable default, so it must not cost the caller an answer: \
+             {scored}"
+        );
+        assert_eq!(
+            entry_count(&cache),
+            1,
+            "{what} is discarded whole, leaving only the row this run wrote"
+        );
+        let report = String::from_utf8(destroyed_run.stderr).expect("UTF-8 report");
+        assert!(
+            report.to_ascii_lowercase().contains("cache")
+                && report.contains(&cache.display().to_string()),
+            "{what} was destroyed, so the run must say so and name the file, the way a setup \
+             change already does, and this run said: {report:?}"
+        );
+        assert_ne!(
+            report.trim(),
+            setup_change.trim(),
+            "{what} is not a setup change, and reporting it as one sends the operator looking \
+             for an upgrade nobody made"
+        );
+        destroyed += 1;
+    }
+    assert_eq!(destroyed, 3, "every unreadable form must be exercised");
+}

@@ -1777,4 +1777,69 @@ mod tests {
             original.canonical_bytes().expect("original key")
         );
     }
+
+    /// A row only an earlier release could have written, recognizable wherever
+    /// it survives.
+    const EARLIER_ROW: &str = "row-written-by-an-earlier-release";
+
+    /// Every layout this build claims to recognize is exercised, not only the
+    /// newest one before it. The list is read rather than spelled, so a layout
+    /// appended to it is proved the moment it is appended, and
+    /// `tests/model-cache-layout-history.sh` holds the list itself to what the
+    /// repository's history shows was written.
+    #[test]
+    fn every_layout_an_earlier_release_wrote_is_discarded_whole_and_reported() {
+        assert!(
+            !EARLIER_USER_VERSIONS.is_empty(),
+            "this build stamps layout {USER_VERSION}, so a layout before it was written and is \
+             sitting on someone's disk; an empty list makes every one of those files foreign, \
+             which is a refusal on a chosen path and a silent deletion on the default one"
+        );
+        for layout in EARLIER_USER_VERSIONS {
+            assert_ne!(
+                layout, USER_VERSION,
+                "layout {layout} is the layout this build writes, so naming it as an earlier one \
+                 throws away every file this build itself wrote"
+            );
+            let temp = private_temp();
+            let path = temp.path().join("cache.sqlite3");
+            let connection = Connection::open(&path).expect("create an earlier-layout cache");
+            connection
+                .execute_batch(&format!(
+                    "PRAGMA application_id={APPLICATION_ID};
+                     PRAGMA user_version={layout};
+                     CREATE TABLE earlier (row TEXT NOT NULL);
+                     INSERT INTO earlier VALUES('{EARLIER_ROW}');"
+                ))
+                .expect("write the earlier layout");
+            drop(connection);
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).expect("mode");
+
+            let cache = ModelResultCache::open_default(&path, &setup(), EntryLimit::default())
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "layout {layout} is this software's own file from another release, so it \
+                         must be discarded rather than refused: {error}"
+                    )
+                });
+            assert!(
+                cache.discarded_earlier_setup(),
+                "destroying the file layout {layout} wrote must be reported, or an operator \
+                 cannot tell a cold cache from a lost one"
+            );
+            assert_eq!(
+                cache.entry_count().expect("row count"),
+                0,
+                "the file layout {layout} wrote is discarded whole"
+            );
+            drop(cache);
+            let bytes = fs::read(&path).expect("read the refilled file");
+            assert!(
+                !bytes
+                    .windows(EARLIER_ROW.len())
+                    .any(|window| window == EARLIER_ROW.as_bytes()),
+                "no row layout {layout} wrote may stay readable"
+            );
+        }
+    }
 }
