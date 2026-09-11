@@ -18,7 +18,7 @@ ifneq ($(shell uname -s),Linux)
 SHELL_QUALIFICATION :=
 endif
 
-PORTABLE_QUALIFICATION := tests/built-executable-currency.sh tests/ci-platform-support.sh tests/ci-service-fixture-evidence.sh tests/ci-test-failure-evidence.sh tests/cli-spawn-cache-isolation.sh tests/model-cache-layout-history.sh tests/release-help-contract.sh tests/route-disagreement-rate.sh tests/spec-cargo-filter-evidence.sh tests/spec-refutation-evidence.sh tests/version-consistency-python39.sh
+PORTABLE_QUALIFICATION := tests/built-executable-currency.sh tests/ci-platform-support.sh tests/ci-service-fixture-evidence.sh tests/ci-test-failure-evidence.sh tests/cli-spawn-cache-isolation.sh tests/model-cache-layout-history.sh tests/release-help-contract.sh tests/route-disagreement-rate.sh tests/shell-spawn-cache-isolation.sh tests/spec-cargo-filter-evidence.sh tests/spec-refutation-evidence.sh tests/version-consistency-python39.sh
 
 
 lint:          ## static analysis: rustfmt + clippy + dependency policy
