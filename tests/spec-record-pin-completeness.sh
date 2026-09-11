@@ -41,8 +41,12 @@ set -euo pipefail
 #
 #   1. A `like` object pin with no declaration above it. That is the defect:
 #      a transcript presented as a whole record that a new field slips past.
-#   2. A declaration whose reason is missing or is a stub. "It is partial" says
-#      nothing a reader could not see.
+#   2. A declaration whose reason is missing or is a stub. A stub is one of two
+#      shapes: shorter than three words, or built only out of words that
+#      restate the declaration. "It is partial" and "this pin is partial" both
+#      clear three words and say nothing a reader could not see from the `like`
+#      on the line below them. Whether a longer reason is true is a review
+#      matter and not something a scan can settle.
 #   3. A declaration standing above a strict pin. A declaration that exempts
 #      nothing is a reader misled about what the block checks.
 #   4. A declaration outside spec/full-bundle.md, or more than the three that
@@ -75,9 +79,13 @@ declared_ceiling=3
 minimum_object_pins=24
 
 # A declared reason has to be a reason. Three words is the shortest thing that
-# can be one; "it is partial" is refused for saying nothing the reader cannot
-# already see, and the pin's own excerpt is what it would be saying it about.
+# can be one, and a reason assembled only out of the words below restates the
+# declaration instead of giving one: "it is partial" and "this pin is partial"
+# both clear the word count and tell the reader nothing the `like` on the next
+# line does not. A reason has to carry at least one word from outside this set,
+# which is what naming the omitted fields, or the point of the block, does.
 minimum_reason_words=3
+stock_reason_words='it|is|are|was|a|an|the|this|that|these|those|pin|pins|pinned|partial|partially|excerpt|excerpts|subset|part|parts|here|above|below|only|of|and|some|record|records|block|blocks|field|fields'
 
 fail() { printf 'spec record pin completeness: %s\n' "$*" >&2; exit 1; }
 
@@ -167,6 +175,31 @@ fixture_reason=$(printf '%s\n' "$fixture_records" | awk -F'\t' '$2 == 6 { print 
 [[ "$fixture_reason" == 'the eight counts below are beside the point here' ]] \
     || fail "the scan read the declared reason on line 6 of its own fixture as \"$fixture_reason\", so it cannot tell a reason from a stub"
 
+# A reason has to say something the `like` on the next line does not. Both
+# halves are proved here, because a rule that read every reason as a stub would
+# make the declaration impossible to write.
+is_stub() {
+    local candidate=$1 count
+    count=$(printf '%s\n' "$candidate" | wc -w | tr -d ' ')
+    (( count >= minimum_reason_words )) || return 0
+    printf '%s\n' "$candidate" | tr -cs "[:alnum:]_" '\n' \
+        | grep -Eqiv "^($stock_reason_words)$" && return 1
+    return 0
+}
+for meaningless in 'it is partial' 'this pin is partial' 'partial pin here' \
+    'only part of the record' 'x y'
+do
+    is_stub "$meaningless" \
+        || fail "the scan reads \"$meaningless\" as a reason, so a pin can be exempted by restating the declaration"
+done
+for genuine in 'the eight counts below are beside the point here' \
+    'the block proves determinism and the counts are proved above' \
+    'only the build status and identity matter to this comparison'
+do
+    is_stub "$genuine" \
+        && fail "the scan reads \"$genuine\" as a stub, so no declaration could ever be written"
+done
+
 # --- 2. every JSON-object pin in spec/ --------------------------------------
 shopt -s nullglob
 spec_files=("$repository"/spec/*.md)
@@ -200,6 +233,11 @@ while IFS=$'\t' read -r file line kind declared reason; do
         stub+="  $relative:$line: \"$reason\""$'\n'
         continue
     fi
+    if ! printf '%s\n' "$reason" | tr -cs "[:alnum:]_" '\n' \
+        | grep -Eqiv "^($stock_reason_words)$"; then
+        stub+="  $relative:$line: \"$reason\""$'\n'
+        continue
+    fi
     declared_count=$((declared_count + 1))
     [[ "$relative" == "$declared_file" ]] || declared_elsewhere+="  $relative:$line"$'\n'
 done <<<"$records"
@@ -214,7 +252,7 @@ fi
 if [[ -n "$stub" ]]; then
     printf 'spec record pin completeness: these pins are declared partial without saying why, and a reader who meets the excerpt still cannot tell what was left out or on what grounds:\n' >&2
     printf '%s' "$stub" >&2
-    printf 'Write at least %s words saying what the pin leaves out and why that is beside the point of the block.\n' "$minimum_reason_words" >&2
+    printf 'Write at least %s words saying what the pin leaves out and why that is beside the point of the block, in words that restate neither `partial` nor the excerpt itself.\n' "$minimum_reason_words" >&2
     exit 1
 fi
 
