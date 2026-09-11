@@ -1,0 +1,70 @@
+# The expectations tests/production-release-qualification.sh required on
+# 2026-09-11, when 66 of its assertions were bare commands under `set -e`:
+# a failure stopped the harness with status 1 and printed nothing at all.
+#
+# Converting those assertions to the forms in tests/support/expected-text.sh
+# rewrites the statement around each expectation. This file is the
+# expectations themselves, one per line, taken from the quoted literals those
+# 66 assertions searched for. The conversion has to keep every one of them, so
+# that a harness which says what it wanted still refuses every input it
+# refuses today.
+#
+# Held by tests/harness-rule-coverage.sh. Lines beginning with `#` are
+# commentary; every other line is text that must still stand in the harness.
+"$SOURCE_TREE/scripts/qualify-linux-release.sh" "$PRIVATE/release" "$VERSION" "$COMMIT"
+admitted maximum imported GLIBC version: `2.39`
+ARTIFACT_ID=$(jq -r .artifacts[0].id "$PRIVATE/artifacts.json")
+build runner: GitHub-hosted Ubuntu 24.04
+checksum-verifying tagged installer are shipped
+curl -q -fsSL
+Draft/release ID: `363278563`
+ENSG00000010610
+exactly one corrected dispatch is permitted
+exec {UPLOAD_FD}<"$source_path"
+expected exactly one installed SNV bundle, found 0
+expected exactly one installed SNV bundle, found 2
+expected oracle identity mismatch: unfiltered
+gh api --method PATCH "repos/$REPO/releases/$RELEASE_ID" -F draft=false
+HTTP model-only SNV response mismatch
+https://github.com/$REPO/releases/download/$TAG/$name
+HTTP SNV named no gene
+https://raw.githubusercontent.com/genomoncology/pangopup/v0.2.0/install.sh
+HTTP status response mismatch
+installed SNV bundle is unsafe
+M09 model request deliberately has no `--bundle`
+model
+model-only SNV oracle mismatch
+model oracle identity mismatch: M09-insertion-short-plus
+model oracle mismatch: M09-insertion-short-plus
+online sync progress counters decreased
+online sync progress lacks transfer or completion evidence
+online sync progress totals do not match final JSON
+package run `30648307402` failed while linking
+Package run `30651619497` passed the full gate
+Package run `30652858960` then redundantly reran the full
+Package run `30653836700` built the release executables
+passes that exact bundle path explicitly to each of the seven ordered
+production qualification passed
+PUBLISHED=1
+qualification directories must be absent
+readonly TAG=v0.2.0
+repos/$REPO/actions/workflows/package-linux.yml
+request fixture identity mismatch
+--reuse-installed
+run-production-qualification.sh
+scripts/check-production-qualification.py
+sha256sum "/proc/self/fd/$UPLOAD_FD"
+SNV oracle mismatch: ENSG00000010610
+SNV oracle mismatch: unfiltered
+snv\t
+software_version is not an exact removable field: snv-ENSG00000010610.jsonl:1
+software version mismatch: snv-ENSG00000010610.jsonl:1
+State: **COMPLETE — immutable public release `v0.1.0` targets reviewed commit
+Target `ci` run ID/URL: `30657770808`
+the release left a printed line without a software version in snv-ENSG00000010610.jsonl
+the release named no gene in M09-insertion-short-plus
+the release named no gene in snv-ENSG00000010610.jsonl
+the release stamped no software version in M09-insertion-short-plus
+the release stamped no software version in snv-ENSG00000010610.jsonl
+unexpected snv state: sync-online.json
+Workflow run ID/URL: `30657987617`
