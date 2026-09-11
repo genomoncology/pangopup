@@ -2175,3 +2175,56 @@ fn missing_assets_fail_before_listener_and_direct_user_to_sync() {
     assert!(stderr.contains("ASSETS_MISSING"));
     assert!(stderr.contains("run pangopup sync"));
 }
+
+/// Nothing routes a service shutdown through a report while the illegible
+/// assertion still stands at the sites.
+///
+/// This module reads source text and compiles whatever the feature flags say,
+/// so the shape is held on every run rather than only on the runs that build
+/// the service fixtures.
+mod shutdown_assertion_shape {
+    /// The report is worth nothing where the illegible assertion still stands.
+    ///
+    /// Fifteen assertions in this file end a service and assert success on the
+    /// same line, printing nothing about what went wrong. The scan reads this
+    /// file's own source, so its needles are spelled in pieces: written whole
+    /// they would stand in the text being scanned and the scan would count and
+    /// refuse itself.
+    #[test]
+    fn no_shutdown_assertion_in_this_file_asserts_success_and_says_nothing() {
+        const SOURCE: &str = include_str!("http_service_lifecycle.rs");
+        let waited = concat!(".wa", "it()");
+        let succeeded = concat!(".suc", "cess()");
+        let reported = concat!("assert_shutdown", "_succeeded");
+
+        let mut sites = 0;
+        let mut silent = Vec::new();
+        for (number, text) in SOURCE.lines().enumerate() {
+            let line = text.trim();
+            if line.starts_with("//") || line.starts_with("///") {
+                continue;
+            }
+            if line.contains(waited) || line.contains(reported) {
+                sites += 1;
+            }
+            if line.contains(waited) && line.contains(succeeded) {
+                silent.push(format!("{}: {line}", number + 1));
+            }
+        }
+
+        let site_floor = 18;
+        assert!(
+            sites >= site_floor,
+            "the scan read {sites} line(s) that end a service against a floor of {site_floor}, \
+             so it is not reading the assertions it claims to read"
+        );
+        assert!(
+            silent.is_empty(),
+            "{} shutdown assertion(s) end a service and assert success on the same line, so a \
+             failure prints no exit status, no signal and none of the service's standard error; \
+             route each through support::assert_shutdown_succeeded:\n{}",
+            silent.len(),
+            silent.join("\n")
+        );
+    }
+}
