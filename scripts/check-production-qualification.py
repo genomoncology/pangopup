@@ -496,8 +496,7 @@ def main() -> None:
         for second_name, second_value in published[index + 1:]:
             if first_value == second_value:
                 fail(
-                    f"HTTP status published one digest under both "
-                    f"{first_name} and {second_name}"
+                    f"HTTP status published one digest under both {first_name} and {second_name}"
                 )
     automatic_expected = json.loads(
         (source / "tests/fixtures/snv-regression/expected/ENSG00000010610.jsonl")
