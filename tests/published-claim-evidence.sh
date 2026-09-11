@@ -93,9 +93,23 @@ ungrouped() { printf '%s' "$1" | tr -d ','; }
 # the item does not carry it satisfies every word test and reverses the claim,
 # so the small set of shapes the shell has for saying "not" is refused.
 #
-# `no` is deliberately not among them. "Reaching it takes no second request" is
-# the point of the claim, and a rule that refused it would be wider than the
-# thing it covers.
+# The scan for a negation runs over a span rather than the whole sentence: from
+# the start of the sentence through the later of the two terms the claim joins.
+# A negative word standing there stands between the reader and the claim, and
+# one standing after the claim has been made is about something else. That is
+# what lets "Every returned score item carries `data_set_version`, so reaching
+# it takes no second request" state the claim while "No returned score item
+# carries `data_set_version`" does not, without the rule having to guess which
+# `no` is which.
+#
+# Every word in the set is matched on word boundaries. Without them `nor`
+# matches "ignore", "minor" and "honor", and `is not` matches "this notation",
+# so ordinary prose stating the claim was refused as a denial.
+#
+# What the set still does not catch is a hedge: "rarely depends" and "carries
+# it only when a deployment opts in" weaken the claim without denying it, and
+# `rarely` cannot be refused because the dependence this file is about really
+# is rare and the published sentence may say so.
 
 inventory_relative='architecture/compatibility.md'
 stored_version_documents=(
@@ -104,8 +118,36 @@ stored_version_documents=(
 )
 
 # A sentence that denies rather than states. Each is a way the shell of the
-# sentence can be negative while both terms still stand in it.
-negations='(neither|nor|never|cannot|does not|do not|did not|is not|are not|was not|were not|will not|would not)'
+# sentence can be negative while both terms still stand in it. Matched on word
+# boundaries, over the claim span rather than the whole sentence.
+negations='(\<no\>|\<not\>|\<never\>|\<neither\>|\<nor\>|\<none\>|\<cannot\>|\<without\>|\<lack(s|ed|ing)?\>|\<omit(s|ted|ting)?\>|\<absent\>|\<missing\>|\<independent\>|\<unaffected\>|\<exclude(s|d)?\>|n'"'"'t\>)'
+
+# One sentence per line in, one claim span per line out: the run from the start
+# of the sentence through the later of the two terms the claim joins. Both
+# terms are lowercase extended regular expressions. A sentence carrying
+# neither is passed through whole, so nothing is silently exempted.
+claim_span() {
+    awk -v first="$1" -v second="$2" '
+        {
+            low = tolower($0)
+            end = 0
+            if (match(low, first)) end = RSTART + RLENGTH - 1
+            if (match(low, second) && RSTART + RLENGTH - 1 > end) end = RSTART + RLENGTH - 1
+            print (end > 0 ? substr($0, 1, end) : $0)
+        }
+    '
+}
+
+# The lines of $1 whose claim span carries no negation, printed whole.
+affirmative_only() {
+    local first=$2 second=$3 line span
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        span=$(printf '%s\n' "$line" | claim_span "$first" "$second")
+        printf '%s' "$span" | grep -Eqi -- "$negations" && continue
+        printf '%s\n' "$line"
+    done <<<"$1"
+}
 
 # Does the flat text at $1 carry a sentence naming both the score item and
 # `data_set_version`, without denying it? Prints the sentence; exits 1 with the
@@ -118,7 +160,7 @@ states_item_carries_version() {
             "$relative" >&2
         return 1
     }
-    affirmative=$(printf '%s\n' "$candidates" | grep -Eiv "$negations" || true)
+    affirmative=$(affirmative_only "$candidates" 'score items?' 'data_set_version' || true)
     [[ -n "$affirmative" ]] || {
         printf '%s names a score item and `data_set_version` in the same sentence only to deny it: %s\n' \
             "$relative" "$(printf '%s\n' "$candidates" | head -n 1)" >&2
@@ -315,7 +357,7 @@ check_same_strand() {
             "$contract_relative" >&2
         return 1
     }
-    affirmative=$(printf '%s\n' "$candidates" | grep -Eiv "$negations" || true)
+    affirmative=$(affirmative_only "$candidates" 'same[- ]strand' '(score|gain|loss)' || true)
     [[ -n "$affirmative" ]] || {
         printf '%s names the dependence only to deny it: %s\n' \
             "$contract_relative" "$(printf '%s\n' "$candidates" | head -n 1)" >&2
@@ -707,6 +749,42 @@ expect_refusal check_stored_version "$(mutate sv-inventory-dropped sed -i \
     '/score item/d' "$inventory_relative")" \
     'no longer enumerates `data_set_version` on the score item'
 
+expect_refusal check_stored_version "$(mutate sv-no-item swap architecture/service.md \
+    'Every returned score item also carries `data_set_version`.' \
+    'No returned score item carries `data_set_version`.')" \
+    'only to deny it'
+expect_refusal check_stored_version "$(mutate sv-route-not-item swap architecture/service.md \
+    'Every returned score item also carries `data_set_version`.' \
+    'The status route, not the score item, publishes `data_set_version`.')" \
+    'only to deny it'
+expect_refusal check_stored_version "$(mutate sv-absent swap architecture/service.md \
+    'Every returned score item also carries `data_set_version`.' \
+    '`data_set_version` is absent from every returned score item.')" \
+    'only to deny it'
+
+# An ordinary word is not a denial. `nor` stands inside "ignore", "minor" and
+# "honor", and `is not` inside "this notation", so without word boundaries each
+# of these stated the claim and was refused for stating it.
+for ordinary in \
+    'Every returned score item also carries `data_set_version`, so a consumer can ignore the status route.' \
+    'Every returned score item also carries `data_set_version`, a minor addition this notation spells out.' \
+    'Every returned score item also carries `data_set_version` to honor the inventory.'
+do
+    ordinary_tree=$(mutate "sv-ordinary-$(printf '%s' "$ordinary" | cksum | cut -d' ' -f1)" \
+        swap architecture/service.md \
+        'Every returned score item also carries `data_set_version`.' "$ordinary")
+    check_stored_version "$ordinary_tree" >/dev/null \
+        || fail "the stored-version check read an ordinary word as a denial: $ordinary"
+done
+
+# The claim span. A negation after the claim has been made is about something
+# else, and the sentence the repair is most likely to be written as says so.
+after_tree=$(mutate sv-negation-after-claim swap architecture/service.md \
+    'Every returned score item also carries `data_set_version`.' \
+    'Every returned score item also carries `data_set_version`, so retaining it beside a score takes no second request and does not cost one.')
+check_stored_version "$after_tree" >/dev/null \
+    || fail 'the stored-version check read a negation standing after the claim as a denial of it'
+
 # A copy edit is not a regression. The sentence is rewritten from end to end
 # and the check still passes, which is what keeps it from pinning a wording.
 edited=$(mutate sv-copy-edited swap architecture/service.md \
@@ -747,6 +825,19 @@ expect_refusal check_same_strand "$(mutate ss-unmasked-differ sed -i \
 expect_refusal check_same_strand "$(mutate ss-unmutated sed -i \
     's/P01-same-strand-order/P02-other/' "$corpus_mutation_tests")" \
     'no longer names P01-same-strand-order'
+
+expect_refusal check_same_strand "$(mutate ss-independent swap "$inventory_relative" \
+    "A gene's score can depend on which other same-strand genes overlap the same variant, because the scorer masks shared arrays in order." \
+    "A gene's score is independent of which other same-strand genes overlap the same variant.")" \
+    'only to deny it'
+expect_refusal check_same_strand "$(mutate ss-no-effect swap "$inventory_relative" \
+    "A gene's score can depend on which other same-strand genes overlap the same variant, because the scorer masks shared arrays in order." \
+    "Which other same-strand genes overlap a variant has no effect on the gain and loss a gene depends on.")" \
+    'only to deny it'
+expect_refusal check_same_strand "$(mutate ss-unaffected swap "$inventory_relative" \
+    "A gene's score can depend on which other same-strand genes overlap the same variant, because the scorer masks shared arrays in order." \
+    "A gene's score is unaffected by which other same-strand genes it depends beside.")" \
+    'only to deny it'
 
 copy_edited=$(mutate ss-copy-edited swap "$inventory_relative" \
     "A gene's score can depend on which other same-strand genes overlap the same variant, because the scorer masks shared arrays in order." \
