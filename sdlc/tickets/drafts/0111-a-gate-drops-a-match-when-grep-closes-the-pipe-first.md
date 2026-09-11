@@ -40,3 +40,30 @@ script added tomorrow with the same shape would be neither refused nor counted.
 What a successor must prove: the answer does not depend on scheduling -- run
 the shape a few hundred times and see one answer -- and the two scripts that
 run an executable handed to them are still both found.
+
+## The rate, measured
+
+Verify ran the gate 40 times in sequence on this candidate, on a 16-core
+machine carrying 24 busy loops, on 2026-09-11. It failed 7 times, 17.5 per
+cent.
+
+Six of the seven refused with the message above:
+
+    shell spawn cache isolation: 1 script(s) run an executable handed to them,
+    but 2 are named with the gate that reads them, so this scan is checking the
+    wrong files
+
+Two of the seven printed the `hands_over` refusal instead, which confirms the
+prediction at the end of this draft that the same shape stands there too:
+
+    examined /home/ian/workspace/repos/pangopup and found no shell file running
+    scripts/smoke-linux-release.sh, so the inheritance rule held over nothing
+
+One run printed both. One run printed the `hands_over` refusal and then the
+successful second summary line, so a single gate run can drop a match in one
+place and keep it in another.
+
+The gate examined 53 shell sources in every one of the 40 runs, passing and
+failing alike, so the file set does not vary. A successor repairing this has
+17.5 per cent as the number to drive to zero, and 40 runs under load as the
+shape of the measurement.
