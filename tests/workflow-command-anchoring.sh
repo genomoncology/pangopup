@@ -22,9 +22,11 @@ set -euo pipefail
 #       require_workflow_command <workflow-file> <command> [<scope>]
 #
 #   Argument 1 is the path of the workflow file to read. Argument 2 is the
-#   command text that must run there. Argument 3, when the caller gives one, is
-#   whatever the caller uses to narrow where in the file the command may stand;
-#   this file passes it through unchanged and makes no claim about it.
+#   command text that must run there. Argument 3, when the caller gives one,
+#   narrows the search to the step of that name. A narrowed search is answered
+#   by that step and by nothing else: a command standing in a different step
+#   does not satisfy it, and a step name the workflow does not hold refuses
+#   rather than passing over the empty range it selects.
 #
 #   Arguments 2 and 3 are written in the calling harness as single-quoted
 #   literals, and argument 1 either ends in the workflow's file name or is a
@@ -186,6 +188,31 @@ run_require "$beside" "$build"
 run_require "$near" 'cargo install --locked --version 0.5.9 cargo-cyclonedx'
 [[ "$require_status" != 0 ]] \
     || fail 'the mechanism read the command as a pattern rather than as text, so it accepts a line the gate never named'
+
+# A narrowed search, which is how the ARM64 guards are written. `$fixture`
+# holds two steps, so a narrowed search has somewhere else to have looked. The
+# four cases
+# below are one defect apart: a scope that selects no lines and reports the
+# empty range as a pass would leave every narrowed guard proving nothing, and
+# section 3 could not see it, because section 3 comments the command out of the
+# whole file and would get its refusal either way.
+run_require "$fixture" "$build" 'Build the thing'
+[[ "$require_status" == 0 ]] \
+    || fail "the mechanism refused a command that stands in code in the step it was narrowed to: $require_error"
+
+run_require "$fixture" "$build" 'Ship the thing'
+[[ "$require_status" != 0 ]] \
+    || fail 'a command standing in a different step satisfied a narrowed search, so the narrowing reads the whole file and names the wrong step'
+
+run_require "$fixture" 'scripts/ship.sh' 'Build the thing'
+[[ "$require_status" != 0 ]] \
+    || fail 'a narrowed search was answered by a later step, so the narrowing never ends and every guard reads the rest of the file'
+
+run_require "$fixture" "$build" 'Rebuild the thing'
+[[ "$require_status" != 0 ]] \
+    || fail 'a scope naming a step the workflow does not hold passed, so a renamed or deleted step leaves every guard narrowed to it holding over nothing'
+[[ "$require_error" == *'Rebuild the thing'* ]] \
+    || fail "the refusal for an absent step does not name the step that was looked for: $require_error"
 
 # --- 3. every guarded command, commented out in turn -----------------------
 #
