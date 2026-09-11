@@ -33,7 +33,7 @@ set -euo pipefail
 #     second half of this file exercises it directly.
 #   * That `scripts/smoke-linux-release.sh` runs the executable. It runs one
 #     handed to it as an argument and names none, so no name scan can see it.
-#     What covers it is inheritance: every shell file that names it is one of
+#     What covers it is inheritance: every shell file that runs it is one of
 #     the harnesses accepted above, so it has a cache home of its own and the
 #     executable it hands over runs under that. This file checks that rather
 #     than asserting it, because a comment saying "its only caller today is in
@@ -41,6 +41,16 @@ set -euo pipefail
 #     `.github/workflows/package-linux.yml` runs it inside a container against
 #     that container's own filesystem, where there is no operator cache to
 #     reach.
+#
+#     The question `inheritors_hold` asks is where the path stands, not whether
+#     the file contains it. A file hands an executable over only by running the
+#     smoke script, so the path has to stand where a command stands or be
+#     assigned to something that runs it. A path standing as an argument -- in a
+#     `for` list, in a `cmp`, in an assertion about what a workflow file says --
+#     hands nothing to anybody, and a rule that refused it would be wider than
+#     the thing it covers. `tests/workflow-command-anchoring.sh` names the path
+#     because it is one of the commands the workflow gates guard; it runs no
+#     executable at all and has nothing to inherit.
 #
 #     What that leaves unproved is order. `inheritors_hold` asks whether the
 #     caller takes a cache home, not whether it takes one before the line that
@@ -57,6 +67,26 @@ helper_relative='tests/support/private-cache-home.sh'
 # The one shell script that runs an executable it is handed rather than one it
 # names.
 smoke_relative='scripts/smoke-linux-release.sh'
+
+# A call of that script, as opposed to a mention of its path. `.` is a
+# metacharacter, so the path is escaped into the pattern rather than pasted in.
+smoke_path=${smoke_relative//./\\.}
+
+# Where a command stands: the start of a logical line, straight after a
+# separator, after the word that runs a script, or as the value of an
+# assignment. The assignment is here because handing the path to something that
+# runs it is handing the executable over too --
+# `SMOKE_SCRIPT="$repo/scripts/smoke-linux-release.sh"` in
+# `tests/executable-delivery.sh` is that shape.
+smoke_words='bash|sh|env|exec|eval|command|sudo|timeout|nohup|xargs|source|\.|then|do|else'
+smoke_lead="(^|[;&|(]|(^|[[:space:];&|(])(($smoke_words)[[:space:]]+|[A-Za-z_][A-Za-z0-9_]*=))"
+
+# Between the lead and the path: quotes, a `$repo/`, a `./`, a container's
+# `/source/`. Anything, so long as it is one unbroken word. A path reached
+# across a space is an argument to whatever stood before the space.
+smoke_prefix='[[:space:]]*[^[:space:];&|()]*'
+
+smoke_call="$smoke_lead$smoke_prefix$smoke_path"
 
 # The crate whose one `[[bin]]` is the shipped executable. Spelled through a
 # variable rather than inline, so that the pattern below does not match its own
@@ -212,7 +242,27 @@ examine() {
         "$scanned" "${#runners[@]}"
 }
 
-# Refuse the tree rooted at $1 if a shell file there names the script that runs
+# The logical lines of $1: physical lines joined across a trailing backslash,
+# with whole-line comments dropped. Joining is what tells a command apart from
+# an argument that happens to start a physical line --
+# `tests/executable-delivery.sh` opens a line with the smoke path where the
+# line before it ends in `\`, and that path is the file `sed` is reading.
+logical_lines() {
+    awk '
+        /^[[:space:]]*#/ && !joining { next }
+        { line = line $0 }
+        /\\$/ { sub(/\\$/, " ", line); joining = 1; next }
+        { print line; line = ""; joining = 0 }
+        END { if (line != "") print line }
+    ' "$1"
+}
+
+# Whether $1 runs the smoke script, rather than merely spelling its path.
+hands_over() {
+    logical_lines "$1" | grep -qE -- "$smoke_call"
+}
+
+# Refuse the tree rooted at $1 if a shell file there runs the script that runs
 # an executable handed to it, without being one of the harnesses `examine`
 # accepted. Call it after `examine`, which is what fills `held_runners`.
 smoke_callers=()
@@ -223,13 +273,14 @@ inheritors_hold() {
         relative=${caller#"$root/"}
         [[ "$relative" != "$smoke_relative" ]] || continue
         [[ "$relative" != "$self_relative" ]] || continue
+        hands_over "$caller" || continue
         smoke_callers+=("$relative")
         held=no
         for runner in "${held_runners[@]}"; do
             [[ "$runner" != "$relative" ]] || held=yes
         done
         [[ "$held" == yes ]] && continue
-        printf 'this file names %s, which runs an executable handed to it as an argument, but takes no cache home of its own to hand it: %s\n' \
+        printf 'this file runs %s, which runs an executable handed to it as an argument, but takes no cache home of its own to hand it: %s\n' \
             "$smoke_relative" "$relative" >&2
         refused=1
     done < <(
@@ -243,7 +294,7 @@ inheritors_hold() {
     # the smoke script being renamed out from under the name this file greps
     # for: the rule would then hold over an empty set and stay green.
     if (( ${#smoke_callers[@]} == 0 )); then
-        printf 'examined %s and found no shell file naming %s, so the inheritance rule held over nothing\n' \
+        printf 'examined %s and found no shell file running %s, so the inheritance rule held over nothing\n' \
             "$root" "$smoke_relative" >&2
         return 1
     fi
@@ -325,6 +376,22 @@ plant() {
                 ;;
             names-smoke)
                 printf '"$repo/%s" "$1" "$2"\n' "$smoke_relative"
+                ;;
+            assigns-smoke)
+                printf 'SMOKE_SCRIPT="$repo/%s" docker run --rm smoke-image\n' "$smoke_relative"
+                ;;
+            mentions-smoke)
+                printf '# a comment about %s hands nothing over\n' "$smoke_relative"
+                printf 'for fragment in \\\n'
+                printf "    'cargo build --locked' \\\\\\n"
+                printf "    '%s'; do\n" "$smoke_relative"
+                printf '    printf %s "$fragment"\n' "'%s\\n'"
+                printf 'done\n'
+                ;;
+            reads-smoke)
+                printf 'sed s/a/b/ \\\n'
+                printf '  "$repo/%s" >"$copy"\n' "$smoke_relative"
+                printf '! cmp -s "$repo/%s" "$copy"\n' "$smoke_relative"
                 ;;
             held-names-smoke)
                 printf 'scripts/require-built-commands.sh\n'
@@ -489,6 +556,38 @@ examine "$inherited" >/dev/null \
 if inheritors_hold "$inherited" 2>/dev/null; then
     fail 'the scanner accepted a file handing an executable to the smoke script without a cache home of its own'
 fi
+
+# Handing the path to something that runs it is handing the executable over.
+assigning="$fixtures/assigning"
+plant "$assigning" 'tests/qualification.sh' held
+plant "$assigning" 'tests/delivery.sh' assigns-smoke
+examine "$assigning" >/dev/null \
+    || fail 'the assigning fixture was refused by the name scan, so it proves nothing about inheritance'
+if inheritors_hold "$assigning" 2>/dev/null; then
+    fail 'the scanner accepted a file handing the smoke script to a runner without a cache home of its own'
+fi
+
+# A file that spells the path where an argument stands runs nothing and has
+# nothing to inherit. `tests/workflow-command-anchoring.sh` is this shape: the
+# path is one of the commands it requires the workflow gates to anchor, and
+# that file runs no executable at all. Refusing it would be a rule wider than
+# the thing it covers.
+mentioning="$fixtures/mentioning"
+plant "$mentioning" 'tests/qualification.sh' held-names-smoke
+plant "$mentioning" 'tests/anchoring.sh' mentions-smoke
+examine "$mentioning" >/dev/null || fail 'the mentioning fixture was refused by the name scan'
+inheritors_hold "$mentioning" \
+    || fail 'the scanner refused a file that spells the smoke path in a comment and a list of fragments, where it runs nothing'
+
+# The path opening a physical line is an argument when the line before it ends
+# in a backslash. `tests/executable-delivery.sh` reads the smoke script with
+# `sed` and compares it with `cmp` in exactly this shape.
+reading="$fixtures/reading"
+plant "$reading" 'tests/qualification.sh' held-names-smoke
+plant "$reading" 'tests/copier.sh' reads-smoke
+examine "$reading" >/dev/null || fail 'the reading fixture was refused by the name scan'
+inheritors_hold "$reading" \
+    || fail 'the scanner read a continuation line as a command, so a file that only reads the smoke script is refused for running it'
 
 # A tree where nothing names the smoke script. The rule has nothing to hold and
 # says so, rather than reporting the vacuous pass as a verdict.
