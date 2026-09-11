@@ -480,6 +480,25 @@ def main() -> None:
     status_version = status.get("data_set_version")
     if not isinstance(status_version, str) or SCORING_IDENTITY.fullmatch(status_version) is None:
         fail("HTTP status data-set version is invalid")
+    status_profile = status.get("runtime_profile_id")
+    if not isinstance(status_profile, str) or SCORING_IDENTITY.fullmatch(status_profile) is None:
+        fail("HTTP status runtime profile id is invalid")
+    # The three digests hash three different preimages, so a deployment that
+    # published one value under two of these names collapsed something. Every
+    # other rule the checker applies is satisfied by such a deployment, so the
+    # collapse shows up only by comparing the published values with each other.
+    published = (
+        ("scoring_identity", status_identity),
+        ("data_set_version", status_version),
+        ("runtime_profile_id", status_profile),
+    )
+    for index, (first_name, first_value) in enumerate(published):
+        for second_name, second_value in published[index + 1:]:
+            if first_value == second_value:
+                fail(
+                    f"HTTP status published one digest under both "
+                    f"{first_name} and {second_name}"
+                )
     automatic_expected = json.loads(
         (source / "tests/fixtures/snv-regression/expected/ENSG00000010610.jsonl")
         .read_text(encoding="utf-8")
