@@ -231,8 +231,9 @@ for rejected_sync_usage in \
     exit 1
   fi
 done
-if sed -n '/stage=focused-help-no-assets/,/stage=filesystem-inventory/p' scripts/qualify-container.sh \
-  | grep -Fq -- '-v '; then
+if grep -Fq -- '-v ' < <(
+  sed -n '/stage=focused-help-no-assets/,/stage=filesystem-inventory/p' scripts/qualify-container.sh
+); then
   printf 'container help qualification must not mount assets or caches\n' >&2
   exit 1
 fi

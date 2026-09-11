@@ -113,6 +113,13 @@ test "$status" -eq 1
 test ! -s ../target/spec/local-assets/corrupt.stdout
 test ! -e "$corrupt_data/active.json"
 cat ../target/spec/local-assets/corrupt.stderr >&2
+# The install earlier in this file publishes its bundle directory at mode 0555,
+# which is what the runtime does with every bundle it installs. The mode goes
+# back before the last block of this file ends, because `cargo clean` stops with
+# status 101 on the first directory under `target/` it cannot write into and
+# leaves the build directory half removed. The chmod at the head of this file
+# recovers the residue of a run that was interrupted before reaching here.
+chmod -R u+w ../target/spec/local-assets
 exit "$status"
 ```
 

@@ -182,8 +182,9 @@ is_stub() {
     local candidate=$1 count
     count=$(printf '%s\n' "$candidate" | wc -w | tr -d ' ')
     (( count >= minimum_reason_words )) || return 0
-    printf '%s\n' "$candidate" | tr -cs "[:alnum:]_" '\n' \
-        | grep -Eqiv "^($stock_reason_words)$" && return 1
+    grep -Eqiv "^($stock_reason_words)$" \
+        < <(printf '%s\n' "$candidate" | tr -cs "[:alnum:]_" '\n') \
+        && return 1
     return 0
 }
 for meaningless in 'it is partial' 'this pin is partial' 'partial pin here' \
@@ -233,8 +234,8 @@ while IFS=$'\t' read -r file line kind declared reason; do
         stub+="  $relative:$line: \"$reason\""$'\n'
         continue
     fi
-    if ! printf '%s\n' "$reason" | tr -cs "[:alnum:]_" '\n' \
-        | grep -Eqiv "^($stock_reason_words)$"; then
+    if ! grep -Eqiv "^($stock_reason_words)$" \
+        < <(printf '%s\n' "$reason" | tr -cs "[:alnum:]_" '\n'); then
         stub+="  $relative:$line: \"$reason\""$'\n'
         continue
     fi

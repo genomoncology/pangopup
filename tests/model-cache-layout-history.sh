@@ -121,7 +121,7 @@ examine() {
             return 1
         fi
 
-        if [[ "$stamp" != "$current_stamp" ]] && ! printf '%s\n' "$named" | grep -qx "$stamp"; then
+        if [[ "$stamp" != "$current_stamp" ]] && ! grep -qx "$stamp" <<<"$named"; then
             printf '%s wrote layout %s and this build writes layout %s without naming %s in EARLIER_USER_VERSIONS, so every cache %s wrote is refused as foreign rather than discarded: append %s\n' \
                 "$where" "$stamp" "$current_stamp" "$stamp" "$where" "$stamp" >&2
             return 1

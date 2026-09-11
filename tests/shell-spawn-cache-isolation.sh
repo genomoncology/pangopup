@@ -276,7 +276,7 @@ logical_lines() {
 
 # Whether $1 runs the smoke script, rather than merely spelling its path.
 hands_over() {
-    logical_lines "$1" | grep -qE -- "$smoke_call"
+    grep -qE -- "$smoke_call" < <(logical_lines "$1")
 }
 
 # --- scripts that run an executable handed to them ---------------------------
@@ -326,9 +326,8 @@ runs_an_argument() {
     local source=$1 variable
     while IFS= read -r variable; do
         [[ -n "$variable" ]] || continue
-        logical_lines "$source" \
-            | sed -E 's/\[\[.*\]\]//g' \
-            | grep -qE -- "$argument_lead[[:space:]]*\"\\\$\{?$variable\}?\"[[:space:]]" \
+        grep -qE -- "$argument_lead[[:space:]]*\"\\\$\{?$variable\}?\"[[:space:]]" \
+            < <(logical_lines "$source" | sed -E 's/\[\[.*\]\]//g') \
             && return 0
     done < <(positional_variables "$source")
     return 1

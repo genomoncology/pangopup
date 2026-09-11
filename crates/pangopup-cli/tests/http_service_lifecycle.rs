@@ -365,7 +365,7 @@ mod installed_success {
                 .iter()
                 .all(|result| result["scoring_identity"] == scoring_identity)
         );
-        assert!(child.wait().expect("service exit").success());
+        support::assert_shutdown_succeeded(&mut child, "service exit");
 
         let (mut restarted, restarted_address) = start(&data, &profile_path);
         let restarted_status = request(&restarted_address, "GET", "/v1/status", "");
@@ -376,7 +376,7 @@ mod installed_success {
             unsafe { libc::kill(restarted.id() as i32, libc::SIGTERM) },
             0
         );
-        assert!(restarted.wait().expect("restarted service exit").success());
+        support::assert_shutdown_succeeded(&mut restarted, "restarted service exit");
     }
 
     // Everything a caller reads except the two fields a CPU policy is allowed
@@ -447,7 +447,7 @@ mod installed_success {
             );
             scored.push(comparable_items(&response));
             assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
-            assert!(child.wait().expect("service exit").success());
+            support::assert_shutdown_succeeded(&mut child, "service exit");
         }
         assert_ne!(
             policies[0], policies[1],
@@ -484,7 +484,7 @@ mod installed_success {
         );
         let status: Value = serde_json::from_slice(response_body(&response)).expect("status JSON");
         assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
-        assert!(child.wait().expect("service exit").success());
+        support::assert_shutdown_succeeded(&mut child, "service exit");
         status
     }
 
@@ -626,7 +626,7 @@ mod installed_success {
             &format!("{{\"variants\":[\"{variant}\"]}}"),
         );
         assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
-        assert!(child.wait().expect("service exit").success());
+        support::assert_shutdown_succeeded(&mut child, "service exit");
         assert!(
             status.starts_with(b"HTTP/1.1 200 OK\r\n"),
             "{}",
@@ -748,7 +748,7 @@ mod installed_success {
         let (mut child, address) = start(&data, &profile_path);
         let response = request(&address, "GET", "/v1/status", "");
         assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
-        assert!(child.wait().expect("service exit").success());
+        support::assert_shutdown_succeeded(&mut child, "service exit");
         let status: Value = serde_json::from_slice(response_body(&response)).expect("status JSON");
         let software_version = status["version"].as_str().expect("status version");
         let runtime_profile_id = published(&status, "runtime_profile_id");
@@ -796,7 +796,7 @@ mod installed_success {
             r#"{"variants":["GRCh38:chr12:6801301:G:A","GRCh38:chr1:5051:A:C"]}"#,
         );
         assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
-        assert!(child.wait().expect("service exit").success());
+        support::assert_shutdown_succeeded(&mut child, "service exit");
         assert!(
             scored.starts_with(b"HTTP/1.1 200 OK\r\n"),
             "{}",
@@ -860,7 +860,7 @@ mod installed_success {
             r#"{"variants":["GRCh38:chr1:5051:A:TC"]}"#,
         );
         assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
-        assert!(child.wait().expect("service exit").success());
+        support::assert_shutdown_succeeded(&mut child, "service exit");
         assert!(
             rejected.starts_with(b"HTTP/1.1 200 OK\r\n"),
             "{}",
@@ -887,7 +887,7 @@ mod installed_success {
             r#"{"variants":["GRCh38:chr12:6801301:G:A","GRCh38:chr1:5051:A:TC"]}"#,
         );
         assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
-        assert!(child.wait().expect("service exit").success());
+        support::assert_shutdown_succeeded(&mut child, "service exit");
         assert!(
             scored.starts_with(b"HTTP/1.1 200 OK\r\n"),
             "{}",
@@ -989,7 +989,7 @@ mod installed_success {
         assert_eq!(value["results"][0]["error"]["code"], "INVALID_VARIANT");
         assert_eq!(value["results"][0]["reason"], "invalid_exact_edit_geometry");
         assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
-        assert!(child.wait().expect("service exit").success());
+        support::assert_shutdown_succeeded(&mut child, "service exit");
     }
 
     #[test]
@@ -1044,7 +1044,7 @@ mod installed_success {
         );
         let scored: Value = serde_json::from_slice(response_body(&response)).expect("score JSON");
         assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
-        assert!(child.wait().expect("service exit").success());
+        support::assert_shutdown_succeeded(&mut child, "service exit");
         let served = &scored["results"][0]["records"][0];
 
         let output = support::pangopup()
@@ -1597,7 +1597,7 @@ mod installed_success {
 
         let served = score_one(&address, variant);
         assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
-        assert!(child.wait().expect("service exit").success());
+        support::assert_shutdown_succeeded(&mut child, "service exit");
         assert_eq!(
             served["records"][0]["gain_score"], answer,
             "the service must publish what its own setup computes, and not a score stored in a \
@@ -1641,7 +1641,7 @@ mod installed_success {
             .expect("stderr")
             .read_to_string(&mut reported)
             .expect("read stderr");
-        assert!(child.wait().expect("service exit").success());
+        support::assert_shutdown_succeeded(&mut child, "service exit");
         reported
     }
 
@@ -2092,7 +2092,7 @@ mod retained_production {
             );
             scored.push(comparable_items(&response));
             assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
-            assert!(child.wait().expect("service exit").success());
+            support::assert_shutdown_succeeded(&mut child, "service exit");
         }
         assert_ne!(
             policies[0], policies[1],
@@ -2151,7 +2151,7 @@ mod retained_production {
         assert_eq!(value["results"][1]["position"], 6_801_303);
         assert_eq!(value["results"][1]["provenance"]["kind"], "model");
         assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
-        assert!(child.wait().expect("exit").success());
+        support::assert_shutdown_succeeded(&mut child, "exit");
     }
 }
 

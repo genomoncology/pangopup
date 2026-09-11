@@ -11,6 +11,14 @@ root=$repo/target/production-release-qualification-test
 fail() { printf 'production release qualification: %s\n' "$*" >&2; exit 1; }
 chmod -R u+w "$root" 2>/dev/null || true
 rm -rf "$root"
+# A release that cannot write into an installed bundle is part of what this
+# harness qualifies, so the stub below keeps making bundle directories at mode
+# 0555. What must not outlive the run is the residue: `cargo clean` stops with
+# status 101 on the first directory under `target/` it cannot write into, and
+# leaves the build directory half removed. The mode goes back however this
+# harness ends, so the line above recovers only a run that was killed outright.
+# tests/build-directory-residue.sh holds both halves.
+trap 'chmod -R u+w "$root" 2>/dev/null || true' EXIT
 install -d -m 700 "$root/bin"
 
 cat >"$root/bin/pangopup" <<'SH'

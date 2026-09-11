@@ -113,7 +113,7 @@ read -r scanned statements negations bare < <(scan_files "${shell_files[@]}")
 for name in "${harnesses[@]}"; do
     harness="$repository/tests/$name"
     [[ -f "$harness" ]] || fail "tests/$name is gone, so this scan is checking the wrong files"
-    printf '%s\n' "${shell_files[@]}" | grep -Fqx "$harness" \
+    grep -Fqx "$harness" < <(printf '%s\n' "${shell_files[@]}") \
         || fail "tests/$name is not among the files the scan reads"
 done
 
@@ -399,7 +399,7 @@ for protected in \
     'planning/artifacts/050-public-linux-release.md' \
     'planning/artifacts/055-public-v0.3.0.md' \
     'AGENTS.md'; do
-    cut -d"$unit" -f2 "$resolved_targets" | grep -Fqx "$protected" \
+    grep -Fqx "$protected" < <(cut -d"$unit" -f2 "$resolved_targets") \
         || fail "no gate forbids anything in $protected any more, so nothing reads what that file ships"
 done
 

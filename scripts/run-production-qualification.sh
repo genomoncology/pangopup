@@ -53,7 +53,7 @@ if ! "${sync_command[@]}" >"$output_dir/sync-online.json" 2>"$output_dir/sync-on
   exit 1
 fi
 [[ -s "$output_dir/sync-online.progress" ]] || { printf 'online sync emitted no progress\n' >&2; exit 1; }
-if grep -Ev '^sync: ' "$output_dir/sync-online.progress" | grep -q .; then
+if grep -q . < <(grep -Ev '^sync: ' "$output_dir/sync-online.progress"); then
   printf 'online sync progress contained foreign stderr\n' >&2
   exit 1
 fi

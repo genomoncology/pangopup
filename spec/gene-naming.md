@@ -197,5 +197,12 @@ cost of a name does not grow with the number of genes the index holds.
 ../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-index \
   --test gene_names \
   resolving_one_gene_name_addresses_a_bounded_number_of_pages >/dev/null
+# The install above publishes its bundle directory at mode 0555, which is what
+# the runtime does with every bundle it installs. The mode goes back before the
+# last block of this file ends, because `cargo clean` stops with status 101 on
+# the first directory under `target/` it cannot write into and leaves the build
+# directory half removed. The chmod at the head of this file recovers the
+# residue of a run that was interrupted before reaching here.
+chmod -R u+w ../target/spec/gene-naming
 printf 'one accession costs a bounded number of index pages\n' | mustmatch like 'one accession costs a bounded number of index pages'
 ```

@@ -227,13 +227,13 @@ examine() {
     # neither says nothing about coverage, and a limit sentence that never
     # mentions the class the set does not hold states no limit.
     for key in transversion transition; do
-        printf '%s' "${measured[substitution-coverage]}" | grep -qi -- "$key" || {
+        grep -qi -- "$key" <<<"${measured[substitution-coverage]}" || {
             printf 'substitution-coverage in %s never mentions a %s, so it states nothing about which substitutions the published figures cover: "%s"\n' \
                 "$artifact_relative" "$key" "${measured[substitution-coverage]}" >&2
             return 1
         }
     done
-    printf '%s' "${measured[substitution-limit]}" | grep -qi -- transition || {
+    grep -qi -- transition <<<"${measured[substitution-limit]}" || {
         printf 'substitution-limit in %s never mentions a transition, so it states no limit on figures measured without one: "%s"\n' \
             "$artifact_relative" "${measured[substitution-limit]}" >&2
         return 1
@@ -417,12 +417,12 @@ examine() {
             return 1
         }
 
-        if printf '%s' "$text" | grep -qiE 'no rate of disagreement|claims no rate'; then
+        if grep -qiE 'no rate of disagreement|claims no rate' <<<"$text"; then
             printf '%s still disclaims a rate of disagreement while %s records one\n' "$relative" "$artifact_relative" >&2
             return 1
         fi
 
-        printf '%s' "$text" | grep -qF -- "$artifact_relative" || {
+        grep -qF -- "$artifact_relative" <<<"$text" || {
             printf '%s states a rate without linking to %s, so a reader cannot reach the evidence\n' \
                 "$relative" "$artifact_relative" >&2
             return 1
@@ -431,19 +431,19 @@ examine() {
         # Value disagreement and position disagreement are two numbers. Each
         # has to stand in a sentence naming what it is a disagreement about.
         sentences=$(printf '%s' "$text" | sed -E 's/\. /.\n/g')
-        printf '%s' "$sentences" | grep -F -- "${measured[value-disagreement-percent]}" | grep -qi 'value' || {
+        grep -qi 'value' < <(grep -F -- "${measured[value-disagreement-percent]}" <<<"$sentences") || {
             printf '%s carries no sentence reporting %s as the value disagreement %s records\n' \
                 "$relative" "${measured[value-disagreement-percent]}" "$artifact_relative" >&2
             return 1
         }
-        printf '%s' "$sentences" | grep -F -- "${measured[position-disagreement-percent]}" | grep -qi 'position' || {
+        grep -qi 'position' < <(grep -F -- "${measured[position-disagreement-percent]}" <<<"$sentences") || {
             printf '%s carries no sentence reporting %s as the position disagreement %s records\n' \
                 "$relative" "${measured[position-disagreement-percent]}" "$artifact_relative" >&2
             return 1
         }
         # The full denominator is mostly two routes agreeing about zero, so the
         # figure over the records that carry a call stands beside it.
-        printf '%s' "$sentences" | grep -F -- "${measured[non-zero-value-disagreement-percent]}" | grep -qi 'value' || {
+        grep -qi 'value' < <(grep -F -- "${measured[non-zero-value-disagreement-percent]}" <<<"$sentences") || {
             printf '%s carries no sentence reporting %s as the value disagreement over the records carrying a score, which %s records\n' \
                 "$relative" "${measured[non-zero-value-disagreement-percent]}" "$artifact_relative" >&2
             return 1
@@ -452,12 +452,12 @@ examine() {
         # The measured set holds one substitution class, and a reader meets
         # the figures here rather than in the artifact, so the coverage and its
         # limit stand here too. Both documents, because both publish figures.
-        printf '%s' "$text" | grep -qF -- "${measured[substitution-coverage]}" || {
+        grep -qF -- "${measured[substitution-coverage]}" <<<"$text" || {
             printf '%s publishes a disagreement figure without saying which substitutions it covers: %s says "%s"\n' \
                 "$relative" "$artifact_relative" "${measured[substitution-coverage]}" >&2
             return 1
         }
-        printf '%s' "$text" | grep -qF -- "${measured[substitution-limit]}" || {
+        grep -qF -- "${measured[substitution-limit]}" <<<"$text" || {
             printf '%s publishes a disagreement figure without saying what a set holding the other substitution class could do to it: %s says "%s"\n' \
                 "$relative" "$artifact_relative" "${measured[substitution-limit]}" >&2
             return 1
@@ -467,31 +467,31 @@ examine() {
 
         # The contract records the set, its size and the date measured, and
         # states how zero scores were treated in the artifact's own words.
-        printf '%s' "$text" | grep -qF -- "${measured[variant-set]}" || {
+        grep -qF -- "${measured[variant-set]}" <<<"$text" || {
             printf '%s states a rate without naming the variant set %s\n' "$relative" "${measured[variant-set]}" >&2
             return 1
         }
-        printf '%s' "$text" | grep -qF -- "${measured[measured]}" || {
+        grep -qF -- "${measured[measured]}" <<<"$text" || {
             printf '%s states a rate without the date %s it was measured\n' "$relative" "${measured[measured]}" >&2
             return 1
         }
-        printf '%s' "$text" | grep -qE -- "$(grouped "${measured[variant-set-size]}")|${measured[variant-set-size]}" || {
+        grep -qE -- "$(grouped "${measured[variant-set-size]}")|${measured[variant-set-size]}" <<<"$text" || {
             printf '%s states a rate without the size of the set it was measured over\n' "$relative" >&2
             return 1
         }
-        printf '%s' "$text" | grep -qF -- "${measured[denominator-composition]}" || {
+        grep -qF -- "${measured[denominator-composition]}" <<<"$text" || {
             printf '%s does not carry what its value denominator is made of: %s says "%s"\n' \
                 "$relative" "$artifact_relative" "${measured[denominator-composition]}" >&2
             return 1
         }
-        printf '%s' "$text" | grep -qF -- "${measured[zero-score-treatment]}" || {
+        grep -qF -- "${measured[zero-score-treatment]}" <<<"$text" || {
             printf '%s does not carry how zero scores were treated: %s says "%s"\n' \
                 "$relative" "$artifact_relative" "${measured[zero-score-treatment]}" >&2
             return 1
         }
         # No gate re-runs this measurement, so the contract states that limit
         # where the number is read instead of leaving it in the evidence file.
-        printf '%s' "$text" | grep -qF -- "${measured[evidence-limit]}" || {
+        grep -qF -- "${measured[evidence-limit]}" <<<"$text" || {
             printf '%s does not carry the limit of its own evidence: %s says "%s"\n' \
                 "$relative" "$artifact_relative" "${measured[evidence-limit]}" >&2
             return 1
@@ -500,12 +500,12 @@ examine() {
         # A position figure with no mechanism beside it reads as a defect in
         # this code. The contract states why the two routes address the same
         # call differently, and states the one-sided ordering that follows.
-        printf '%s' "$text" | grep -qF -- "${measured[position-mechanism]}" || {
+        grep -qF -- "${measured[position-mechanism]}" <<<"$text" || {
             printf '%s reports a position disagreement rate without the mechanism behind it: %s says "%s"\n' \
                 "$relative" "$artifact_relative" "${measured[position-mechanism]}" >&2
             return 1
         }
-        printf '%s' "$text" | grep -qF -- "${measured[position-ordering]}" || {
+        grep -qF -- "${measured[position-ordering]}" <<<"$text" || {
             printf '%s does not carry the one-sided ordering statement: %s says "%s"\n' \
                 "$relative" "$artifact_relative" "${measured[position-ordering]}" >&2
             return 1

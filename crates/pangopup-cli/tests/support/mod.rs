@@ -19,9 +19,10 @@
 
 use std::{
     ffi::OsStr,
-    fs, io,
+    fs,
+    io::{self, Read},
     ops::{Deref, DerefMut},
-    os::unix::fs::PermissionsExt,
+    os::unix::{fs::PermissionsExt, process::ExitStatusExt},
     process::{Child, Command, Output, Stdio},
 };
 
@@ -142,6 +143,38 @@ pub fn software_version() -> String {
         .strip_prefix("pangopup ")
         .expect("the version line names the tool")
         .to_owned()
+}
+
+/// Wait for a service that has been told to stop, and refuse an unsuccessful
+/// exit with enough to act on.
+///
+/// `what` names the shutdown, so a file that ends several services says which
+/// one failed. A failure carries the exit status, or the signal number when a
+/// signal ended the process, and everything the service wrote to its standard
+/// error. The bare `assert!(child.wait().expect(...).success())` it replaces
+/// printed none of that, so the one time it failed there was nothing to say
+/// whether shutdown was wrong or the assertion was.
+///
+/// Standard error is drained before the wait, because a child still writing
+/// into a full pipe would never exit. A child whose standard error was already
+/// read, or never piped, reports an empty one.
+pub fn assert_shutdown_succeeded(child: &mut Child, what: &str) {
+    let mut said = String::new();
+    if let Some(pipe) = child.stderr.as_mut() {
+        let _ = pipe.read_to_string(&mut said);
+    }
+    let status = child
+        .wait()
+        .unwrap_or_else(|error| panic!("{what}: waiting for the service to exit failed: {error}"));
+    if status.success() {
+        return;
+    }
+    let ended = match (status.code(), status.signal()) {
+        (Some(code), _) => format!("exit status {code}"),
+        (None, Some(signal)) => format!("signal {signal}"),
+        (None, None) => "neither an exit status nor a signal".to_owned(),
+    };
+    panic!("{what}: the service ended with {ended}; its standard error was:\n{said}");
 }
 
 /// The exact bytes ticket 0054 adds to a result line, for the version the

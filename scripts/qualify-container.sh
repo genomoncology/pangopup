@@ -165,8 +165,13 @@ docker volume create "$empty_volume" >/dev/null
 
 stage=empty-volume-smoke
 expected_version=$(sed -nE 's/^version = "([^"]+)"$/\1/p' "$source_tree/Cargo.toml" | head -1)
-"${run[@]}" "$image" --version | grep -Fxq "pangopup $expected_version"
-"${run[@]}" "$image" status | grep -Fq '"status":"missing"'
+# Each command's own status still has to hold, so its output is read into a
+# variable rather than piped: a pipeline into `grep -q` reports 141 instead of
+# the match whenever grep closes the pipe while the command is still writing.
+version_line=$("${run[@]}" "$image" --version)
+grep -Fxq "pangopup $expected_version" <<<"$version_line"
+status_json=$("${run[@]}" "$image" status)
+grep -Fq '"status":"missing"' <<<"$status_json"
 
 if docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
   -v "$empty_volume:/var/lib/pangopup" -v "$cache_volume:/var/cache/pangopup" \
@@ -183,8 +188,8 @@ stage=miniature-snv-install
 chmod -R a+rX "$work/snv-transport"
 "${run[@]}" -v "$work/snv-transport:/fixtures/snv-transport:ro" \
   "$image" assets install --transport /fixtures/snv-transport >/dev/null
-"${run[@]}" "$image" lookup --variant GRCh38:chr12:6801301:G:A \
-  | grep -Fq '"kind":"precomputed"'
+precomputed_result=$("${run[@]}" "$image" lookup --variant GRCh38:chr12:6801301:G:A)
+grep -Fq '"kind":"precomputed"' <<<"$precomputed_result"
 
 stage=read-only-installed-status
 "${read_only_data_run[@]}" "$image" status >"$work/read-only-status.json"

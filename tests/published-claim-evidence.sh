@@ -144,7 +144,7 @@ affirmative_only() {
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
         span=$(printf '%s\n' "$line" | claim_span "$first" "$second")
-        printf '%s' "$span" | grep -Eqi -- "$negations" && continue
+        grep -Eqi -- "$negations" <<<"$span" && continue
         printf '%s\n' "$line"
     done <<<"$1"
 }
@@ -442,7 +442,7 @@ check_same_strand() {
         return 1
     }
 
-    printf '%s' "$text" | grep -Fq -- "$corpus_case" || {
+    grep -Fq -- "$corpus_case" <<<"$text" || {
         printf '%s states the dependence without naming %s, so a reader cannot reach the frozen case that pins the behaviour\n' \
             "$contract_relative" "$corpus_case" >&2
         return 1
@@ -620,22 +620,22 @@ check_index_size() {
     }
 
     # --- the section says what the figure is ---
-    printf '%s' "$text" | grep -Eqi -- "$derivation" || {
+    grep -Eqi -- "$derivation" <<<"$text" || {
         printf '%s states %s bytes for the complete corpus and presents it as a measurement; it is %s loci multiplied by %s, and the section says nothing that tells a reader so\n' \
             "$index_section" "$(grouped "$published")" "$(grouped "$loci")" "$width" >&2
         return 1
     }
-    printf '%s' "$text" | grep -Eq "(^|[^0-9,])$(grouped "$loci")([^0-9]|$)" || {
+    grep -Eq "(^|[^0-9,])$(grouped "$loci")([^0-9]|$)" <<<"$text" || {
         printf '%s states a derived corpus size without the %s loci it is derived from, so a reader cannot check the arithmetic\n' \
             "$index_section" "$(grouped "$loci")" >&2
         return 1
     }
-    printf '%s' "$text" | grep -Eq "(^|[^0-9,])$(grouped "$measured")([^0-9]|$)" || {
+    grep -Eq "(^|[^0-9,])$(grouped "$measured")([^0-9]|$)" <<<"$text" || {
         printf '%s states a derived corpus size without the measured %s-byte payload beside it, so a reader checking the figure against a file they downloaded meets only the arithmetic\n' \
             "$index_section" "$(grouped "$measured")" >&2
         return 1
     }
-    printf '%s' "$text" | grep -Eq "(^|[^0-9,])$(grouped "$exceptions")([^0-9]|$)" || {
+    grep -Eq "(^|[^0-9,])$(grouped "$exceptions")([^0-9]|$)" <<<"$text" || {
         printf '%s states the payload size without accounting for the %s loci held in the exception section rather than in it\n' \
             "$index_section" "$exceptions" >&2
         return 1
