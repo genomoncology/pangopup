@@ -1,10 +1,10 @@
 # Why this project exists
 
-The best-known splice predictor cannot be run inside every product that wants
-splice predictions, and the public service that answers for it answers a few
-queries at a time. This page records what each party says about its own
-software or service, with the date that source was read. It draws no conclusion
-of its own, and none of it is legal advice.
+The best-known splice predictor carries licence terms of its own, and the
+public service that answers for it answers a few queries at a time. This page
+records what each party says about its own software or service, with the date
+that source was read. It draws no conclusion of its own. None of this page is
+legal advice.
 
 ## What the upstream predictor's licence says
 
@@ -15,9 +15,10 @@ The better-known predictor is SpliceAI, from Illumina, Inc.
   provided under CC BY NC 4.0 license for academic and non-commercial use."
   Read at https://github.com/Illumina/SpliceAI on 2026-08-28.
 
-- The PolyForm Strict License 1.0.0 named there reads: "any permitted purpose,
-  other than distributing the software or making changes or new works based on
-  the software". Read at https://github.com/Illumina/SpliceAI on 2026-08-28.
+- That LICENSE file states that the PolyForm Strict License 1.0.0 clause covers
+  "any permitted purpose, other than distributing the software or making
+  changes or new works based on the software". Read at
+  https://github.com/Illumina/SpliceAI on 2026-08-28.
 
 - The SpliceAI README states: "The trained models used by SpliceAI (located in
   this package at spliceai/models) are provided under the CC BY NC 4.0 license
@@ -50,8 +51,8 @@ local disk, so it sends nothing over a network and meets no per-minute limit. A
 supported variant the index does not cover runs through the Pangolin model on
 the CPU, and the result is kept in a local SQLite cache.
 
-- The Pangolin repository states that its software is under the GNU General
-  Public License. Read at https://github.com/tkzeng/Pangolin on 2026-08-28.
+- This repository's NOTICE file records the Pangolin project as licensed under
+  the GNU General Public License version 3.
 
 - Pangolin was published as "Predicting RNA splicing from DNA sequence using
   Pangolin", Zeng T and Li YI, Genome Biology 2022, PMID 35449021,
@@ -62,18 +63,16 @@ the CPU, and the result is kept in a local SQLite cache.
   record was read on 2026-08-28.
 
 This repository is GPL-3.0-only. Its LICENSE file is the statement of that, and
-its NOTICE file names every source it builds on.
+its NOTICE file names the upstream software and data it builds on.
 
 ## What calling this software means for the caller
 
 Software reaches this project in three ways. It runs the executable and reads
 the JSON Lines written to standard output. It calls the HTTP service over a
-socket. Or it links the crates in this repository into its own binary. The
-first two run this project's code in a process of its own and load none of it
-into the calling program's memory. The third loads it into that program.
+socket. Or it links the crates in this repository into its own binary.
 
-The licence text answers which licence a calling program is then under, and
-this repository does not. The LICENSE file in this repository holds the
-GPL-3.0-only text, and a reader goes there. This repository states no
-conclusion about any other program's licence, and none of this page is legal
-advice.
+The licence text answers what each of those arrangements means for a calling
+program's own licence, and this repository does not answer it. The LICENSE file
+in this repository holds the GPL-3.0-only text, and a reader goes there. This
+repository states no conclusion about any other program's licence. None of this
+page is legal advice.
