@@ -210,9 +210,10 @@ fi
 # and mustmatch's block timeout does not reach a grandchild, so an unbounded
 # command in such a block hangs the gate and reports nothing instead of failing.
 # The pin on a FIFO member is live again, so the fixture is allowed; what is
-# refused is an unbounded command beside it. Every `pangopup-build` line in a
-# block that builds a FIFO has to run under `timeout`, which turns a command
-# that waits back into a block that fails.
+# refused is an unbounded command beside it. Both shipped commands read
+# transport members, so a `pangopup-build` or `pangopup` line in a block that
+# builds a FIFO has to run under `timeout`, which turns a command that waits
+# back into a block that fails.
 fifo_blocks=$(printf '%s\n' "$all_lines" \
     | awk -F'\t' '$4 ~ /^bash/ && $6 ~ /(^|[^[:alnum:]_.\/-])mkfifo([[:space:]]|$)/ { print $1 "\t" $2 }' | sort -u)
 if [[ -n "$fifo_blocks" ]]; then
@@ -220,7 +221,7 @@ if [[ -n "$fifo_blocks" ]]; then
         BEGIN { n = split(blocks, rows, "\n"); for (i = 1; i <= n; i++) fifo[rows[i]] = 1 }
         $4 !~ /^bash/ { next }
         !(($1 "\t" $2) in fifo) { next }
-        $6 !~ /(^|[^[:alnum:]_.\/-])pangopup-build([[:space:]]|$)/ { next }
+        $6 !~ /(^|[^[:alnum:]_.\/-])(pangopup-build|pangopup)([[:space:]]|$)/ { next }
         $6 ~ /(^|[^[:alnum:]_.\/-])timeout[[:space:]]/ { next }
         { printf "%s\t%d\t%s\n", $1, $3, $6 }
     ')
