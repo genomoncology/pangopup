@@ -100,33 +100,58 @@ the scores ever ship as an index.
 A triage classifier needs a threshold to triage against, and every design here
 assumes one exists.
 
-Ian cited 0.106. Searching found that number attributed to Pangolin in
-comparative work, described as chosen so that an equal number of predictions
-pass the Pangolin cutoff and the SpliceAI 0.1 cutoff. If that is correct, 0.106
-is a rank-matching device for comparing two tools and not an independently
-calibrated clinical threshold.
+Ian cited 0.106. The primary sources were read through BioMCP on 2026-09-11.
 
-**The primary source was not read.** The Pangolin paper is at
-[doi:10.1186/s13059-022-02664-4](https://doi.org/10.1186/s13059-022-02664-4) and
-bioRxiv 2021.07.06.451243. Springer redirected to an authorization endpoint and
-bioRxiv returned 429. The claim above rests on search summaries and must not be
-built on until someone reads the paper.
+**0.106 does not appear in the Pangolin paper.** The full text of Zeng and Li,
+[PMID 35449021](https://pubmed.ncbi.nlm.nih.gov/35449021/),
+[doi:10.1186/s13059-022-02664-4](https://doi.org/10.1186/s13059-022-02664-4),
+was retrieved from Europe PMC and searched. The paper states two cutoffs of its
+own, both for its own analyses:
 
-The separate and more relevant body of work is the ClinGen SVI Splicing
-Subgroup's calibration of splice predictions to ACMG evidence strengths
+- 0.2, used to show that loss-of-function variants are enriched among variants
+  predicted to affect splicing: "variants determined to be loss-of-function
+  (LOF) variants were highly enriched among variants predicted to impact RNA
+  splicing (chi-squared p = 6.3e-119, Pangolin cutoff of 0.2)".
+- 0.14, for predicted differences in tissue splice-site usage: "a cutoff of 0.14
+  for the predicted differences resulted in a false sign rate of about 5%".
+
+Neither is a clinical variant-classification threshold.
+
+**0.106 comes from a clinical benchmarking paper, which attributes it to
+unnamed literature.** [PMID 40988334](https://pubmed.ncbi.nlm.nih.gov/40988334/),
+HGG Advances 2025, states: "we binarized the prediction scores using thresholds
+obtained from the literature (SQUIRLS: 0.018, SPiP: 0.452, Pangolin: 0.106, and
+SpliceAI: 0.12)". The extracted full text names no source for those four values.
+Two candidate upstream benchmarks were checked and do not contain the number:
+[PMID 37205456](https://pubmed.ncbi.nlm.nih.gov/37205456/) and
+[PMID 42127163](https://pubmed.ncbi.nlm.nih.gov/42127163/).
+
+**The provenance of 0.106 is therefore untraced.** It is in use in at least one
+clinical evaluation and its derivation has not been found. Nothing should treat
+it as a calibrated cutoff until the source is located.
+
+What that same paper does supply is directly useful to triage. On its combined
+clinically validated and CAGI6 dataset, at the 0.106 cutoff, Pangolin had the
+highest true negative rate of the four tools at 0.77 and the highest positive
+predictive value at 0.86, while SpliceAI had the highest true positive rate at
+0.87. True negative rate is exactly the quantity a discard filter is measured
+on. The paper also reports that all four tools produced substantial false
+negatives and that no tool was best in every category.
+
+The separately relevant work is the ClinGen SVI Splicing Subgroup's calibration
+of splice predictions to ACMG evidence strengths
 ([Walker et al., AJHG 2023](https://www.sciencedirect.com/science/article/pii/S0002929723002033)).
 That work assigns evidence strength by likelihood ratio across score bands
-rather than by a single cutoff, and it reports that SpliceAI at 0.5 may be
-calibrated too high. A banded evidence model changes the triage design, because
-the classifier would separate bands rather than cross one line.
+rather than at a single cutoff. A banded evidence model changes the triage
+design, because the classifier would separate bands rather than cross one line.
 
-This is the piece to settle first. The size, precision and throughput issues are
-all engineering with known measurements. This one determines what the engineering
-is aiming at, and it is currently an unverified number.
+This remains the piece to settle first. The size, precision and throughput
+issues are engineering with measurements attached. This one determines what the
+engineering aims at.
 
 ## What a ticket would need
 
-- The primary-source reading of where 0.106 comes from and what it means.
+- The traced origin of 0.106, or a decision to stop using it. The Pangolin paper does not contain it and one downstream user does not cite it.
 - A decision on whether PangoPup expresses a single threshold, the ClinGen
   bands, or neither, recorded as an ADR. Expressing neither and leaving the
   threshold to the caller is the reversible option.
