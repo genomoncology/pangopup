@@ -75,7 +75,7 @@ jobs:
     steps:
       - name: Cross compile
         env:
-          CC_target: cross-gcc
+          CC_target: cross-gcc-4.9
         run: cargo check
       - name: Ship
         env:
@@ -84,16 +84,21 @@ jobs:
 YML
 
 commented="$work/commented.yml"
-sed 's/^          CC_target: cross-gcc$/#          CC_target: cross-gcc/' "$fixture" >"$commented"
+sed 's/^          CC_target: cross-gcc-4[.]9$/#          CC_target: cross-gcc-4.9/' "$fixture" >"$commented"
 
 trailing="$work/trailing.yml"
-sed 's/^          CC_target: cross-gcc$/          OTHER: value # CC_target: cross-gcc/' "$fixture" >"$trailing"
+sed 's/^          CC_target: cross-gcc-4[.]9$/          OTHER: value # CC_target: cross-gcc-4.9/' "$fixture" >"$trailing"
 
 beside="$work/beside.yml"
-sed 's/^          CC_target: cross-gcc$/          # CC_target: cross-gcc\n          CC_target: cross-gcc/' "$fixture" >"$beside"
+sed 's/^          CC_target: cross-gcc-4[.]9$/          # CC_target: cross-gcc-4.9\n          CC_target: cross-gcc-4.9/' "$fixture" >"$beside"
 
+# A near miss for a setting carrying a regex metacharacter. The `.` of the
+# compiler version, read as a pattern rather than as text, matches this line,
+# which exempts a compiler the gate never named. A near miss that changed only
+# an ordinary character would be refused by either reading, so it would prove
+# nothing about which one the mechanism does.
 near="$work/near.yml"
-sed 's/^          CC_target: cross-gcc$/          CC_target: crossXgcc/' "$fixture" >"$near"
+sed 's/^          CC_target: cross-gcc-4[.]9$/          CC_target: cross-gcc-4X9/' "$fixture" >"$near"
 
 setting_status=0
 setting_error=
@@ -106,18 +111,18 @@ run_setting() {
     setting_error=$(cat "$work/err")
 }
 
-run_setting "$fixture" 'CC_target: cross-gcc'
+run_setting "$fixture" 'CC_target: cross-gcc-4.9'
 [[ "$setting_status" == 0 ]] \
     || fail "the mechanism refused a setting that stands in code: $setting_error"
 
-run_setting "$fixture" 'CC_other: cross-gcc'
+run_setting "$fixture" 'CC_other: cross-gcc-4.9'
 [[ "$setting_status" != 0 ]] \
     || fail 'the mechanism accepted a setting the workflow does not hold at all'
 
-run_setting "$commented" 'CC_target: cross-gcc'
+run_setting "$commented" 'CC_target: cross-gcc-4.9'
 [[ "$setting_status" != 0 ]] \
     || fail 'the mechanism accepted a setting that only appears as a YAML comment'
-[[ "$setting_error" == *'CC_target: cross-gcc'* ]] \
+[[ "$setting_error" == *'CC_target: cross-gcc-4.9'* ]] \
     || fail "the refusal does not name the setting that stopped standing: $setting_error"
 [[ "$setting_error" == *'commented.yml'* ]] \
     || fail "the refusal does not name the workflow file the setting is missing from: $setting_error"
@@ -129,24 +134,24 @@ run_setting "$commented" 'CC_target: cross-gcc'
 [[ "$setting_error" != *command* ]] \
     || fail "the refusal for a setting describes it as a command: $setting_error"
 
-run_setting "$trailing" 'CC_target: cross-gcc'
+run_setting "$trailing" 'CC_target: cross-gcc-4.9'
 [[ "$setting_status" != 0 ]] \
     || fail 'the mechanism accepted a setting that only appears as a trailing comment'
 
-run_setting "$beside" 'CC_target: cross-gcc'
+run_setting "$beside" 'CC_target: cross-gcc-4.9'
 [[ "$setting_status" == 0 ]] \
     || fail "the mechanism refused a setting that stands in code beside a comment repeating it: $setting_error"
 
-run_setting "$near" 'CC_target: cross-gcc'
+run_setting "$near" 'CC_target: cross-gcc-4.9'
 [[ "$setting_status" != 0 ]] \
     || fail 'the mechanism read the setting as a pattern rather than as text, so it accepts a value the gate never named'
 
 # --- 2. a narrowed search is answered by its own step ----------------------
-run_setting "$fixture" 'CC_target: cross-gcc' 'Cross compile'
+run_setting "$fixture" 'CC_target: cross-gcc-4.9' 'Cross compile'
 [[ "$setting_status" == 0 ]] \
     || fail "the mechanism refused a setting that stands in the step it was narrowed to: $setting_error"
 
-run_setting "$fixture" 'CC_target: cross-gcc' 'Ship'
+run_setting "$fixture" 'CC_target: cross-gcc-4.9' 'Ship'
 [[ "$setting_status" != 0 ]] \
     || fail 'a setting standing in a different step satisfied a narrowed search, so the narrowing reads the whole file'
 
@@ -154,7 +159,7 @@ run_setting "$fixture" 'SHIP_MODE: dry-run' 'Cross compile'
 [[ "$setting_status" != 0 ]] \
     || fail 'a narrowed search was answered by a later step, so the narrowing never ends'
 
-run_setting "$fixture" 'CC_target: cross-gcc' 'Recross compile'
+run_setting "$fixture" 'CC_target: cross-gcc-4.9' 'Recross compile'
 [[ "$setting_status" != 0 ]] \
     || fail 'a scope naming a step the workflow does not hold passed, so a renamed step leaves every guard narrowed to it holding over nothing'
 [[ "$setting_error" == *'Recross compile'* ]] \

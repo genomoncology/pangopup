@@ -206,6 +206,15 @@ run_refuse "$near" 'runs-on: ubuntu-22.04' 'a runner image older than the one th
 [[ "$refuse_status" == 0 ]] \
     || fail "the mechanism read the forbidden text as a pattern rather than as text, so it forbids more than it names: $refuse_error"
 
+# A gate pointed at a path that does not exist reads nothing. `grep` answers
+# "not found" for it, so without this the gate would report success over a file
+# it never opened.
+run_refuse "$work/absent.txt" 'runs-on: ubuntu-22.04' 'a runner image older than the one the release is built on'
+[[ "$refuse_status" != 0 ]] \
+    || fail 'the mechanism accepted a path it could not read, so a gate aimed at a file that is not there proves nothing'
+[[ "$refuse_error" == *'absent.txt'* ]] \
+    || fail "the refusal does not name the path the gate could not read: $refuse_error"
+
 # The whole point. A caller that writes nothing after the call still stops, so
 # the repair cannot be undone by dropping a `|| fail` from one site.
 carries_on="$work/carries-on.sh"

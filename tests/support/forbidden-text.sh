@@ -18,6 +18,10 @@
 # text means, and the caller exits non-zero -- so a gate that writes nothing
 # after the call still stops.
 #
+# A file the gate cannot read is refused too. `grep` answers "not found" for a
+# path that does not exist, so a mistyped path or a file the harness failed to
+# write would otherwise report success over nothing read at all.
+#
 # `tests/negative-assertion-strength.sh` holds both sides: that no shell gate
 # carries a bare `!`-led statement any more, and that every text these gates
 # forbid refuses when it is put back.
@@ -26,6 +30,13 @@ refuse_text() {
     local file=$1
     local text=$2
     local description=$3
+
+    if [[ ! -f "$file" ]]; then
+        printf 'a gate forbids a text in a file it cannot read: %s\n' "$text" >&2
+        printf '  %s is not a readable file, so nothing was read for %s\n' \
+            "$file" "$description" >&2
+        exit 1
+    fi
 
     if grep -Fq -- "$text" "$file"; then
         printf 'forbidden text stands in a file a gate reads: %s\n' "$text" >&2
