@@ -17,6 +17,17 @@ positive offset beyond 50.
 PangoPup was built by [GenomOncology](https://genomoncology.com/), which also makes
 [BioMCP](https://biomcp.org/).
 
+## Watch a presentation on it
+
+A fifteen-minute walkthrough of why PangoPup exists and how it works: the four-second
+problem, the published scores it reuses, the index that answers in microseconds, and
+the process boundary that keeps the GPL model separate. Recorded September 10, 2026.
+
+[![PangoPup: splice prediction in microseconds instead of seconds](docs/images/pangopup-2026-talk-1280x720.png)](https://www.youtube.com/watch?v=1rf-sMUZiP8)
+
+[Watch on YouTube](https://www.youtube.com/watch?v=1rf-sMUZiP8) &middot;
+[Read the write-up and full transcript](https://www.imaurer.com/talks/pangopup-splice-prediction/)
+
 <details>
 <summary><strong>Performance overview in text</strong></summary>
 
