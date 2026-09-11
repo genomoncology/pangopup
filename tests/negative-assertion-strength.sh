@@ -417,13 +417,13 @@ done
 # the expectation and what stood there instead. What is held here is that no
 # assertion in that harness goes back to the bare shape.
 #
-# One harness, named. `tests/production-release-qualification.sh` carries the
-# same shape in 69 more statements and cannot be exercised without a real
-# production release, so it is carried by its own ticket rather than widened
-# into this one: sdlc/tickets/drafts/0100. Naming the file rather than scanning
-# every harness is deliberate -- a rule over all of tests/ would be wider than
-# the repair that has been made and proved.
-assertion_harnesses=(executable-delivery.sh)
+# Two harnesses, named. `tests/production-release-qualification.sh` carried the
+# same shape in 66 more statements until ticket 0099 converted them, and it is
+# read here so that the conversion is a rule rather than a one-time edit.
+# Naming the files rather than scanning every harness is deliberate -- a rule
+# over all of tests/ would be wider than the repair that has been made and
+# proved.
+assertion_harnesses=(executable-delivery.sh production-release-qualification.sh)
 
 # A statement led by `[[` or `grep` whose exit nothing consumes. For a `[[`
 # statement the search starts after the closing `]]`, because the `&&` inside

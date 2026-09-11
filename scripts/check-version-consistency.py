@@ -453,12 +453,12 @@ def check_fixed_fixtures() -> None:
         (
             "tests/production-release-qualification.sh",
             "v0.2.0 runbook tag fixture",
-            r"^grep -Fq 'readonly TAG=v0\.2\.0' ",
+            r"^require_text \"\$root/ticket050-runbook\.sh\" 'readonly TAG=v0\.2\.0'$",
         ),
         (
             "tests/production-release-qualification.sh",
             "v0.2.0 runbook installer fixture",
-            r"^grep -Fq 'https://raw\.githubusercontent\.com/genomoncology/pangopup/v0\.2\.0/install\.sh' ",
+            r"^require_text \"\$root/ticket050-runbook\.sh\" 'https://raw\.githubusercontent\.com/genomoncology/pangopup/v0\.2\.0/install\.sh'$",
         ),
         (
             "tests/executable-delivery.sh",

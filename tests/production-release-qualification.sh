@@ -4,6 +4,11 @@ set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 root=$repo/target/production-release-qualification-test
 . "$repo/tests/support/forbidden-text.sh"
+. "$repo/tests/support/expected-text.sh"
+
+# For the handful of assertions that search for no text of their own. The four
+# forms in tests/support/expected-text.sh cover the rest.
+fail() { printf 'production release qualification: %s\n' "$*" >&2; exit 1; }
 chmod -R u+w "$root" 2>/dev/null || true
 rm -rf "$root"
 install -d -m 700 "$root/bin"
@@ -238,7 +243,7 @@ real_cli=$repo/target/debug/pangopup
 # cannot drift apart.
 QUALIFICATION_SOFTWARE_VERSION=$("$real_cli" --version | awk '{ print $2 }')
 export QUALIFICATION_SOFTWARE_VERSION
-[[ -n $QUALIFICATION_SOFTWARE_VERSION ]]
+[[ -n $QUALIFICATION_SOFTWARE_VERSION ]] || fail 'the built executable reported no software version, so the replayed model lines would carry none and every stamp comparison below would compare against nothing'
 
 export QUALIFICATION_SOURCE=$repo
 export QUALIFICATION_REAL_PANGOPUP=$real_cli
@@ -264,12 +269,12 @@ require_checker_accepts() {
     printf 'scripts/check-production-qualification.py describes what a scored record carries. A field added to, removed from or renamed in what the tool prints must be reflected there.\n' >&2
     return 1
   fi
-  grep -Fxq 'production qualification passed' "$root/$label.out"
+  require_line "$root/$label.out" 'production qualification passed'
 }
 require_checker_accepts check "$root/output"
-[[ $(grep -Fc $'snv\t' "$root/lookups.log") == 7 ]]
-[[ $(grep -Fxc $'snv\t'"$QUALIFICATION_EXPECTED_SNV_BUNDLE" "$root/lookups.log") == 7 ]]
-[[ $(grep -Fxc 'model' "$root/lookups.log") == 2 ]]
+equal 'the number of SNV lookup routes the release recorded' 7 "$(grep -Fc $'snv\t' "$root/lookups.log")"
+equal 'the number of SNV lookups the release ran against the installed bundle' 7 "$(grep -Fxc $'snv\t'"$QUALIFICATION_EXPECTED_SNV_BUNDLE" "$root/lookups.log")"
+equal 'the number of model-only lookups the release ran' 2 "$(grep -Fxc 'model' "$root/lookups.log")"
 
 # What the checker compared must be what the shipped renderer printed.
 #
@@ -498,8 +503,8 @@ if require_checker_accepts drift-add "$root/drift-add-output" 2>"$root/drift-add
   printf 'checker accepted a precomputed record carrying a field the oracles do not\n' >&2
   exit 1
 fi
-grep -Fxq 'SNV oracle mismatch: ENSG00000010610' "$root/drift-add.err"
-grep -Fq 'scripts/check-production-qualification.py' "$root/drift-add.guidance"
+require_line "$root/drift-add.err" 'SNV oracle mismatch: ENSG00000010610'
+require_text "$root/drift-add.guidance" 'scripts/check-production-qualification.py'
 
 cp -a "$root/output" "$root/drift-add-model-output"
 sed -i 's/"stable_gene":"\([A-Z0-9]*\)"/"stable_gene":"\1","drift_probe":true/' \
@@ -509,8 +514,8 @@ if require_checker_accepts drift-add-model "$root/drift-add-model-output" \
   printf 'checker accepted a model record carrying a field the oracles do not\n' >&2
   exit 1
 fi
-grep -Fxq 'model oracle mismatch: M09-insertion-short-plus' "$root/drift-add-model.err"
-grep -Fq 'scripts/check-production-qualification.py' "$root/drift-add-model.guidance"
+require_line "$root/drift-add-model.err" 'model oracle mismatch: M09-insertion-short-plus'
+require_text "$root/drift-add-model.guidance" 'scripts/check-production-qualification.py'
 
 cp -a "$root/output" "$root/drift-remove-output"
 sed -i 's/,"loss_position":-\?[0-9]\+//g' "$root/drift-remove-output/snv-ENSG00000010610.jsonl"
@@ -519,7 +524,7 @@ if "$repo/scripts/check-production-qualification.py" "$root/drift-remove-output"
   printf 'checker accepted a precomputed record missing a field the oracles carry\n' >&2
   exit 1
 fi
-grep -Fxq 'SNV oracle mismatch: ENSG00000010610' "$root/drift-remove.err"
+require_line "$root/drift-remove.err" 'SNV oracle mismatch: ENSG00000010610'
 
 reuse_output=$root/reuse-output
 QUALIFICATION_EXPECTED_HOME=$reuse_output/home \
@@ -543,10 +548,10 @@ for layout in zero multiple symlink unsafe; do
     exit 1
   fi
 done
-grep -Fxq 'expected exactly one installed SNV bundle, found 0' "$root/zero.err"
-grep -Fxq 'expected exactly one installed SNV bundle, found 2' "$root/multiple.err"
-grep -Fxq 'installed SNV bundle is unsafe' "$root/symlink.err"
-grep -Fxq 'installed SNV bundle is unsafe' "$root/unsafe.err"
+require_line "$root/zero.err" 'expected exactly one installed SNV bundle, found 0'
+require_line "$root/multiple.err" 'expected exactly one installed SNV bundle, found 2'
+require_line "$root/symlink.err" 'installed SNV bundle is unsafe'
+require_line "$root/unsafe.err" 'installed SNV bundle is unsafe'
 
 if "$repo/scripts/run-production-qualification.sh" \
   "$root/bin/pangopup" "$repo" "$root/data" "$root/cache" "$root/second-output" \
@@ -554,7 +559,7 @@ if "$repo/scripts/run-production-qualification.sh" \
   printf 'runner accepted existing XDG directories\n' >&2
   exit 1
 fi
-grep -Fxq 'qualification directories must be absent' "$root/fresh.err"
+require_line "$root/fresh.err" 'qualification directories must be absent'
 
 cp -a "$root/output" "$root/reused-online-output"
 sed -i 's/"installed"/"reused"/g' "$root/reused-online-output/sync-online.json"
@@ -562,7 +567,7 @@ if "$repo/scripts/check-production-qualification.py" "$root/reused-online-output
   printf 'checker accepted reused first online sync\n' >&2
   exit 1
 fi
-grep -Fxq 'unexpected snv state: sync-online.json' "$root/reused.err"
+require_line "$root/reused.err" 'unexpected snv state: sync-online.json'
 
 cp -a "$root/output" "$root/format-output"
 sed -i '1s/,/, /' "$root/format-output/snv-ENSG00000010610.jsonl"
@@ -570,7 +575,7 @@ if "$repo/scripts/check-production-qualification.py" "$root/format-output" "$rep
   printf 'checker accepted formatting drift\n' >&2
   exit 1
 fi
-grep -Fxq 'SNV oracle mismatch: ENSG00000010610' "$root/format.err"
+require_line "$root/format.err" 'SNV oracle mismatch: ENSG00000010610'
 
 cp -a "$root/output" "$root/progress-output"
 sed -i 's/(10 downloaded, 0 resumed)/(9 downloaded, 0 resumed)/' \
@@ -579,7 +584,7 @@ if "$repo/scripts/check-production-qualification.py" "$root/progress-output" "$r
   printf 'checker accepted progress/final mismatch\n' >&2
   exit 1
 fi
-grep -Fxq 'online sync progress totals do not match final JSON' "$root/progress.err"
+require_line "$root/progress.err" 'online sync progress totals do not match final JSON'
 
 cp -a "$root/output" "$root/progress-decrease-output"
 sed -i '0,/(10 downloaded, 0 resumed)/s//(11 downloaded, 0 resumed)/' \
@@ -588,7 +593,7 @@ if "$repo/scripts/check-production-qualification.py" "$root/progress-decrease-ou
   printf 'checker accepted transfer counters above completion\n' >&2
   exit 1
 fi
-grep -Fxq 'online sync progress counters decreased' "$root/progress-decrease.err"
+require_line "$root/progress-decrease.err" 'online sync progress counters decreased'
 
 cp -a "$root/output" "$root/progress-duplicate-output"
 tail -1 "$root/progress-duplicate-output/sync-online.progress" \
@@ -597,8 +602,8 @@ if "$repo/scripts/check-production-qualification.py" "$root/progress-duplicate-o
   printf 'checker accepted duplicate completion records\n' >&2
   exit 1
 fi
-grep -Fxq 'online sync progress lacks transfer or completion evidence' \
-  "$root/progress-duplicate.err"
+require_line "$root/progress-duplicate.err" \
+  'online sync progress lacks transfer or completion evidence'
 
 cp -a "$root/output" "$root/model-only-output"
 sed -i 's/"gain_score":"0.00"/"gain_score":"0.01"/' \
@@ -607,7 +612,7 @@ if "$repo/scripts/check-production-qualification.py" "$root/model-only-output" "
   printf 'checker accepted changed model-only result\n' >&2
   exit 1
 fi
-grep -Fxq 'model-only SNV oracle mismatch' "$root/model-only.err"
+require_line "$root/model-only.err" 'model-only SNV oracle mismatch'
 
 cp -a "$root/output" "$root/unnamed-output"
 sed -i 's/,"gene_names":{[^}]*}//g' "$root/unnamed-output/snv-ENSG00000010610.jsonl"
@@ -615,7 +620,7 @@ if "$repo/scripts/check-production-qualification.py" "$root/unnamed-output" "$re
   printf 'checker accepted a release that named no gene\n' >&2
   exit 1
 fi
-grep -Fxq 'the release named no gene in snv-ENSG00000010610.jsonl' "$root/unnamed.err"
+require_line "$root/unnamed.err" 'the release named no gene in snv-ENSG00000010610.jsonl'
 
 cp -a "$root/output" "$root/unnamed-model-output"
 sed -i 's/,"gene_names":{[^}]*}//g' "$root/unnamed-model-output/model-M09.jsonl"
@@ -623,7 +628,7 @@ if "$repo/scripts/check-production-qualification.py" "$root/unnamed-model-output
   printf 'checker accepted a model route that named no gene\n' >&2
   exit 1
 fi
-grep -Fxq 'the release named no gene in M09-insertion-short-plus' "$root/unnamed-model.err"
+require_line "$root/unnamed-model.err" 'the release named no gene in M09-insertion-short-plus'
 
 # Ticket 0054. A retained command-line score names the software that produced
 # it, so the release checker holds `provenance.software_version` to the same
@@ -639,8 +644,8 @@ if "$repo/scripts/check-production-qualification.py" "$root/unstamped-output" "$
   printf 'checker accepted a release that stamped no software version\n' >&2
   exit 1
 fi
-grep -Fxq 'the release stamped no software version in snv-ENSG00000010610.jsonl' \
-  "$root/unstamped.err"
+require_line "$root/unstamped.err" \
+  'the release stamped no software version in snv-ENSG00000010610.jsonl'
 
 # The stamp is on every printed line, not on one line of the file. A renderer
 # that named the software once and then stopped must fail here, so strip the
@@ -651,8 +656,8 @@ if "$repo/scripts/check-production-qualification.py" "$root/partly-stamped-outpu
   printf 'checker accepted a release that stamped only some of its printed lines\n' >&2
   exit 1
 fi
-grep -Fxq 'the release left a printed line without a software version in snv-ENSG00000010610.jsonl' \
-  "$root/partly-stamped.err"
+require_line "$root/partly-stamped.err" \
+  'the release left a printed line without a software version in snv-ENSG00000010610.jsonl'
 
 cp -a "$root/output" "$root/malformed-stamp-output"
 sed -i '1s/"software_version":"[^"]*"/"software_version":""/' \
@@ -661,8 +666,8 @@ if "$repo/scripts/check-production-qualification.py" "$root/malformed-stamp-outp
   printf 'checker accepted a malformed software version\n' >&2
   exit 1
 fi
-grep -Fxq 'software_version is not an exact removable field: snv-ENSG00000010610.jsonl:1' \
-  "$root/malformed-stamp.err"
+require_line "$root/malformed-stamp.err" \
+  'software_version is not an exact removable field: snv-ENSG00000010610.jsonl:1'
 
 cp -a "$root/output" "$root/wrong-stamp-output"
 sed -i '1s/"software_version":"[^"]*"/"software_version":"9.9.9"/' \
@@ -671,7 +676,7 @@ if "$repo/scripts/check-production-qualification.py" "$root/wrong-stamp-output" 
   printf 'checker accepted a software version this release is not\n' >&2
   exit 1
 fi
-grep -Fxq 'software version mismatch: snv-ENSG00000010610.jsonl:1' "$root/wrong-stamp.err"
+require_line "$root/wrong-stamp.err" 'software version mismatch: snv-ENSG00000010610.jsonl:1'
 
 # The checker takes the software version back out before it compares bytes, so
 # the strip has to be exactly as wide as the field. A strip that reached past
@@ -689,7 +694,7 @@ if require_checker_accepts strip-width-before "$root/strip-width-before-output" 
 fi
 # Any rejection proves the probe was not swallowed, so the message is held to
 # naming the record rather than to one of the checker's several refusals.
-grep -Fq 'ENSG00000010610' "$root/strip-width-before.err"
+require_text "$root/strip-width-before.err" 'ENSG00000010610'
 
 cp -a "$root/output" "$root/strip-width-after-output"
 sed -i '1s/\("software_version":"[^"]*"\)/\1,"drift_probe":true/' \
@@ -699,7 +704,7 @@ if require_checker_accepts strip-width-after "$root/strip-width-after-output" \
   printf 'checker swallowed a field printed after the software version\n' >&2
   exit 1
 fi
-grep -Fq 'ENSG00000010610' "$root/strip-width-after.err"
+require_text "$root/strip-width-after.err" 'ENSG00000010610'
 
 cp -a "$root/output" "$root/unstamped-model-output"
 sed -i 's/,"software_version":"[^"]*"//g' "$root/unstamped-model-output/model-M09.jsonl"
@@ -707,8 +712,8 @@ if "$repo/scripts/check-production-qualification.py" "$root/unstamped-model-outp
   printf 'checker accepted a model route that stamped no software version\n' >&2
   exit 1
 fi
-grep -Fxq 'the release stamped no software version in M09-insertion-short-plus' \
-  "$root/unstamped-model.err"
+require_line "$root/unstamped-model.err" \
+  'the release stamped no software version in M09-insertion-short-plus'
 
 cp -a "$root/output" "$root/unnamed-http-output"
 python3 - "$root/unnamed-http-output/http-snv.txt" <<'STRIPNAMES'
@@ -735,7 +740,7 @@ if "$repo/scripts/check-production-qualification.py" "$root/unnamed-http-output"
   printf 'checker accepted an HTTP response that named no gene\n' >&2
   exit 1
 fi
-grep -Fxq 'HTTP SNV named no gene' "$root/unnamed-http.err"
+require_line "$root/unnamed-http.err" 'HTTP SNV named no gene'
 
 cp -a "$root/output" "$root/http-output"
 sed -i 's/"version":"0.5.0"/"version":"9.9.9"/' "$root/http-output/http-status.txt"
@@ -743,7 +748,7 @@ if "$repo/scripts/check-production-qualification.py" "$root/http-output" "$repo"
   printf 'checker accepted changed HTTP status version\n' >&2
   exit 1
 fi
-grep -Fxq 'HTTP status response mismatch' "$root/http.err"
+require_line "$root/http.err" 'HTTP status response mismatch'
 
 cp -a "$root/output" "$root/http-model-only-output"
 sed -i 's/"gain_score":"0.00"/"gain_score":"0.01"/' \
@@ -752,7 +757,7 @@ if "$repo/scripts/check-production-qualification.py" "$root/http-model-only-outp
   printf 'checker accepted changed HTTP model-only SNV\n' >&2
   exit 1
 fi
-grep -Fxq 'HTTP model-only SNV response mismatch' "$root/http-model-only.err"
+require_line "$root/http-model-only.err" 'HTTP model-only SNV response mismatch'
 
 expect_http_contract_rejected() {
   local label=$1 file=$2 mutation=$3 expected=$4
@@ -983,14 +988,14 @@ if "$repo/scripts/check-production-qualification.py" "$root/truncated-output" "$
   printf 'checker accepted truncated output\n' >&2
   exit 1
 fi
-grep -Fxq 'SNV oracle mismatch: unfiltered' "$root/truncated.err"
+require_line "$root/truncated.err" 'SNV oracle mismatch: unfiltered'
 
 sed -i '0,/"gain_score":"0.00"/s//"gain_score":"0.99"/' "$root/output/snv-ENSG00000010610.jsonl"
 if "$repo/scripts/check-production-qualification.py" "$root/output" "$repo" >"$root/tamper.out" 2>"$root/tamper.err"; then
   printf 'checker accepted changed score\n' >&2
   exit 1
 fi
-grep -Fxq 'SNV oracle mismatch: ENSG00000010610' "$root/tamper.err"
+require_line "$root/tamper.err" 'SNV oracle mismatch: ENSG00000010610'
 
 fixture=$root/substituted-source/tests/fixtures
 install -d -m 700 "$fixture/snv-regression/expected" "$fixture/executable-release"
@@ -1004,7 +1009,7 @@ if "$repo/scripts/check-production-qualification.py" "$root/format-output" "$roo
   printf 'checker accepted substituted oracle\n' >&2
   exit 1
 fi
-grep -Fxq 'expected oracle identity mismatch: unfiltered' "$root/substitution.err"
+require_line "$root/substitution.err" 'expected oracle identity mismatch: unfiltered'
 
 cp "$repo/tests/fixtures/snv-regression/requests.tsv" "$fixture/snv-regression/requests.tsv"
 sed -i '$d' "$fixture/snv-regression/requests.tsv"
@@ -1012,7 +1017,7 @@ if "$repo/scripts/check-production-qualification.py" "$root/format-output" "$roo
   printf 'checker accepted truncated requests\n' >&2
   exit 1
 fi
-grep -Fxq 'request fixture identity mismatch' "$root/request.err"
+require_line "$root/request.err" 'request fixture identity mismatch'
 
 cp "$repo/tests/fixtures/snv-regression/requests.tsv" "$fixture/snv-regression/requests.tsv"
 cp "$repo/tests/fixtures/snv-regression/expected/unfiltered.jsonl" "$fixture/snv-regression/expected/unfiltered.jsonl"
@@ -1021,7 +1026,7 @@ if "$repo/scripts/check-production-qualification.py" "$root/format-output" "$roo
   printf 'checker accepted substituted model oracle\n' >&2
   exit 1
 fi
-grep -Fxq 'model oracle identity mismatch: M09-insertion-short-plus' "$root/model-substitution.err"
+require_line "$root/model-substitution.err" 'model oracle identity mismatch: M09-insertion-short-plus'
 
 awk '
   $0 == "<!-- BEGIN TICKET 038 COORDINATOR SCRIPT -->" { inside=1; next }
@@ -1038,19 +1043,19 @@ awk '
   END { if (!found) exit 1 }
 ' "$repo/planning/artifacts/050-public-linux-release.md" >"$root/ticket050-runbook.sh"
 bash -n "$root/ticket050-runbook.sh"
-grep -Fq 'readonly TAG=v0.2.0' "$root/ticket050-runbook.sh"
-grep -Fq '"$SOURCE_TREE/scripts/qualify-linux-release.sh" "$PRIVATE/release" "$VERSION" "$COMMIT"' "$root/ticket050-runbook.sh"
-[[ $(grep -Fc 'run-production-qualification.sh' "$root/ticket050-runbook.sh") == 3 ]]
-[[ $(grep -Fc -- '--reuse-installed' "$root/ticket050-runbook.sh") == 2 ]]
-grep -Fq 'gh api --method PATCH "repos/$REPO/releases/$RELEASE_ID" -F draft=false' "$root/ticket050-runbook.sh"
-grep -Fq 'PUBLISHED=1' "$root/ticket050-runbook.sh"
-grep -Fq 'https://raw.githubusercontent.com/genomoncology/pangopup/v0.2.0/install.sh' "$root/ticket050-runbook.sh"
-grep -Fq 'repos/$REPO/actions/workflows/package-linux.yml' "$root/ticket050-runbook.sh"
-grep -Fq 'ARTIFACT_ID=$(jq -r .artifacts[0].id "$PRIVATE/artifacts.json")' "$root/ticket050-runbook.sh"
-grep -Fq 'exec {UPLOAD_FD}<"$source_path"' "$root/ticket050-runbook.sh"
-grep -Fq 'sha256sum "/proc/self/fd/$UPLOAD_FD"' "$root/ticket050-runbook.sh"
-grep -Fq 'https://github.com/$REPO/releases/download/$TAG/$name' "$root/ticket050-runbook.sh"
-[[ $(grep -Fc 'curl -q -fsSL' "$root/ticket050-runbook.sh") == 5 ]]
+require_text "$root/ticket050-runbook.sh" 'readonly TAG=v0.2.0'
+require_text "$root/ticket050-runbook.sh" '"$SOURCE_TREE/scripts/qualify-linux-release.sh" "$PRIVATE/release" "$VERSION" "$COMMIT"'
+equal 'the number of qualification runs the runbook records' 3 "$(grep -Fc 'run-production-qualification.sh' "$root/ticket050-runbook.sh")"
+equal 'the number of runbook qualification runs that reuse the installed release' 2 "$(grep -Fc -- '--reuse-installed' "$root/ticket050-runbook.sh")"
+require_text "$root/ticket050-runbook.sh" 'gh api --method PATCH "repos/$REPO/releases/$RELEASE_ID" -F draft=false'
+require_text "$root/ticket050-runbook.sh" 'PUBLISHED=1'
+require_text "$root/ticket050-runbook.sh" 'https://raw.githubusercontent.com/genomoncology/pangopup/v0.2.0/install.sh'
+require_text "$root/ticket050-runbook.sh" 'repos/$REPO/actions/workflows/package-linux.yml'
+require_text "$root/ticket050-runbook.sh" 'ARTIFACT_ID=$(jq -r .artifacts[0].id "$PRIVATE/artifacts.json")'
+require_text "$root/ticket050-runbook.sh" 'exec {UPLOAD_FD}<"$source_path"'
+require_text "$root/ticket050-runbook.sh" 'sha256sum "/proc/self/fd/$UPLOAD_FD"'
+require_text "$root/ticket050-runbook.sh" 'https://github.com/$REPO/releases/download/$TAG/$name'
+equal 'the number of runbook downloads that read no operator curl configuration' 5 "$(grep -Fc 'curl -q -fsSL' "$root/ticket050-runbook.sh")"
 refuse_text "$root/ticket050-runbook.sh" 'curl -fsSL' 'a download that does not disable the curl config file'
 refuse_text "$repo/planning/artifacts/050-public-linux-release.md" 'GH_TOKEN=' 'a credential written into the published runbook'
 refuse_text "$repo/planning/artifacts/050-public-linux-release.md" 'GITHUB_TOKEN=' 'a credential written into the published runbook'
@@ -1122,21 +1127,21 @@ if assert_ownership_contract "$root/unsafe-chown-runbook.sh"; then
 fi
 
 image=ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
-[[ "$(grep -Fc "$image" "$repo/planning/artifacts/038-public-linux-release.md")" == 4 ]]
-grep -Fq 'build runner: GitHub-hosted Ubuntu 24.04' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'admitted maximum imported GLIBC version: `2.39`' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'package run `30648307402` failed while linking' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'Package run `30651619497` passed the full gate' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'Package run `30652858960` then redundantly reran the full' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'Package run `30653836700` built the release executables' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'exactly one corrected dispatch is permitted' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'State: **COMPLETE — immutable public release `v0.1.0` targets reviewed commit' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'Target `ci` run ID/URL: `30657770808`' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'Workflow run ID/URL: `30657987617`' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'Draft/release ID: `363278563`' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'checksum-verifying tagged installer are shipped' "$repo/AGENTS.md"
+equal 'the number of times the release record names the pinned build image' 4 "$(grep -Fc "$image" "$repo/planning/artifacts/038-public-linux-release.md")"
+require_text "$repo/planning/artifacts/038-public-linux-release.md" 'build runner: GitHub-hosted Ubuntu 24.04'
+require_text "$repo/planning/artifacts/038-public-linux-release.md" 'admitted maximum imported GLIBC version: `2.39`'
+require_text "$repo/planning/artifacts/038-public-linux-release.md" 'package run `30648307402` failed while linking'
+require_text "$repo/planning/artifacts/038-public-linux-release.md" 'Package run `30651619497` passed the full gate'
+require_text "$repo/planning/artifacts/038-public-linux-release.md" 'Package run `30652858960` then redundantly reran the full'
+require_text "$repo/planning/artifacts/038-public-linux-release.md" 'Package run `30653836700` built the release executables'
+require_text "$repo/planning/artifacts/038-public-linux-release.md" 'exactly one corrected dispatch is permitted'
+require_text "$repo/planning/artifacts/038-public-linux-release.md" 'State: **COMPLETE — immutable public release `v0.1.0` targets reviewed commit'
+require_text "$repo/planning/artifacts/038-public-linux-release.md" 'Target `ci` run ID/URL: `30657770808`'
+require_text "$repo/planning/artifacts/038-public-linux-release.md" 'Workflow run ID/URL: `30657987617`'
+require_text "$repo/planning/artifacts/038-public-linux-release.md" 'Draft/release ID: `363278563`'
+require_text "$repo/AGENTS.md" 'checksum-verifying tagged installer are shipped'
 refuse_text "$repo/AGENTS.md" 'public executable publication remains a separate ticket' 'language deferring a publication that has already happened'
-grep -Fq 'passes that exact bundle path explicitly to each of the seven ordered' "$repo/planning/artifacts/038-public-linux-release.md"
-grep -Fq 'M09 model request deliberately has no `--bundle`' "$repo/planning/artifacts/038-public-linux-release.md"
+require_text "$repo/planning/artifacts/038-public-linux-release.md" 'passes that exact bundle path explicitly to each of the seven ordered'
+require_text "$repo/planning/artifacts/038-public-linux-release.md" 'M09 model request deliberately has no `--bundle`'
 
 printf 'production release qualification tests passed\n'

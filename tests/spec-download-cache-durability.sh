@@ -17,6 +17,13 @@ set -euo pipefail
 # removes. Nothing here downloads anything: the proof is where the cache
 # resolves to, which is what decides whether the download happens at all.
 #
+# The recipe is not the only thing that empties a directory. `cargo clean`
+# removes all of `target/`, it is the command an operator runs before a
+# rebuild, and a rebuild is what refills this cache -- so a library kept under
+# the build directory is fetched again over the network for exactly the reason
+# this rule exists. The build directory is therefore read as a directory the
+# recipe removes, whether or not the recipe names it.
+#
 # `ort-sys` 2.0.0-rc.12 resolves it in `src/internal/dirs.rs` as `ORT_CACHE_DIR`
 # when that is set, otherwise the platform default: on Linux `XDG_CACHE_HOME`
 # when it is an absolute path and `$HOME/.cache/ort.pyke.io` otherwise, and on
@@ -237,6 +244,18 @@ makefile_holds() {
                 refused=1
             done <<<"$removed"
 
+            # The build directory, which no recipe here has to name. `cargo
+            # clean` collects all of it, and the run after that clean rebuilds
+            # `ort-sys` and pays the download again. `$root/target` rather
+            # than any path spelling `target/`: a `target/` belonging to
+            # another tree survives a clean run here, and a sibling named
+            # `target-library` is not the build directory at all.
+            if inside "$resolved" "$root/target"; then
+                printf 'the %s recipe in %s points the downloaded ONNX Runtime library cache at %s, inside the build directory: cargo clean collects all of %s, and the next run that rebuilds ort-sys fetches that library again over the network\n' \
+                    "$target" "$relative" "$resolved" "$root/target" >&2
+                refused=1
+            fi
+
             # One recipe, one library cache. A line that resolves somewhere
             # else builds against a cache the rest of the recipe does not fill,
             # so it downloads the library again whenever that other cache is
@@ -294,7 +313,7 @@ plant() {
                 printf '\tXDG_CACHE_HOME= HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
             durable)
                 printf '\trm -rf target/spec-cache\n'
-                printf '\tORT_CACHE_DIR="$(CURDIR)/target/ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
+                printf '\tORT_CACHE_DIR="$(CURDIR)/.ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
             relative-ort)
                 printf '\trm -rf target/spec-cache\n'
                 printf '\tORT_CACHE_DIR=target/spec-cache/ort XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
@@ -303,21 +322,27 @@ plant() {
                 printf '\tORT_CACHE_DIR="$$PWD/target/spec-cache/ort" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
             removes-elsewhere)
                 printf '\trm -rf target/spec-cache\n'
-                printf '\tORT_CACHE_DIR="$(CURDIR)/target/ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/ort-cache-not" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
+                printf '\tORT_CACHE_DIR="$(CURDIR)/.ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/ort-cache-not" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
             env-home-ort)
                 printf '\trm -rf .caller-home\n'
                 printf '\tenv ORT_CACHE_DIR="$$HOME/.cache/ort.pyke.io" cargo build --locked\n' ;;
+            build-directory)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/target/ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
+            sibling-directory)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/target-library/ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
             not-recursive)
                 printf '\trm -f target/spec-cache/stamp\n'
                 printf '\tXDG_CACHE_HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
             split)
                 printf '\tcargo build --locked\n'
                 printf '\trm -rf target/spec-cache\n'
-                printf '\tORT_CACHE_DIR="$(CURDIR)/target/ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
+                printf '\tORT_CACHE_DIR="$(CURDIR)/.ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
             joined)
-                printf '\tenv ORT_CACHE_DIR="$(CURDIR)/target/ort-cache" cargo build --locked\n'
+                printf '\tenv ORT_CACHE_DIR="$(CURDIR)/.ort-cache" cargo build --locked\n'
                 printf '\trm -rf target/spec-cache\n'
-                printf '\tORT_CACHE_DIR="$(CURDIR)/target/ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
+                printf '\tORT_CACHE_DIR="$(CURDIR)/.ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
         esac
     } >"$tree/Makefile"
 }
@@ -368,6 +393,18 @@ expect_refusal 'fetches that library again' "$work/home-fallback"
 # on every machine, which is the one thing the stand-in exists to stop.
 plant "$work/env-home-ort" env-home-ort
 expect_refusal 'fetches that library again' "$work/env-home-ort"
+
+# A cache the recipe itself never removes, standing in the build directory.
+# Nothing in this repository removes it either -- and `cargo clean` removes all
+# of it, which is what makes the library a download the next build pays for.
+plant "$work/build-directory" build-directory
+expect_refusal 'cargo clean collects all of' "$work/build-directory"
+
+# A sibling whose name begins with the build directory's is not inside it, and
+# a rule that read the letters rather than the boundary would refuse this one.
+plant "$work/sibling-directory" sibling-directory
+expect_acceptance 'the rule refused a downloaded-library cache in a sibling directory whose name merely begins with the build directory name' \
+    "$work/sibling-directory"
 
 # `rm -f` on one file removes no directory, so there is nothing for this rule
 # to refuse and an exemption wider than that would refuse the whole recipe.

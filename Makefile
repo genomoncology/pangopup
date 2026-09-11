@@ -72,9 +72,29 @@ endif
 # cache directory it resolves, which on Linux is `XDG_CACHE_HOME`. Left
 # unnamed, that library would land in `target/spec-cache` and be removed before
 # every run, so any run that rebuilt `ort-sys` would fetch it again over the
-# network. It is pointed at `target/ort-cache` instead: outside every directory
-# this recipe removes, collected by `cargo clean`, and held by
-# `tests/spec-download-cache-durability.sh`.
+# network.
+#
+# It is pointed at `$$HOME/.cache/ort.pyke.io`: the directory `ort-sys` itself
+# resolves on Linux when nothing names one, which is where `make lint` and
+# `make test` already keep that library. One copy on the machine therefore
+# serves every gate, and the recipe writes into it rather than beside it. The
+# alternative -- a cache of its own under the checkout -- costs a second 87 MB
+# copy and a first `make spec` that pays the download again, and this recipe
+# already pins `CARGO_HOME` and `RUSTUP_HOME` to the operator's own for the
+# same reason: a downloaded build input is not what the private cache home
+# isolates. Nothing here removes that directory, and the model cache home
+# below is still emptied on every run.
+#
+# `target/ort-cache` is what it named before, and `cargo clean` collects all of
+# `target/` -- so the run after a routine clean paid the 87 MB again.
+# `tests/spec-download-cache-durability.sh` holds both halves: outside every
+# directory this recipe removes, and outside the build directory.
+#
+# On macOS `ort-sys` resolves `$$HOME/Library/Caches/ort.pyke.io` instead, so
+# `make spec` there keeps a second copy under `$$HOME/.cache/ort.pyke.io`. That
+# copy is durable and shared between `make spec` runs; the gates that need a
+# real production release are Linux-only, and naming one directory keeps the
+# recipe readable by the rule that holds it.
 #
 # It is named on both lines that build, not only on the line that runs the spec
 # suite. The suite builds through `scripts/spec-cargo-test.sh` and the first
@@ -84,10 +104,10 @@ endif
 # `XDG_CACHE_HOME` wrote 90647244 bytes there from the first line, which is the
 # download this recipe exists to stop paying.
 spec:          ## outside-in CLI contracts
-	env ORT_CACHE_DIR="$(CURDIR)/target/ort-cache" cargo build --locked --quiet --package pangopup-cli --package pangopup-build
+	env ORT_CACHE_DIR="$$HOME/.cache/ort.pyke.io" cargo build --locked --quiet --package pangopup-cli --package pangopup-build
 	rm -rf target/spec-cache
 	install -d -m 700 target/spec-cache
-	env -u PANGOPUP_MODEL_CACHE -u PANGOPUP_CACHE_DIR -u PANGOPUP_DATA_DIR -u PANGOPUP_MODEL_CACHE_MAX_ENTRIES CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" ORT_CACHE_DIR="$(CURDIR)/target/ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/debug:$$PATH" mustmatch test $(SPEC_PATHS)
+	env -u PANGOPUP_MODEL_CACHE -u PANGOPUP_CACHE_DIR -u PANGOPUP_DATA_DIR -u PANGOPUP_MODEL_CACHE_MAX_ENTRIES CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" ORT_CACHE_DIR="$$HOME/.cache/ort.pyke.io" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/debug:$$PATH" mustmatch test $(SPEC_PATHS)
 
 # Maintainer-run. This target reaches the network. No gate invokes it. It is
 # defined after the gates so that no gate recipe can name it.

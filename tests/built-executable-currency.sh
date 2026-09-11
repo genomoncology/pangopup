@@ -47,7 +47,23 @@ fail() { printf 'built executable currency: %s\n' "$*" >&2; exit 1; }
 # fail in. `code_lines` drops the comment lines instead, and the fixture below
 # holds both directions.
 use_pattern='target/debug/[A-Za-z]'
-build_pattern='scripts/require-built-commands\.sh'
+
+# A mention of the build script is not a call of it. The path stands in a
+# `printf` argument in three lines of `tests/shell-spawn-cache-isolation.sh`,
+# which write it into a fixture they are about to read, and a text match over
+# the line reads the lowest of those as the build -- so a harness whose real
+# build stands below its first use, or which builds nothing at all, is
+# accepted. This pattern asks where the path stands instead: as the command
+# word, as what `bash`, `sh`, `source` or `.` is given to run, or as the value
+# of an assignment run through its variable afterwards. Each of those hands
+# somebody a build; a mention hands nobody one.
+#
+# The use side deliberately keeps its plain text match. A mention of the built
+# executable counts as a use, because demanding a build from a harness that
+# only names the path refuses a harness that runs nothing -- the direction this
+# gate is allowed to be wrong in -- while excusing one is the direction it
+# cannot be.
+build_pattern='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=)?(\$\()?((bash|sh|source|\.)[[:space:]]+)?"?[^"[:space:]]*scripts/require-built-commands\.sh'
 
 # The line numbers in $1 matching the extended pattern $2, lowest first. A
 # whole-line comment is commentary rather than code and never matches.

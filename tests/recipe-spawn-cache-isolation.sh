@@ -11,8 +11,9 @@ set -euo pipefail
 # What keeps `make spec` off the operator's cache today is one assignment in
 # that recipe. It is correct as far as it goes, and no check reads it: `HOME`
 # is not moved beside it, so a spec block that cleared `XDG_CACHE_HOME` would
-# fall back to the home directory of whoever ran `make spec`, and the three
-# variables that name a cache location outright are inherited whole.
+# fall back to the home directory of whoever ran `make spec`, and the four
+# variables that decide what the model cache is and what it holds are
+# inherited whole.
 #
 # This file reads those three routes. It is the same rule the siblings hold,
 # applied to the files they cannot see, and it counts what it read so a pattern
@@ -34,9 +35,20 @@ run="target/(debug|release)/pangopup([^-]|\$)|--bin[[:space:]=]+pangopup([^-]|\$
 # on `PATH` and calling it by bare name, which is what the `spec` recipe does.
 recipe_run="$run|PATH[^#]*target/(debug|release)"
 
-# The three variables that name a cache location outright, each read ahead of
-# `XDG_CACHE_HOME` and `HOME`.
-named_locations=(PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR)
+# The four variables a run of the built executable must not inherit from
+# whoever started the recipe. Three of them name a cache location outright and
+# are read ahead of `XDG_CACHE_HOME` and `HOME`. The fourth names no location:
+# `PANGOPUP_MODEL_CACHE_MAX_ENTRIES` says how many rows the cache the recipe
+# gave the run may keep, so an operator who exported it decides what a gate
+# under a private cache home measures, and a value the product cannot parse
+# stops the run outright. Both are the same defect -- the operator's
+# environment reaching into a run that is supposed to stand on its own -- so
+# both are held here.
+#
+# The first two names share a prefix, and the match below asks for a character
+# that cannot continue an identifier after each name so that dropping the
+# longer one is not read as dropping the shorter.
+named_locations=(PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES)
 
 fail() { printf 'recipe spawn cache isolation: %s\n' "$*" >&2; exit 1; }
 
@@ -70,8 +82,8 @@ owned_location() {
 # --- the three rules --------------------------------------------------------
 
 # A recipe line that reaches the executable gives the run a cache home under
-# the repository's own build directory, both variables, and drops every
-# inherited variable that names a cache location outright.
+# the repository's own build directory, both variables, and drops every one of
+# the four inherited variables above.
 makefile_holds() {
     local makefile=$1 relative=$2 line number text refused=0 matched=0
     [[ -f "$makefile" ]] || { printf 'no %s to read\n' "$relative" >&2; return 1; }
@@ -106,7 +118,7 @@ makefile_holds() {
         done
         for name in "${named_locations[@]}"; do
             grep -qE -- "-u[[:space:]=]+$name([^_]|\$)|(^|[[:space:]])$name=\"?\\\$\\(CURDIR\\)/target/" <<<"$text" && continue
-            printf 'this recipe reaches the built executable with %s inherited, and that variable names a cache location outright and is read ahead of XDG_CACHE_HOME: %s:%s\n' \
+            printf 'this recipe reaches the built executable with %s inherited, so the operator who exported it decides where that run keeps its model cache or how much of it the run may keep: %s:%s\n' \
                 "$name" "$relative" "$number" >&2
             refused=1
         done
@@ -234,9 +246,15 @@ plant_makefile() {
             homes-only)
                 printf '\tXDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' debug ;;
             unpinned)
-                printf '\tenv -u %s -u %s -u %s XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
-                    PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR debug ;;
+                printf '\tenv -u %s -u %s -u %s -u %s XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
+                    PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
             held)
+                printf '\tenv -u %s -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
+                    PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
+            longer-only)
+                printf '\tenv -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
+                    PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
+            limit-inherited)
                 printf '\tenv -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
                     PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR debug ;;
             quiet)
@@ -244,8 +262,8 @@ plant_makefile() {
             package-run)
                 printf '\tcargo run --locked --package %s -- lookup --help\n' "$package" ;;
             elsewhere)
-                printf '\tenv -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME=/home/someone/target/c HOME=/home/someone/target/h PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
-                    PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR debug ;;
+                printf '\tenv -u %s -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME=/home/someone/target/c HOME=/home/someone/target/h PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
+                    PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
         esac
     } >"$tree/Makefile"
 }
@@ -278,14 +296,15 @@ plant_python() {
                 printf 'def go():\n    subprocess.run([repo / "target/%s/pangopup", "--version"])\n' release ;;
             commented)
                 printf 'def go():\n'
-                printf '    # %s %s %s %s %s\n' \
-                    XDG_CACHE_HOME HOME PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR
+                printf '    # %s %s %s %s %s %s\n' \
+                    XDG_CACHE_HOME HOME PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR \
+                    PANGOPUP_MODEL_CACHE_MAX_ENTRIES
                 printf '    subprocess.run([repo / "target/%s/pangopup", "--version"])\n' release ;;
             held)
                 printf 'def go():\n'
                 printf '    environment = dict(os.environ)\n'
-                printf '    for name in ("%s", "%s", "%s"):\n' \
-                    PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR
+                printf '    for name in ("%s", "%s", "%s", "%s"):\n' \
+                    PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES
                 printf '        environment.pop(name, None)\n'
                 printf '    environment["XDG_CACHE_HOME"] = str(home)\n'
                 printf '    environment["HOME"] = str(home)\n'
@@ -347,6 +366,19 @@ expect_refusal 'into the build directory' makefile_holds "$fixtures/elsewhere/Ma
 # them sends a rustup shim to the network for the whole toolchain.
 plant_makefile "$fixtures/unpinned" unpinned
 expect_refusal 'without pinning CARGO_HOME' makefile_holds "$fixtures/unpinned/Makefile" Makefile
+
+# The mirror of the shape above, and the reason the entry limit needs a
+# fixture. `PANGOPUP_MODEL_CACHE_MAX_ENTRIES` contains `PANGOPUP_MODEL_CACHE`,
+# so a recipe dropping only the longer name would satisfy a plain search for
+# the shorter one. This one drops the longer and nothing else, and has to be
+# refused for the shorter.
+plant_makefile "$fixtures/longer-only" longer-only
+expect_refusal 'with PANGOPUP_MODEL_CACHE inherited' makefile_holds "$fixtures/longer-only/Makefile" Makefile
+
+# And the other direction: dropping the three older names leaves the run
+# whatever limit the operator exported.
+plant_makefile "$fixtures/limit-inherited" limit-inherited
+expect_refusal 'with PANGOPUP_MODEL_CACHE_MAX_ENTRIES inherited' makefile_holds "$fixtures/limit-inherited/Makefile" Makefile
 
 plant_makefile "$fixtures/held" held
 expect_acceptance 'the scanner refused a recipe that moves both homes, pins both toolchain homes and drops every named cache location, so it refuses the shape it exists to require' \
