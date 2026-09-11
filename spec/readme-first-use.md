@@ -25,7 +25,7 @@ has stopped saying anything.
 The trade, stated once so that nobody plans against a stale number. The README
 measures 271 lines and 1,829 words and the figures say exactly that. Nothing
 stands unclaimed, so the link is paid for in full. The sentence carrying it
-runs to seventeen words, and wherever it stands it costs lines as well as
+runs to eighteen words, and wherever it stands it costs lines as well as
 words. The guide gives up both, in the same commit as the addition. A reader
 then sees what was traded for what.
 
