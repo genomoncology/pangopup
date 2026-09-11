@@ -96,7 +96,9 @@ while IFS= read -r path; do shell_files+=("$path"); done < <(
     printf '%s\n' "$repository/install.sh"
 )
 
-scan_files() { awk "$scan" "$@" 2>"$work/bare"; }
+# `</dev/null` matters: awk with no file operands reads standard input, so a
+# scan that found no file would block for ever instead of refusing.
+scan_files() { awk "$scan" "$@" </dev/null 2>"$work/bare"; }
 
 read -r scanned statements negations bare < <(scan_files "${shell_files[@]}")
 
@@ -257,8 +259,10 @@ for name in "${harnesses[@]}"; do
 done
 
 # The file the call reads, named on the call line or through a variable the same
-# harness assigns. A path built from a temporary directory the harness makes at
-# run time does not resolve, and only the reintroduction below is proved for it.
+# harness assigns. A path a harness builds while it runs does not resolve, and
+# only the reintroduction below is proved for it. `target/` is refused even when
+# a previous run left something there, so this reads what the repository ships
+# and reads the same thing on a machine that has never built.
 resolve_target() {
     local harness=$1 head=$2 expression variable value rounds=0
     expression=$({ grep -oE '"[^"]*"[[:space:]]*$' <<<"$head" || true; } | tail -n 1)
@@ -282,6 +286,9 @@ resolve_target() {
         expression=${expression//\$\{$variable\}/$value}
         expression=${expression//\$$variable/$value}
     done
+    case "$expression" in
+        "$repository"/target/*) return 1 ;;
+    esac
     printf '%s\n' "$expression"
 }
 
@@ -298,7 +305,7 @@ while IFS="$unit" read -r harness head text description; do
     # time has no file to copy, so it is put back into a file of its own.
     reintroduced="$work/reintroduced"
     if target=$(resolve_target "$harness" "$head") && [[ -f "$target" ]]; then
-        printf '%s\n' "${target#"$repository"/}" >>"$resolved_targets"
+        printf '%s%s%s\n' "$text" "$unit" "${target#"$repository"/}" >>"$resolved_targets"
 
         # The file as it ships is accepted, so the refusal below is the
         # reintroduction and not a mechanism that refuses everything.
@@ -309,6 +316,7 @@ while IFS="$unit" read -r harness head text description; do
         cp "$target" "$reintroduced"
         printf '%s\n' "$text" >>"$reintroduced"
     else
+        printf '%s%s\n' "$text" "$unit" >>"$resolved_targets"
         printf 'a line before\n%s\na line after\n' "$text" >"$reintroduced"
     fi
 
@@ -323,43 +331,58 @@ done <"$ledger"
 
 # --- 5. the gates still forbid what they forbid today ----------------------
 #
-# Every text the two harnesses forbade on 2026-09-10, so the repair cannot be
-# bought by forbidding less than the gates forbid now.
-for forbidden in \
-    'contents: write' \
-    'attest' \
-    'release create' \
-    'release upload' \
-    'GRCh38:chr12:6801301:G:A' \
-    'GRCh38:chr1:5051:A:AC' \
-    'make lint' \
-    'make test' \
-    'make spec' \
-    'Install gate prerequisites' \
-    'mustmatch' \
-    'cargo-deny' \
-    'ripgrep' \
-    'runs-on: ubuntu-22.04' \
-    '"$maximum" 2.35' \
-    'Add Pangopup to PATH' \
-    'orgs/genomoncology/packages/container/pangopup' \
-    'curl -fsSL' \
-    'GH_TOKEN=' \
-    'GITHUB_TOKEN=' \
-    'Authorization:' \
-    'public executable publication remains a separate ticket'; do
+# Every text the two harnesses forbade on 2026-09-10, beside the file it is
+# forbidden in, so the repair cannot be bought by forbidding less -- or by
+# leaving a text guarded while pointing it at a file nobody cares about.
+# Pointing `runs-on: ubuntu-22.04` at `AGENTS.md` leaves the packaging
+# workflow's runner image unguarded while every count still adds up, so the
+# pair is what is held here rather than the text on its own.
+#
+# Two texts have no shipped file to name: their gate reads a file the harness
+# builds while it runs, and section 4 proves only the refusal for those. They
+# are written with an empty file, so that exemption is counted rather than
+# implied and a third one appearing is a change this list has to be told about.
+for pair in \
+    $'contents: write\t.github/workflows/package-linux.yml' \
+    $'attest\t.github/workflows/package-linux.yml' \
+    $'release create\t.github/workflows/package-linux.yml' \
+    $'release upload\t.github/workflows/package-linux.yml' \
+    $'GRCh38:chr12:6801301:G:A\t.github/workflows/package-linux.yml' \
+    $'GRCh38:chr1:5051:A:AC\t.github/workflows/package-linux.yml' \
+    $'make lint\t.github/workflows/package-linux.yml' \
+    $'make test\t.github/workflows/package-linux.yml' \
+    $'make spec\t.github/workflows/package-linux.yml' \
+    $'Install gate prerequisites\t.github/workflows/package-linux.yml' \
+    $'mustmatch\t.github/workflows/package-linux.yml' \
+    $'cargo-deny\t.github/workflows/package-linux.yml' \
+    $'ripgrep\t.github/workflows/package-linux.yml' \
+    $'runs-on: ubuntu-22.04\t.github/workflows/package-linux.yml' \
+    $'"$maximum" 2.35\tscripts/qualify-linux-release.sh' \
+    $'orgs/genomoncology/packages/container/pangopup\tplanning/artifacts/055-public-v0.3.0.md' \
+    $'GH_TOKEN=\tplanning/artifacts/050-public-linux-release.md' \
+    $'GITHUB_TOKEN=\tplanning/artifacts/050-public-linux-release.md' \
+    $'Authorization:\tplanning/artifacts/050-public-linux-release.md' \
+    $'public executable publication remains a separate ticket\tAGENTS.md' \
+    $'Add Pangopup to PATH\t' \
+    $'curl -fsSL\t'; do
+    forbidden=${pair%%$'\t'*}
+    in_file=${pair#*$'\t'}
     found=0
-    while IFS="$unit" read -r _ _ text _; do
+    while IFS="$unit" read -r text target; do
         case "$text" in
-            *"$forbidden"*) found=1 ;;
+            *"$forbidden"*) [[ "$target" == "$in_file" ]] && found=1 ;;
         esac
-    done <"$ledger"
-    [[ "$found" == 1 ]] \
-        || fail "no gate forbids '$forbidden' any more, so it can come back without a gate noticing"
+    done <"$resolved_targets"
+    if [[ "$found" != 1 ]]; then
+        if [[ -n "$in_file" ]]; then
+            fail "no gate forbids '$forbidden' in $in_file any more, so it can come back there without a gate noticing"
+        fi
+        fail "no gate forbids '$forbidden' any more, so it can come back without a gate noticing"
+    fi
 done
 
 # The shipped files the gates protect. A repair that pointed every forbidden
-# text at a file the harness builds at run time would pass section 4 without
+# text at a file the harness builds while it runs would pass section 4 without
 # ever reading what ships.
 for protected in \
     '.github/workflows/package-linux.yml' \
@@ -367,7 +390,7 @@ for protected in \
     'planning/artifacts/050-public-linux-release.md' \
     'planning/artifacts/055-public-v0.3.0.md' \
     'AGENTS.md'; do
-    grep -Fqx "$protected" "$resolved_targets" \
+    cut -d"$unit" -f2 "$resolved_targets" | grep -Fqx "$protected" \
         || fail "no gate forbids anything in $protected any more, so nothing reads what that file ships"
 done
 
