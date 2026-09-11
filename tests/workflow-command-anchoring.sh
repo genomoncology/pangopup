@@ -35,8 +35,10 @@ set -euo pipefail
 #   A command stands in code when the workflow holds a line matching
 #   `^[^#]*<command>` -- no `#` before the match. That is ticket 0050's rule,
 #   so a full-line comment and a trailing comment on a live line are both
-#   refused. On refusal the message names the command and the workflow file and
-#   the status is non-zero.
+#   refused. The command text is matched literally: a `.` in a version number
+#   matches a `.` and nothing else, so the anchoring never exempts more than the
+#   command it names. On refusal the message names the command and the workflow
+#   file and the status is non-zero.
 #
 # What this does not prove: that the workflow is valid YAML, that the step the
 # command sits in is reached, or that the command does what its name says.
@@ -131,6 +133,19 @@ jobs:
         run: scripts/ship.sh
 YML
 
+# A near miss for a command carrying regex metacharacters. `0.5.9` read as a
+# pattern rather than as text matches this line, which exempts a version the
+# gate never named.
+near="$work/near.yml"
+cat >"$near" <<'YML'
+name: fixture
+jobs:
+  gate:
+    steps:
+      - name: Install the SBOM tool
+        run: cargo install --locked --version 0X5Y9 cargo-cyclonedx
+YML
+
 build='cargo build --locked --release --package pangopup-cli'
 
 require_status=0
@@ -168,24 +183,37 @@ run_require "$beside" "$build"
 [[ "$require_status" == 0 ]] \
     || fail "the mechanism refused a command that stands in code beside a comment repeating it: $require_error"
 
+run_require "$near" 'cargo install --locked --version 0.5.9 cargo-cyclonedx'
+[[ "$require_status" != 0 ]] \
+    || fail 'the mechanism read the command as a pattern rather than as text, so it accepts a line the gate never named'
+
 # --- 3. every guarded command, commented out in turn -----------------------
 #
 # The pairs are read out of the harnesses, so a command that stops being
 # guarded stops being proved here too and the required set below notices.
 ledger="$work/ledger"
+unparsed="$work/unparsed"
 unit=$(printf '\037')
 : >"$ledger"
+: >"$unparsed"
 for name in "${harnesses[@]}"; do
-    awk -v harness="$name" '
+    awk -v harness="$name" -v unparsed="$unparsed" '
         /^[^#]*require_workflow_command/ {
             quote = sprintf("%c", 39)
             unit = sprintf("%c", 31)
             n = split($0, field, quote)
-            if (n < 3) { next }
+            if (n < 3) { printf "%s:%d: %s\n", harness, NR, $0 >> unparsed; next }
             printf "%s%s%s%s%s%s%s\n", harness, unit, field[1], unit, field[2], unit, (n >= 5) ? field[4] : ""
         }
     ' "$repository/tests/$name" >>"$ledger"
 done
+
+# A call this scan cannot decompose is the way a command goes unproved while the
+# run still reports a total: the scan would skip it and say nothing. Refuse
+# instead, so the guarded set is the set this file proves.
+if [[ -s "$unparsed" ]]; then
+    fail "a require_workflow_command call is written in a form this scan cannot read, so the command it guards would never be commented out here: $(tr '\n' ' ' <"$unparsed")"
+fi
 
 # The workflow the call reads, named on the call line or through a variable the
 # same harness assigns. Resolved rather than assumed, so the file this scan
@@ -260,17 +288,23 @@ done <"$ledger"
 # --- 4. the commands that decide what ships are among them -----------------
 #
 # The ARM64 cross-compile and the release build are the two the gates exist
-# for. The rest of this list is the other commands those gates already claim
-# the workflows run; each has to keep being guarded, so the anchoring cannot be
-# bought by guarding less.
+# for. The rest of this list is every other command those gates claim the
+# workflows run today, counted out of `tests/ci-platform-support.sh` and the
+# `package-linux.yml` block of `tests/executable-delivery.sh` on 2026-09-10.
+# Each has to keep being guarded, so the anchoring cannot be bought by guarding
+# less than the gates guard now.
 for fragment in \
     'sudo apt-get update' \
     'sudo apt-get install --yes gcc-aarch64-linux-gnu' \
     'cargo check --locked --target aarch64-unknown-linux-gnu --package pangopup-cli' \
     'scripts/run-linux-tests-with-public-failure.sh' \
+    'git merge-base --is-ancestor' \
+    'git diff --cached --quiet' \
+    'cargo fetch --locked' \
     'cargo build --locked --release --package pangopup-cli' \
     'cargo install --locked --version 0.5.9 cargo-cyclonedx' \
-    'cargo fetch --locked' \
+    'CARGO_NET_OFFLINE=true cargo cyclonedx --manifest-path' \
+    'for round in one two' \
     'scripts/qualify-linux-release.sh' \
     'scripts/smoke-linux-release.sh'; do
     found=0
