@@ -30,11 +30,17 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     exit 1
 fi
 
-# Cargo keeps its registry and its downloaded crates under `$HOME/.cargo`, so
-# moving `HOME` without pinning this would make a `cargo run` after the redirect
-# fetch the whole index again. `CARGO_HOME` is not a model cache and the
-# operator's copy is the right one to keep using.
+# Cargo keeps its registry and its downloaded crates under `$HOME/.cargo`, and
+# rustup keeps the toolchains under `$HOME/.rustup`, so moving `HOME` without
+# pinning these would make a `cargo run` after the redirect fetch the whole
+# index again and, where `cargo` is a rustup shim, install the toolchain named
+# by `rust-toolchain.toml` from the network: measured at 601 MB, paid on every
+# run, because this file removes the private home each time it is sourced.
+# Neither is a model cache and the operator's copies are the right ones to keep
+# using. Each is pinned to what it resolved to before the move, so a machine
+# that has neither directory is left exactly as it was.
 export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
 
 __private_cache_home=$(
     cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd

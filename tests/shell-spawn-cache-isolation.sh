@@ -33,13 +33,21 @@ set -euo pipefail
 #     second half of this file exercises it directly.
 #   * That `scripts/smoke-linux-release.sh` runs the executable. It runs one
 #     handed to it as an argument and names none, so no name scan can see it.
-#     What covers it is inheritance: every shell file that names it has taken a
-#     cache home of its own first, and the executable it is handed runs under
-#     that. This file checks that rather than asserting it, because a comment
-#     saying "its only caller today is in scope" stays true only until someone
-#     adds a second caller. `.github/workflows/package-linux.yml` runs it inside
-#     a container against that container's own filesystem, where there is no
-#     operator cache to reach.
+#     What covers it is inheritance: every shell file that names it is one of
+#     the harnesses accepted above, so it has a cache home of its own and the
+#     executable it hands over runs under that. This file checks that rather
+#     than asserting it, because a comment saying "its only caller today is in
+#     scope" stays true only until someone adds a second caller.
+#     `.github/workflows/package-linux.yml` runs it inside a container against
+#     that container's own filesystem, where there is no operator cache to
+#     reach.
+#
+#     What that leaves unproved is order. `inheritors_hold` asks whether the
+#     caller takes a cache home, not whether it takes one before the line that
+#     hands the executable over. `tests/executable-delivery.sh` hands the smoke
+#     script a stub of its own writing twice before its cache home and the real
+#     executable once after, and separating those two means reading what each
+#     call passes -- the argument-shape form this file exists to refuse.
 
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 self_relative=${BASH_SOURCE[0]##*/}
@@ -199,12 +207,15 @@ examine() {
 # Refuse the tree rooted at $1 if a shell file there names the script that runs
 # an executable handed to it, without being one of the harnesses `examine`
 # accepted. Call it after `examine`, which is what fills `held_runners`.
+smoke_callers=()
 inheritors_hold() {
     local root=$1 caller relative runner held refused=0
+    smoke_callers=()
     while IFS= read -r caller; do
         relative=${caller#"$root/"}
         [[ "$relative" != "$smoke_relative" ]] || continue
         [[ "$relative" != "$self_relative" ]] || continue
+        smoke_callers+=("$relative")
         held=no
         for runner in "${held_runners[@]}"; do
             [[ "$runner" != "$relative" ]] || held=yes
@@ -219,6 +230,15 @@ inheritors_hold() {
             | sort
     )
     (( refused == 0 )) || return 1
+
+    # A scan that read no caller has read nothing, and the same refusal covers
+    # the smoke script being renamed out from under the name this file greps
+    # for: the rule would then hold over an empty set and stay green.
+    if (( ${#smoke_callers[@]} == 0 )); then
+        printf 'examined %s and found no shell file naming %s, so the inheritance rule held over nothing\n' \
+            "$root" "$smoke_relative" >&2
+        return 1
+    fi
 }
 
 # --- the scanner refuses what it exists to refuse ---------------------------
@@ -444,6 +464,15 @@ if inheritors_hold "$inherited" 2>/dev/null; then
     fail 'the scanner accepted a file handing an executable to the smoke script without a cache home of its own'
 fi
 
+# A tree where nothing names the smoke script. The rule has nothing to hold and
+# says so, rather than reporting the vacuous pass as a verdict.
+uncalled="$fixtures/uncalled"
+plant "$uncalled" 'tests/qualification.sh' held
+examine "$uncalled" >/dev/null || fail 'the uncalled fixture was refused by the name scan'
+if inheritors_hold "$uncalled" 2>/dev/null; then
+    fail 'the scanner accepted a tree in which no file names the smoke script, so the inheritance rule can pass on nothing'
+fi
+
 inheriting="$fixtures/inheriting"
 plant "$inheriting" 'tests/qualification.sh' held-names-smoke
 examine "$inheriting" >/dev/null || fail 'the inheriting fixture was refused by the name scan'
@@ -468,17 +497,24 @@ chmod 700 "$ambient/home" "$ambient/cache"
 
 # The default model cache one environment resolves, spelled the way the product
 # spells it: `XDG_CACHE_HOME` when set, otherwise `HOME/.cache`.
+# `CARGO_HOME` and `RUSTUP_HOME` are read back from the same source, with both
+# unset going in, because that is the case the helper has to pin. A toolchain
+# resolved under the private home is fetched from the network on every run,
+# since the helper removes that directory each time it is sourced.
 resolved=$(
-    env -u PANGOPUP_MODEL_CACHE HOME="$ambient/home" XDG_CACHE_HOME="$ambient/cache" \
+    env -u PANGOPUP_MODEL_CACHE -u CARGO_HOME -u RUSTUP_HOME \
+        HOME="$ambient/home" XDG_CACHE_HOME="$ambient/cache" \
         bash -c '
             set -euo pipefail
             . "$1"
-            printf "%s\n%s\n" "${XDG_CACHE_HOME-}" "${HOME-}"
+            printf "%s\n%s\n%s\n%s\n" \
+                "${XDG_CACHE_HOME-}" "${HOME-}" "${CARGO_HOME-}" "${RUSTUP_HOME-}"
         ' bash "$helper"
 ) || fail 'sourcing the helper failed'
 
 private_cache=$(printf '%s\n' "$resolved" | sed -n '1p')
 private_home=$(printf '%s\n' "$resolved" | sed -n '2p')
+toolchain_homes=$(printf '%s\n' "$resolved" | sed -n '3,4p')
 
 [[ -n "$private_cache" ]] \
     || fail 'the helper must set XDG_CACHE_HOME, or a run reads the cache directory of whoever runs the harness'
@@ -510,6 +546,24 @@ esac
     || fail "the helper's XDG_CACHE_HOME is not owned by the user running the harness: $private_cache"
 [[ "$(ls -ld "$private_cache" | cut -c1-10)" == 'drwx------' ]] \
     || fail "the helper's XDG_CACHE_HOME is readable by others: $private_cache"
+
+# Cargo and rustup both keep their downloads under `$HOME`, so the move has to
+# pin them to where they resolved before it. Left to follow `HOME`, a `cargo
+# run` after the helper re-fetches the registry index and installs the whole
+# toolchain named by `rust-toolchain.toml` under the private home, which the
+# next run deletes.
+[[ $(printf '%s\n' "$toolchain_homes" | grep -c .) -eq 2 ]] \
+    || fail 'the helper left CARGO_HOME or RUSTUP_HOME unset, so cargo and rustup follow the moved HOME and re-download the registry and the toolchain on every run'
+while IFS= read -r toolchain_home; do
+    case "$toolchain_home/" in
+        "$private_home/"*|"$private_cache/"*)
+            fail "the helper points cargo or rustup inside the cache home it just emptied, so every run re-downloads: $toolchain_home" ;;
+    esac
+    case "$toolchain_home" in
+        "$ambient/home/"*) ;;
+        *) fail "the helper must pin cargo and rustup to where they resolved before the move, and $toolchain_home is not under $ambient/home" ;;
+    esac
+done < <(printf '%s\n' "$toolchain_homes")
 
 # Sourcing the helper must not itself write into the ambient locations.
 for ambient_directory in "$ambient/home" "$ambient/cache"; do
@@ -550,7 +604,22 @@ for anchor in \
     fi
 done
 
-inheritors_hold "$repository" || problems=1
+if inheritors_hold "$repository"; then
+    # Named for the same reason the runners above are: a scan that quietly
+    # stops matching the one caller the repository has fails here instead of
+    # reporting an empty set as a clean one.
+    found=no
+    for caller in "${smoke_callers[@]}"; do
+        [[ "$caller" != tests/executable-delivery.sh ]] || found=yes
+    done
+    if [[ "$found" != yes ]]; then
+        printf 'shell spawn cache isolation: tests/executable-delivery.sh no longer hands an executable to %s, so this scan is checking the wrong files\n' \
+            "$smoke_relative" >&2
+        problems=1
+    fi
+else
+    problems=1
+fi
 
 helper_redirects || problems=1
 
