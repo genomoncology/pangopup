@@ -4,8 +4,12 @@ The checked miniature uses the production three-file bundle grammar and opens
 through the real pinned ONNX Runtime CPU path. Inspection authenticates all
 members but does not claim variant-level scoring.
 
-```bash
-pangopup-build model inspect --bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle | mustmatch '{"bundle_id":"sha256:aba3f0a07075f24cc5c3c59eb4312176bae4f2886db8946500280b19e686edca","channels":12,"checkpoints":0,"command":"model.inspect","kind":"synthetic-test","model_bytes":281,"notice_bytes":222,"profile":"pangopup-model-kernel-mini-v1","representation":"singleton","schema":"pangopup-model-bundle-v1","status":"ok"}'
+```bash run id=model-inspect
+pangopup-build model inspect --bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle
+```
+
+```text expect=model-inspect exact
+{"bundle_id":"sha256:aba3f0a07075f24cc5c3c59eb4312176bae4f2886db8946500280b19e686edca","channels":12,"checkpoints":0,"command":"model.inspect","kind":"synthetic-test","model_bytes":281,"notice_bytes":222,"profile":"pangopup-model-kernel-mini-v1","representation":"singleton","schema":"pangopup-model-bundle-v1","status":"ok"}
 ```
 
 Qualification executes four retained sequence/strand/allele inputs and all
@@ -13,8 +17,12 @@ twelve raw channels against an independently generated bit-pattern oracle.
 Host strings are evidence but are normalized in this portable executable
 contract.
 
-```bash
-pangopup-build model qualify --bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle --evidence ../tests/fixtures/pangolin-model-kernel-mini/evidence | sed -E 's/"cpu":"[^"]*"/"cpu":"<cpu>"/; s/"rustc":"[^"]*"/"rustc":"<rustc>"/' | mustmatch '{"bundle_id":"sha256:aba3f0a07075f24cc5c3c59eb4312176bae4f2886db8946500280b19e686edca","cases":2,"channel_arrays":48,"command":"model.qualify","maximum_absolute_error":0,"profile":"pangopup-model-kernel-mini-v1","runtime":{"architecture":"x86_64","cpu":"<cpu>","execution_mode":"sequential","execution_provider":"CPUExecutionProvider","graph_optimization":"all","inter_op_threads":1,"intra_op_threads":1,"onnx_runtime":"1.24.2","ort_crate":"2.0.0-rc.12","rustc":"<rustc>"},"scalar_comparisons":816,"sequence_evaluations":4,"status":"ok","strands":2}'
+```bash run id=model-qualify
+pangopup-build model qualify --bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle --evidence ../tests/fixtures/pangolin-model-kernel-mini/evidence | sed -E 's/"cpu":"[^"]*"/"cpu":"<cpu>"/; s/"rustc":"[^"]*"/"rustc":"<rustc>"/'
+```
+
+```text expect=model-qualify exact
+{"bundle_id":"sha256:aba3f0a07075f24cc5c3c59eb4312176bae4f2886db8946500280b19e686edca","cases":2,"channel_arrays":48,"command":"model.qualify","maximum_absolute_error":0,"profile":"pangopup-model-kernel-mini-v1","runtime":{"architecture":"x86_64","cpu":"<cpu>","execution_mode":"sequential","execution_provider":"CPUExecutionProvider","graph_optimization":"all","inter_op_threads":1,"intra_op_threads":1,"onnx_runtime":"1.24.2","ort_crate":"2.0.0-rc.12","rustc":"<rustc>"},"scalar_comparisons":816,"sequence_evaluations":4,"status":"ok","strands":2}
 ```
 
 The model command grammar is closed. Missing actions, unknown actions, and
