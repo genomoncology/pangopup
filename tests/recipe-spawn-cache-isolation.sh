@@ -93,6 +93,17 @@ makefile_holds() {
                 "$relative" "$number" >&2
             refused=1
         fi
+        # Cargo keeps its registry under `$HOME/.cargo` and rustup the
+        # toolchains under `$HOME/.rustup`, and spec blocks run `cargo test`.
+        # A recipe that moves `HOME` without pinning these sends a rustup shim
+        # to the network for the whole toolchain, into a directory the recipe
+        # removes before every run.
+        for toolchain in CARGO_HOME RUSTUP_HOME; do
+            grep -qE -- "(^|[[:space:]])$toolchain=" <<<"$text" && continue
+            printf 'this recipe moves HOME without pinning %s, so a cargo run under it resolves that directory inside the build directory and installs the toolchain from the network: %s:%s\n' \
+                "$toolchain" "$relative" "$number" >&2
+            refused=1
+        done
         for name in "${named_locations[@]}"; do
             grep -qE -- "-u[[:space:]=]+$name([^_]|\$)|(^|[[:space:]])$name=\"?\\\$\\(CURDIR\\)/target/" <<<"$text" && continue
             printf 'this recipe reaches the built executable with %s inherited, and that variable names a cache location outright and is read ahead of XDG_CACHE_HOME: %s:%s\n' \
@@ -222,15 +233,18 @@ plant_makefile() {
                 printf '\tXDG_CACHE_HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' debug ;;
             homes-only)
                 printf '\tXDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' debug ;;
-            held)
+            unpinned)
                 printf '\tenv -u %s -u %s -u %s XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
+                    PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR debug ;;
+            held)
+                printf '\tenv -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
                     PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR debug ;;
             quiet)
                 printf '\tcargo build --locked --package %s\n' "$package" ;;
             package-run)
                 printf '\tcargo run --locked --package %s -- lookup --help\n' "$package" ;;
             elsewhere)
-                printf '\tenv -u %s -u %s -u %s XDG_CACHE_HOME=/home/someone/target/c HOME=/home/someone/target/h PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
+                printf '\tenv -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME=/home/someone/target/c HOME=/home/someone/target/h PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
                     PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR debug ;;
         esac
     } >"$tree/Makefile"
@@ -268,7 +282,7 @@ plant_python() {
                     XDG_CACHE_HOME HOME PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR
                 printf '    subprocess.run([repo / "target/%s/pangopup", "--version"])\n' release ;;
             held)
-                printf 'def go():\n' 
+                printf 'def go():\n'
                 printf '    environment = dict(os.environ)\n'
                 printf '    for name in ("%s", "%s", "%s"):\n' \
                     PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR
@@ -328,8 +342,14 @@ expect_refusal 'Makefile:2' makefile_holds "$fixtures/package-run/Makefile" Make
 plant_makefile "$fixtures/elsewhere" elsewhere
 expect_refusal 'into the build directory' makefile_holds "$fixtures/elsewhere/Makefile" Makefile
 
+# Moving `HOME` moves `$HOME/.cargo` and `$HOME/.rustup` with it, into a
+# directory the recipe removes before every run. A recipe that does not pin
+# them sends a rustup shim to the network for the whole toolchain.
+plant_makefile "$fixtures/unpinned" unpinned
+expect_refusal 'without pinning CARGO_HOME' makefile_holds "$fixtures/unpinned/Makefile" Makefile
+
 plant_makefile "$fixtures/held" held
-expect_acceptance 'the scanner refused a recipe that moves both homes and drops every named cache location, so it refuses the shape it exists to require' \
+expect_acceptance 'the scanner refused a recipe that moves both homes, pins both toolchain homes and drops every named cache location, so it refuses the shape it exists to require' \
     makefile_holds "$fixtures/held/Makefile" Makefile
 
 plant_spec "$fixtures/spec-empty" ignored.md quiet

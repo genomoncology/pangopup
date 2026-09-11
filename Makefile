@@ -50,11 +50,18 @@ ifneq ($(shell uname -s),Linux)
 SPEC_PATHS := $(filter-out $(addprefix spec/,$(SPEC_LINUX_ONLY)),$(wildcard spec/*.md))
 endif
 
+# Cargo keeps its registry under `$$HOME/.cargo` and rustup the toolchains under
+# `$$HOME/.rustup`, and spec blocks run `cargo test` through
+# `scripts/spec-cargo-test.sh`. Moving `HOME` without pinning these makes a
+# rustup shim install the toolchain from the network into `target/spec-cache`,
+# paid on every run because the recipe removes that directory first. Each is
+# pinned to what it resolved to before the move, the way
+# `tests/support/private-cache-home.sh` pins them.
 spec:          ## outside-in CLI contracts
 	cargo build --locked --quiet --package pangopup-cli --package pangopup-build
 	rm -rf target/spec-cache
 	install -d -m 700 target/spec-cache
-	env -u PANGOPUP_MODEL_CACHE -u PANGOPUP_CACHE_DIR -u PANGOPUP_DATA_DIR XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/debug:$$PATH" mustmatch test $(SPEC_PATHS)
+	env -u PANGOPUP_MODEL_CACHE -u PANGOPUP_CACHE_DIR -u PANGOPUP_DATA_DIR CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/debug:$$PATH" mustmatch test $(SPEC_PATHS)
 
 # Maintainer-run. This target reaches the network. No gate invokes it. It is
 # defined after the gates so that no gate recipe can name it.

@@ -38,6 +38,14 @@ helper_relative='tests/support/private-cache-home.sh'
 # The Rust model-route suite is built here too, for the same reason, and run
 # further down as a plain executable. Calling `cargo` after the cache home is
 # taken is what would download the library again.
+# Cargo reports an `executable` for the `pangopup` binary as well as for the
+# test, and the order of the two is not fixed. Selecting by position picked the
+# product binary in 7 of 12 consecutive runs on a built tree, measured on
+# 2026-09-10; that run prints the usage block, leaves the stand-in untouched for
+# the wrong reason, and fails this file on a tree where nothing is wrong. The
+# test executable is selected by its target name and kind instead, and a
+# selection that does not find exactly one says so rather than handing back
+# whatever else cargo reported.
 model_route_suite=$(
     cargo test --locked --no-run --message-format=json \
         --manifest-path "$repo/Cargo.toml" --package pangopup-cli --test model_routing \
@@ -45,14 +53,30 @@ model_route_suite=$(
         | python3 -c '
 import json, sys
 
+chosen = []
 for line in sys.stdin:
     message = json.loads(line)
-    if message.get("reason") == "compiler-artifact" and message.get("executable"):
-        print(message["executable"])
-'      | tail -n 1
+    if message.get("reason") != "compiler-artifact":
+        continue
+    executable = message.get("executable")
+    target = message.get("target") or {}
+    if not executable:
+        continue
+    if target.get("name") != "model_routing" or "test" not in (target.get("kind") or []):
+        continue
+    chosen.append(executable)
+
+if len(chosen) != 1:
+    sys.stderr.write(
+        "inherited cache variables: cargo reported %d test executables named "
+        "model_routing, not 1: %s\n" % (len(chosen), chosen)
+    )
+    raise SystemExit(1)
+print(chosen[0])
+'
 )
 [[ -x "$model_route_suite" ]] || {
-    printf 'inherited cache variables: the Rust model-route suite did not build, so its half of this check cannot run\n' >&2
+    printf 'inherited cache variables: no built test executable named model_routing was selected, so its half of this check cannot run\n' >&2
     exit 1
 }
 # Spelled in full rather than through the variable: the sibling scan reads a
