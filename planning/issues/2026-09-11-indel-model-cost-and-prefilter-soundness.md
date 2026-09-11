@@ -154,6 +154,9 @@ of those is known yet, so this stays an issue.
 - The named variant set and the rule that generates it, in the 0059 style, with
   its manifest retained.
 - The confirmed terms of use for every harvested source.
+- The measured accelerator throughput from
+  [`2026-09-11-model-throughput-on-accelerators.md`](2026-09-11-model-throughput-on-accelerators.md).
+  Direction C and any precompute scope are uncostable without it.
 - The stated acceptance threshold: what false-negative rate, measured over
   which strata, would make a prefilter shippable, decided before the number is
   seen.
