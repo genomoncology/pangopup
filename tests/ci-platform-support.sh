@@ -44,9 +44,8 @@ normalize_markdown() {
 require_workflow_command "$workflow" 'sudo apt-get update' 'Install the Linux ARM64 cross compiler'
 require_workflow_command "$workflow" 'sudo apt-get install --yes gcc-aarch64-linux-gnu' 'Install the Linux ARM64 cross compiler'
 
-arm_step=$(sed -n '/^      - name: Check the Linux ARM64 command build$/,/^      - name: Test the portable native service fixture$/p' "$workflow")
-require_text 'CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc' "$arm_step" 'bundled C dependency compiler'
-require_text 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc' "$arm_step" 'Rust target linker'
+require_workflow_setting "$workflow" 'CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc' 'Check the Linux ARM64 command build'
+require_workflow_setting "$workflow" 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc' 'Check the Linux ARM64 command build'
 require_workflow_command "$workflow" 'run: cargo check --locked --target aarch64-unknown-linux-gnu --package pangopup-cli' 'Check the Linux ARM64 command build'
 
 test_step=$(sed -n '/^      - name: Run Linux tests with public failure evidence$/,/^      - run: make spec$/p' "$workflow")

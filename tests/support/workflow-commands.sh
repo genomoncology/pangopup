@@ -27,12 +27,25 @@
 # source this file, and that every command they guard refuses a comment in
 # place of the step.
 
-require_workflow_command() {
-    local workflow=$1
-    local command=$2
-    local scope=${3:-}
+# A setting is the other half of the same answer. `env:` keys are not commands,
+# and a refusal that says a command does not stand in code, over a compiler
+# environment key, sends a reader looking for a step that is not missing.
+#
+#     require_workflow_setting <workflow-file> <setting> [<step name>]
+#
+# It reads the workflow the same way and refuses the same shapes; only the
+# wording differs, so the answer reads correctly over a setting.
+#
+# `tests/workflow-setting-anchoring.sh` holds both sides for it.
 
-    if awk -v command="$command" -v scope="$scope" '
+# Both refusals ask the same question: does the text stand on a line of the
+# workflow before any `#`, within the named step when one is named?
+workflow_text_stands_in_code() {
+    local workflow=$1
+    local text=$2
+    local scope=$3
+
+    awk -v text="$text" -v scope="$scope" '
         BEGIN { inside = (scope == "") }
         {
             if (scope != "") {
@@ -43,15 +56,38 @@ require_workflow_command() {
             }
             code = $0
             sub(/#.*/, "", code)
-            if (index(code, command) > 0) { found = 1; exit }
+            if (index(code, text) > 0) { found = 1; exit }
         }
         END { exit (found ? 0 : 1) }
-    ' "$workflow"; then
+    ' "$workflow"
+}
+
+require_workflow_command() {
+    local workflow=$1
+    local command=$2
+    local scope=${3:-}
+
+    if workflow_text_stands_in_code "$workflow" "$command" "$scope"; then
         return 0
     fi
 
     printf 'workflow command does not stand in code: %s\n' "$command" >&2
     printf '  no line of %s runs it outside a comment%s\n' \
+        "$workflow" "${scope:+, in the step named $scope}" >&2
+    exit 1
+}
+
+require_workflow_setting() {
+    local workflow=$1
+    local setting=$2
+    local scope=${3:-}
+
+    if workflow_text_stands_in_code "$workflow" "$setting" "$scope"; then
+        return 0
+    fi
+
+    printf 'workflow setting does not stand in code: %s\n' "$setting" >&2
+    printf '  no line of %s sets it outside a comment%s\n' \
         "$workflow" "${scope:+, in the step named $scope}" >&2
     exit 1
 }

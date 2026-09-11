@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 . "$repo/tests/support/workflow-commands.sh"
+. "$repo/tests/support/forbidden-text.sh"
 root="$repo/target/executable-delivery-test"
 version=$(grep -m1 '^version = ' "$repo/Cargo.toml" | cut -d'"' -f2)
 [[ -n "$version" ]]
@@ -63,7 +64,7 @@ changed_smoke="$root/smoke-changed-expected.sh"
 sed 's/"status":"missing"/"status":"ready"/' \
   "$repo/scripts/smoke-linux-release.sh" >"$changed_smoke"
 chmod +x "$changed_smoke"
-! cmp -s "$repo/scripts/smoke-linux-release.sh" "$changed_smoke"
+! cmp -s "$repo/scripts/smoke-linux-release.sh" "$changed_smoke" || fail 'the changed smoke script is identical to the shipped one, so the rejection below proves nothing'
 
 if SMOKE_LOG="$smoke_log" SMOKE_SCRIPT="$changed_smoke" \
   SMOKE_PANGOPUP="$smoke_bin/pangopup" SMOKE_SOURCE="$repo" \
@@ -287,7 +288,7 @@ guidance=${guidance#Add Pangopup to PATH: }
 
 path_present="$root/path-present"
 MOCK_ASSETS="$assets" MOCK_URL_LOG="$log" PATH="$path_present:$mock" "$repo/install.sh" --version "$version" --install-dir "$path_present" >"$root/path-present.out"
-! grep -Fq 'Add Pangopup to PATH' "$root/path-present.out"
+refuse_text "$root/path-present.out" 'Add Pangopup to PATH' 'PATH guidance printed when the install directory is already on PATH'
 grep -Fq "Release: https://github.com/genomoncology/pangopup/releases/tag/v$version" "$root/path-present.out"
 grep -Fq "Source: https://github.com/genomoncology/pangopup/tree/v$version" "$root/path-present.out"
 grep -Fq "License: https://github.com/genomoncology/pangopup/releases/download/v$version/LICENSE" "$root/path-present.out"
@@ -405,7 +406,10 @@ done
 
 grep -Eq '^permissions:$' "$repo/.github/workflows/package-linux.yml"
 grep -Eq '^  contents: read$' "$repo/.github/workflows/package-linux.yml"
-! grep -Eq 'contents: write|attest|release create|release upload' "$repo/.github/workflows/package-linux.yml"
+refuse_text "$repo/.github/workflows/package-linux.yml" 'contents: write' 'a write permission that would let the packaging workflow publish'
+refuse_text "$repo/.github/workflows/package-linux.yml" 'attest' 'an attestation step that would let the packaging workflow publish'
+refuse_text "$repo/.github/workflows/package-linux.yml" 'release create' 'a release-creating command in the packaging workflow'
+refuse_text "$repo/.github/workflows/package-linux.yml" 'release upload' 'a release-uploading command in the packaging workflow'
 while IFS= read -r action; do
   [[ "$action" =~ @[0-9a-f]{40}$ ]] || fail "workflow action is not pinned: $action"
 done < <(sed -nE 's/^[[:space:]]*- uses: ([^ #]+).*/\1/p' "$repo/.github/workflows/package-linux.yml")
@@ -446,12 +450,17 @@ require_workflow_command "$repo/.github/workflows/package-linux.yml" '/source/sc
 smoke_invocation='              /source/scripts/smoke-linux-release.sh /release/pangopup-linux-x86_64 /source /tmp/data /tmp/pangopup-smoke-cache'
 grep -Fxq "$smoke_invocation" "$repo/.github/workflows/package-linux.yml"
 [[ "$(grep -Fc '/source/scripts/smoke-linux-release.sh' "$repo/.github/workflows/package-linux.yml")" == 1 ]]
-! grep -Fq 'GRCh38:chr12:6801301:G:A' "$repo/.github/workflows/package-linux.yml"
-! grep -Fq 'GRCh38:chr1:5051:A:AC' "$repo/.github/workflows/package-linux.yml"
-! grep -Eq 'make (lint|test|spec)' "$repo/.github/workflows/package-linux.yml"
-! grep -Eq 'Install gate prerequisites|mustmatch|cargo-deny|ripgrep' "$repo/.github/workflows/package-linux.yml"
-! grep -Eq '^    runs-on: ubuntu-22[.]04$' "$repo/.github/workflows/package-linux.yml"
-! grep -Fq '"$maximum" 2.35' "$repo/scripts/qualify-linux-release.sh"
+refuse_text "$repo/.github/workflows/package-linux.yml" 'GRCh38:chr12:6801301:G:A' 'a live oracle variant the packaging workflow would have to resolve'
+refuse_text "$repo/.github/workflows/package-linux.yml" 'GRCh38:chr1:5051:A:AC' 'a live oracle variant the packaging workflow would have to resolve'
+refuse_text "$repo/.github/workflows/package-linux.yml" 'make lint' 'a gate the packaging workflow must leave to ci'
+refuse_text "$repo/.github/workflows/package-linux.yml" 'make test' 'a gate the packaging workflow must leave to ci'
+refuse_text "$repo/.github/workflows/package-linux.yml" 'make spec' 'a gate the packaging workflow must leave to ci'
+refuse_text "$repo/.github/workflows/package-linux.yml" 'Install gate prerequisites' 'a gate prerequisite the packaging workflow must not install'
+refuse_text "$repo/.github/workflows/package-linux.yml" 'mustmatch' 'a gate prerequisite the packaging workflow must not install'
+refuse_text "$repo/.github/workflows/package-linux.yml" 'cargo-deny' 'a gate prerequisite the packaging workflow must not install'
+refuse_text "$repo/.github/workflows/package-linux.yml" 'ripgrep' 'a gate prerequisite the packaging workflow must not install'
+refuse_text "$repo/.github/workflows/package-linux.yml" 'runs-on: ubuntu-22.04' 'a runner image older than the one the release is built on'
+refuse_text "$repo/scripts/qualify-linux-release.sh" '"$maximum" 2.35' 'a glibc ceiling below the one the published executable is built against'
 
 release_notes="$repo/planning/artifacts/054-release-notes.md"
 publication_record="$repo/planning/artifacts/055-public-v0.3.0.md"
@@ -465,7 +474,7 @@ grep -Fq 'release ID `365425336`' "$publication_record"
 grep -Fq 'sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0' "$publication_record"
 grep -Fq 'readonly PREVIOUS_RELEASE_ID=364960381' "$publication_record"
 grep -Fq 'readonly PREVIOUS_INDEX=sha256:ad1aa8c27cc61d107310f609cd63f8fcbaf591a4f9760db475384a0a71049de4' "$publication_record"
-! grep -Fq 'orgs/genomoncology/packages/container/pangopup' "$publication_record"
+refuse_text "$publication_record" 'orgs/genomoncology/packages/container/pangopup' 'an authenticated package API path in a record that must read anonymously'
 grep -Fq 'PUBLIC_DOCKER=$(mktemp -d)' "$publication_record"
 grep -Fq 'readonly PRIVATE PUBLIC_DOCKER' "$publication_record"
 grep -Fq 'jq -e '\''((.auths // {}) | length) == 0'\'' "$PUBLIC_DOCKER/config.json"' "$publication_record"

@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 root=$repo/target/production-release-qualification-test
+. "$repo/tests/support/forbidden-text.sh"
 chmod -R u+w "$root" 2>/dev/null || true
 rm -rf "$root"
 install -d -m 700 "$root/bin"
@@ -920,8 +921,10 @@ grep -Fq 'exec {UPLOAD_FD}<"$source_path"' "$root/ticket050-runbook.sh"
 grep -Fq 'sha256sum "/proc/self/fd/$UPLOAD_FD"' "$root/ticket050-runbook.sh"
 grep -Fq 'https://github.com/$REPO/releases/download/$TAG/$name' "$root/ticket050-runbook.sh"
 [[ $(grep -Fc 'curl -q -fsSL' "$root/ticket050-runbook.sh") == 5 ]]
-! grep -Fq 'curl -fsSL' "$root/ticket050-runbook.sh"
-! grep -Eq 'GH_TOKEN=|GITHUB_TOKEN=|Authorization:' "$repo/planning/artifacts/050-public-linux-release.md"
+refuse_text "$root/ticket050-runbook.sh" 'curl -fsSL' 'a download that does not disable the curl config file'
+refuse_text "$repo/planning/artifacts/050-public-linux-release.md" 'GH_TOKEN=' 'a credential written into the published runbook'
+refuse_text "$repo/planning/artifacts/050-public-linux-release.md" 'GITHUB_TOKEN=' 'a credential written into the published runbook'
+refuse_text "$repo/planning/artifacts/050-public-linux-release.md" 'Authorization:' 'a credential written into the published runbook'
 
 assert_source_authority() {
   local runbook=$1
@@ -1002,7 +1005,7 @@ grep -Fq 'Target `ci` run ID/URL: `30657770808`' "$repo/planning/artifacts/038-p
 grep -Fq 'Workflow run ID/URL: `30657987617`' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'Draft/release ID: `363278563`' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'checksum-verifying tagged installer are shipped' "$repo/AGENTS.md"
-! grep -Fq 'public executable publication remains a separate ticket' "$repo/AGENTS.md"
+refuse_text "$repo/AGENTS.md" 'public executable publication remains a separate ticket' 'language deferring a publication that has already happened'
 grep -Fq 'passes that exact bundle path explicitly to each of the seven ordered' "$repo/planning/artifacts/038-public-linux-release.md"
 grep -Fq 'M09 model request deliberately has no `--bundle`' "$repo/planning/artifacts/038-public-linux-release.md"
 
