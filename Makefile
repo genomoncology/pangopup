@@ -27,8 +27,17 @@ lint:          ## static analysis: rustfmt + clippy + dependency policy
 	cargo clippy --locked $(WORKSPACE_TESTS) --all-targets -- -D warnings
 	cargo deny check advisories bans licenses sources --warn unmaintained
 
+# The spawn helper drops the four inherited cache variables for every child it
+# starts, which is every route that runs the built executable from a test. The
+# unit tests inside `pangopup-cli` are not children: they parse a lookup in the
+# test process itself, and `resolve_model_cache_options` reads
+# `PANGOPUP_MODEL_CACHE_MAX_ENTRIES` out of that process. Measured on this
+# recipe: an operator who exported it at a value the product cannot parse saw
+# six unit tests panic with `invalid model cache configuration`, so the suite
+# could not be run at all. The drop belongs on the run that starts the test
+# process, which is this line.
 test:          ## inside-out unit and integration tests
-	cargo test --locked $(WORKSPACE_TESTS)
+	env -u PANGOPUP_MODEL_CACHE -u PANGOPUP_CACHE_DIR -u PANGOPUP_DATA_DIR -u PANGOPUP_MODEL_CACHE_MAX_ENTRIES cargo test --locked $(WORKSPACE_TESTS)
 	@for script in $(PORTABLE_QUALIFICATION); do echo "bash $$script"; bash $$script || exit 1; done
 	@for script in $(SHELL_QUALIFICATION); do echo "bash $$script"; bash $$script || exit 1; done
 
@@ -66,8 +75,16 @@ endif
 # network. It is pointed at `target/ort-cache` instead: outside every directory
 # this recipe removes, collected by `cargo clean`, and held by
 # `tests/spec-download-cache-durability.sh`.
+#
+# It is named on both lines that build, not only on the line that runs the spec
+# suite. The suite builds through `scripts/spec-cargo-test.sh` and the first
+# line builds on its own, and a name on one of them leaves the other resolving
+# the cache of whoever ran make. Measured: with the name on the suite line
+# alone, a `spec` run that rebuilt `ort-sys` under a transient
+# `XDG_CACHE_HOME` wrote 90647244 bytes there from the first line, which is the
+# download this recipe exists to stop paying.
 spec:          ## outside-in CLI contracts
-	cargo build --locked --quiet --package pangopup-cli --package pangopup-build
+	env ORT_CACHE_DIR="$(CURDIR)/target/ort-cache" cargo build --locked --quiet --package pangopup-cli --package pangopup-build
 	rm -rf target/spec-cache
 	install -d -m 700 target/spec-cache
 	env -u PANGOPUP_MODEL_CACHE -u PANGOPUP_CACHE_DIR -u PANGOPUP_DATA_DIR -u PANGOPUP_MODEL_CACHE_MAX_ENTRIES CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" ORT_CACHE_DIR="$(CURDIR)/target/ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/debug:$$PATH" mustmatch test $(SPEC_PATHS)

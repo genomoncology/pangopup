@@ -21,7 +21,7 @@ fi
 summary=${summary//'%'/'%25'}
 summary=${summary//$'\r'/'%0D'}
 summary=${summary//$'\n'/'%0A'}
-printf '::error file=Makefile,line=30,title=Linux make test failure::%s\n' "$summary" || true
+printf '::error file=Makefile,line=39,title=Linux make test failure::%s\n' "$summary" || true
 if [[ "$make_status" != 0 ]]; then
     exit "$make_status"
 fi

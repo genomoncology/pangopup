@@ -116,28 +116,43 @@ expect_match listed "$both_listed" "$limit" \
 
 routes=0
 
-# The `spec` recipe's run line: the one that gives the run a cache home. Read
-# from the recipe rather than from the whole file, because the drop has to
-# stand on the line that starts the run.
-recipe_line=$(
-    awk '
-        index($0, "spec:") == 1 { inside = 1; next }
-        inside && /^\t/ {
-            line = substr($0, 2)
-            if (line ~ /XDG_CACHE_HOME=/) { print line; exit }
-            next
-        }
-        inside && /^[[:space:]]*$/ { next }
-        inside { exit }
-    ' "$repo/Makefile"
-)
-[[ -n "$recipe_line" ]] \
-    || fail 'the Makefile spec recipe has no line giving the run a cache home, so this rule read nothing about it'
-routes=$((routes + 1))
-for name in "${names[@]}"; do
-    drops_by_option "$recipe_line" "$name" \
-        || fail "the Makefile spec recipe runs the built executable with $name inherited: it is read ahead of XDG_CACHE_HOME, so make spec reaches what the operator who ran it named"
-done
+# Hold the one line of Makefile recipe $1 that matches $2. Read from the recipe
+# rather than from the whole file, because the drop has to stand on the line
+# that starts the run; $3 says what that run is, so a refusal names it.
+hold_recipe() {
+    local target=$1 marker=$2 what=$3 recipe_line name
+    recipe_line=$(
+        awk -v target="$target:" -v marker="$marker" '
+            index($0, target) == 1 { inside = 1; next }
+            inside && /^\t/ {
+                line = substr($0, 2)
+                if (line ~ marker) { print line; exit }
+                next
+            }
+            inside && /^[[:space:]]*$/ { next }
+            inside { exit }
+        ' "$repo/Makefile"
+    )
+    [[ -n "$recipe_line" ]] \
+        || fail "the Makefile $target recipe has no line matching $marker, so this rule read nothing about it"
+    routes=$((routes + 1))
+    for name in "${names[@]}"; do
+        drops_by_option "$recipe_line" "$name" \
+            || fail "the Makefile $target recipe $what with $name inherited: it is read ahead of XDG_CACHE_HOME, so make $target reaches what the operator who ran it named"
+    done
+}
+
+# `spec` runs the built executable, and the line giving that run a cache home
+# is the line the drop has to stand on.
+hold_recipe spec 'XDG_CACHE_HOME=' 'runs the built executable'
+
+# `test` starts the test process itself. The spawn helper covers every child
+# that process starts; it cannot cover the process. The unit tests inside
+# `pangopup-cli` parse a lookup in that process, and
+# `resolve_model_cache_options` reads the entry limit out of it, so an
+# inherited value the product cannot parse panics them and the suite cannot be
+# run at all by the operator who exported it.
+hold_recipe test 'cargo test' 'starts the test process'
 
 # The Rust spawn helper's drop list, and the maintainer measurement's. Each is
 # a list of names in a loop that removes them, and each is read as the list it

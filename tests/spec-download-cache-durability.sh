@@ -127,38 +127,47 @@ removed_directories() {
     done
 }
 
-# The leading environment prefix of the recipe on standard input: the `env`
-# word, its `-u NAME` options and the `NAME=value` assignments that stand
-# before the command. The command itself is dropped, so nothing this file
-# evaluates can run anything the recipe runs.
-environment_prefix() {
-    local line word prefix expect_name
+# The lines of the recipe on standard input that decide where a downloaded
+# library lands. A recipe is not one command: `spec` builds with cargo on its
+# first line and runs the spec suite, which builds with cargo again, on its
+# last. Every line that runs cargo resolves this cache for itself, because it
+# is the `ort-sys` build script that does the downloading; so does every line
+# that names a cache location for a command running cargo behind another name,
+# the way `mustmatch test spec/` runs `cargo test` through the spec gates.
+cache_deciding_lines() {
+    local line
     while IFS= read -r line; do
         case "$line" in
-            *XDG_CACHE_HOME=*|*ORT_CACHE_DIR=*) ;;
-            *) continue ;;
+            *XDG_CACHE_HOME=*|*ORT_CACHE_DIR=*|cargo|cargo\ *|*\ cargo\ *|*\ cargo)
+                printf '%s\n' "$line" ;;
         esac
-        prefix=''
-        expect_name=no
-        for word in $line; do
-            if [[ "$expect_name" == yes ]]; then
-                expect_name=no
-                prefix="$prefix $word"
-                continue
-            fi
-            case "$word" in
-                env) ;;
-                -u) expect_name=yes ;;
-                --unset=*) ;;
-                [A-Za-z_]*=*) ;;
-                *) break ;;
-            esac
-            prefix="$prefix $word"
-        done
-        printf '%s\n' "${prefix# }"
-        return 0
     done
-    return 1
+}
+
+# The leading environment prefix of command line $1: the `env` word, its
+# `-u NAME` options and the `NAME=value` assignments that stand before the
+# command. The command itself is dropped, so nothing this file evaluates can
+# run anything the recipe runs. A line with no prefix answers empty, which is
+# how a bare `cargo build` is read as resolving this cache from whatever
+# environment the operator started make in.
+environment_prefix() {
+    local line=$1 word prefix='' expect_name=no
+    for word in $line; do
+        if [[ "$expect_name" == yes ]]; then
+            expect_name=no
+            prefix="$prefix $word"
+            continue
+        fi
+        case "$word" in
+            env) ;;
+            -u) expect_name=yes ;;
+            --unset=*) ;;
+            [A-Za-z_]*=*) ;;
+            *) break ;;
+        esac
+        prefix="$prefix $word"
+    done
+    printf '%s\n' "${prefix# }"
 }
 
 # Whether path $1 stands inside directory $2, or is that directory.
@@ -170,10 +179,15 @@ inside() {
 # recipes it held on acceptance, the reason on refusal.
 makefile_holds() {
     local makefile=$1 root=$2 relative=$3
-    local target recipe removed prefix raw resolved directory
+    local target recipe removed line prefix raw resolved directory
+    local agreed agreed_line
     local held=0 refused=0
     [[ -f "$makefile" ]] || { printf 'no %s to read\n' "$relative" >&2; return 1; }
     mkdir -p "$root"
+    # A controlled stand-in for the environment make was started in, so that a
+    # line resolving this cache from the operator's own environment answers the
+    # same way on every machine instead of answering with the reviewer's cache.
+    mkdir -p "$root/.caller-cache" "$root/.caller-home"
 
     while IFS= read -r target; do
         [[ -n "$target" ]] || continue
@@ -183,30 +197,53 @@ makefile_holds() {
         [[ -n "$removed" ]] || continue
         held=$((held + 1))
 
-        prefix=$(printf '%s\n' "$recipe" | environment_prefix) || prefix=''
-        # Run from the tree root, because that is where make runs a recipe and
-        # what a relative answer stands against.
-        raw=$(cd "$root" && eval "$prefix bash \"\$probe\"") \
-            || { printf 'could not resolve the downloaded-library cache of the %s recipe in %s\n' "$target" "$relative" >&2; refused=1; continue; }
-        # A relative answer is not inside any directory named here. `ort-sys`
-        # takes `ORT_CACHE_DIR` verbatim with no absolute-path test, and cargo
-        # runs a build script from the dependency's own package root under
-        # `CARGO_HOME` rather than from `$(CURDIR)`, so a relative value lands
-        # beside the crate source and never in a directory this recipe removes.
-        # Measured with a build script that printed its own working directory.
-        resolved=
-        case "$raw" in
-            /*) resolved=$raw ;;
-        esac
-        [[ -n "$resolved" ]] || continue
+        agreed=
+        agreed_line=
+        while IFS= read -r line; do
+            [[ -n "$line" ]] || continue
+            prefix=$(environment_prefix "$line")
+            # Run from the tree root, because that is where make runs a recipe
+            # and what a relative answer stands against.
+            raw=$(cd "$root" && eval "XDG_CACHE_HOME=\"\$root/.caller-cache\" HOME=\"\$root/.caller-home\" $prefix bash \"\$probe\"") \
+                || { printf 'could not resolve the downloaded-library cache of the %s recipe in %s\n' "$target" "$relative" >&2; refused=1; continue; }
+            # A relative answer is not inside any directory named here.
+            # `ort-sys` takes `ORT_CACHE_DIR` verbatim with no absolute-path
+            # test, and cargo runs a build script from the dependency's own
+            # package root under `CARGO_HOME` rather than from `$(CURDIR)`, so
+            # a relative value lands beside the crate source and never in a
+            # directory this recipe removes. Measured with a build script that
+            # printed its own working directory.
+            resolved=
+            case "$raw" in
+                /*) resolved=$raw ;;
+            esac
+            [[ -n "$resolved" ]] || continue
 
-        while IFS= read -r directory; do
-            [[ -n "$directory" ]] || continue
-            inside "$resolved" "$directory" || continue
-            printf 'the %s recipe in %s removes %s and then points the downloaded ONNX Runtime library cache at %s, inside it: every run that rebuilds ort-sys fetches that library again over the network\n' \
-                "$target" "$relative" "$directory" "$resolved" >&2
-            refused=1
-        done <<<"$removed"
+            while IFS= read -r directory; do
+                [[ -n "$directory" ]] || continue
+                inside "$resolved" "$directory" || continue
+                printf 'the %s recipe in %s removes %s and then points the downloaded ONNX Runtime library cache at %s, inside it: every run that rebuilds ort-sys fetches that library again over the network\n' \
+                    "$target" "$relative" "$directory" "$resolved" >&2
+                refused=1
+            done <<<"$removed"
+
+            # One recipe, one library cache. A line that resolves somewhere
+            # else builds against a cache the rest of the recipe does not fill,
+            # so it downloads the library again whenever that other cache is
+            # empty -- which is what a clean CI home and a transient
+            # `XDG_CACHE_HOME` both are. Measured: with the cache named on the
+            # spec suite line alone, a `spec` run that rebuilt `ort-sys` wrote
+            # 90647244 bytes into the caller's cache from the recipe's own
+            # first line.
+            if [[ -z "$agreed" ]]; then
+                agreed=$resolved
+                agreed_line=$line
+            elif [[ "$resolved" != "$agreed" ]]; then
+                printf 'the %s recipe in %s resolves the downloaded ONNX Runtime library cache to %s for `%s` and to %s for `%s`: the line reaching the other cache fetches that library again over the network whenever that cache is empty\n' \
+                    "$target" "$relative" "$agreed" "$agreed_line" "$resolved" "$line" >&2
+                refused=1
+            fi
+        done < <(printf '%s\n' "$recipe" | cache_deciding_lines)
     done < <(targets "$makefile")
 
     if (( held == 0 )); then
@@ -260,6 +297,14 @@ plant() {
             not-recursive)
                 printf '\trm -f target/spec-cache/stamp\n'
                 printf '\tXDG_CACHE_HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
+            split)
+                printf '\tcargo build --locked\n'
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/target/ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
+            joined)
+                printf '\tenv ORT_CACHE_DIR="$(CURDIR)/target/ort-cache" cargo build --locked\n'
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/target/ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
         esac
     } >"$tree/Makefile"
 }
@@ -333,6 +378,19 @@ expect_refusal 'fetches that library again' "$work/pwd-ort"
 plant "$work/relative-ort" relative-ort
 expect_acceptance 'the rule refused a recipe whose relative ORT_CACHE_DIR lands beside the crate source rather than in a directory the recipe removes' \
     "$work/relative-ort"
+
+# A cache named on the line that runs the spec suite and not on the line that
+# builds is half a cache. The build line resolves whatever the operator started
+# make in, and on a clean CI home or a transient `XDG_CACHE_HOME` that is empty
+# every run, so the download the other line avoids is paid on this one instead.
+plant "$work/split" split
+expect_refusal 'fetches that library again over the network whenever that cache is empty' "$work/split"
+
+# Both lines naming the same durable cache is the shape this rule exists to
+# require.
+plant "$work/joined" joined
+expect_acceptance 'the rule refused a recipe whose every cargo line resolves the same downloaded-library cache, outside every directory it removes' \
+    "$work/joined"
 
 # --- the real tree ----------------------------------------------------------
 

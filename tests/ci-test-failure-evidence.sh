@@ -9,8 +9,8 @@ wrapper="$repository/scripts/run-linux-tests-with-public-failure.sh"
 # number. Nothing else holds that number true, so a recipe added above `test:`
 # would silently aim every reported failure at the wrong line. Check it here
 # instead of remembering it.
-[[ "$(sed -n '30p' "$repository/Makefile")" == test:* ]] || {
-    printf 'Makefile line 30 is no longer the test recipe, so the CI annotation points at the wrong line\n' >&2
+[[ "$(sed -n '39p' "$repository/Makefile")" == test:* ]] || {
+    printf 'Makefile line 39 is no longer the test recipe, so the CI annotation points at the wrong line\n' >&2
     exit 1
 }
 fixture=$(mktemp -d)
@@ -60,10 +60,10 @@ run_wrapper 0 0 0 'success'
 
 run_wrapper 2 2 0 $'percent%\r\nline two\n'
 annotation=${WRAPPER_OUTPUT##*$'\n'}
-[[ "$annotation" == '::error file=Makefile,line=30,title=Linux make test failure::percent%25%0D%0Aline two' ]]
+[[ "$annotation" == '::error file=Makefile,line=39,title=Linux make test failure::percent%25%0D%0Aline two' ]]
 
 run_wrapper 7 0 7 'tee failed'
-[[ "$WRAPPER_OUTPUT" == *'::error file=Makefile,line=30,title=Linux make test failure::tee failed' ]]
+[[ "$WRAPPER_OUTPUT" == *'::error file=Makefile,line=39,title=Linux make test failure::tee failed' ]]
 
 run_wrapper 2 2 7 'make wins'
 
@@ -74,7 +74,7 @@ for index in $(seq 2 130); do
 done
 run_wrapper 2 2 0 "$bounded"
 annotation=${WRAPPER_OUTPUT##*$'\n'}
-summary=${annotation#*::error file=Makefile,line=30,title=Linux make test failure::}
+summary=${annotation#*::error file=Makefile,line=39,title=Linux make test failure::}
 retained=${summary:0:4096}
 decoded=${summary//'%0A'/$'\n'}
 [[ "$decoded" != *discarded-line* ]]
@@ -98,7 +98,7 @@ if [[ "$(printf '%s' "$escapable" | wc -c | tr -d ' ')" -le 3000 ]]; then
 fi
 run_wrapper 2 2 0 "$escapable"
 annotation=${WRAPPER_OUTPUT##*$'\n'}
-summary=${annotation#*::error file=Makefile,line=30,title=Linux make test failure::}
+summary=${annotation#*::error file=Makefile,line=39,title=Linux make test failure::}
 retained=${summary:0:4096}
 if [[ "${#summary}" -gt 4096 ]]; then
     printf 'worst-case annotation summary exceeded the observed 4096-character limit\n' >&2
