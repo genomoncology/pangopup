@@ -2,17 +2,17 @@
 
 Pangopup answers a GRCh38 variant query from one of three places. A
 memory-mapped index of published Pangolin scores holds one fixed 11-byte record
-for every covered single-nucleotide variant, and a lookup in that index answers
-first. A supported variant the index does not cover goes to the Pangolin model,
-which runs on the CPU through one ONNX Runtime session. Every exact model
-result is written to a SQLite cache that later requests read instead of running
-inference again, and every answer carries the provenance of the route that
-produced it.
+for every covered position of every covered gene, carrying the score of each
+alternate base, and a lookup in that index answers first. A supported variant
+the index does not cover goes to the Pangolin model, which runs on the CPU
+through ONNX Runtime. Exact model results are written to a SQLite cache that
+later requests read instead of running inference again, and every scored answer
+carries the provenance of the route that produced it.
 
-The CLI and the foreground HTTP service are the two ways in. Both compose one
-engine: variant construction, the compatibility oracle that fixes upstream
-numeric behaviour, the lookup and model providers, and the masking and ensemble
-arithmetic that turns raw channels into ordered per-gene records. Local assets
+The CLI and the foreground HTTP service are the two ways a query comes in. Both
+compose one engine: variant construction, the compatibility oracle that fixes
+upstream numeric behaviour, the lookup and model providers, and the masking and
+ensemble arithmetic that turns raw channels into ordered per-gene records. Local assets
 arrive through a pinned resumable sync into XDG directories on Linux and macOS,
 and installation, status and removal run from the same CLI.
 
