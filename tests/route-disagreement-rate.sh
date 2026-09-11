@@ -48,7 +48,17 @@ set -euo pipefail
 #      covers the whole named variant set rather than a sample of it, and the
 #      one-sided guarantee is checked against it record by record instead of
 #      being taken on the contract's word.
-#   8. The value denominator is broken out. Most of the compared records are
+#   8. Every published figure carries which substitutions it covers. The
+#      measured set is drawn by a rule that makes every probe a transversion,
+#      so the figures cover the minority class of what a consumer submits, and
+#      splice-site sequence is not base-symmetric, so a transition-bearing set
+#      could move either figure by an amount nothing measured. That limitation
+#      lived in the artifact's `## Method`, two documents away from the figures
+#      it qualifies. It is a field of the measurement block now, and both
+#      documents carry it word for word where the reader meets the number. The
+#      field has to name both substitution classes: a coverage statement naming
+#      neither states no coverage.
+#   9. The value denominator is broken out. Most of the compared records are
 #      scored zero on both sides by both routes, which is agreement a consumer
 #      gets for free, so the artifact declares how many and publishes a second
 #      value figure over the records that carry a call. The two parts have to
@@ -81,6 +91,7 @@ percents=(value-disagreement-percent position-disagreement-percent \
     non-zero-value-disagreement-percent)
 required=(variant-set variant-set-rule variant-set-manifest raw-records \
     "${counts[@]}" "${percents[@]}" denominator-composition zero-score-treatment \
+    substitution-coverage substitution-limit \
     position-mechanism position-ordering evidence-limit measured)
 
 # A rate needs enough records to be a rate. The ticket's complaint is that one
@@ -208,6 +219,23 @@ examine() {
     done
     [[ ${measured[measured]} =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || {
         printf 'the measurement date in %s reads %s, not a YYYY-MM-DD date\n' "$artifact_relative" "${measured[measured]}" >&2
+        return 1
+    }
+
+    # The two substitution statements are the artifact's to word. What is held
+    # here is that they are about the two classes: a coverage sentence naming
+    # neither says nothing about coverage, and a limit sentence that never
+    # mentions the class the set does not hold states no limit.
+    for key in transversion transition; do
+        printf '%s' "${measured[substitution-coverage]}" | grep -qi -- "$key" || {
+            printf 'substitution-coverage in %s never mentions a %s, so it states nothing about which substitutions the published figures cover: "%s"\n' \
+                "$artifact_relative" "$key" "${measured[substitution-coverage]}" >&2
+            return 1
+        }
+    done
+    printf '%s' "${measured[substitution-limit]}" | grep -qi -- transition || {
+        printf 'substitution-limit in %s never mentions a transition, so it states no limit on figures measured without one: "%s"\n' \
+            "$artifact_relative" "${measured[substitution-limit]}" >&2
         return 1
     }
 
@@ -421,6 +449,20 @@ examine() {
             return 1
         }
 
+        # The measured set holds one substitution class, and a reader meets
+        # the figures here rather than in the artifact, so the coverage and its
+        # limit stand here too. Both documents, because both publish figures.
+        printf '%s' "$text" | grep -qF -- "${measured[substitution-coverage]}" || {
+            printf '%s publishes a disagreement figure without saying which substitutions it covers: %s says "%s"\n' \
+                "$relative" "$artifact_relative" "${measured[substitution-coverage]}" >&2
+            return 1
+        }
+        printf '%s' "$text" | grep -qF -- "${measured[substitution-limit]}" || {
+            printf '%s publishes a disagreement figure without saying what a set holding the other substitution class could do to it: %s says "%s"\n' \
+                "$relative" "$artifact_relative" "${measured[substitution-limit]}" >&2
+            return 1
+        }
+
         [[ "$key" == full ]] || continue
 
         # The contract records the set, its size and the date measured, and
@@ -524,6 +566,8 @@ non-zero-records: 400
 non-zero-value-disagreement-percent: 6.00
 denominator-composition: 800 of the 1,200 compared records score zero on both routes, and 400 carry a score.
 zero-score-treatment: A record carrying a zero score on either route is left out of the position comparison and kept in the value comparison.
+substitution-coverage: Every probe in the fixture set is a transversion and none of them is a transition.
+substitution-limit: A transition-bearing set could move either figure and nothing measured says by how much.
 position-mechanism: The published dataset reports the first position whose score rounds to the reported hundredth, and the model reports the position of its own extremum.
 position-ordering: A precomputed position is never later than a modeled one for the same call.
 evidence-limit: This rate was measured once against the shipped assets and no gate re-runs it.
@@ -581,7 +625,10 @@ the reported hundredth, and the model reports the position of its own extremum.
 A precomputed position is never later than a modeled one for the same call. 800
 of the 1,200 compared records score zero on both routes, and 400 carry a score. Over the records that carry a score they report a different value
 on 6.00 percent. A record carrying a zero score on either route is left out of the
-position comparison and kept in the value comparison. This rate was measured
+position comparison and kept in the value comparison. Every probe in the
+fixture set is a transversion and none of them is a transition. A
+transition-bearing set could move either figure and nothing measured says by
+how much. This rate was measured
 once against the shipped assets and no gate re-runs it. The measurement is
 [the artifact](../planning/artifacts/0059-route-disagreement-rate.md).
 
@@ -598,7 +645,9 @@ COMPAT
 The two routes disagree on the value for 2.00 percent of the compared records
 and on the position for 5.00 percent of the records comparable on position. Over
 the 400 records that carry a score they disagree on the value for 6.00 percent.
-The measurement is
+Every probe in the fixture set is a transversion and none of them is a
+transition. A transition-bearing set could move either figure and nothing
+measured says by how much. The measurement is
 [the artifact](../planning/artifacts/0059-route-disagreement-rate.md).
 
 ## What a deployment setting moves
@@ -756,6 +805,30 @@ expect_refusal "$(mutate silent-on-zeros swap "$compatibility_relative" \
     'A record carrying a zero score on either route is left out of the position comparison and kept in the value comparison.' \
     'Zeros went somewhere.')" \
     'does not carry how zero scores were treated'
+expect_refusal "$(mutate missing-substitution-coverage drop "$artifact_relative" '^substitution-coverage: ')" \
+    'carries no substitution-coverage'
+expect_refusal "$(mutate coverage-names-one-class retype "$artifact_relative" \
+    substitution-coverage 'Every probe in the fixture set is a transversion.')" \
+    'never mentions a transition'
+expect_refusal "$(mutate limit-names-no-class retype "$artifact_relative" \
+    substitution-limit 'Another set could move either figure.')" \
+    'states no limit on figures measured without one'
+expect_refusal "$(mutate silent-on-substitutions swap "$compatibility_relative" \
+    'Every probe in the fixture set is a transversion and none of them is a transition.' \
+    'The probes were chosen by rule.')" \
+    'without saying which substitutions it covers'
+expect_refusal "$(mutate spec-silent-on-substitutions swap "$score_value_relative" \
+    'Every probe in the fixture set is a transversion and none of them is a transition.' \
+    'The probes were chosen by rule.')" \
+    'without saying which substitutions it covers'
+expect_refusal "$(mutate silent-on-substitution-limit swap "$compatibility_relative" \
+    'A transition-bearing set could move either figure and nothing measured says by how much.' \
+    'The figures are sound.')" \
+    'without saying what a set holding the other substitution class could do to it'
+expect_refusal "$(mutate spec-silent-on-substitution-limit swap "$score_value_relative" \
+    'A transition-bearing set could move either figure and nothing measured says by how much.' \
+    'The figures are sound.')" \
+    'without saying what a set holding the other substitution class could do to it'
 expect_refusal "$(mutate silent-on-limit swap "$compatibility_relative" \
     'This rate was measured once against the shipped assets and no gate re-runs it.' \
     'The measurement is sound.')" \
