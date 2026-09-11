@@ -58,10 +58,14 @@ export HOME XDG_CACHE_HOME
 unset __private_cache_home
 
 # Moving the two homes is not enough. `PANGOPUP_MODEL_CACHE` names the model
-# cache file outright, `PANGOPUP_CACHE_DIR` the download cache and
-# `PANGOPUP_DATA_DIR` the installed bundle directory, and each is read ahead of
-# both homes, so a harness inherits whatever the operator exported and runs
-# against it. They are unset rather than set empty: an empty value is still a
-# value the product reads. What a caller sets after sourcing this still
+# cache file outright, `PANGOPUP_CACHE_DIR` the download cache,
+# `PANGOPUP_DATA_DIR` the installed bundle directory and
+# `PANGOPUP_MODEL_CACHE_MAX_ENTRIES` how many rows the model cache keeps, and
+# each is read ahead of both homes, so a harness inherits whatever the operator
+# exported and runs against it. A value of the last one the product cannot
+# parse refuses every modelled lookup, so an operator who exported it could not
+# run the suite at all. They are unset rather than set empty: an empty value is
+# still a value the product reads. What a caller sets after sourcing this still
 # reaches its runs, which is how the product's own variables stay testable.
-unset PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR
+unset PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR \
+    PANGOPUP_MODEL_CACHE_MAX_ENTRIES

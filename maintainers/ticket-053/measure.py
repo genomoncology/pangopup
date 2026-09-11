@@ -482,14 +482,22 @@ def child_environment(home: Path, model_cache: Path | None = None) -> dict[str, 
     either reaches the cache file of whoever is measuring. `PANGOPUP_MODEL_CACHE`,
     `PANGOPUP_CACHE_DIR` and `PANGOPUP_DATA_DIR` name a cache location outright
     and are read ahead of both, so an inherited one reaches that file whatever
-    the homes say. They are dropped rather than emptied: an empty value is still
+    the homes say. `PANGOPUP_MODEL_CACHE_MAX_ENTRIES` says how many rows that
+    cache keeps, and an inherited one evicts on the schedule whoever is
+    measuring chose, under a measurement that asserts on the number of rows the
+    cache holds. They are dropped rather than emptied: an empty value is still
     a value the product reads. Passing a cache location here rather than on the
     command line is what makes the drop mean something, since a command-line
     option would be overridden by nothing and prove nothing about the inherited
     value.
     """
     environment = dict(os.environ)
-    for name in ("PANGOPUP_MODEL_CACHE", "PANGOPUP_CACHE_DIR", "PANGOPUP_DATA_DIR"):
+    for name in (
+        "PANGOPUP_MODEL_CACHE",
+        "PANGOPUP_CACHE_DIR",
+        "PANGOPUP_DATA_DIR",
+        "PANGOPUP_MODEL_CACHE_MAX_ENTRIES",
+    ):
         environment.pop(name, None)
     environment["HOME"] = str(home)
     environment["XDG_CACHE_HOME"] = str(home)

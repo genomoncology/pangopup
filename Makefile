@@ -57,11 +57,20 @@ endif
 # paid on every run because the recipe removes that directory first. Each is
 # pinned to what it resolved to before the move, the way
 # `tests/support/private-cache-home.sh` pins them.
+#
+# `ORT_CACHE_DIR` is the same accident one layer down. `ort-sys` builds with
+# `download-binaries` and keeps the 87 MB ONNX Runtime static library under the
+# cache directory it resolves, which on Linux is `XDG_CACHE_HOME`. Left
+# unnamed, that library would land in `target/spec-cache` and be removed before
+# every run, so any run that rebuilt `ort-sys` would fetch it again over the
+# network. It is pointed at `target/ort-cache` instead: outside every directory
+# this recipe removes, collected by `cargo clean`, and held by
+# `tests/spec-download-cache-durability.sh`.
 spec:          ## outside-in CLI contracts
 	cargo build --locked --quiet --package pangopup-cli --package pangopup-build
 	rm -rf target/spec-cache
 	install -d -m 700 target/spec-cache
-	env -u PANGOPUP_MODEL_CACHE -u PANGOPUP_CACHE_DIR -u PANGOPUP_DATA_DIR CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/debug:$$PATH" mustmatch test $(SPEC_PATHS)
+	env -u PANGOPUP_MODEL_CACHE -u PANGOPUP_CACHE_DIR -u PANGOPUP_DATA_DIR -u PANGOPUP_MODEL_CACHE_MAX_ENTRIES CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" ORT_CACHE_DIR="$(CURDIR)/target/ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/debug:$$PATH" mustmatch test $(SPEC_PATHS)
 
 # Maintainer-run. This target reaches the network. No gate invokes it. It is
 # defined after the gates so that no gate recipe can name it.
