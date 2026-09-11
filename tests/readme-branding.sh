@@ -44,6 +44,14 @@ sed -i '/pangopup-performance.png/d' "$fixture/README.md"
 expect_rejected missing-hero "$fixture"
 cp "$repo/README.md" "$fixture/README.md"
 
+sed -i '/pangopup-2026-talk-1280x720.png/d' "$fixture/README.md"
+expect_rejected missing-presentation-thumbnail "$fixture"
+cp "$repo/README.md" "$fixture/README.md"
+
+sed -i 's#](https://www.youtube.com/watch?v=1rf-sMUZiP8)$#]#' "$fixture/README.md"
+expect_rejected unlinked-presentation-thumbnail "$fixture"
+cp "$repo/README.md" "$fixture/README.md"
+
 cp "$repo/docs/images/pangopup.svg" "$fixture/docs/images/extra-source-mark.svg"
 expect_rejected extra-source-mark "$fixture"
 rm "$fixture/docs/images/extra-source-mark.svg"
