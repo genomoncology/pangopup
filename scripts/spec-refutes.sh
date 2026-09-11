@@ -14,9 +14,11 @@ set -uo pipefail
 # is the live form. It exits non-zero when the claim breaks, which `set -e`
 # turns into a failed block on the line that broke.
 #
-# It also refuses the two ways a refutation passes on nothing: a haystack with
-# no bytes in it, and a command that was never there to fail. Both read as
-# green when nobody is looking at them.
+# It also refuses the three ways a refutation passes on nothing: a haystack with
+# no bytes in it, a command that was never there to fail, and a command that is
+# there and could not be run. Each reads as green when nobody is looking at it.
+# The last two are held apart in the refusal text, because a missing command and
+# one that lost its execute bit want different repairs.
 #
 # It never reads the caller's standard input except as the haystack of an
 # --absent call that names no path, and it refuses that call when standard
@@ -109,6 +111,7 @@ fails() {
     status=$?
     case $status in
         0) refuse "the command succeeded, and this line refutes it: $text${output:+ -- $output}" ;;
+        126) refuse "the command is there and could not be run, so its failure proves nothing: $text${output:+ -- $output}" ;;
         127) refuse "the command was never there to run, so its failure proves nothing: $text${output:+ -- $output}" ;;
         *) return 0 ;;
     esac

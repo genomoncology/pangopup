@@ -43,7 +43,7 @@ pangopup-build runtime-profile prepare --snv-bundle /secret/not-present --model-
 ```
 
 ```bash
-test ! -e ../target/spec/runtime-profile/profile.json
+test ! -e ../target/spec/runtime-profile/profile.json && printf 'ok\n' | mustmatch ok
 ```
 
 An exact but non-production miniature is incompatible, rather than corrupt or

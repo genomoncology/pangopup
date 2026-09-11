@@ -7,7 +7,7 @@ tags, stops at a GHCR public-visibility checkpoint, anonymously requalifies the 
 and only then assembles the public two-platform index.
 
 ```bash
-bash tests/container-delivery.sh
+cd .. && bash tests/container-delivery.sh && printf 'ok\n' | mustmatch ok
 ```
 
 The final image remains thin: neither a leaf nor the OCI index contains the

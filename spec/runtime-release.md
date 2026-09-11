@@ -56,7 +56,7 @@ pangopup-build runtime-release prepare \
 ```
 
 ```bash
-test ! -e ../target/spec/runtime-release/not-created
+test ! -e ../target/spec/runtime-release/not-created && printf 'ok\n' | mustmatch ok
 ```
 
 A structurally valid miniature transport still fails because normal CLI
@@ -76,5 +76,5 @@ pangopup-build runtime-release prepare \
 
 ```bash
 test ! -e ../target/spec/runtime-release/not-production
-test -z "$(find ../target/spec/runtime-release -maxdepth 1 -name '.not-production.pangopup-stage-*' -print -quit)"
+test -z "$(find ../target/spec/runtime-release -maxdepth 1 -name '.not-production.pangopup-stage-*' -print -quit)" && printf 'ok\n' | mustmatch ok
 ```

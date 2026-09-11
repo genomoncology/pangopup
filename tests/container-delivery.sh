@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# This harness stays in `make spec`, which `spec/container-image.md` invokes.
+# It does execute `scripts/qualify-container.sh`, whose EXIT trap calls
+# `docker rm --force` twice and `docker volume rm --force` once. That is still
+# a gate that costs nothing and reaches nowhere: `qualify-container.sh` refuses
+# an invalid expected registry digest and exits 2 before its first
+# `docker image inspect`, so no image is pulled, built or started, and all
+# three removal calls are redirected under `|| true`. A machine without docker
+# is unaffected; a machine with it sees removals of names that do not exist.
+# No line here reaches the network.
+#
+# It reads `Dockerfile` and `.github/workflows/` by relative path and writes
+# under `target/`, so the spec block that runs it changes directory to the
+# repository root first. mustmatch runs a block with the working directory set
+# to the markdown file's own directory, which for `spec/*.md` is `spec/`.
+
 grep -Fq 'cargo build --locked --release --package pangopup-cli' Dockerfile
 grep -Fq 'USER 65532:65532' Dockerfile
 grep -Fq 'ENTRYPOINT ["/usr/local/bin/pangopup"]' Dockerfile
