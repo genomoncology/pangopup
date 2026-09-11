@@ -295,5 +295,5 @@ mutant_tags="$work/no-tags"
 : >"$mutant_tags"
 refuses 'read 0 released tag(s)' "$changelog" "$version" "$mutant_tags" 'a tag list that names no release'
 
-printf 'changelog release coverage: %s, and %s covers %d asset release tag(s) with no section\n' \
+printf 'changelog release coverage: %s in %s, and %d asset release tag(s) set aside\n' \
     "$counted" "$changelog_relative" "$set_aside"
