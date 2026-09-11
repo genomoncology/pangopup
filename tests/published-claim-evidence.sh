@@ -642,9 +642,16 @@ check_index_size() {
     }
 
     # --- the narrow census: no second unmeasured figure in that section ---
+    #
+    # The three figures the section is about are accounted for, and so is the
+    # difference between the published figure and the measured one: a section
+    # reconciling two sizes states the gap between them, and a rule refusing
+    # that would refuse the sentence it exists to require. Every other byte
+    # figure has to stand in the build artifact.
     local figure unaccounted=
     for figure in $figures; do
-        (( figure == published || figure == measured || figure == width )) && continue
+        (( figure == published || figure == measured || figure == width \
+            || figure == difference )) && continue
         grep -Fq -- "$(grouped "$figure")" "$artifact" && continue
         unaccounted+=" $(grouped "$figure")"
     done
@@ -779,8 +786,8 @@ ARTIFACT
 Three 28-bit score records plus a three-bit reference fit in 87 bits, or 11
 bytes per locus. Over the complete corpus that is a derived 11,000,000 bytes,
 the product of 1,000,000 loci and that width. The builder measured the payload
-at 10,999,670 bytes, because 30 `N` loci are held in an exception section
-rather than in the fixed-width payload.
+at 10,999,670 bytes, 330 bytes smaller, because 30 `N` loci are held in an
+exception section rather than in the fixed-width payload.
 
 ## Something else
 
@@ -973,7 +980,7 @@ expect_refusal check_index_size "$(mutate ix-presented-as-measured swap "$index_
     'that is 11,000,000 bytes')" \
     'presents it as a measurement'
 expect_refusal check_index_size "$(mutate ix-no-measured-payload swap "$index_relative" \
-    'The builder measured the payload at 10,999,670 bytes, because 30 `N` loci are held in an exception section rather than in the fixed-width payload.' \
+    'The builder measured the payload at 10,999,670 bytes, 330 bytes smaller, because 30 `N` loci are held in an exception section rather than in the fixed-width payload.' \
     'The exception section is small.')" \
     'without the measured 10,999,670-byte payload beside it'
 expect_refusal check_index_size "$(mutate ix-no-exception-account swap "$index_relative" \
