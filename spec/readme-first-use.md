@@ -17,6 +17,15 @@ now say exactly that. `tests/readme-budget-exactness.sh` holds every figure on
 this page to what `README.md` measures, so raising one means stating a new
 measurement of a real tree.
 
+The budget did not move again for the link to `architecture/motivation.md`. The
+README stood at 1,766 words, four words under the cap, and the sentence carrying
+that link is longer than four words. Those words were paid for out of the guide
+rather than added to it. Raising a ceiling to admit the one change that needs it
+leaves no ceiling at all: the next sentence arrives with the same argument, and
+a number that moves whenever it binds stops saying anything. Cutting keeps the
+README the size a first-use guide is, and the cut stands in the same commit as
+the addition where a reader can see what was traded for what.
+
 ```bash
 test "$(wc -l < ../README.md)" -le 271
 test "$(wc -w < ../README.md)" -le 1829
