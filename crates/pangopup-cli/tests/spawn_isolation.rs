@@ -79,3 +79,76 @@ fn a_helper_spawn_resolves_a_cache_of_its_own() {
         ambient.display()
     );
 }
+
+/// The three variables that name a cache location outright, in the order the
+/// product reads them. `PANGOPUP_MODEL_CACHE` names the model cache file
+/// itself and is read *ahead* of `XDG_CACHE_HOME` and `HOME`, so redirecting
+/// those two leaves a spawn reaching the file this variable names.
+/// `PANGOPUP_CACHE_DIR` and `PANGOPUP_DATA_DIR` name the download cache and
+/// the installed bundle directory the same way.
+const CACHE_VARIABLES: [&str; 3] = [
+    "PANGOPUP_MODEL_CACHE",
+    "PANGOPUP_CACHE_DIR",
+    "PANGOPUP_DATA_DIR",
+];
+
+/// What the helper-built command does with `name`: `None` when it leaves the
+/// inherited value alone, `Some(None)` when it removes it, `Some(Some(value))`
+/// when it sets one.
+fn disposition<'a>(spawn: &'a support::Spawn, name: &str) -> Option<Option<&'a OsStr>> {
+    let wanted = OsStr::new(name);
+    spawn
+        .command
+        .get_envs()
+        .find(|(key, _)| *key == wanted)
+        .map(|(_, value)| value)
+}
+
+/// A command the helper built must not resolve a cache the suite's own
+/// environment names.
+///
+/// Redirecting `XDG_CACHE_HOME` and `HOME` is not enough. Each variable here
+/// names a cache location outright and is read ahead of both, so an operator
+/// who exports one runs the whole suite against the file it names -- and since
+/// a cache whose recorded setup no longer matches is discarded rather than
+/// ignored, the run destroys that file rather than only growing it. The helper
+/// has to drop them, not overwrite them: an empty or placeholder value is a
+/// value the product still reads.
+#[test]
+fn a_helper_spawn_forgets_the_cache_variables_it_inherited() {
+    let spawn = support::pangopup();
+    for name in CACHE_VARIABLES {
+        match disposition(&spawn, name) {
+            Some(None) => {}
+            Some(Some(value)) => panic!(
+                "the helper sets {name} to {:?} instead of removing it, so a spawn still reads a \
+                 cache location from a variable the suite inherited",
+                value
+            ),
+            None => panic!(
+                "the helper leaves {name} inherited, so a spawn reaches the cache location \
+                 whoever is running the suite exported and can destroy that file"
+            ),
+        }
+    }
+}
+
+/// Clearing the inherited value must not take the variable away from a caller
+/// that owns a directory of its own.
+///
+/// `model_routing.rs` sets `PANGOPUP_MODEL_CACHE` on a command to prove the
+/// product rejects a relative path, and the product itself keeps honouring all
+/// three for an operator running it. What the helper drops is the inherited
+/// value; what a caller sets after it still reaches the child.
+#[test]
+fn a_caller_may_still_name_a_cache_location_of_its_own() {
+    for name in CACHE_VARIABLES {
+        let spawn = support::pangopup().env(name, "/nowhere/a-caller-owns");
+        assert_eq!(
+            disposition(&spawn, name),
+            Some(Some(OsStr::new("/nowhere/a-caller-owns"))),
+            "a caller that sets {name} after the helper must reach the child with it, or the \
+             product's own variables become untestable"
+        );
+    }
+}

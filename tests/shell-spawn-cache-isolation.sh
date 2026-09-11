@@ -275,7 +275,7 @@ plant() {
                 printf '"$repo/target/%s/pangopup-build" --version\n' debug
                 ;;
             cargo-run)
-                printf 'cargo run --package pangopup-cli --bin %s -- lookup --help\n' pangopup
+                printf 'cargo run --package %s --bin %s -- lookup --help\n' pangopup-cli pangopup
                 ;;
             held)
                 printf 'scripts/require-built-commands.sh\n'
@@ -305,7 +305,7 @@ plant() {
                 printf '"$repo/target/%s/pangopup" --version\n' debug
                 ;;
             bin-equals)
-                printf 'cargo run --package pangopup-cli --bin=%s -- lookup --help\n' pangopup
+                printf 'cargo run --package %s --bin=%s -- lookup --help\n' pangopup-cli pangopup
                 ;;
             after-a-hash)
                 printf 'trimmed=${bin#$PWD/}; "$repo/target/%s/pangopup" --version\n' debug
@@ -313,7 +313,7 @@ plant() {
             held-cargo-run)
                 printf 'scripts/require-built-commands.sh\n'
                 printf '. "$repo/%s"\n' "$helper_relative"
-                printf 'cargo run --package pangopup-cli --bin %s -- lookup --help\n' pangopup
+                printf 'cargo run --package %s --bin %s -- lookup --help\n' pangopup-cli pangopup
                 ;;
             names-smoke)
                 printf '"$repo/%s" "$1" "$2"\n' "$smoke_relative"
@@ -326,7 +326,13 @@ plant() {
                 ;;
             cold-cargo-run)
                 printf '. "$repo/%s"\n' "$helper_relative"
-                printf 'cargo run --package pangopup-cli --bin %s -- lookup --help\n' pangopup
+                printf 'cargo run --package %s --bin %s -- lookup --help\n' pangopup-cli pangopup
+                ;;
+            package-no-bin)
+                printf 'cargo run --package %s -- lookup --help\n' pangopup-cli
+                ;;
+            package-short)
+                printf 'cargo run -p %s -- lookup --help\n' pangopup-cli
                 ;;
         esac
     } >"$tree/$path"
@@ -416,6 +422,18 @@ expect_refusal "$named" 'tests/qualification.sh:3'
 bin_equals="$fixtures/bin-equals"
 plant "$bin_equals" 'tests/help-contract.sh' bin-equals
 expect_refusal "$bin_equals" 'tests/help-contract.sh:2'
+
+# `pangopup-cli` declares one `[[bin]]`, so `--bin` is optional: `cargo run
+# --package pangopup-cli` reaches the same executable without naming it, and a
+# scan that reads only `--bin pangopup` calls such a harness quiet. Cargo
+# spells the package option long and short.
+package_no_bin="$fixtures/package-no-bin"
+plant "$package_no_bin" 'tests/help-contract.sh' package-no-bin
+expect_refusal "$package_no_bin" 'tests/help-contract.sh:2'
+
+package_short="$fixtures/package-short"
+plant "$package_short" 'tests/help-contract.sh' package-short
+expect_refusal "$package_short" 'tests/help-contract.sh:2'
 
 # A run on a code line carrying an earlier `#` is still a run. `${bin#$PWD/}`
 # is ordinary shell, and a scan that reads it as a comment reads the harness as
@@ -515,6 +533,39 @@ resolved=$(
 private_cache=$(printf '%s\n' "$resolved" | sed -n '1p')
 private_home=$(printf '%s\n' "$resolved" | sed -n '2p')
 toolchain_homes=$(printf '%s\n' "$resolved" | sed -n '3,4p')
+
+# The three variables that name a cache location outright. `PANGOPUP_MODEL_CACHE`
+# names the model cache file itself and is read *ahead* of `XDG_CACHE_HOME` and
+# `HOME`, so moving those two leaves a run reaching the file this variable
+# names; `PANGOPUP_CACHE_DIR` and `PANGOPUP_DATA_DIR` name the download cache
+# and the installed bundle directory the same way. An operator who exports one
+# runs the whole suite against what it names, and a cache whose recorded setup
+# no longer matches is discarded rather than ignored.
+#
+# Read back from a shell that exported all three at a location the helper must
+# not leave resolvable. Removing them is the requirement: an empty value is a
+# value the product still reads, and one pointed somewhere else is still a
+# location this file cannot vouch for.
+inherited=$(
+    env PANGOPUP_MODEL_CACHE="$ambient/cache/inherited.sqlite3" \
+        PANGOPUP_CACHE_DIR="$ambient/cache/inherited-downloads" \
+        PANGOPUP_DATA_DIR="$ambient/home/inherited-bundles" \
+        bash -c '
+            set -euo pipefail
+            . "$1"
+            for name in PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR; do
+                if [[ -n "${!name+set}" ]]; then
+                    printf "%s=%s\n" "$name" "${!name}"
+                fi
+            done
+        ' bash "$helper"
+) || fail 'sourcing the helper with the cache variables exported failed'
+
+if [[ -n "$inherited" ]]; then
+    printf 'the helper leaves these exported after a harness sources it, so every run under it reaches the cache location whoever runs the harness named and can destroy that file:\n' >&2
+    printf '  %s\n' $inherited >&2
+    fail 'the helper must unset PANGOPUP_MODEL_CACHE, PANGOPUP_CACHE_DIR and PANGOPUP_DATA_DIR'
+fi
 
 [[ -n "$private_cache" ]] \
     || fail 'the helper must set XDG_CACHE_HOME, or a run reads the cache directory of whoever runs the harness'
