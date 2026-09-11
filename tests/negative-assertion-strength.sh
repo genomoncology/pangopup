@@ -429,9 +429,36 @@ assertion_harnesses=(executable-delivery.sh)
 # statement the search starts after the closing `]]`, because the `&&` inside
 # `[[ ! -e "$p" && ! -L "$p" ]]` joins two conditions rather than consuming the
 # statement's exit. Quoted text is cut out first, so a `||` inside a pattern is
-# not read as an operator.
+# not read as an operator, and a trailing comment is cut out after it, so a
+# `||` a reader wrote in commentary is not read as one either.
+#
+# `||` is the only thing that consumes. `&&` is not: measured on 2026-09-11,
+# `set -euo pipefail; grep -Fq zzz /etc/hostname && found=1; echo REACHED`
+# prints REACHED and exits 0, and so does the same line led by `[[`. A shape
+# that neither names what it wanted nor stops the harness is worse than the
+# bare one this rule exists to refuse, so exempting it would make the rule
+# wider than the thing it covers.
+#
+# A heredoc body is not the harness's own statements. `tests/executable-delivery.sh`
+# writes stub executables that way, and three of those stub lines are
+# `[[ ... ]] && printf ...` -- a correct line in a one-line stub, and no
+# assertion of this harness at all. Their bodies are skipped, which is also
+# what keeps the assertion count honest.
 assertion_scan='
+FNR == 1 { heredoc = "" }
 {
+    if (heredoc != "") {
+        terminator = $0
+        sub(/^[[:space:]]*/, "", terminator)
+        sub(/[[:space:]]+$/, "", terminator)
+        if (terminator == heredoc) { heredoc = "" }
+        next
+    }
+    if (match($0, /<<-?[[:space:]]*[\047"]?[A-Za-z_][A-Za-z0-9_]*[\047"]?/)) {
+        heredoc = substr($0, RSTART, RLENGTH)
+        sub(/^<<-?[[:space:]]*/, "", heredoc)
+        gsub(/[\047"]/, "", heredoc)
+    }
     statement = $0
     sub(/^[[:space:]]*/, "", statement)
     if (statement == "" || statement ~ /^#/) { next }
@@ -445,7 +472,8 @@ assertion_scan='
         if (where == 0) { next }
         code = substr(code, where + 2)
     }
-    if (index(code, "||") > 0 || index(code, "&&") > 0) { next }
+    sub(/(^|[[:space:]])#.*$/, "", code)
+    if (index(code, "||") > 0) { next }
     printf "%s:%d: %s\n", FILENAME, FNR, statement > "/dev/stderr"
     bare++
 }
@@ -464,6 +492,9 @@ printf '%s\n' \
     "grep -Fq 'wanted' file" \
     '[[ "$a" == "$b" ]]' \
     '[[ ! -e "$p" && ! -L "$p" ]]' \
+    "grep -Fq 'wanted' file && found=1" \
+    '[[ "$a" == "$b" ]] && found=1' \
+    "grep -Fq 'wanted' file  # a reader could write || fail here" \
     >"$silent_fixture"
 
 naming_fixture="$work/naming-assertions.sh"
@@ -478,16 +509,37 @@ printf '%s\n' \
     >"$naming_fixture"
 
 read -r silent_assertions silent_bare < <(scan_assertions "$silent_fixture")
-[[ "$silent_bare" == 3 ]] \
-    || fail "the scan found $silent_bare of the 3 silent assertions in its own fixture, so it cannot see the shape it exists to refuse"
-[[ "$silent_assertions" == 3 ]] \
-    || fail "the scan read $silent_assertions of the 3 assertions in its own fixture"
+[[ "$silent_bare" == 6 ]] \
+    || fail "the scan found $silent_bare of the 6 silent assertions in its own fixture, so it cannot see the shape it exists to refuse: three bare, two ending in \`&&\` -- which neither names nor stops -- and one whose only \`||\` stands in a trailing comment"
+[[ "$silent_assertions" == 6 ]] \
+    || fail "the scan read $silent_assertions of the 6 assertions in its own fixture"
 
 read -r naming_assertions naming_bare < <(scan_assertions "$naming_fixture")
 [[ "$naming_bare" == 0 ]] \
     || fail "the scan refused an assertion that already names what it wanted: $(tr '\n' ' ' <"$work/silent")"
 [[ "$naming_assertions" -ge 3 ]] \
     || fail "the scan saw $naming_assertions assertions in a fixture holding three led by \`[[\` or \`grep\`, so it is not reading the shape it claims to exempt"
+
+# A heredoc body is text the harness writes, not a statement it runs. The one
+# this fixture holds is the shape `tests/executable-delivery.sh` writes three
+# times: a one-line stub executable whose `[[ ... ]] && printf ...` is correct
+# where it stands. Counting it would refuse the harness for a line it never
+# runs, and would also make the assertion total this file reports untrue.
+heredoc_fixture="$work/heredoc-assertions.sh"
+printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    "cat >stub <<'EOF'" \
+    '[[ "${1:-}" == --version ]] && printf one' \
+    "grep -Fq 'wanted' file" \
+    'EOF' \
+    "require_text file 'wanted'" \
+    >"$heredoc_fixture"
+
+read -r heredoc_assertions heredoc_bare < <(scan_assertions "$heredoc_fixture")
+[[ "$heredoc_assertions" == 0 ]] \
+    || fail "the scan read $heredoc_assertions assertion(s) out of a fixture whose only \`[[\` and \`grep\` lines stand inside a heredoc body, so it counts text a harness writes as a statement it runs"
+[[ "$heredoc_bare" == 0 ]] \
+    || fail "the scan refused a line standing inside a heredoc body, which is text the harness writes rather than an assertion it makes"
 
 # The mechanism the repaired assertions go through.
 expected_support="$repository/tests/support/expected-text.sh"
@@ -585,7 +637,7 @@ for name in "${assertion_harnesses[@]}"; do
     (( harness_assertions > 0 )) \
         || fail "read no assertion out of tests/$name, so this rule held over nothing"
     if [[ "$harness_bare" != 0 ]]; then
-        fail "$harness_bare assertion(s) in tests/$name stop the harness without saying what they wanted; write each as require_text, require_line, require_pattern, equal, or cmd || fail ...: $(tr '\n' ' ' <"$work/silent")"
+        fail "$harness_bare assertion(s) in tests/$name fail without saying what they wanted -- a bare one stops the harness in silence, and one ending in \`&&\` does not stop it at all; write each as require_text, require_line, require_pattern, equal, or cmd || fail ...: $(tr '\n' ' ' <"$work/silent")"
     fi
     assertion_total=$((assertion_total + harness_assertions))
 done
