@@ -290,10 +290,13 @@ def check_candidate(candidate: str) -> None:
         # status response publishes beside it is the release checker's subject
         # and not this file's, and pinning the whole field list here made a
         # published value the checker gained a version-consistency failure.
+        # It still ends on the delimiter that closes the value, because a
+        # pattern stopping mid-token matches any longer name starting with it:
+        # without the delimiter, `data_set_version_old` satisfies this claim.
         (
             "tests/production-release-qualification.sh",
             "candidate qualification server status",
-            rf'^            "/v1/status": {{"version":"{re.escape(candidate)}","readiness":"ready","scoring_identity":scoring_identity,"data_set_version":data_set_version',
+            rf'^            "/v1/status": {{"version":"{re.escape(candidate)}","readiness":"ready","scoring_identity":scoring_identity,"data_set_version":data_set_version[,}}]',
         ),
         (
             "tests/production-release-qualification.sh",
