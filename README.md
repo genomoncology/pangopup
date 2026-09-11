@@ -187,7 +187,7 @@ Metal.
 | Model, reference, and mask | ~660 MiB | ~775 MiB |
 | Combined | ~2.44 GiB | ~14.76 GiB |
 
-The SNV index is memory-mapped rather than loaded wholly into RAM. Linux and macOS read the file pages touched by queries and can reclaim them through the normal page cache. For one default foreground service, 256 MiB RAM is a practical starting allocation. Measure against your workload before setting a production limit.
+The SNV index is memory-mapped rather than loaded wholly into RAM. Linux and macOS read the pages queries touch and can reclaim them. For one default foreground service, 256 MiB RAM is a practical starting allocation. Measure against your workload before setting a production limit.
 
 By default on Linux and macOS, installed assets are in `~/.local/share/pangopup`; resumable downloads are in `~/.cache/pangopup`; and model results are in `~/.cache/pangopup/model-results.sqlite3`.
 
@@ -223,7 +223,7 @@ curl -fsSL "https://raw.githubusercontent.com/genomoncology/pangopup/v${VERSION}
 
 This replaces the executable while preserving assets and caches. Run
 `pangopup sync --offline` to confirm reuse, or `pangopup sync --progress` when the chosen
-release requires different assets.
+release requires different assets. [`CHANGELOG.md`](CHANGELOG.md) lists what changed in each release.
 
 For Docker, pull the chosen tag, stop the container started above, then repeat the same
 service command with both named volumes:
