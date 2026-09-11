@@ -156,8 +156,11 @@ pub fn software_version() -> String {
 /// whether shutdown was wrong or the assertion was.
 ///
 /// Standard error is drained before the wait, because a child still writing
-/// into a full pipe would never exit. A child whose standard error was already
-/// read, or never piped, reports an empty one.
+/// into a full pipe would never exit. A service that shuts down quietly writes
+/// nothing there, and a child whose standard error was already read or was
+/// never piped reads as the same. The report says so in words rather than
+/// trailing off after a colon, so an empty section is not read as a report that
+/// was cut short.
 pub fn assert_shutdown_succeeded(child: &mut Child, what: &str) {
     let mut said = String::new();
     if let Some(pipe) = child.stderr.as_mut() {
@@ -174,7 +177,10 @@ pub fn assert_shutdown_succeeded(child: &mut Child, what: &str) {
         (None, Some(signal)) => format!("signal {signal}"),
         (None, None) => "neither an exit status nor a signal".to_owned(),
     };
-    panic!("{what}: the service ended with {ended}; its standard error was:\n{said}");
+    if said.trim().is_empty() {
+        panic!("{what}: the service ended with {ended} and wrote nothing to its standard error");
+    }
+    panic!("{what}: the service ended with {ended}. Its standard error was:\n{said}");
 }
 
 /// The exact bytes ticket 0054 adds to a result line, for the version the

@@ -127,6 +127,31 @@ fn a_non_zero_exit_is_reported_with_its_status_and_standard_error() {
     );
 }
 
+/// A service that fails quietly is the common case. `pangopup serve` writes
+/// its listening line to standard output and writes to standard error only
+/// when it has something to report, so most shutdown failures carry nothing
+/// there. A report that ended on a colon would leave a reader deciding whether
+/// the service was silent or the capture had failed.
+#[test]
+fn a_silent_service_is_reported_as_having_written_nothing() {
+    let _seat = hook_seat();
+    let mut quiet = child("exit 3");
+    let report = report_for(&mut quiet, "service exit")
+        .expect("a service that exited 3 must fail the shutdown assertion");
+    assert!(
+        report.contains("wrote nothing to its standard error"),
+        "the report does not say the service was silent: {report}"
+    );
+    assert!(
+        !report.trim_end().ends_with(':'),
+        "the report ends on a colon with nothing after it: {report}"
+    );
+    assert!(
+        names_number(&report, 3),
+        "the report does not carry the exit status: {report}"
+    );
+}
+
 #[test]
 fn a_signalled_exit_is_reported_with_its_signal_and_standard_error() {
     let _seat = hook_seat();
