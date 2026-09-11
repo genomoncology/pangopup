@@ -6,3 +6,6 @@ target/
 # Agent tooling is linked at dispatch time and is not product source.
 /.agents/
 /.claude/
+
+# Python bytecode caches, written by any run of the maintainer and gate scripts.
+__pycache__/
