@@ -255,7 +255,7 @@ Optionally remove downloads and cached model results with
 To cite PangoPup, use [`CITATION.cff`](CITATION.cff). PangoPup is [GPL-3.0-only](LICENSE).
 Exact source identities, modifications, and attribution are in [`NOTICE`](NOTICE) and
 [`assets/notices/`](assets/notices/). [Why this project exists](architecture/motivation.md)
-describes the upstream licence and the public lookup service limits that led to PangoPup.
+describes the upstream licence and the public lookup service's limits that led to PangoPup.
 
 PangoPup builds on these works:
 

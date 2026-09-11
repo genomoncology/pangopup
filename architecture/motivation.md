@@ -1,14 +1,14 @@
 # Why this project exists
 
-The best-known splice predictor carries licence terms of its own, and the
-public service that answers for it answers a few queries at a time. This page
-records what each party says about its own software or service, with the date
-that source was read. It draws no conclusion of its own. None of this page is
-legal advice.
+The best-known splice predictor carries licence terms of its own. The public
+service that answers queries for it serves a few at a time. This page records
+what each party says about its own software or service, with the date that
+source was read. It draws no conclusion of its own. None of this page is legal
+advice.
 
 ## What the upstream predictor's licence says
 
-The better-known predictor is SpliceAI, from Illumina, Inc.
+That predictor is SpliceAI, from Illumina, Inc.
 
 - The LICENSE file in the SpliceAI repository states: "SpliceAI source code is
   provided under the PolyForm Strict License 1.0.0. SpliceAI models are
@@ -71,8 +71,29 @@ Software reaches this project in three ways. It runs the executable and reads
 the JSON Lines written to standard output. It calls the HTTP service over a
 socket. Or it links the crates in this repository into its own binary.
 
-The licence text answers what each of those arrangements means for a calling
-program's own licence, and this repository does not answer it. The LICENSE file
-in this repository holds the GPL-3.0-only text, and a reader goes there. This
-repository states no conclusion about any other program's licence. None of this
-page is legal advice.
+The LICENSE file in this repository holds the GPL-3.0-only text, and that text
+answers what each of those arrangements means for a calling program's own
+licence. Three of its passages are the ones a reader goes to. This repository
+quotes them here and applies none of them.
+
+- On what the licence reaches, section 0 states: "A 'covered work' means either
+  the unmodified Program or a work based on the Program." The same section
+  defines the phrase it turns on. To "modify" a work "means to copy from or
+  adapt all or part of the work in a fashion requiring copyright permission,
+  other than the making of an exact copy", and the result is called a work
+  "based on" the earlier work.
+
+- On the output of a run, section 2 states: "The output from running a covered
+  work is covered by this License only if the output, given its content,
+  constitutes a covered work."
+
+- On a compilation that carries a covered work alongside other works, section 5
+  defines an "aggregate" as a compilation of a covered work with "separate and
+  independent works, which are not by their nature extensions of the covered
+  work, and which are not combined with it such as to form a larger program". It
+  states that "[i]nclusion of a covered work in an aggregate does not cause this
+  License to apply to the other parts of the aggregate."
+
+Which passage governs which arrangement is for the reader to work out with
+whoever advises them. This repository states no conclusion about any other
+program's licence. None of this page is legal advice.
