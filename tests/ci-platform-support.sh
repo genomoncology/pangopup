@@ -4,6 +4,8 @@ set -euo pipefail
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 workflow="$repository/.github/workflows/ci.yml"
 
+. "$repository/tests/support/workflow-commands.sh"
+
 require_text() {
     local text=$1
     local content=$2
@@ -39,17 +41,16 @@ normalize_markdown() {
     '
 }
 
-compiler_step=$(sed -n '/^      - name: Install the Linux ARM64 cross compiler$/,/^      - name: Install uv 0.8.0$/p' "$workflow")
-require_text 'sudo apt-get update' "$compiler_step" 'Linux package index update'
-require_text 'sudo apt-get install --yes gcc-aarch64-linux-gnu' "$compiler_step" 'Linux ARM64 cross compiler installation'
+require_workflow_command "$workflow" 'sudo apt-get update' 'Install the Linux ARM64 cross compiler'
+require_workflow_command "$workflow" 'sudo apt-get install --yes gcc-aarch64-linux-gnu' 'Install the Linux ARM64 cross compiler'
 
 arm_step=$(sed -n '/^      - name: Check the Linux ARM64 command build$/,/^      - name: Test the portable native service fixture$/p' "$workflow")
 require_text 'CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc' "$arm_step" 'bundled C dependency compiler'
 require_text 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc' "$arm_step" 'Rust target linker'
-require_text 'run: cargo check --locked --target aarch64-unknown-linux-gnu --package pangopup-cli' "$arm_step" 'Linux ARM64 command build'
+require_workflow_command "$workflow" 'run: cargo check --locked --target aarch64-unknown-linux-gnu --package pangopup-cli' 'Check the Linux ARM64 command build'
 
 test_step=$(sed -n '/^      - name: Run Linux tests with public failure evidence$/,/^      - run: make spec$/p' "$workflow")
-require_text 'run: scripts/run-linux-tests-with-public-failure.sh' "$test_step" 'executable Linux test gate'
+require_workflow_command "$workflow" 'run: scripts/run-linux-tests-with-public-failure.sh' 'Run Linux tests with public failure evidence'
 [[ "$(grep -Fc 'run: scripts/run-linux-tests-with-public-failure.sh' <<<"$test_step")" == 1 ]]
 [[ "$(grep -Fc 'make test' <<<"$test_step")" == 0 ]]
 

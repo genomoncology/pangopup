@@ -2,6 +2,7 @@
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
+. "$repo/tests/support/workflow-commands.sh"
 root="$repo/target/executable-delivery-test"
 version=$(grep -m1 '^version = ' "$repo/Cargo.toml" | cut -d'"' -f2)
 [[ -n "$version" ]]
@@ -408,8 +409,8 @@ grep -Eq '^  contents: read$' "$repo/.github/workflows/package-linux.yml"
 while IFS= read -r action; do
   [[ "$action" =~ @[0-9a-f]{40}$ ]] || fail "workflow action is not pinned: $action"
 done < <(sed -nE 's/^[[:space:]]*- uses: ([^ #]+).*/\1/p' "$repo/.github/workflows/package-linux.yml")
-grep -Fq 'git merge-base --is-ancestor "$EXACT_COMMIT" origin/main' "$repo/.github/workflows/package-linux.yml"
-grep -Fq 'git diff --cached --quiet --' "$repo/.github/workflows/package-linux.yml"
+require_workflow_command "$repo/.github/workflows/package-linux.yml" 'git merge-base --is-ancestor "$EXACT_COMMIT" origin/main'
+require_workflow_command "$repo/.github/workflows/package-linux.yml" 'git diff --cached --quiet --'
 for stage in \
   'Authenticate exact checkout' \
   'Install pinned Rust toolchain' \
@@ -422,23 +423,26 @@ for stage in \
 done
 grep -Fq 'astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b' "$repo/.github/workflows/package-linux.yml"
 grep -Fq 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' "$repo/.github/workflows/package-linux.yml"
-grep -Fq 'cargo build --locked --release --package pangopup-cli' "$repo/.github/workflows/package-linux.yml"
-grep -Fq 'cargo install --locked --version 0.5.9 cargo-cyclonedx' "$repo/.github/workflows/package-linux.yml"
+require_workflow_command "$repo/.github/workflows/package-linux.yml" 'cargo build --locked --release --package pangopup-cli'
+require_workflow_command "$repo/.github/workflows/package-linux.yml" 'cargo install --locked --version 0.5.9 cargo-cyclonedx'
+require_workflow_command "$repo/.github/workflows/package-linux.yml" 'cargo fetch --locked'
 grep -Fxq '          cargo fetch --locked' "$repo/.github/workflows/package-linux.yml"
 [[ "$(grep -Fc 'cargo fetch' "$repo/.github/workflows/package-linux.yml")" == 1 ]]
+require_workflow_command "$repo/.github/workflows/package-linux.yml" 'CARGO_NET_OFFLINE=true cargo cyclonedx --manifest-path'
 fetch_line=$(grep -nF 'cargo fetch --locked' "$repo/.github/workflows/package-linux.yml" | cut -d: -f1)
 offline_line=$(grep -nF 'CARGO_NET_OFFLINE=true cargo cyclonedx --manifest-path' "$repo/.github/workflows/package-linux.yml" | cut -d: -f1)
 [[ -n "$fetch_line" && -n "$offline_line" && "$fetch_line" -lt "$offline_line" ]]
 [[ "$(grep -Fc 'CARGO_NET_OFFLINE=true cargo cyclonedx --manifest-path' "$repo/.github/workflows/package-linux.yml")" == 1 ]]
 [[ "$(grep -Fc 'cargo cyclonedx --manifest-path' "$repo/.github/workflows/package-linux.yml")" == 1 ]]
-grep -Fq 'for round in one two' "$repo/.github/workflows/package-linux.yml"
-grep -Fq 'scripts/qualify-linux-release.sh "$release" "$version" "$EXACT_COMMIT"' "$repo/.github/workflows/package-linux.yml"
+require_workflow_command "$repo/.github/workflows/package-linux.yml" 'for round in one two'
+require_workflow_command "$repo/.github/workflows/package-linux.yml" 'scripts/qualify-linux-release.sh "$release" "$version" "$EXACT_COMMIT"'
 grep -Fq 'ld-linux-x86-64\.so\.2' "$repo/scripts/qualify-linux-release.sh"
 grep -Fq 'release inventory must contain exactly six entries' "$repo/scripts/qualify-linux-release.sh"
 grep -Fq '/tmp/pangopup-cyclonedx-source-v1' "$repo/.github/workflows/package-linux.yml"
 grep -Eq '^    runs-on: ubuntu-24[.]04$' "$repo/.github/workflows/package-linux.yml"
 grep -Fq 'ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90' "$repo/.github/workflows/package-linux.yml"
 grep -Fq '"$maximum" 2.39' "$repo/scripts/qualify-linux-release.sh"
+require_workflow_command "$repo/.github/workflows/package-linux.yml" '/source/scripts/smoke-linux-release.sh /release/pangopup-linux-x86_64 /source /tmp/data /tmp/pangopup-smoke-cache'
 smoke_invocation='              /source/scripts/smoke-linux-release.sh /release/pangopup-linux-x86_64 /source /tmp/data /tmp/pangopup-smoke-cache'
 grep -Fxq "$smoke_invocation" "$repo/.github/workflows/package-linux.yml"
 [[ "$(grep -Fc '/source/scripts/smoke-linux-release.sh' "$repo/.github/workflows/package-linux.yml")" == 1 ]]
