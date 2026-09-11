@@ -75,29 +75,35 @@ endif
 # network.
 #
 # It is pointed at `$$HOME/.cache/ort.pyke.io`: the directory `ort-sys` itself
-# resolves on Linux when nothing names one, which is where `make lint` and
-# `make test` already keep that library. One copy on the machine therefore
-# serves every gate, and the recipe writes into it rather than beside it. The
-# alternative -- a cache of its own under the checkout -- costs a second 87 MB
-# copy and a first `make spec` that pays the download again, and this recipe
-# already pins `CARGO_HOME` and `RUSTUP_HOME` to the operator's own for the
-# same reason: a downloaded build input is not what the private cache home
-# isolates. Nothing here removes that directory, and the model cache home
-# below is still emptied on every run.
+# resolves on Linux when neither `ORT_CACHE_DIR` nor `XDG_CACHE_HOME` names one,
+# which is where `make lint` and `make test` already keep that library. One copy
+# on the machine therefore serves every gate, and the recipe writes into it
+# rather than beside it. An operator who exports `XDG_CACHE_HOME` moves the
+# copy those two gates fill and keeps this one where it is, and pays a second
+# copy for as long as that export stands.
 #
-# `target/ort-cache` is what it named before, and `cargo clean` collects all of
-# `target/` -- so the run after a routine clean paid the 87 MB again.
+# A cache of its own under the checkout is the alternative. It costs a second
+# 87 MB copy and a first `make spec` that pays the download again. This recipe
+# already pins `CARGO_HOME` and `RUSTUP_HOME` to the operator's own for the same
+# reason: a downloaded build input is not what the private cache home isolates.
+# Nothing here removes that directory, and the model cache home below is still
+# emptied on every run.
+#
+# `target/ort-cache` is what it named before. `cargo clean` collects all of
+# `target/`, so the run after a routine clean paid the 87 MB again.
 # `tests/spec-download-cache-durability.sh` holds both halves: outside every
-# directory this recipe removes, and outside the build directory.
+# directory this recipe removes, and outside the build directory. Measured on
+# 2026-09-11: a `cargo clean` that emptied `target/`, followed by `make spec`,
+# wrote 0 bytes into `$$HOME/.cache/ort.pyke.io` and left all eleven entries
+# there byte-identical, and `ort-sys` logged no download.
 #
 # On macOS `ort-sys` resolves `$$HOME/Library/Caches/ort.pyke.io` instead, so
 # `make spec` there keeps a second copy under `$$HOME/.cache/ort.pyke.io`. That
-# is the cost rejected just above -- a second 87 MB copy, and a first
-# `make spec` that downloads the library again -- paid on a Mac rather than on
-# every machine. It is paid once and the copy is durable and shared between
-# `make spec` runs afterwards, the gates that need a real production release
-# are Linux-only, and naming one directory keeps the recipe readable by the
-# rule that holds it.
+# is the cost rejected just above, paid on a Mac rather than on every machine.
+# It is paid once, and afterwards the copy is durable and shared between
+# `make spec` runs. The gates that need a real production release are
+# Linux-only, and naming one directory keeps the recipe readable by the rule
+# that holds it.
 #
 # It is named on both lines that build, not only on the line that runs the spec
 # suite. The suite builds through `scripts/spec-cargo-test.sh` and the first
