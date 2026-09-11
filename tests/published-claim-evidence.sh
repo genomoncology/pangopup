@@ -226,11 +226,26 @@ check_stored_version() {
 # over the same variant, and has to name the case, so a reader who wants to see
 # the behaviour can find where it is pinned.
 #
-# What is deliberately not pinned here: the one record of the 2,615-variant set
-# where the dependence changes a score a consumer would read. That measurement
-# came from a patched build and is in no committed file, so a gate demanding it
-# would be pinning a number this repository cannot check. The document may
-# name it; nothing here reads it.
+# The contract also has to name the one record of the measured set where the
+# dependence changes an answer a consumer would read, and that record is read
+# out of a committed file rather than taken on the document's word.
+#
+# What is committed is `planning/artifacts/0059-route-disagreement-records.tsv`,
+# one row per compared gene record of the 2,615-variant set, and the identity
+# that picks the record out of it is this: the row's two routes render a
+# different value, and its variant carries more than one gene row. A variant
+# with one gene has no other same-strand gene to depend on, so a value
+# disagreement there is about something else. Exactly one row in the file
+# satisfies both, and the check requires exactly one, so a later set that
+# produced a second turns this red rather than leaving "the one record"
+# standing as a stale singular.
+#
+# What is not committed is the cumulative-against-isolated pair of numbers the
+# ticket quotes. Those came from a patched build that computed an isolated
+# per-gene answer beside the shipped one, and that build is in no committed
+# file. The committed row says what the two shipped routes render, which is
+# what a consumer meets, so that is what the published sentence may state and
+# what this reads.
 
 corpus_case='P01-same-strand-order'
 corpus_coverage='postprocess.same_strand_order'
@@ -238,6 +253,69 @@ corpus_manifest='tests/fixtures/pangolin-compat-v1/manifest.json'
 corpus_cases='tests/fixtures/pangolin-compat-v1/cases.jsonl'
 corpus_mutation_tests='crates/pangopup-build/tests/compatibility.rs'
 contract_relative='architecture/compatibility.md'
+measured_records='planning/artifacts/0059-route-disagreement-records.tsv'
+
+# Read the record the contract names out of the measurement file and report
+# what it says, or exit 1 with the reason the file does not bear it out.
+read_named_record() {
+    python3 - "$1" "$2" <<'PY'
+import re
+import sys
+
+records_path, contract_text = sys.argv[1], sys.argv[2]
+
+try:
+    rows = [line.rstrip("\n").split("\t")
+            for line in open(records_path, encoding="utf-8") if line.strip()]
+except OSError as error:
+    sys.exit("the measurement records cannot be read: %s" % error)
+if len(rows) < 2:
+    sys.exit("%s holds no records, so nothing says which one the dependence "
+             "changes an answer at" % records_path)
+
+header, rows = rows[0], rows[1:]
+try:
+    iv, ig = header.index("variant"), header.index("stable_gene")
+    bg, bl = header.index("bundle_gain"), header.index("bundle_loss")
+    mg, ml = header.index("model_gain"), header.index("model_loss")
+except ValueError as missing:
+    sys.exit("%s does not carry the columns this reads (%s)" % (records_path, missing))
+
+genes_at = {}
+for row in rows:
+    genes_at[row[iv]] = genes_at.get(row[iv], 0) + 1
+
+# The one record where the two routes render a different value at a variant
+# carrying more than one gene. A variant with a single gene has no other
+# same-strand gene for an answer to depend on.
+changed = [row for row in rows
+           if genes_at[row[iv]] > 1 and (row[bg] != row[mg] or row[bl] != row[ml])]
+if len(changed) != 1:
+    sys.exit("%d record(s) in %s render a different value at a variant carrying "
+             "more than one gene, and the contract states there is one; the "
+             "measurement set and the published sentence no longer agree about "
+             "how many records the dependence changes" % (len(changed), records_path))
+record = changed[0]
+variant, gene = record[iv], record[ig]
+
+# The contract names it when one sentence carries the gene id and the variant.
+# An assembly prefix on the variant is the document's to keep or drop.
+locus = variant.split(":", 1)[1] if variant.count(":") > 3 else variant
+named = None
+for sentence in re.split(r"(?<=\.)\s", contract_text):
+    if gene in sentence and (variant in sentence or locus in sentence):
+        named = sentence
+        break
+if named is None:
+    sys.exit("no sentence in the contract names both %s and %s, so a reader is "
+             "told the dependence can change an answer and not which answer it "
+             "changed" % (locus, gene))
+
+print("%s %s bundle_gain=%s@%s model_gain=%s genes_at_variant=%d"
+      % (locus, gene, record[bg], record[header.index("bundle_gain_position")],
+         record[mg], genes_at[variant]))
+PY
+}
 
 # Read the frozen case and report what it pins, as `key=value` words. Exits 2
 # with the reason on standard error when the corpus cannot support the
@@ -312,7 +390,7 @@ PY
 }
 
 check_same_strand() {
-    local root=$1 pinned text candidates affirmative mutations
+    local root=$1 pinned text candidates affirmative mutations named
 
     [[ -f "$root/$corpus_manifest" ]] || {
         printf 'no %s, so the frozen corpus the contract points at is not here\n' "$corpus_manifest" >&2
@@ -370,8 +448,18 @@ check_same_strand() {
         return 1
     }
 
-    printf '%s states the same-strand dependence and names %s, which the corpus pins (%s)\n' \
-        "$contract_relative" "$corpus_case" "$pinned"
+    [[ -f "$root/$measured_records" ]] || {
+        printf 'no %s, so the record the contract names has no measurement to be read out of\n' \
+            "$measured_records" >&2
+        return 1
+    }
+    named=$(read_named_record "$root/$measured_records" "$text") || {
+        printf '%s\n' "$named" >&2
+        return 1
+    }
+
+    printf '%s states the same-strand dependence, names %s, which the corpus pins (%s), and names the one measured record it changes (%s)\n' \
+        "$contract_relative" "$corpus_case" "$pinned" "$named"
 }
 
 # =============================================================================
@@ -616,8 +704,19 @@ it takes no second request.
 
 A gene's score can depend on which other same-strand genes overlap the same
 variant, because the scorer masks shared arrays in order. The frozen corpus
-pins that behaviour as P01-same-strand-order.
+pins that behaviour as P01-same-strand-order. It changes one record of the
+measured set, chr9:100:G:T in GENE_TWO, where the precomputed route reports
+0.09 at -4 and the model reports 0.00.
 COMPAT
+
+    cat >"$tree/$measured_records" <<'RECORDS'
+variant	stable_gene	bundle_gain	bundle_gain_position	bundle_loss	bundle_loss_position	model_gain	model_gain_position	model_loss	model_loss_position
+GRCh38:chr9:100:G:T	GENE_ONE	0.00	-50	0.00	-50	0.00	5	0.00	-50
+GRCh38:chr9:100:G:T	GENE_TWO	0.09	-4	0.00	-50	0.00	5	0.00	-50
+GRCh38:chr1:200:C:G	GENE_THREE	0.00	-50	0.00	-50	0.01	-2	0.00	-50
+GRCh38:chr2:300:T:A	GENE_FOUR	0.00	-50	0.00	-50	0.00	-50	0.00	-50
+GRCh38:chr2:300:T:A	GENE_FIVE	0.00	-50	0.00	-50	0.00	-50	0.00	-50
+RECORDS
 
     cat >"$tree/architecture/service.md" <<'SERVICE'
 # Service Boundary
@@ -826,6 +925,23 @@ expect_refusal check_same_strand "$(mutate ss-unmutated sed -i \
     's/P01-same-strand-order/P02-other/' "$corpus_mutation_tests")" \
     'no longer names P01-same-strand-order'
 
+expect_refusal check_same_strand "$(mutate ss-record-unnamed swap "$inventory_relative" \
+    'It changes one record of the measured set, chr9:100:G:T in GENE_TWO, where the precomputed route reports 0.09 at -4 and the model reports 0.00.' \
+    'It changes one record of the measured set.')" \
+    'names both chr9:100:G:T and GENE_TWO'
+expect_refusal check_same_strand "$(mutate ss-record-wrong-gene swap "$inventory_relative" \
+    'chr9:100:G:T in GENE_TWO' 'chr9:100:G:T in GENE_NINE')" \
+    'names both chr9:100:G:T and GENE_TWO'
+expect_refusal check_same_strand "$(mutate ss-record-wrong-locus swap "$inventory_relative" \
+    'chr9:100:G:T in GENE_TWO' 'chr9:900:G:T in GENE_TWO')" \
+    'names both chr9:100:G:T and GENE_TWO'
+expect_refusal check_same_strand "$(mutate ss-record-not-alone sed -i \
+    's/^GRCh38:chr2:300:T:A\tGENE_FIVE\t0.00\t-50\t0.00\t-50\t0.00/GRCh38:chr2:300:T:A\tGENE_FIVE\t0.00\t-50\t0.00\t-50\t0.04/' \
+    "$measured_records")" \
+    'and the contract states there is one'
+expect_refusal check_same_strand "$(mutate ss-records-gone rm -f "$measured_records")" \
+    'has no measurement to be read out of'
+
 expect_refusal check_same_strand "$(mutate ss-independent swap "$inventory_relative" \
     "A gene's score can depend on which other same-strand genes overlap the same variant, because the scorer masks shared arrays in order." \
     "A gene's score is independent of which other same-strand genes overlap the same variant.")" \
@@ -842,6 +958,12 @@ expect_refusal check_same_strand "$(mutate ss-unaffected swap "$inventory_relati
 copy_edited=$(mutate ss-copy-edited swap "$inventory_relative" \
     "A gene's score can depend on which other same-strand genes overlap the same variant, because the scorer masks shared arrays in order." \
     'Which same-strand genes overlap a variant is something the gain and loss a gene reports can depend on, since the masks are applied to shared arrays in turn.')
+record_edited=$(mutate ss-record-copy-edited swap "$inventory_relative" \
+    'It changes one record of the measured set, chr9:100:G:T in GENE_TWO, where the precomputed route reports 0.09 at -4 and the model reports 0.00.' \
+    'Of the whole measured set only GENE_TWO at chr9:100:G:T reads differently, 0.09 at -4 from the published dataset against 0.00 from the model.')
+check_same_strand "$record_edited" >/dev/null \
+    || fail 'the same-strand check refused a rewritten sentence that still names the measured record, so it pins a form of words rather than the record'
+
 check_same_strand "$copy_edited" >/dev/null \
     || fail 'the same-strand check refused a rewritten sentence that still states the claim, so it pins a form of words rather than the claim'
 
