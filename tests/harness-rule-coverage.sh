@@ -141,10 +141,32 @@ run_currency_gate
 (( GATE_STATUS == 0 )) \
     || fail "the currency gate refuses the tree even with both offending harnesses removed, so the refusals above are not attributable to them: $GATE_OUTPUT"
 
+# The other direction of the same rule, and the reason it needs a fixture of its
+# own. The refusals above are answered by narrowing what counts as a build, and
+# the narrowest way to write that narrowing is one filter over both patterns --
+# which also narrows what counts as a use. A harness that names the built
+# executable in a `printf` and builds nothing is refused today, and the floor of
+# four still reads four after such a filter, so nothing else here would notice
+# the harness quietly leaving the set. The build side and the use side are not
+# the same question: a mention hands nobody a build, and a mention of the
+# executable is read as a use because refusing a harness that runs nothing is
+# the direction this gate is allowed to be wrong in.
+cat >"$tree/tests/printf-use.sh" <<HARNESS
+#!/usr/bin/env bash
+printf '%s\n' "\$repo/$built/pangopup"
+HARNESS
+
+run_currency_gate
+(( GATE_STATUS != 0 )) \
+    || fail "the currency gate accepted a harness that names the built executable in a printf argument and builds nothing, so narrowing what counts as a build has narrowed what counts as a use and a harness can leave the held set without anything saying so: $GATE_OUTPUT"
+grep -q 'printf-use\.sh' <<<"$GATE_OUTPUT" \
+    || fail "the refusal does not name the harness it refused: $GATE_OUTPUT"
+rm -f "$tree/tests/printf-use.sh"
+
 # The rule is stated where the check stands, so a reader who has to change the
 # pattern knows what it is for. One whole-line comment naming a mention, within
 # reach of a line that carries the build script's path.
-mention_comment=$(grep -niE '^[[:space:]]*#.*mention' "$repository/tests/$currency_gate" | head -n 1 | cut -d: -f1)
+mention_comment=$({ grep -niE '^[[:space:]]*#.*mention' "$repository/tests/$currency_gate" || true; } | head -n 1 | cut -d: -f1)
 [[ -n "$mention_comment" ]] \
     || fail "tests/$currency_gate states nowhere that a mention of $builder is not a build, so the next reader has only the pattern to go on"
 nearest=
@@ -189,15 +211,24 @@ esac
 # Measured on 2026-09-11: the 66 bare assertions in this harness searched for
 # 57 distinct quoted texts. The floor is that number rather than under it, so
 # a truncated inventory fails here instead of passing on what is left.
+#
+# Read against the harness's code lines rather than the whole file. An
+# expectation standing in a comment is a sentence about an assertion and not an
+# assertion, so a conversion that dropped a check and left its text in the
+# commentary beside it would otherwise satisfy every line of this list.
 expectation_floor=57
+harness_code="$work/qualification-code"
+{ grep -vE '^[[:space:]]*#' "$harness" || true; } >"$harness_code"
+[[ -s "$harness_code" ]] \
+    || fail "tests/$qualification has no code lines, so this scan is reading the wrong file"
 checked=0
 while IFS= read -r wanted; do
     case "$wanted" in
         '#'*|'') continue ;;
     esac
     checked=$((checked + 1))
-    grep -Fq -- "$wanted" "$harness" \
-        || fail "tests/$qualification no longer requires the text it required before its assertions were rewritten, so it accepts an input it refused on 2026-09-11: $wanted"
+    grep -Fq -- "$wanted" "$harness_code" \
+        || fail "tests/$qualification no longer requires on a code line the text it required before its assertions were rewritten, so it accepts an input it refused on 2026-09-11: $wanted"
 done <"$expectations"
 [[ "$checked" -ge "$expectation_floor" ]] \
     || fail "read $checked expectation(s) out of $expectations against a floor of $expectation_floor, so the record of what this harness refused has been cut down"
@@ -210,7 +241,7 @@ done <"$expectations"
 # at the left margin, so the count does not fall unless an assertion is
 # removed.
 assertion_floor=70
-assertions=$(grep -cE '^(grep |\[\[ |require_text |require_line |require_pattern |equal |refuse_text )' "$harness")
+assertions=$({ grep -cE '^(grep |\[\[ |require_text |require_line |require_pattern |equal |refuse_text )' "$harness" || true; })
 [[ "$assertions" -ge "$assertion_floor" ]] \
     || fail "tests/$qualification carries $assertions assertion(s) at the left margin against a floor of $assertion_floor, so the conversion dropped one rather than rewriting it"
 

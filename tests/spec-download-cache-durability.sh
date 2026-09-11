@@ -204,7 +204,17 @@ makefile_holds() {
             prefix=$(environment_prefix "$line")
             # Run from the tree root, because that is where make runs a recipe
             # and what a relative answer stands against.
-            raw=$(cd "$root" && eval "XDG_CACHE_HOME=\"\$root/.caller-cache\" HOME=\"\$root/.caller-home\" $prefix bash \"\$probe\"") \
+            # The stand-ins are put into the environment of the shell that
+            # reads the prefix, not written in front of it. A prefix spelled
+            # `env NAME="$HOME/..."` -- which is how every recipe here spells
+            # one -- is a command with arguments, and the shell expands those
+            # arguments before any assignment standing in front of the command
+            # takes effect. Measured on 2026-09-11: with the stand-ins written
+            # in front, `env ORT_CACHE_DIR="$HOME/.cache/ort.pyke.io"` resolved
+            # to the operator's own home directory, so this rule answered with
+            # the reviewer's machine instead of with the recipe.
+            raw=$(cd "$root" && XDG_CACHE_HOME="$root/.caller-cache" HOME="$root/.caller-home" \
+                bash -c "$prefix bash \"\$0\"" "$probe") \
                 || { printf 'could not resolve the downloaded-library cache of the %s recipe in %s\n' "$target" "$relative" >&2; refused=1; continue; }
             # A relative answer is not inside any directory named here.
             # `ort-sys` takes `ORT_CACHE_DIR` verbatim with no absolute-path
@@ -294,6 +304,9 @@ plant() {
             removes-elsewhere)
                 printf '\trm -rf target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="$(CURDIR)/target/ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/ort-cache-not" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
+            env-home-ort)
+                printf '\trm -rf .caller-home\n'
+                printf '\tenv ORT_CACHE_DIR="$$HOME/.cache/ort.pyke.io" cargo build --locked\n' ;;
             not-recursive)
                 printf '\trm -f target/spec-cache/stamp\n'
                 printf '\tXDG_CACHE_HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
@@ -346,6 +359,15 @@ expect_refusal 'fetches that library again' "$work/nested"
 # expected would call this recipe clean.
 plant "$work/home-fallback" home-fallback
 expect_refusal 'fetches that library again' "$work/home-fallback"
+
+# A `$$HOME`-relative cache named through an `env` prefix resolves against the
+# home the recipe runs under, which this rule stands in for. `.caller-home` is
+# that stand-in, and this recipe removes it, so the answer has to land inside it
+# and be refused. A probe that let the operator's own home answer instead would
+# resolve somewhere outside this tree and call the recipe clean -- differently
+# on every machine, which is the one thing the stand-in exists to stop.
+plant "$work/env-home-ort" env-home-ort
+expect_refusal 'fetches that library again' "$work/env-home-ort"
 
 # `rm -f` on one file removes no directory, so there is nothing for this rule
 # to refuse and an exemption wider than that would refuse the whole recipe.

@@ -156,7 +156,7 @@ expect_refusal "$recipe_gate" \
 printf 'noop:\n\t@true\n' >"$tree/Makefile"
 expect_refusal "$recipe_gate" \
     'the scan accepted a makefile with no recipe reaching the built executable, so it can pass on an empty set' \
-    'nothing'
+    'held over nothing'
 
 # --- 2. the cache a routine removal collects -------------------------------
 
@@ -164,35 +164,59 @@ expect_refusal "$recipe_gate" \
 # line that both name the same downloaded-library cache, outside the directory
 # the recipe itself removes -- and inside `target/`, which `cargo clean`
 # removes whole.
-plant_download_cache() {
-    local cache=$1
+# One recipe per cache named: a build line and a spec-suite line that both name
+# that cache, and a removal of its own. Several caches go into one makefile
+# where the verdict wanted is the same for all of them, because the gate
+# replays its whole fixture suite on every invocation and the recipes it reads
+# are the only thing this file varies.
+plant_download_caches() {
+    local cache index=0
     {
-        printf 'spec:\n'
-        printf '\tenv ORT_CACHE_DIR="%s" cargo build --locked\n' "$cache"
-        printf '\trm -rf target/spec-cache\n'
-        printf '\tenv ORT_CACHE_DIR="%s" ' "$cache"
-        printf 'XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" '
-        printf 'HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n'
+        for cache in "$@"; do
+            index=$((index + 1))
+            # The first is named `spec`, because the gate anchors on a recipe of
+            # that name in the makefile it reads and a scan that stopped
+            # matching it would otherwise hold over whatever was left.
+            [[ "$index" == 1 ]] && index=''
+            printf 'spec%s:\n' "$index"
+            printf '\tenv ORT_CACHE_DIR="%s" cargo build --locked\n' "$cache"
+            printf '\trm -rf target/spec-cache-%s\n' "$index"
+            printf '\tenv ORT_CACHE_DIR="%s" ' "$cache"
+            printf 'XDG_CACHE_HOME="$(CURDIR)/target/spec-cache-%s" ' "$index"
+            printf 'HOME="$(CURDIR)/target/spec-cache-%s" mustmatch test spec/\n' "$index"
+            printf '\n'
+            [[ -n "$index" ]] || index=1
+        done
     } >"$tree/Makefile"
 }
 
-plant_download_cache '$(CURDIR)/target/ort-cache'
+plant_download_caches '$(CURDIR)/target/ort-cache'
 expect_refusal "$durability_gate" \
     'the rule accepted a recipe that keeps the downloaded ONNX Runtime library inside target/, which cargo clean removes whole, so the next build after a routine clean fetches it again over the network' \
     'cargo clean'
 
-# A cache outside `target/` survives a clean, and refusing it would be a rule
-# wider than the thing it covers.
-plant_download_cache '$(CURDIR)/.ort-cache'
+# Four caches no removal here collects, in one makefile because the verdict
+# wanted is the same for each. The boundary decides, not the letters, and it
+# takes all four to say so: each refuses a different way of writing them.
+#
+#   .ort-cache      outside the build directory altogether.
+#   target-library  carries `target` as a prefix and no `target/` at all, so it
+#                   refuses a rule anchored on the build directory as a prefix
+#                   of the path rather than as a directory of it.
+#   library-target  carries `target/` and is still a sibling of the build
+#                   directory rather than a directory inside it, so it refuses
+#                   a rule written as a search for `target/`.
+#   another tree    `cargo clean` run here removes this repository's build
+#                   directory and nothing else, so a `target/` over there
+#                   survives it. Nothing reads or writes that path: the rule
+#                   compares it as text.
+plant_download_caches \
+    '$(CURDIR)/.ort-cache' \
+    '$(CURDIR)/target-library/ort-cache' \
+    '$(CURDIR)/library-target/ort-cache' \
+    '/pangopup-not-this-tree/target/ort-cache'
 expect_acceptance "$durability_gate" \
-    'the rule refused a recipe whose downloaded ONNX Runtime library cache stands outside every directory a removal collects'
-
-# The boundary decides, not the letters. `cargo clean` removes `target`, and a
-# rule that read `target` as a prefix of the path would refuse a sibling
-# directory of that name which no command here removes.
-plant_download_cache '$(CURDIR)/target-library/ort-cache'
-expect_acceptance "$durability_gate" \
-    'the rule read target-library as the build directory, so it refuses a cache no removal collects'
+    'the rule refused a downloaded ONNX Runtime library cache that no removal here collects, so it is reading the letters of the path rather than asking whether the cache stands inside the build directory this repository cleans'
 
 printf 'recipe cache rule coverage: the recipe scan tells %s from %s in both directions, and the download-cache rule refuses a library cache a routine removal collects\n' \
     "$entry_limit" "$model_cache"
