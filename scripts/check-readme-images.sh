@@ -18,7 +18,14 @@ source_marks=(
 hero=docs/images/pangopup-performance.png
 hero_alt='PangoPup lookup-first performance overview showing mmap SNV lookup, CPU ONNX model fallback, SQLite reuse, and measured resource use'
 hero_line="![$hero_alt]($hero)"
-required=("${source_marks[@]}" "$hero")
+# The presentation thumbnail is the second displayed image. It stands inside the
+# link to the talk, so the whole line is pinned: the mark alone would still read
+# as present with the link gone.
+talk=docs/images/pangopup-2026-talk-1280x720.png
+talk_alt='PangoPup: splice prediction in microseconds instead of seconds'
+talk_target='https://www.youtube.com/watch?v=1rf-sMUZiP8'
+talk_line="[![$talk_alt]($talk)]($talk_target)"
+required=("${source_marks[@]}" "$hero" "$talk")
 
 for relative in "${required[@]}"; do
   [[ -f "$root/$relative" ]] || fail "missing $relative"
@@ -27,11 +34,14 @@ done
 [[ $(grep -Fxc "$hero_line" "$readme" || true) == 1 ]] \
   || fail "README must contain the exact performance hero line once"
 
+[[ $(grep -Fxc "$talk_line" "$readme" || true) == 1 ]] \
+  || fail "README must contain the exact presentation thumbnail line once"
+
 markdown_image_count=$(
   (grep -Fo '![' "$readme" || true) | wc -l | tr -d '[:space:]'
 )
-[[ "$markdown_image_count" == 1 ]] \
-  || fail "README must contain no Markdown image other than the exact hero"
+[[ "$markdown_image_count" == 2 ]] \
+  || fail "README must contain no Markdown image other than the hero and the presentation thumbnail"
 
 if grep -Eqi '<[[:space:]]*(img|picture|source)([[:space:]/>])' "$readme"; then
   fail "README must not contain HTML image-bearing tags"
@@ -44,9 +54,9 @@ done < <(
   find "$root/docs/images" -maxdepth 1 -type f \
     \( -name '*.png' -o -name '*.svg' \) -exec basename {} \; | sort
 )
-expected_assets=(genomoncology.png pangopup-performance.png pangopup.svg)
+expected_assets=(genomoncology.png pangopup-2026-talk-1280x720.png pangopup-performance.png pangopup.svg)
 [[ "${image_assets[*]}" == "${expected_assets[*]}" ]] \
-  || fail "docs/images must contain exactly the hero and its two retained source marks"
+  || fail "docs/images must contain exactly the hero, the presentation thumbnail, and the two retained source marks"
 
 file_bytes() {
   wc -c < "$1" | tr -d '[:space:]'
@@ -99,5 +109,6 @@ check_svg() {
 check_svg docs/images/pangopup.svg 800 400 100000
 check_png docs/images/genomoncology.png 800 400 100000
 check_png docs/images/pangopup-performance.png 2000 1125 400000
+check_png docs/images/pangopup-2026-talk-1280x720.png 1280 720 200000
 
 printf 'README image assets verified\n'

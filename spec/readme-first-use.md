@@ -5,15 +5,25 @@ do not use the network, synchronize assets, start a service, or remove files.
 
 The size budget holds the README to a first-use guide. It carries the
 score-value statements that `spec/score-value.md` requires beside the fields
-they describe. The budget moved once to admit them and stops general growth
-otherwise.
+they describe. The budget moves only to admit published content the maintainer
+put in the file, and stops general growth otherwise. A later addition is paid
+for out of the guide rather than added to it.
+
+The figures are the size of the file as it stands, not a ceiling above it. They
+were 270 lines and 1,770 words. The README measured 260 lines and 1,766 words
+then, so ten lines and four words stood unclaimed. The presentation section in
+commit `e14e822` took the README to 271 lines and 1,829 words, and the figures
+now say exactly that. `tests/readme-budget-exactness.sh` holds every figure on
+this page to what `README.md` measures, so raising one means stating a new
+measurement of a real tree.
 
 ```bash
-test "$(wc -l < ../README.md)" -le 270
-test "$(wc -w < ../README.md)" -le 1770
+test "$(wc -l < ../README.md)" -le 271
+test "$(wc -w < ../README.md)" -le 1829
 test "$(sed -n '1p' ../README.md)" = '# PangoPup'
 headings=$(rg '^## ' ../README.md)
 test "$headings" = "$(printf '%s\n' \
+  '## Watch a presentation on it' \
   '## Quick start' \
   '## Input and output' \
   '## HTTP service' \
@@ -24,25 +34,29 @@ printf 'README structure is compact and user-first\n' | mustmatch like 'README s
 ```
 
 The additional opening space is reserved for one performance hero, concise
-maker attribution, and the adjacent text equivalent. They remain before Quick
-start rather than becoming general README growth. The two source marks are
-embedded in the hero, not repeated as standalone README images.
+maker attribution, the adjacent text equivalent, and the presentation section
+with its thumbnail. They remain before Quick start rather than becoming general
+README growth. The two source marks are embedded in the hero, not repeated as
+standalone README images.
 
 ```bash
 before_quick=$(awk '/^## Quick start$/ { exit } { print }' ../README.md)
 for text in \
   'docs/images/pangopup-performance.png' \
+  'docs/images/pangopup-2026-talk-1280x720.png' \
   '[GenomOncology](https://genomoncology.com/)' \
   '[BioMCP](https://biomcp.org/)' \
   'which also makes' \
   'Performance overview in text' \
   'Every score reports whether a' \
-  'precomputed lookup, the Pangolin model, or the SQLite cache answered it.'; do
+  'precomputed lookup, the Pangolin model, or the SQLite cache answered it.' \
+  'supported non-SNV' \
+  'explicit `--model-only` request'; do
   printf '%s' "$before_quick" | rg -F "$text" >/dev/null
 done
 hero='![PangoPup lookup-first performance overview showing mmap SNV lookup, CPU ONNX model fallback, SQLite reuse, and measured resource use](docs/images/pangopup-performance.png)'
 test "$(grep -Fxc "$hero" ../README.md)" = 1
-test "$(grep -Fo '![' ../README.md | wc -l | tr -d '[:space:]')" = 1
+test "$(grep -Fo '![' ../README.md | wc -l | tr -d '[:space:]')" = 2
 ../scripts/spec-refutes.sh --absent -i -- '<[[:space:]]*(img|picture|source)([[:space:]/>])' ../README.md
 ../scripts/spec-refutes.sh --absent -F -- 'docs/images/pangopup.svg' ../README.md
 ../scripts/spec-refutes.sh --absent -F -- 'docs/images/genomoncology.png' ../README.md
@@ -62,8 +76,6 @@ for text in \
   'genomic-coordinate' \
   'memory-mapped index' \
   'supported lookup miss' \
-  'supported non-SNV' \
-  'explicit `--model-only` request' \
   'runs through the Pangolin model' \
   'saved in SQLite for reuse' \
   '50 bases on either side' \
