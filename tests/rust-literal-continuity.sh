@@ -22,6 +22,14 @@ set -euo pipefail
 # indented block all put a run of spaces next to punctuation or at the start of
 # a line, and none of them is a collapsed wrap.
 #
+# A whole comment line is read past for the same reason. A collapsed literal
+# never begins a line with `//`, so dropping those lines loses nothing the rule
+# covers, and a comment is where a maintainer aligns a table with spaces on
+# purpose. Measured on 2026-09-11 against this gate: a five-line `//` table
+# copied out of `tests/spec-block-execution.sh` into a crate source passed
+# `cargo fmt --all --check` and was refused here, with a message telling its
+# author to restore a continuation that was never there.
+#
 # One deliberate case in the tree survives it, and it is exempted by name
 # below rather than by shape.
 #
@@ -65,6 +73,7 @@ collapsed_lines() {
                 sub("^" root, "", file)
                 stripped = text
                 sub(/^[[:space:]]*/, "", stripped)
+                if (stripped ~ /^\/\//) next
                 if (file == path && index(stripped, opening) == 1) next
                 printf "%s\t%s\t%s\n", file, line, text
             }
@@ -97,6 +106,12 @@ mkdir -p "$tree/$(dirname "$exempt_path")" "$tree/crates/other/src"
     printf 'const A: u8 = 1;   // aligned trailing comment\n'
     printf '/// A doc comment with an indented block:\n'
     printf '///     indented sample text\n'
+    printf '/// | column      | meaning        |\n'
+    printf '// A comment carrying a table aligned with spaces, the way several\n'
+    printf '// harnesses under tests/ carry one:\n'
+    printf '//\n'
+    printf '//   bash            skipped     bash run   run\n'
+    printf '//   sh              skipped     bash run   run\n'
     printf 'fn arms(v: u8) -> u8 {\n'
     printf '    match v {\n'
     printf '        1   => 2,\n'
