@@ -2222,8 +2222,9 @@ mod shutdown_assertion_shape {
             silent.is_empty(),
             "{} shutdown assertion(s) end a service and assert success on the same line, so a \
              failure prints no exit status, no signal and none of the service's standard error; \
-             route each through support::assert_shutdown_succeeded:\n{}",
+             route each through support::{}:\n{}",
             silent.len(),
+            reported,
             silent.join("\n")
         );
     }
