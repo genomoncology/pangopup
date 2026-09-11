@@ -3,6 +3,14 @@ set -euo pipefail
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
+# The `cargo run` below builds and runs in one step, so it cannot be moved
+# before the cache home. Build first, so that step links the ONNX Runtime
+# library already under the operator's cache rather than downloading another
+# copy under the fresh one, and only then take a cache home of this harness's
+# own.
+"$repo/scripts/require-built-commands.sh"
+. "$repo/tests/support/private-cache-home.sh"
+
 actual=$(cargo run --locked --quiet --manifest-path "$repo/Cargo.toml" --package pangopup-cli --bin pangopup -- lookup --help | sed -n '1p')
 spec_line=$(grep -F 'pangopup lookup --help | head -1 | mustmatch like ' "$repo/spec/cli.md")
 spec_expected=${spec_line#*mustmatch like \'}

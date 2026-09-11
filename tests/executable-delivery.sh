@@ -77,6 +77,10 @@ fi
 rmdir "$fake_cache_parent"
 
 "$repo/scripts/require-built-commands.sh"
+# Everything past here runs the built executable. A cache home of this
+# harness's own, taken after the build so the ONNX Runtime library the build
+# resolves is linked rather than downloaded again.
+. "$repo/tests/support/private-cache-home.sh"
 real_cli="$repo/target/debug/pangopup"
 unsafe_cache="/tmp/pangopup-smoke-unsafe-$PPID-$$.sqlite3"
 [[ ! -e "$unsafe_cache" && ! -L "$unsafe_cache" ]]

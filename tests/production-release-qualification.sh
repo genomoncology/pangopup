@@ -220,6 +220,11 @@ cmp "$root/derived-model-only-snv.json" "$root/checked-model-only-snv.json"
 # Build before the first use, not after, or a stale or missing build reports
 # itself as a failed qualification command.
 "$repo/scripts/require-built-commands.sh"
+# Everything past here runs the built executable, and this harness is the one
+# an operator runs against a real service on their own machine. A cache home of
+# its own, taken after the build so the ONNX Runtime library the build resolves
+# is linked rather than downloaded again.
+. "$repo/tests/support/private-cache-home.sh"
 real_cli=$repo/target/debug/pangopup
 # Ticket 0054. The replayed model lines carry the software version a real
 # release stamps, and the version they carry is the one the shipped executable
