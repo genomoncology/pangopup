@@ -118,7 +118,7 @@ for name in "${harnesses[@]}"; do
 done
 
 if [[ "$bare" != 0 ]]; then
-    fail "$bare negative assertion(s) are led by a bare '!' and carry on when they find what they forbid: $(tr '\n' ' ' <"$work/bare")"
+    fail "$bare negative assertion(s) are led by a bare '!' and carry on when they find what they forbid; write each as refuse_text <file> <text> <description>, or as ! cmd || fail ...: $(tr '\n' ' ' <"$work/bare")"
 fi
 
 # --- 2. the scan tells the two shapes apart --------------------------------
