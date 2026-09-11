@@ -52,6 +52,19 @@ pub fn pangopup() -> Spawn {
     command
         .env("XDG_CACHE_HOME", home.path())
         .env("HOME", home.path());
+    // Moving the two homes is not enough. Each of these names a cache location
+    // outright and is read ahead of both, so a spawn reaches whatever the
+    // operator running the suite exported. They are removed rather than set
+    // empty, because an empty value is still a value the product reads, and
+    // they are removed here rather than at `output` time so that a caller which
+    // sets one of its own afterwards still reaches the child with it.
+    for name in [
+        "PANGOPUP_MODEL_CACHE",
+        "PANGOPUP_CACHE_DIR",
+        "PANGOPUP_DATA_DIR",
+    ] {
+        command.env_remove(name);
+    }
     Spawn { command, home }
 }
 

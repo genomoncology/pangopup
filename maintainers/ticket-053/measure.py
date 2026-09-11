@@ -474,6 +474,30 @@ def stop_service(child: Any, require_success: bool = True) -> None:
         raise ContractError(f"service did not stop cleanly (exit {exit_code}){detail}")
 
 
+def child_environment(home: Path, model_cache: Path | None = None) -> dict[str, str]:
+    """The environment a run of the built executable gets.
+
+    The model cache is on by default and its directory comes from
+    `XDG_CACHE_HOME`, or from `HOME` when that is unset, so a run that inherits
+    either reaches the cache file of whoever is measuring. `PANGOPUP_MODEL_CACHE`,
+    `PANGOPUP_CACHE_DIR` and `PANGOPUP_DATA_DIR` name a cache location outright
+    and are read ahead of both, so an inherited one reaches that file whatever
+    the homes say. They are dropped rather than emptied: an empty value is still
+    a value the product reads. Passing a cache location here rather than on the
+    command line is what makes the drop mean something, since a command-line
+    option would be overridden by nothing and prove nothing about the inherited
+    value.
+    """
+    environment = dict(os.environ)
+    for name in ("PANGOPUP_MODEL_CACHE", "PANGOPUP_CACHE_DIR", "PANGOPUP_DATA_DIR"):
+        environment.pop(name, None)
+    environment["HOME"] = str(home)
+    environment["XDG_CACHE_HOME"] = str(home)
+    if model_cache is not None:
+        environment["PANGOPUP_MODEL_CACHE"] = str(model_cache)
+    return environment
+
+
 def start_service(binary: Path, data: Path, cache: Path) -> tuple[Any, str]:
     stderr = tempfile.TemporaryFile(mode="w+b")
     try:
@@ -489,11 +513,10 @@ def start_service(binary: Path, data: Path, cache: Path) -> tuple[Any, str]:
                 "1",
                 "--model-threads",
                 "1",
-                "--model-cache",
-                str(cache),
             ],
             stdout=subprocess.PIPE,
             stderr=stderr,
+            env=child_environment(cache.parent, model_cache=cache),
         )
     except BaseException:
         stderr.close()
@@ -535,7 +558,9 @@ def sqlite_entries(path: Path) -> int:
     return int(row[0])
 
 
-def cli_sample(binary: Path, data: Path, variant: str, gene: str) -> dict[str, Any]:
+def cli_sample(
+    binary: Path, data: Path, variant: str, gene: str, home: Path
+) -> dict[str, Any]:
     command = [
         "/usr/bin/time",
         "-f",
@@ -552,7 +577,9 @@ def cli_sample(binary: Path, data: Path, variant: str, gene: str) -> dict[str, A
         "jsonl",
     ]
     started = time.perf_counter()
-    completed = subprocess.run(command, text=True, capture_output=True)
+    completed = subprocess.run(
+        command, text=True, capture_output=True, env=child_environment(home)
+    )
     observer_elapsed_ms = (time.perf_counter() - started) * 1000
     if completed.returncode != 0:
         raise ContractError(f"CLI lookup failed: {completed.stderr.strip()}")
@@ -702,9 +729,14 @@ def run(args: argparse.Namespace) -> None:
         check=True,
     )
     binary = repo / "target/release/pangopup"
-    version_output = subprocess.run(
-        [binary, "--version"], check=True, text=True, capture_output=True
-    )
+    with tempfile.TemporaryDirectory(prefix="pangopup-ticket-053-version-") as home:
+        version_output = subprocess.run(
+            [binary, "--version"],
+            check=True,
+            text=True,
+            capture_output=True,
+            env=child_environment(Path(home)),
+        )
     workspace_version = tomllib.loads((repo / "Cargo.toml").read_text())["workspace"][
         "package"
     ]["version"]
@@ -792,7 +824,7 @@ def run(args: argparse.Namespace) -> None:
                         "cached model request was not at least ten times faster"
                     )
                 check_fault_progression(cached_samples)
-            cli = cli_sample(binary, data, workloads[1][0], SNV_GENE)
+            cli = cli_sample(binary, data, workloads[1][0], SNV_GENE, cache.parent)
             for sample in [*round_samples, *cached_samples, cli]:
                 sample["round"] = round_number
                 samples.append(sample)

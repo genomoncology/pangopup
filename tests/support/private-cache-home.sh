@@ -26,7 +26,7 @@
 # product resolves.
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    printf 'tests/support/private-cache-home.sh is sourced, not run: it sets HOME and XDG_CACHE_HOME in the caller\n' >&2
+    printf 'tests/support/private-cache-home.sh is sourced, not run: it changes the cache environment of the caller\n' >&2
     exit 1
 fi
 
@@ -56,3 +56,12 @@ HOME=$__private_cache_home
 XDG_CACHE_HOME=$__private_cache_home
 export HOME XDG_CACHE_HOME
 unset __private_cache_home
+
+# Moving the two homes is not enough. `PANGOPUP_MODEL_CACHE` names the model
+# cache file outright, `PANGOPUP_CACHE_DIR` the download cache and
+# `PANGOPUP_DATA_DIR` the installed bundle directory, and each is read ahead of
+# both homes, so a harness inherits whatever the operator exported and runs
+# against it. They are unset rather than set empty: an empty value is still a
+# value the product reads. What a caller sets after sourcing this still
+# reaches its runs, which is how the product's own variables stay testable.
+unset PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR

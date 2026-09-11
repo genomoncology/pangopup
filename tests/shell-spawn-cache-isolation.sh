@@ -58,18 +58,26 @@ helper_relative='tests/support/private-cache-home.sh'
 # names.
 smoke_relative='scripts/smoke-linux-release.sh'
 
+# The crate whose one `[[bin]]` is the shipped executable. Spelled through a
+# variable rather than inline, so that the pattern below does not match its own
+# text and refuse this file.
+package='pangopup-cli'
+
 # A run of the built executable. `pangopup-build` is a different binary with no
 # model cache, so the trailing class keeps `target/debug/pangopup-build` out.
 # `cargo run --bin pangopup` builds and runs the same executable by another
 # name and is a run like any other; cargo spells that option with a space or an
-# equals sign, so the separator class carries both.
+# equals sign, so the separator class carries both. That crate declares one
+# `[[bin]]`, so `--bin` is optional: `cargo run --package pangopup-cli` reaches
+# the same executable without naming it, and cargo spells the package option
+# long and short.
 #
 # Only code counts, and a whole-line comment is the only commentary these
 # patterns recognise. Anchoring them at `^[^#]*` instead would hide a run from
 # every code line carrying an earlier `#`, and `"${bin#$PWD/}"` is ordinary
 # shell. That is the one direction a gate like this must never fail in.
 # `code_lines` drops the comment lines instead.
-use='target/(debug|release)/pangopup([^-]|$)|--bin[[:space:]=]+pangopup([^-]|$)'
+use="target/(debug|release)/pangopup([^-]|\$)|--bin[[:space:]=]+pangopup([^-]|\$)|cargo run[^#]*(--package|-p)[[:space:]=]+$package([^-]|\$)"
 
 # Sourcing the helper is what establishes the cache home, so the line has to
 # source it. A file that names the path in a variable or an error message has
