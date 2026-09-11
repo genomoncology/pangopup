@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# mustmatch runs a plain ```bash block only when the block calls a `mustmatch`
-# command. A block that ends without one is reported `SKIP` and not one of its
-# lines runs. Measured against mustmatch directly: a two-line block whose first
+# mustmatch runs a ```bash or ```sh block only when the block calls a
+# `mustmatch` command or its fence carries a `run` attribute. A block with
+# neither is reported `SKIP` and not one of its lines runs. Measured against mustmatch directly: a two-line block whose first
 # line is `false` and whose second writes to standard error reported
 # `1 passed, 1 skipped` and exited 0, having written nothing.
 #
@@ -15,13 +15,25 @@ set -euo pipefail
 #
 # This file holds one claim.
 #
-#   Every fenced block in spec/ whose info string is exactly `bash` calls a
-#   `mustmatch` command, so mustmatch runs it.
+#   Every fenced block in spec/ that mustmatch would run a shell over calls a
+#   `mustmatch` command or carries a `run` attribute, so mustmatch runs it.
 #
-# The rule reads `bash` exactly rather than by prefix. A ```bash fence carrying
-# attributes -- `run id=... exit=...` -- brings its own expectation, so
-# mustmatch runs it and checks its status whether or not it calls mustmatch.
-# The plain fence is the only one with nothing to make mustmatch open it.
+# What mustmatch runs a shell over, and what makes it open the block, were
+# measured against mustmatch directly on 2026-09-11:
+#
+#   ```bash            skipped     ```bash run             run
+#   ```sh              skipped     ```bash run exit=1      run
+#   ```Bash            skipped     ```sh run id=x ...      run
+#   ```bash foo        skipped     ```bash + a mustmatch   run
+#   ```bash ignore     skipped       call in the body
+#   ```bash exit=1     skipped
+#   ```zsh             not a block at all, and neither is ```text
+#
+# So the language is `bash` or `sh`, read without regard to case, and the one
+# attribute that brings its own expectation is `run`. Every other attribute
+# leaves the block exactly as skipped as a bare fence. Reading the info string
+# as the literal `bash` instead would leave `sh`, `Bash` and `bash ignore`
+# outside the rule, and a block could be excused from it by one added word.
 #
 # What this does not prove: that the assertions inside those blocks hold.
 # `make spec` runs them. Nor that a block's assertion is the right one --
@@ -73,10 +85,18 @@ block_records() {
     ' "$@" </dev/null
 }
 
-# The blocks in the files named that mustmatch would skip whole: a plain `bash`
-# fence with no mustmatch call in it.
+# The blocks in the files named that mustmatch would skip whole: a shell fence
+# carrying no `run` attribute and no mustmatch call in its body.
 skipped_blocks() {
-    block_records "$@" | awk -F'\t' '$3 == "bash" && $4 == 0 { print $1 "\t" $2 "\t" $5 }'
+    block_records "$@" | awk -F'\t' '
+        $4 == 0 {
+            words = split($3, word, /[[:space:]]+/)
+            language = tolower(word[1])
+            if (language != "bash" && language != "sh") next
+            for (i = 2; i <= words; i++) if (word[i] == "run") next
+            print $1 "\t" $2 "\t" $5
+        }
+    '
 }
 
 # --- 1. the scan tells a run block from a skipped one -----------------------
@@ -91,20 +111,27 @@ fixture="$work/fixture.md"
     printf '```bash\nfalse\n```\n\n'
     printf '```bash\nprintf x | mustmatch x\n```\n\n'
     printf '```bash run id=example exit=2 stream=stderr\nfalse\n```\n\n'
-    printf '```text\nnot a command at all\n```\n'
+    printf '```text\nnot a command at all\n```\n\n'
+    printf '```sh\nfalse\n```\n\n'
+    printf '```Bash\nfalse\n```\n\n'
+    printf '```bash ignore\nfalse\n```\n\n'
+    printf '```sh run id=other exit=2 stream=stderr\nfalse\n```\n'
 } >"$fixture"
 
+# The four fences mustmatch would skip whole open at these lines, and the four
+# beside them are the accepted half: a mustmatch call in the body, a `run`
+# attribute on either language, and a `text` fence that is no shell block at
+# all. A scan that refused those would make the repair impossible to write.
 fixture_skipped=$(skipped_blocks "$fixture")
-[[ "$(printf '%s' "$fixture_skipped" | grep -c . || true)" == 1 ]] \
-    || fail "the scan read $(printf '%s' "$fixture_skipped" | grep -c . || true) skipped block(s) in a fixture holding exactly one, so it is not reading the shape it exists to refuse: $fixture_skipped"
-[[ "$(cut -f2 <<<"$fixture_skipped")" == 3 ]] \
-    || fail "the scan named line $(cut -f2 <<<"$fixture_skipped") as the skipped block in a fixture whose skipped block opens at line 3, so its refusal would send a reader to the wrong place"
+fixture_skipped_lines=$(cut -f2 <<<"$fixture_skipped" | paste -sd, -)
+[[ "$fixture_skipped_lines" == '3,19,23,27' ]] \
+    || fail "the scan named the skipped blocks of its own fixture at line(s) $fixture_skipped_lines, and they open at lines 3 (\`\`\`bash), 19 (\`\`\`sh), 23 (\`\`\`Bash) and 27 (\`\`\`bash ignore) -- every one a fence mustmatch runs a shell over, skips whole, and reports beside the passes: $fixture_skipped"
 
 fixture_blocks=$(block_records "$fixture" | grep -c . || true)
-[[ "$fixture_blocks" == 4 ]] \
-    || fail "the scan read $fixture_blocks of the 4 fenced blocks in its own fixture, so it does not see every block"
+[[ "$fixture_blocks" == 8 ]] \
+    || fail "the scan read $fixture_blocks of the 8 fenced blocks in its own fixture, so it does not see every block"
 
-# --- 2. every plain bash block in spec/ runs --------------------------------
+# --- 2. every shell block in spec/ runs -----------------------------------------
 shopt -s nullglob
 spec_files=("$repository"/spec/*.md)
 shopt -u nullglob
@@ -113,18 +140,20 @@ shopt -u nullglob
 records=$(block_records "${spec_files[@]}")
 [[ -n "$records" ]] || fail 'read no fenced block out of spec/, so this check inspected nothing'
 
-plain=$(printf '%s\n' "$records" | awk -F'\t' '$3 == "bash"' | grep -c . || true)
-(( plain > 0 )) \
-    || fail "read $(printf '%s\n' "$records" | grep -c . || true) fenced block(s) out of spec/ and not one plain \`\`\`bash block among them, so this rule held over nothing"
+shell=$(printf '%s\n' "$records" \
+    | awk -F'\t' '{ split($3, word, /[[:space:]]+/); language = tolower(word[1]); if (language == "bash" || language == "sh") print }' \
+    | grep -c . || true)
+(( shell > 0 )) \
+    || fail "read $(printf '%s\n' "$records" | grep -c . || true) fenced block(s) out of spec/ and not one \`\`\`bash or \`\`\`sh block among them, so this rule held over nothing"
 
 skipped=$(skipped_blocks "${spec_files[@]}")
 if [[ -n "$skipped" ]]; then
-    printf 'spec block execution: mustmatch skips a plain ```bash block that calls no mustmatch command, so not one line of these blocks runs and the gate log reports them beside the passes:\n' >&2
+    printf 'spec block execution: mustmatch runs a shell over these ```bash and ```sh blocks, and skips each one whole because it carries no `run` attribute and calls no mustmatch command, so not one of their lines runs and the gate log reports them beside the passes:\n' >&2
     printf '%s\n' "$skipped" \
         | awk -F'\t' -v root="$repository/" '{ sub("^" root, "", $1); printf "  %s:%d (%d line(s) never run)\n", $1, $2, $3 }' >&2
     printf 'Give each block a mustmatch call, or remove it and say in the file why the claim is gone.\n' >&2
     exit 1
 fi
 
-printf 'spec block execution: %s fenced block(s) in %s spec file(s), %s plain ```bash block(s), every one of them run\n' \
-    "$(printf '%s\n' "$records" | grep -c . || true)" "${#spec_files[@]}" "$plain"
+printf 'spec block execution: %s fenced block(s) in %s spec file(s), %s shell block(s), every one of them run\n' \
+    "$(printf '%s\n' "$records" | grep -c . || true)" "${#spec_files[@]}" "$shell"
