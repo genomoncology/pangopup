@@ -78,7 +78,16 @@ smoke_path=${smoke_relative//./\\.}
 # runs it is handing the executable over too --
 # `SMOKE_SCRIPT="$repo/scripts/smoke-linux-release.sh"` in
 # `tests/executable-delivery.sh` is that shape.
-smoke_words='bash|sh|env|exec|eval|command|sudo|timeout|nohup|xargs|source|\.|then|do|else'
+#
+# The words are every shell word a command can stand straight after. `if`,
+# `elif`, `while`, `until`, `time` and `!` are here beside `then`, `do` and
+# `else` because a command runs in a condition exactly as it runs in a body,
+# and a rule that read `then` but not `if` would let `if
+# scripts/smoke-linux-release.sh; then` hand the executable over unwatched.
+# `{` is deliberately absent: it would have to be a separator to catch
+# `{ cmd; }`, and as a separator it also opens `${repo}`, which would read
+# every `"${repo}/scripts/smoke-linux-release.sh"` argument as a call.
+smoke_words='bash|sh|env|exec|eval|command|sudo|timeout|nohup|xargs|source|\.|then|do|else|if|elif|while|until|time|!'
 smoke_lead="(^|[;&|(]|(^|[[:space:];&|(])(($smoke_words)[[:space:]]+|[A-Za-z_][A-Za-z0-9_]*=))"
 
 # Between the lead and the path: quotes, a `$repo/`, a `./`, a container's
@@ -380,6 +389,11 @@ plant() {
             assigns-smoke)
                 printf 'SMOKE_SCRIPT="$repo/%s" docker run --rm smoke-image\n' "$smoke_relative"
                 ;;
+            tests-smoke)
+                printf 'if "$repo/%s" "$1" "$2"; then\n' "$smoke_relative"
+                printf '    printf %s\n' "'ok\\n'"
+                printf 'fi\n'
+                ;;
             mentions-smoke)
                 printf '# a comment about %s hands nothing over\n' "$smoke_relative"
                 printf 'for fragment in \\\n'
@@ -548,8 +562,13 @@ expect_acceptance "$warm" \
 # A file that hands an executable to the script that runs whatever it is given
 # has to have taken a cache home first, or the run reaches the operator's cache
 # under a name no scan can read.
+#
+# The held harness in this fixture and in the two below runs the smoke script
+# too. That is what keeps the refusal a refusal: `inheritors_hold` also returns
+# non-zero when it found no caller at all, so a scanner that stopped seeing the
+# handoff planted below would satisfy an `if` that only reads the status.
 inherited="$fixtures/inherited"
-plant "$inherited" 'tests/qualification.sh' held
+plant "$inherited" 'tests/qualification.sh' held-names-smoke
 plant "$inherited" 'scripts/caller.sh' names-smoke
 examine "$inherited" >/dev/null \
     || fail 'the inheritance fixture was refused by the name scan, so it proves nothing about inheritance'
@@ -559,12 +578,23 @@ fi
 
 # Handing the path to something that runs it is handing the executable over.
 assigning="$fixtures/assigning"
-plant "$assigning" 'tests/qualification.sh' held
+plant "$assigning" 'tests/qualification.sh' held-names-smoke
 plant "$assigning" 'tests/delivery.sh' assigns-smoke
 examine "$assigning" >/dev/null \
     || fail 'the assigning fixture was refused by the name scan, so it proves nothing about inheritance'
 if inheritors_hold "$assigning" 2>/dev/null; then
     fail 'the scanner accepted a file handing the smoke script to a runner without a cache home of its own'
+fi
+
+# A command runs in a condition exactly as it runs in a body. A rule that read
+# `then` but not `if` would let this file hand the executable over unwatched.
+testing="$fixtures/testing"
+plant "$testing" 'tests/qualification.sh' held-names-smoke
+plant "$testing" 'tests/conditional.sh' tests-smoke
+examine "$testing" >/dev/null \
+    || fail 'the testing fixture was refused by the name scan, so it proves nothing about inheritance'
+if inheritors_hold "$testing" 2>/dev/null; then
+    fail 'the scanner accepted a file running the smoke script in an if condition without a cache home of its own'
 fi
 
 # A file that spells the path where an argument stands runs nothing and has
