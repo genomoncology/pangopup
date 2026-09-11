@@ -12,14 +12,14 @@ gzip -n -c ../tests/fixtures/full-build-source/ENSG00000000001.tsv > ../target/s
 gzip -n -c ../tests/fixtures/full-build-source/ENSG00000000002.tsv > ../target/spec/full-bundle/source/ENSG00000000002.tsv.gz
 cp ../tests/fixtures/full-build-reference.fa ../target/spec/full-bundle/reference.fa
 chmod a-w ../target/spec/full-bundle/source/*.tsv.gz ../target/spec/full-bundle/reference.fa
-pangopup-build build --source ../target/spec/full-bundle/source --reference ../target/spec/full-bundle/reference.fa --output ../target/spec/full-bundle/plain | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch like '{"status":"built","bundle_id":"sha256:<digest>","genes":2,"source_rows":15,"gene_loci":5,"ascending_members":1,"descending_members":1,"source_segments":2,"index_segments":3,"gap_transitions":0,"omitted_bases":0,"n_ref_loci":1,"n_omit_a":1,"n_omit_t":0}'
+pangopup-build build --source ../target/spec/full-bundle/source --reference ../target/spec/full-bundle/reference.fa --output ../target/spec/full-bundle/plain | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch '{"status":"built","bundle_id":"sha256:<digest>","genes":2,"source_rows":15,"gene_loci":5,"ascending_members":1,"descending_members":1,"source_segments":2,"index_segments":3,"gap_transitions":0,"omitted_bases":0,"n_ref_loci":1,"n_omit_a":1,"n_omit_t":0}'
 ```
 
 Full verification checks both non-manifest member hashes and every index
 section, then reports the canonical manifest hash as bundle identity.
 
 ```bash
-pangopup-build verify ../target/spec/full-bundle/plain | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch like '{"status":"verified","bundle_id":"sha256:<digest>","members_verified":2}'
+pangopup-build verify ../target/spec/full-bundle/plain | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch '{"status":"verified","bundle_id":"sha256:<digest>","members_verified":2}'
 find ../target/spec/full-bundle/plain -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort | mustmatch like "NOTICE
 manifest.json
 scores.pgi"
@@ -31,11 +31,14 @@ already published destination verifies and reuses it without mutation.
 
 ```bash
 gzip -n -c ../target/spec/full-bundle/reference.fa > ../target/spec/full-bundle/reference.fa.gz
+# partial: the gzip rebuild is about the reference form the builder accepts, and the eight counts it also prints are pinned in full above
 pangopup-build build --source ../target/spec/full-bundle/source --reference ../target/spec/full-bundle/reference.fa.gz --output ../target/spec/full-bundle/gzip | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch like '{"status":"built","bundle_id":"sha256:<digest>","genes":2}'
+# partial: the deterministic rebuild is proved by the `cmp` lines below, and the eight counts it also prints are pinned in full above
 pangopup-build build --source ../target/spec/full-bundle/source --reference ../target/spec/full-bundle/reference.fa --output ../target/spec/full-bundle/repeat | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch like '{"status":"built","bundle_id":"sha256:<digest>","genes":2}'
 cmp ../target/spec/full-bundle/plain/NOTICE ../target/spec/full-bundle/repeat/NOTICE
 cmp ../target/spec/full-bundle/plain/scores.pgi ../target/spec/full-bundle/repeat/scores.pgi
 cmp ../target/spec/full-bundle/plain/manifest.json ../target/spec/full-bundle/repeat/manifest.json
+# partial: rebuilding a published destination is about the reuse status, and the eight counts it also prints are pinned in full above
 pangopup-build build --source ../target/spec/full-bundle/source --reference ../target/spec/full-bundle/reference.fa --output ../target/spec/full-bundle/plain | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch like '{"status":"already_present","bundle_id":"sha256:<digest>","genes":2}'
 ```
 

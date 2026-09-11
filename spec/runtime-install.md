@@ -5,7 +5,7 @@ Runtime status is offline and missing state is a normal compact result.
 ```bash
 rm -rf ../target/spec/runtime-install
 data=$(cd .. && pwd)/target/spec/runtime-install/data
-pangopup status --data-dir "$data" | sed "s|$data|<data>|" | mustmatch like '{"status":"missing","data_dir":"<data>","syncing":false,"installing":false,"snv":{"status":"missing"},"runtime":{"status":"missing"}}'
+pangopup status --data-dir "$data" | sed "s|$data|<data>|" | mustmatch '{"status":"missing","data_dir":"<data>","syncing":false,"installing":false,"snv":{"status":"missing"},"runtime":{"status":"missing"}}'
 ```
 
 The nested grammar is closed. A complete install request requires all four

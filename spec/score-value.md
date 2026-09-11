@@ -85,7 +85,11 @@ different position on 4.49 percent of the 379 records comparable on position.
 Read the first figure with its denominator in view. 2,409 of those 2,790 records
 score zero on both sides on both routes, so most of that agreement is two routes
 agreeing that nothing happened. Over the 381 records where either route reports a
-non-zero score, they report a different value on 0.52 percent.
+non-zero score, they report a different value on 0.52 percent. Every
+variant in the measured set is a transversion and none of them is a transition,
+so these figures cover transversions only. Splice-site sequence is not
+base-symmetric, so a transition-bearing set could move either figure by an
+amount nothing measured.
 [`planning/artifacts/0059-route-disagreement-rate.md`](../planning/artifacts/0059-route-disagreement-rate.md)
 records that measurement, the set it was drawn over, and how zero scores were
 treated.

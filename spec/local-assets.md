@@ -11,7 +11,7 @@ mkdir -p ../target/spec/local-assets
 cp -R ../tests/fixtures/snv-regression/bundle ../target/spec/local-assets/bundle
 pangopup-build transport pack --bundle ../target/spec/local-assets/bundle --output ../target/spec/local-assets/transport >/dev/null
 data=$(cd .. && pwd)/target/spec/local-assets/data
-pangopup status --data-dir "$data" | sed "s|$data|<data>|" | mustmatch like '{"status":"missing","data_dir":"<data>","syncing":false,"installing":false,"snv":{"status":"missing"},"runtime":{"status":"missing"}}'
+pangopup status --data-dir "$data" | sed "s|$data|<data>|" | mustmatch '{"status":"missing","data_dir":"<data>","syncing":false,"installing":false,"snv":{"status":"missing"},"runtime":{"status":"missing"}}'
 ```
 
 Install publishes one immutable bundle and an active profile. Successful
@@ -19,8 +19,8 @@ stdout is one compact object whose path names the three-member bundle itself.
 
 ```bash
 data=$(cd .. && pwd)/target/spec/local-assets/data
-pangopup assets install --transport ../target/spec/local-assets/transport --data-dir "$data" | sed -E "s|$data|<data>|; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch like '{"status":"installed","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle"}'
-pangopup status --data-dir "$data" | sed -E "s|$data|<data>|g; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch like '{"status":"partial","data_dir":"<data>","syncing":false,"installing":false,"snv":{"status":"ready","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle"},"runtime":{"status":"missing"}}'
+pangopup assets install --transport ../target/spec/local-assets/transport --data-dir "$data" | sed -E "s|$data|<data>|; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch '{"status":"installed","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle"}'
+pangopup status --data-dir "$data" | sed -E "s|$data|<data>|g; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch '{"status":"partial","data_dir":"<data>","syncing":false,"installing":false,"snv":{"status":"ready","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle"},"runtime":{"status":"missing"}}'
 LC_ALL=C ls -laR "$data" | sed '/ \.\.$/d' > ../target/spec/local-assets/status-before
 pangopup status --data-dir "$data" >/dev/null
 LC_ALL=C ls -laR "$data" | sed '/ \.\.$/d' > ../target/spec/local-assets/status-after
@@ -72,7 +72,7 @@ transport payload or hashing the installed score payload.
 
 ```bash
 data=$(cd .. && pwd)/target/spec/local-assets/data
-pangopup assets install --transport ../target/spec/local-assets/transport --data-dir "$data" | sed -E "s|$data|<data>|; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch like '{"status":"reused","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle"}'
+pangopup assets install --transport ../target/spec/local-assets/transport --data-dir "$data" | sed -E "s|$data|<data>|; s/sha256:[0-9a-f]{64}/sha256:<digest>/g; s|/bundles/[0-9a-f]{64}/bundle|/bundles/<digest>/bundle|" | mustmatch '{"status":"reused","bundle_id":"sha256:<digest>","transport_id":"sha256:<digest>","path":"<data>/bundles/<digest>/bundle"}'
 ```
 
 Missing active state is a normal status result but a typed lookup failure.

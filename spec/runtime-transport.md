@@ -14,7 +14,7 @@ pangopup-build runtime-transport pack \
   --reference-bundle ../tests/fixtures/reference-route-test/bundle \
   --mask ../tests/fixtures/gencode-mask-mini/domains.pgm \
   --output ../target/spec/runtime-transport/first \
-  | mustmatch like '{"command":"runtime-transport.pack","compressed_bytes":654,"runtime_profile_id":"sha256:ea178659923ab4dfc7e0cb88f55b129d994ebad42be4e9dcae76f16f03794940","status":"ok","transport_id":"sha256:0e373cf2183312d8f6f28b286aa49ad2395ea5922bf650e0f15b536908d45f6c"}'
+  | mustmatch '{"command":"runtime-transport.pack","compressed_bytes":654,"runtime_profile_id":"sha256:ea178659923ab4dfc7e0cb88f55b129d994ebad42be4e9dcae76f16f03794940","status":"ok","transport_id":"sha256:0e373cf2183312d8f6f28b286aa49ad2395ea5922bf650e0f15b536908d45f6c"}'
 pangopup-build runtime-transport pack \
   --profile ../tests/fixtures/runtime-transport-mini/runtime-profile.json \
   --model-bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle \
@@ -40,12 +40,12 @@ stage and atomically publishes byte-exact runtime inputs.
 
 ```bash
 pangopup-build runtime-transport verify --transport ../target/spec/runtime-transport/first \
-  | mustmatch like '{"command":"runtime-transport.verify","compressed_bytes":654,"runtime_profile_id":"sha256:ea178659923ab4dfc7e0cb88f55b129d994ebad42be4e9dcae76f16f03794940","status":"ok","transport_id":"sha256:0e373cf2183312d8f6f28b286aa49ad2395ea5922bf650e0f15b536908d45f6c"}'
+  | mustmatch '{"command":"runtime-transport.verify","compressed_bytes":654,"runtime_profile_id":"sha256:ea178659923ab4dfc7e0cb88f55b129d994ebad42be4e9dcae76f16f03794940","status":"ok","transport_id":"sha256:0e373cf2183312d8f6f28b286aa49ad2395ea5922bf650e0f15b536908d45f6c"}'
 test ! -e ../target/spec/runtime-transport/verified-output
 pangopup-build runtime-transport unpack \
   --transport ../target/spec/runtime-transport/first \
   --output ../target/spec/runtime-transport/unpacked \
-  | mustmatch like '{"command":"runtime-transport.unpack","runtime_profile_id":"sha256:ea178659923ab4dfc7e0cb88f55b129d994ebad42be4e9dcae76f16f03794940","status":"ok","transport_id":"sha256:0e373cf2183312d8f6f28b286aa49ad2395ea5922bf650e0f15b536908d45f6c"}'
+  | mustmatch '{"command":"runtime-transport.unpack","runtime_profile_id":"sha256:ea178659923ab4dfc7e0cb88f55b129d994ebad42be4e9dcae76f16f03794940","status":"ok","transport_id":"sha256:0e373cf2183312d8f6f28b286aa49ad2395ea5922bf650e0f15b536908d45f6c"}'
 cmp ../target/spec/runtime-transport/unpacked/runtime-profile.json ../tests/fixtures/runtime-transport-mini/runtime-profile.json
 cmp ../target/spec/runtime-transport/unpacked/model/model.onnx ../tests/fixtures/pangolin-model-kernel-mini/bundle/model.onnx
 cmp ../target/spec/runtime-transport/unpacked/reference/reference.pgr ../tests/fixtures/reference-route-test/bundle/reference.pgr

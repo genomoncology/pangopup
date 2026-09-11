@@ -13,7 +13,7 @@ gzip -n -c ../tests/fixtures/full-build-source/ENSG00000000001.tsv > ../target/s
 gzip -n -c ../tests/fixtures/full-build-source/ENSG00000000002.tsv > ../target/spec/snv-transport/source/ENSG00000000002.tsv.gz
 cp ../tests/fixtures/full-build-reference.fa ../target/spec/snv-transport/reference.fa
 pangopup-build build --source ../target/spec/snv-transport/source --reference ../target/spec/snv-transport/reference.fa --output ../target/spec/snv-transport/bundle >/dev/null
-pangopup-build transport pack --output ../target/spec/snv-transport/first --bundle ../target/spec/snv-transport/bundle | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/g; s/"compressed_bytes":[0-9]+/"compressed_bytes":0/' | mustmatch like '{"status":"packed","transport_id":"sha256:<digest>","bundle_id":"sha256:<digest>","part_count":1,"compressed_bytes":0}'
+pangopup-build transport pack --output ../target/spec/snv-transport/first --bundle ../target/spec/snv-transport/bundle | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/g; s/"compressed_bytes":[0-9]+/"compressed_bytes":0/' | mustmatch '{"status":"packed","transport_id":"sha256:<digest>","bundle_id":"sha256:<digest>","part_count":1,"compressed_bytes":0}'
 pangopup-build transport pack --bundle ../target/spec/snv-transport/bundle --output ../target/spec/snv-transport/second >/dev/null
 diff -qr ../target/spec/snv-transport/first ../target/spec/snv-transport/second
 find ../target/spec/snv-transport/first -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort | mustmatch like "NOTICE
@@ -27,8 +27,8 @@ Unpack certifies the reconstructed fixed-v1 bundle before atomic publication,
 and every installed member is byte-identical to the input.
 
 ```bash
-pangopup-build transport verify --transport ../target/spec/snv-transport/first | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/g; s/"compressed_bytes":[0-9]+/"compressed_bytes":0/' | mustmatch like '{"status":"verified","transport_id":"sha256:<digest>","bundle_id":"sha256:<digest>","part_count":1,"compressed_bytes":0}'
-pangopup-build transport unpack --output ../target/spec/snv-transport/unpacked --transport ../target/spec/snv-transport/first | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/g' | mustmatch like '{"status":"unpacked","transport_id":"sha256:<digest>","bundle_id":"sha256:<digest>"}'
+pangopup-build transport verify --transport ../target/spec/snv-transport/first | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/g; s/"compressed_bytes":[0-9]+/"compressed_bytes":0/' | mustmatch '{"status":"verified","transport_id":"sha256:<digest>","bundle_id":"sha256:<digest>","part_count":1,"compressed_bytes":0}'
+pangopup-build transport unpack --output ../target/spec/snv-transport/unpacked --transport ../target/spec/snv-transport/first | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/g' | mustmatch '{"status":"unpacked","transport_id":"sha256:<digest>","bundle_id":"sha256:<digest>"}'
 cmp ../target/spec/snv-transport/bundle/NOTICE ../target/spec/snv-transport/unpacked/NOTICE
 cmp ../target/spec/snv-transport/bundle/manifest.json ../target/spec/snv-transport/unpacked/manifest.json
 cmp ../target/spec/snv-transport/bundle/scores.pgi ../target/spec/snv-transport/unpacked/scores.pgi

@@ -76,6 +76,13 @@ bytes per locus. Over the complete corpus that is 15,030,604,105 bytes (about
 14.0 GiB) before directories and exceptions—9.3% larger than the existing gzip
 files. It deliberately discards the dominant default-pair sparsity.
 
+That corpus size is arithmetic. It is the 1,366,418,555 gene loci the full
+build counted, multiplied by 11 bytes. The build measured a 15,030,603,775-byte
+payload, and the 330-byte difference is the 30 `REF=N` loci the format holds in
+an exception section rather than in the fixed-width payload.
+[`planning/artifacts/003-full-index-build.md`](../planning/artifacts/003-full-index-build.md)
+records the count and the payload.
+
 Ticket 002 measured that trade-off rather than rejecting it from size alone.
 After adversarial review, the direct kernel was corrected to use zero-copy mmap
 reads, packed masks, and rank-checkpoint/popcount lookup. On the equal candidate

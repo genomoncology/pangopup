@@ -5,7 +5,7 @@ GRCh38 corpus entirely offline. It does not load Python, model checkpoints, a
 whole reference, or an annotation database.
 
 ```bash
-pangopup-build compatibility inspect --corpus ../tests/fixtures/pangolin-compat-v1 | mustmatch like '{"status":"valid","schema":"pangopup-compat-v1","profile":"pangolin-1.0.2-5cf94b8-grch38-v1","cases":24,"scored_cases":14,"rejection_cases":6,"postprocess_cases":4,"coverage_cells":28}'
+pangopup-build compatibility inspect --corpus ../tests/fixtures/pangolin-compat-v1 | mustmatch '{"status":"valid","schema":"pangopup-compat-v1","profile":"pangolin-1.0.2-5cf94b8-grch38-v1","cases":24,"scored_cases":14,"rejection_cases":6,"postprocess_cases":4,"coverage_cells":28}'
 ```
 
 A missing corpus is a sanitized bounded I/O failure.
