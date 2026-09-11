@@ -5,13 +5,14 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 . "$repo/tests/support/workflow-commands.sh"
 . "$repo/tests/support/forbidden-text.sh"
 . "$repo/tests/support/expected-text.sh"
+
+fail() { printf 'executable delivery test: %s\n' "$*" >&2; exit 1; }
+
 root="$repo/target/executable-delivery-test"
 version=$(grep -m1 '^version = ' "$repo/Cargo.toml" | cut -d'"' -f2)
 [[ -n "$version" ]] || fail 'Cargo.toml carries no version = line, so every version comparison below would compare against nothing'
 rm -rf -- "$root"
 mkdir -p "$root"
-
-fail() { printf 'executable delivery test: %s\n' "$*" >&2; exit 1; }
 
 smoke_bin="$root/smoke-bin"
 mkdir "$smoke_bin"
