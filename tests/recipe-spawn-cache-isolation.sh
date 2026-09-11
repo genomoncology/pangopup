@@ -45,9 +45,11 @@ recipe_run="$run|PATH[^#]*target/(debug|release)"
 # environment reaching into a run that is supposed to stand on its own -- so
 # both are held here.
 #
-# The first two names share a prefix, and the match below asks for a character
-# that cannot continue an identifier after each name so that dropping the
-# longer one is not read as dropping the shorter.
+# `PANGOPUP_MODEL_CACHE_MAX_ENTRIES` contains `PANGOPUP_MODEL_CACHE`, so the
+# match below asks for a character other than `_` after each name. That is what
+# separates these two, and it is not a word boundary: a name extending one of
+# them by a letter or a digit still answers for the shorter one, measured in
+# sdlc/tickets/drafts/0107.
 named_locations=(PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES)
 
 fail() { printf 'recipe spawn cache isolation: %s\n' "$*" >&2; exit 1; }

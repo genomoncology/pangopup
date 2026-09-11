@@ -92,9 +92,12 @@ endif
 #
 # On macOS `ort-sys` resolves `$$HOME/Library/Caches/ort.pyke.io` instead, so
 # `make spec` there keeps a second copy under `$$HOME/.cache/ort.pyke.io`. That
-# copy is durable and shared between `make spec` runs; the gates that need a
-# real production release are Linux-only, and naming one directory keeps the
-# recipe readable by the rule that holds it.
+# is the cost rejected just above -- a second 87 MB copy, and a first
+# `make spec` that downloads the library again -- paid on a Mac rather than on
+# every machine. It is paid once and the copy is durable and shared between
+# `make spec` runs afterwards, the gates that need a real production release
+# are Linux-only, and naming one directory keeps the recipe readable by the
+# rule that holds it.
 #
 # It is named on both lines that build, not only on the line that runs the spec
 # suite. The suite builds through `scripts/spec-cargo-test.sh` and the first
