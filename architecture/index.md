@@ -73,7 +73,7 @@ index overhead.
 
 Three 28-bit score records plus a three-bit reference fit in 87 bits, or 11
 bytes per locus. Over the complete corpus that is 15,030,604,105 bytes (about
-14.0 GiB) before directories and exceptions—9.3% larger than the existing gzip
+14.0 GiB) before directories and the exception section—9.3% larger than the existing gzip
 files. It deliberately discards the dominant default-pair sparsity.
 
 That corpus size is arithmetic. It is the 1,366,418,555 gene loci the full
