@@ -114,9 +114,16 @@ if [[ ! -d "$build" ]]; then
     exit 0
 fi
 
+# A build directory that is there but holds almost nothing is not a clean tree,
+# it is a scan with nothing to read, and it would report the same success. A
+# checkout that has built anything at all holds many hundreds of directories
+# under `target/`; the tree measured here held 1,511. A floor well under that tells
+# the two apart without refusing an unusual build. A checkout that has never
+# built has no `target/` at all and is answered above.
+build_floor=100
 examined=$(directory_count "$build")
-(( examined > 0 )) \
-    || fail 'the build directory holds no directories at all, so this scan read nothing'
+(( examined >= build_floor )) \
+    || fail "the build directory holds $examined directory/directories against a floor of $build_floor, so nothing has been built here and this scan read nothing; the residue this refuses is left by harnesses, and a tree they have not run in proves nothing about them"
 
 standing=$(unwritable_directories "$build")
 if [[ -n "$standing" ]]; then

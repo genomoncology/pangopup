@@ -22,9 +22,43 @@ use std::{
     io::{BufRead, BufReader},
     panic,
     process::{Child, Command, Stdio},
+    sync::{Mutex, MutexGuard, OnceLock},
 };
 
 const SAID: &str = "the-service-said-boom";
+
+/// Held for the whole of a test that replaces the panic hook.
+///
+/// `panic::set_hook` is process-wide and the test harness runs this file's
+/// tests in parallel threads, so a silenced hook silences every test running
+/// beside it. Measured: a test that panics while another test holds a no-op
+/// hook is reported as failed with no message, no assertion text and no
+/// location -- which is the illegibility this file exists to refuse.
+///
+/// Every test here takes the seat on its first line rather than only around
+/// the hook, because a test's own assertion fires after its hook is restored
+/// and would otherwise land inside another test's silent window.
+fn hook_seat() -> MutexGuard<'static, ()> {
+    static SEAT: OnceLock<Mutex<()>> = OnceLock::new();
+    match SEAT.get_or_init(|| Mutex::new(())).lock() {
+        Ok(seat) => seat,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// Whether `report` names `number` as a number of its own rather than as a
+/// digit inside a larger one.
+///
+/// `contains('9')` would be satisfied by a process id, so it would pass on a
+/// report that never named the signal at all.
+fn names_number(report: &str, number: i32) -> bool {
+    let needle = number.to_string();
+    report.match_indices(&needle).any(|(at, _)| {
+        let before = report[..at].chars().next_back();
+        let after = report[at + needle.len()..].chars().next();
+        !before.is_some_and(|c| c.is_ascii_digit()) && !after.is_some_and(|c| c.is_ascii_digit())
+    })
+}
 
 /// A child with its standard error piped, so the report has something to
 /// read. `script` runs under `sh`.
@@ -65,6 +99,7 @@ fn report_for(child: &mut Child, what: &str) -> Option<String> {
 
 #[test]
 fn a_clean_shutdown_asserts_nothing() {
+    let _seat = hook_seat();
     let mut clean = child("exit 0");
     assert!(
         report_for(&mut clean, "clean exit").is_none(),
@@ -74,6 +109,7 @@ fn a_clean_shutdown_asserts_nothing() {
 
 #[test]
 fn a_non_zero_exit_is_reported_with_its_status_and_standard_error() {
+    let _seat = hook_seat();
     let mut failed = child(&format!("echo {SAID} >&2; exit 3"));
     let report = report_for(&mut failed, "service exit")
         .expect("a service that exited 3 must fail the shutdown assertion");
@@ -82,7 +118,7 @@ fn a_non_zero_exit_is_reported_with_its_status_and_standard_error() {
         "the report does not say which shutdown failed: {report}"
     );
     assert!(
-        report.contains('3'),
+        names_number(&report, 3),
         "the report does not carry the exit status: {report}"
     );
     assert!(
@@ -93,6 +129,7 @@ fn a_non_zero_exit_is_reported_with_its_status_and_standard_error() {
 
 #[test]
 fn a_signalled_exit_is_reported_with_its_signal_and_standard_error() {
+    let _seat = hook_seat();
     let mut killed = child(&format!("echo {SAID} >&2; echo said; sleep 30"));
     // Wait until the child has written, so the signal cannot arrive before
     // there is any standard error for the report to carry.
@@ -117,7 +154,7 @@ fn a_signalled_exit_is_reported_with_its_signal_and_standard_error() {
         "the report does not say the service died of a signal: {report}"
     );
     assert!(
-        report.contains('9'),
+        names_number(&report, libc::SIGKILL),
         "the report does not name the signal that ended the service: {report}"
     );
     assert!(
