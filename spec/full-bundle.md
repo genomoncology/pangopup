@@ -31,14 +31,14 @@ already published destination verifies and reuses it without mutation.
 
 ```bash
 gzip -n -c ../target/spec/full-bundle/reference.fa > ../target/spec/full-bundle/reference.fa.gz
-# partial: the gzip rebuild is about the reference form the builder accepts, and the eight counts it also prints are pinned in full above
+# partial: the gzip rebuild is about the reference form the builder accepts, and the eleven counts it also prints are pinned in full above
 pangopup-build build --source ../target/spec/full-bundle/source --reference ../target/spec/full-bundle/reference.fa.gz --output ../target/spec/full-bundle/gzip | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch like '{"status":"built","bundle_id":"sha256:<digest>","genes":2}'
-# partial: the deterministic rebuild is proved by the `cmp` lines below, and the eight counts it also prints are pinned in full above
+# partial: the deterministic rebuild is proved by the `cmp` lines below, and the eleven counts it also prints are pinned in full above
 pangopup-build build --source ../target/spec/full-bundle/source --reference ../target/spec/full-bundle/reference.fa --output ../target/spec/full-bundle/repeat | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch like '{"status":"built","bundle_id":"sha256:<digest>","genes":2}'
 cmp ../target/spec/full-bundle/plain/NOTICE ../target/spec/full-bundle/repeat/NOTICE
 cmp ../target/spec/full-bundle/plain/scores.pgi ../target/spec/full-bundle/repeat/scores.pgi
 cmp ../target/spec/full-bundle/plain/manifest.json ../target/spec/full-bundle/repeat/manifest.json
-# partial: rebuilding a published destination is about the reuse status, and the eight counts it also prints are pinned in full above
+# partial: rebuilding a published destination is about the reuse status, and the eleven counts it also prints are pinned in full above
 pangopup-build build --source ../target/spec/full-bundle/source --reference ../target/spec/full-bundle/reference.fa --output ../target/spec/full-bundle/plain | sed -E 's/sha256:[0-9a-f]{64}/sha256:<digest>/' | mustmatch like '{"status":"already_present","bundle_id":"sha256:<digest>","genes":2}'
 ```
 

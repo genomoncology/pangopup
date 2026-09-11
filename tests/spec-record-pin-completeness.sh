@@ -18,8 +18,8 @@ set -euo pipefail
 # spec/model-routing.md -- pin a whole lookup record whose `provenance` lacks
 # the `software_version` the product has emitted since 2026-09-09, and a reader
 # takes those blocks as the bytes the command prints. Three stand in one block
-# of spec/full-bundle.md and are deliberate three-of-eleven-field excerpts
-# beneath a paragraph about determinism, where the eight omitted counts are
+# of spec/full-bundle.md and are deliberate three-of-fourteen-field excerpts
+# beneath a paragraph about determinism, where the eleven omitted counts are
 # beside the point.
 #
 # This file holds one claim.
@@ -69,7 +69,7 @@ repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 # Where a partial pin may stand, and how many it may hold. Measured from the
 # tree on 2026-09-11: one block of spec/full-bundle.md carries three pins of
-# `pangopup-build build` output naming three of the eleven fields it prints.
+# `pangopup-build build` output naming three of the fourteen fields it prints.
 declared_file='spec/full-bundle.md'
 declared_ceiling=3
 
