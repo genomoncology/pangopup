@@ -4,9 +4,10 @@ set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 . "$repo/tests/support/workflow-commands.sh"
 . "$repo/tests/support/forbidden-text.sh"
+. "$repo/tests/support/expected-text.sh"
 root="$repo/target/executable-delivery-test"
 version=$(grep -m1 '^version = ' "$repo/Cargo.toml" | cut -d'"' -f2)
-[[ -n "$version" ]]
+[[ -n "$version" ]] || fail 'Cargo.toml carries no version = line, so every version comparison below would compare against nothing'
 rm -rf -- "$root"
 mkdir -p "$root"
 
@@ -45,7 +46,7 @@ chmod +x "$smoke_bin/pangopup" "$smoke_bin/docker"
 
 smoke_log="$root/smoke.log"
 fake_cache_parent="/tmp/pangopup-smoke-fake-$PPID-$$"
-[[ ! -e "$fake_cache_parent" && ! -L "$fake_cache_parent" ]]
+[[ ! -e "$fake_cache_parent" && ! -L "$fake_cache_parent" ]] || fail "the container smoke cache parent exists before the run that must create it: $fake_cache_parent"
 SMOKE_LOG="$smoke_log" SMOKE_SCRIPT="$repo/scripts/smoke-linux-release.sh" \
   SMOKE_PANGOPUP="$smoke_bin/pangopup" \
   SMOKE_SOURCE="$repo" SMOKE_DATA="$root/smoke-data" \
@@ -54,11 +55,11 @@ SMOKE_LOG="$smoke_log" SMOKE_SCRIPT="$repo/scripts/smoke-linux-release.sh" \
     -v "$root:/release:ro" -v "$repo:/source:ro" smoke-image bash -ceu '
       "$SMOKE_SCRIPT" "$SMOKE_PANGOPUP" "$SMOKE_SOURCE" "$SMOKE_DATA" "$SMOKE_CACHE"
     '
-[[ "$(wc -l <"$smoke_log")" == 10 ]]
-grep -Fq -- "--model-cache $fake_cache_parent/model.sqlite3" "$smoke_log"
-grep -Fq -- "--model-only" "$smoke_log"
-[[ "$(stat -c %u "$fake_cache_parent")" == "$(id -u)" ]]
-[[ "$(stat -c %a "$fake_cache_parent")" == 700 ]]
+equal 'the number of commands the container smoke run handed the stub executable' 10 "$(wc -l <"$smoke_log")"
+require_text "$smoke_log" "--model-cache $fake_cache_parent/model.sqlite3"
+require_text "$smoke_log" "--model-only"
+equal 'the owner of the container smoke cache parent' "$(id -u)" "$(stat -c %u "$fake_cache_parent")"
+equal 'the mode of the container smoke cache parent' 700 "$(stat -c %a "$fake_cache_parent")"
 
 changed_smoke="$root/smoke-changed-expected.sh"
 sed 's/"status":"missing"/"status":"ready"/' \
@@ -85,7 +86,7 @@ rmdir "$fake_cache_parent"
 . "$repo/tests/support/private-cache-home.sh"
 real_cli="$repo/target/debug/pangopup"
 unsafe_cache="/tmp/pangopup-smoke-unsafe-$PPID-$$.sqlite3"
-[[ ! -e "$unsafe_cache" && ! -L "$unsafe_cache" ]]
+[[ ! -e "$unsafe_cache" && ! -L "$unsafe_cache" ]] || fail "the unsafe model-cache path exists before the lookup that must refuse it: $unsafe_cache"
 if "$real_cli" lookup \
   --bundle "$repo/tests/fixtures/snv-regression/bundle" \
   --variant GRCh38:chr1:5051:A:AC \
@@ -96,17 +97,17 @@ if "$real_cli" lookup \
   >"$root/unsafe-cache.out" 2>"$root/unsafe-cache.err"; then
   fail 'real CLI accepted /tmp as the immediate model-cache parent'
 fi
-grep -Fq 'MODEL_CACHE_INVALID' "$root/unsafe-cache.err"
-[[ ! -e "$unsafe_cache" && ! -L "$unsafe_cache" ]]
+require_text "$root/unsafe-cache.err" 'MODEL_CACHE_INVALID'
+[[ ! -e "$unsafe_cache" && ! -L "$unsafe_cache" ]] || fail "the CLI created a model cache under the unsafe parent it refused: $unsafe_cache"
 
 real_cache_parent="/tmp/pangopup-smoke-real-$PPID-$$"
-[[ ! -e "$real_cache_parent" && ! -L "$real_cache_parent" ]]
+[[ ! -e "$real_cache_parent" && ! -L "$real_cache_parent" ]] || fail "the smoke cache parent exists before the run that must create it: $real_cache_parent"
 "$repo/scripts/smoke-linux-release.sh" \
   "$real_cli" "$repo" "$root/real-smoke-data" "$real_cache_parent" \
   >"$root/real-smoke.out"
-[[ "$(stat -c %u "$real_cache_parent")" == "$(id -u)" ]]
-[[ "$(stat -c %a "$real_cache_parent")" == 700 ]]
-[[ -f "$real_cache_parent/model.sqlite3" && ! -L "$real_cache_parent/model.sqlite3" ]]
+equal 'the owner of the smoke cache parent' "$(id -u)" "$(stat -c %u "$real_cache_parent")"
+equal 'the mode of the smoke cache parent' 700 "$(stat -c %a "$real_cache_parent")"
+[[ -f "$real_cache_parent/model.sqlite3" && ! -L "$real_cache_parent/model.sqlite3" ]] || fail "the smoke run left no regular model cache file at $real_cache_parent/model.sqlite3"
 rm -f "$real_cache_parent/model.sqlite3" \
   "$real_cache_parent/model.sqlite3-shm" "$real_cache_parent/model.sqlite3-wal" \
   "$real_cache_parent/model-only.sqlite3" \
@@ -119,7 +120,7 @@ expect_installer_failure() {
   if "$repo/install.sh" "$@" >"$root/rejected.out" 2>"$root/rejected.err"; then
     fail "installer rejection unexpectedly succeeded: $*"
   fi
-  grep -Fq "$expected" "$root/rejected.err"
+  require_text "$root/rejected.err" "$expected"
 }
 
 make_path() {
@@ -182,12 +183,12 @@ out="$root/bin"
 log="$root/urls"
 MOCK_ASSETS="$assets" MOCK_URL_LOG="$log" PATH="$mock" \
   "$repo/install.sh" --install-dir "$out" >"$root/latest.out"
-[[ "$($out/pangopup --version)" == "pangopup $version" ]]
-grep -Fxq 'https://github.com/genomoncology/pangopup/releases/latest/download/pangopup-linux-x86_64' "$log"
-grep -Fq 'Next: pangopup sync' "$root/latest.out"
-grep -Fq 'Then: pangopup status' "$root/latest.out"
-grep -Fq "releases/download/v$version/LICENSE" "$root/latest.out"
-grep -Fq "export PATH=$out:\"\$PATH\"" "$root/latest.out"
+equal 'the version the installed executable reports' "pangopup $version" "$($out/pangopup --version)"
+require_line "$log" 'https://github.com/genomoncology/pangopup/releases/latest/download/pangopup-linux-x86_64'
+require_text "$root/latest.out" 'Next: pangopup sync'
+require_text "$root/latest.out" 'Then: pangopup status'
+require_text "$root/latest.out" "releases/download/v$version/LICENSE"
+require_text "$root/latest.out" "export PATH=$out:\"\$PATH\""
 
 printf 'old executable\n' >"$out/pangopup"
 printf '%064d  pangopup-linux-x86_64\n' 0 >"$assets/pangopup-linux-x86_64.sha256"
@@ -195,8 +196,8 @@ if MOCK_ASSETS="$assets" MOCK_URL_LOG="$log" PATH="$mock" \
   "$repo/install.sh" --version "$version" --install-dir "$out" >"$root/fail.out" 2>"$root/fail.err"; then
   fail 'checksum mismatch unexpectedly succeeded'
 fi
-[[ "$(cat "$out/pangopup")" == 'old executable' ]]
-grep -Fq 'checksum does not match' "$root/fail.err"
+equal 'the executable left in place after a checksum mismatch' 'old executable' "$(cat "$out/pangopup")"
+require_text "$root/fail.err" 'checksum does not match'
 
 cat >"$assets/pangopup-linux-x86_64" <<'EOF'
 #!/usr/bin/env bash
@@ -209,7 +210,7 @@ if MOCK_ASSETS="$assets" MOCK_URL_LOG="$log" PATH="$mock" \
   "$repo/install.sh" --version "$version" --install-dir "$out" >/dev/null 2>"$root/version.err"; then
   fail 'wrong executable version unexpectedly succeeded'
 fi
-[[ "$(cat "$out/pangopup")" == 'old executable' ]]
+equal 'the executable left in place after a version mismatch' 'old executable' "$(cat "$out/pangopup")"
 cat >"$assets/pangopup-linux-x86_64" <<EOF
 #!/usr/bin/env bash
 [[ "\${1:-}" == --version ]] && printf 'pangopup $version\n'
@@ -218,20 +219,20 @@ chmod +x "$assets/pangopup-linux-x86_64"
 digest=$(sha256sum "$assets/pangopup-linux-x86_64" | awk '{print $1}')
 
 if MOCK_OS=Darwin PATH="$mock" "$repo/install.sh" --install-dir "$root/os" >/dev/null 2>"$root/os.err"; then fail 'unsupported OS unexpectedly succeeded'; fi
-grep -Fq 'only Linux is supported' "$root/os.err"
+require_text "$root/os.err" 'only Linux is supported'
 if MOCK_ARCH=aarch64 PATH="$mock" "$repo/install.sh" --install-dir "$root/arch" >/dev/null 2>"$root/arch.err"; then fail 'unsupported architecture unexpectedly succeeded'; fi
-grep -Fq 'only Linux x86_64 is supported' "$root/arch.err"
+require_text "$root/arch.err" 'only Linux x86_64 is supported'
 
 no_downloader="$root/mock-no-downloader"
 make_path "$no_downloader" none
 ln -s "$(command -v sha256sum)" "$no_downloader/sha256sum"
 if PATH="$no_downloader" "$repo/install.sh" --install-dir "$root/no-downloader" >/dev/null 2>"$root/no-downloader.err"; then fail 'missing downloader unexpectedly succeeded'; fi
-grep -Fq 'curl or wget is required' "$root/no-downloader.err"
+require_text "$root/no-downloader.err" 'curl or wget is required'
 
 no_checksum="$root/mock-no-checksum"
 make_path "$no_checksum"
 if PATH="$no_checksum" "$repo/install.sh" --install-dir "$root/no-checksum" >/dev/null 2>"$root/no-checksum.err"; then fail 'missing checksum tool unexpectedly succeeded'; fi
-grep -Fq 'sha256sum, shasum, or openssl is required' "$root/no-checksum.err"
+require_text "$root/no-checksum.err" 'sha256sum, shasum, or openssl is required'
 
 if MOCK_DOWNLOAD_FAIL=1 MOCK_ASSETS="$assets" MOCK_URL_LOG="$log" PATH="$mock" "$repo/install.sh" --install-dir "$root/download-fail" >/dev/null 2>"$root/download-fail.err"; then fail 'downloader failure unexpectedly succeeded'; fi
 
@@ -246,58 +247,58 @@ done
 printf '%s  pangopup-linux-x86_64\n' "$digest" >"$assets/pangopup-linux-x86_64.sha256"
 
 if MOCK_UNSAFE=symlink MOCK_ASSETS="$assets" MOCK_URL_LOG="$log" PATH="$mock" "$repo/install.sh" --install-dir "$root/unsafe" >/dev/null 2>"$root/unsafe.err"; then fail 'symlinked download unexpectedly succeeded'; fi
-grep -Fq 'downloaded executable is not a regular file' "$root/unsafe.err"
+require_text "$root/unsafe.err" 'downloaded executable is not a regular file'
 if MOCK_UNSAFE=hardlink MOCK_ASSETS="$assets" MOCK_URL_LOG="$log" PATH="$mock" "$repo/install.sh" --install-dir "$root/hardlink" >/dev/null 2>"$root/hardlink.err"; then fail 'multiply linked download unexpectedly succeeded'; fi
-grep -Fq 'downloaded executable must have one hard link' "$root/hardlink.err"
+require_text "$root/hardlink.err" 'downloaded executable must have one hard link'
 
 regular_install="$root/regular-install"
 mkdir "$regular_install"
 printf 'old\n' >"$regular_install/pangopup"
 MOCK_ASSETS="$assets" MOCK_URL_LOG="$log" PATH="$mock" "$repo/install.sh" --version "$version" --install-dir "$regular_install" >/dev/null
-[[ "$("$regular_install/pangopup" --version)" == "pangopup $version" ]]
+equal 'the version reported by an executable installed over a regular file' "pangopup $version" "$("$regular_install/pangopup" --version)"
 
 destination_target="$root/destination-target"
 mkdir "$destination_target"
 ln -s "$destination_target" "$root/destination-link"
 if MOCK_ASSETS="$assets" MOCK_URL_LOG="$log" PATH="$mock" "$repo/install.sh" --install-dir "$root/destination-link" >/dev/null 2>"$root/destination-link.err"; then fail 'symlink install directory unexpectedly succeeded'; fi
-grep -Fq 'install directory must be a real directory' "$root/destination-link.err"
+require_text "$root/destination-link.err" 'install directory must be a real directory'
 
 victim="$root/victim"
 symlink_install="$root/symlink-install"
 mkdir "$victim" "$symlink_install"
 ln -s "$victim" "$symlink_install/pangopup"
 MOCK_ASSETS="$assets" MOCK_URL_LOG="$log" PATH="$mock" "$repo/install.sh" --version "$version" --install-dir "$symlink_install" >/dev/null
-[[ -f "$symlink_install/pangopup" && ! -L "$symlink_install/pangopup" ]]
-[[ ! -e "$victim/pangopup" ]]
+[[ -f "$symlink_install/pangopup" && ! -L "$symlink_install/pangopup" ]] || fail "the installer left a symlink where the executable belongs: $symlink_install/pangopup"
+[[ ! -e "$victim/pangopup" ]] || fail "the installer wrote through a symlink into $victim"
 
 directory_install="$root/directory-install"
 mkdir -p "$directory_install/pangopup"
 printf 'preserve\n' >"$directory_install/pangopup/owner"
 if MOCK_ASSETS="$assets" MOCK_URL_LOG="$log" PATH="$mock" "$repo/install.sh" --version "$version" --install-dir "$directory_install" >/dev/null 2>"$root/directory.err"; then fail 'directory target unexpectedly succeeded'; fi
-[[ "$(cat "$directory_install/pangopup/owner")" == preserve ]]
+equal 'the file inside a directory the installer must not replace' preserve "$(cat "$directory_install/pangopup/owner")"
 
 special_install="$root/space * \$(touch SHOULD_NOT_EXIST)"
 MOCK_ASSETS="$assets" MOCK_URL_LOG="$log" PATH="$mock" "$repo/install.sh" --version "$version" --install-dir "$special_install" >"$root/special.out"
-[[ "$("$special_install/pangopup" --version)" == "pangopup $version" ]]
-[[ ! -e "$root/SHOULD_NOT_EXIST" ]]
-grep -Fq '\$\(touch\ SHOULD_NOT_EXIST\)' "$root/special.out"
+equal 'the version reported by an executable installed under a shell-special path' "pangopup $version" "$("$special_install/pangopup" --version)"
+[[ ! -e "$root/SHOULD_NOT_EXIST" ]] || fail 'the installer evaluated a command substitution standing in its install directory name'
+require_text "$root/special.out" '\$\(touch\ SHOULD_NOT_EXIST\)'
 guidance=$(grep -F 'Add Pangopup to PATH: ' "$root/special.out")
 guidance=${guidance#Add Pangopup to PATH: }
 (cd "$root" && EXPECTED_PATH="$special_install:/usr/bin" PATH=/usr/bin bash -c "$guidance; [[ \"\$PATH\" == \"\$EXPECTED_PATH\" ]]")
-[[ ! -e "$root/SHOULD_NOT_EXIST" ]]
+[[ ! -e "$root/SHOULD_NOT_EXIST" ]] || fail 'the PATH guidance the installer printed evaluated a command substitution standing in the install directory name'
 
 path_present="$root/path-present"
 MOCK_ASSETS="$assets" MOCK_URL_LOG="$log" PATH="$path_present:$mock" "$repo/install.sh" --version "$version" --install-dir "$path_present" >"$root/path-present.out"
 refuse_text "$root/path-present.out" 'Add Pangopup to PATH' 'PATH guidance printed when the install directory is already on PATH'
-grep -Fq "Release: https://github.com/genomoncology/pangopup/releases/tag/v$version" "$root/path-present.out"
-grep -Fq "Source: https://github.com/genomoncology/pangopup/tree/v$version" "$root/path-present.out"
-grep -Fq "License: https://github.com/genomoncology/pangopup/releases/download/v$version/LICENSE" "$root/path-present.out"
-grep -Fq "Notice: https://github.com/genomoncology/pangopup/releases/download/v$version/NOTICE" "$root/path-present.out"
+require_text "$root/path-present.out" "Release: https://github.com/genomoncology/pangopup/releases/tag/v$version"
+require_text "$root/path-present.out" "Source: https://github.com/genomoncology/pangopup/tree/v$version"
+require_text "$root/path-present.out" "License: https://github.com/genomoncology/pangopup/releases/download/v$version/LICENSE"
+require_text "$root/path-present.out" "Notice: https://github.com/genomoncology/pangopup/releases/download/v$version/NOTICE"
 
 non_directory="$root/not-a-directory"
 printf 'owner\n' >"$non_directory"
 if MOCK_ASSETS="$assets" MOCK_URL_LOG="$log" PATH="$mock" "$repo/install.sh" --install-dir "$non_directory" >/dev/null 2>"$root/not-a-directory.err"; then fail 'non-directory destination unexpectedly succeeded'; fi
-[[ "$(cat "$non_directory")" == owner ]]
+equal 'the contents of a non-directory the installer must not replace' owner "$(cat "$non_directory")"
 
 printf '%s *pangopup-linux-x86_64\n' "$digest" >"$assets/pangopup-linux-x86_64.sha256"
 for tool in shasum openssl; do
@@ -345,9 +346,9 @@ for round in one two; do
     --output "$root/release-$round" >/dev/null
 done
 diff -r "$root/release-one" "$root/release-two"
-[[ "$binary_before" == "$(sha256sum "$root/input-pangopup" | awk '{print $1}')" ]]
-[[ "$sbom_before" == "$(sha256sum "$root/input.cdx.json" | awk '{print $1}')" ]]
-[[ "$(find "$root/release-one" -mindepth 1 -maxdepth 1 -type f | wc -l)" == 6 ]]
+equal 'the digest of the executable handed to release preparation' "$binary_before" "$(sha256sum "$root/input-pangopup" | awk '{print $1}')"
+equal 'the digest of the SBOM handed to release preparation' "$sbom_before" "$(sha256sum "$root/input.cdx.json" | awk '{print $1}')"
+equal 'the number of files a prepared release directory holds' 6 "$(find "$root/release-one" -mindepth 1 -maxdepth 1 -type f | wc -l)"
 (cd "$root/release-one" && sha256sum --check --strict pangopup-linux-x86_64.sha256 >/dev/null)
 "$repo/scripts/qualify-linux-release.sh" "$root/release-one" "$version" "$commit"
 
@@ -372,7 +373,7 @@ with open(path, "wb") as stream:
     stream.write(modified)
 PY
 expect_qualification_failure newer-glibc "$root/release-newer-glibc"
-grep -Fq 'release binary exceeds GLIBC 2.39' "$root/qualify-newer-glibc.err"
+require_text "$root/qualify-newer-glibc.err" 'release binary exceeds GLIBC 2.39'
 
 cp -a "$root/release-one" "$root/release-extra"
 printf 'extra\n' >"$root/release-extra/extra"
@@ -404,8 +405,8 @@ PY
   expect_qualification_failure "rebound-$field" "$rebound"
 done
 
-grep -Eq '^permissions:$' "$repo/.github/workflows/package-linux.yml"
-grep -Eq '^  contents: read$' "$repo/.github/workflows/package-linux.yml"
+require_pattern "$repo/.github/workflows/package-linux.yml" '^permissions:$'
+require_pattern "$repo/.github/workflows/package-linux.yml" '^  contents: read$'
 refuse_text "$repo/.github/workflows/package-linux.yml" 'contents: write' 'a write permission that would let the packaging workflow publish'
 refuse_text "$repo/.github/workflows/package-linux.yml" 'attest' 'an attestation step that would let the packaging workflow publish'
 refuse_text "$repo/.github/workflows/package-linux.yml" 'release create' 'a release-creating command in the packaging workflow'
@@ -423,33 +424,33 @@ for stage in \
   'Prepare exact release files' \
   'Qualify final executable and inventory' \
   'Smoke in pinned clean container'; do
-  grep -Fq -- "- name: $stage" "$repo/.github/workflows/package-linux.yml"
+  require_text "$repo/.github/workflows/package-linux.yml" "- name: $stage"
 done
-grep -Fq 'astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b' "$repo/.github/workflows/package-linux.yml"
-grep -Fq 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' "$repo/.github/workflows/package-linux.yml"
+require_text "$repo/.github/workflows/package-linux.yml" 'astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b'
+require_text "$repo/.github/workflows/package-linux.yml" 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02'
 require_workflow_command "$repo/.github/workflows/package-linux.yml" 'cargo build --locked --release --package pangopup-cli'
 require_workflow_command "$repo/.github/workflows/package-linux.yml" 'cargo install --locked --version 0.5.9 cargo-cyclonedx'
 require_workflow_command "$repo/.github/workflows/package-linux.yml" 'cargo fetch --locked'
-grep -Fxq '          cargo fetch --locked' "$repo/.github/workflows/package-linux.yml"
-[[ "$(grep -Fc 'cargo fetch' "$repo/.github/workflows/package-linux.yml")" == 1 ]]
+require_line "$repo/.github/workflows/package-linux.yml" '          cargo fetch --locked'
+equal 'the number of cargo fetch lines in the packaging workflow' 1 "$(grep -Fc 'cargo fetch' "$repo/.github/workflows/package-linux.yml")"
 require_workflow_command "$repo/.github/workflows/package-linux.yml" 'CARGO_NET_OFFLINE=true cargo cyclonedx --manifest-path'
 fetch_line=$(grep -nF 'cargo fetch --locked' "$repo/.github/workflows/package-linux.yml" | cut -d: -f1)
 offline_line=$(grep -nF 'CARGO_NET_OFFLINE=true cargo cyclonedx --manifest-path' "$repo/.github/workflows/package-linux.yml" | cut -d: -f1)
-[[ -n "$fetch_line" && -n "$offline_line" && "$fetch_line" -lt "$offline_line" ]]
-[[ "$(grep -Fc 'CARGO_NET_OFFLINE=true cargo cyclonedx --manifest-path' "$repo/.github/workflows/package-linux.yml")" == 1 ]]
-[[ "$(grep -Fc 'cargo cyclonedx --manifest-path' "$repo/.github/workflows/package-linux.yml")" == 1 ]]
+[[ -n "$fetch_line" && -n "$offline_line" && "$fetch_line" -lt "$offline_line" ]] || fail "the packaging workflow does not fetch the crates before it builds the SBOM offline: fetch at line ${fetch_line:-none}, offline SBOM at line ${offline_line:-none}"
+equal 'the number of offline cyclonedx lines in the packaging workflow' 1 "$(grep -Fc 'CARGO_NET_OFFLINE=true cargo cyclonedx --manifest-path' "$repo/.github/workflows/package-linux.yml")"
+equal 'the number of cyclonedx lines in the packaging workflow' 1 "$(grep -Fc 'cargo cyclonedx --manifest-path' "$repo/.github/workflows/package-linux.yml")"
 require_workflow_command "$repo/.github/workflows/package-linux.yml" 'for round in one two'
 require_workflow_command "$repo/.github/workflows/package-linux.yml" 'scripts/qualify-linux-release.sh "$release" "$version" "$EXACT_COMMIT"'
-grep -Fq 'ld-linux-x86-64\.so\.2' "$repo/scripts/qualify-linux-release.sh"
-grep -Fq 'release inventory must contain exactly six entries' "$repo/scripts/qualify-linux-release.sh"
-grep -Fq '/tmp/pangopup-cyclonedx-source-v1' "$repo/.github/workflows/package-linux.yml"
-grep -Eq '^    runs-on: ubuntu-24[.]04$' "$repo/.github/workflows/package-linux.yml"
-grep -Fq 'ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90' "$repo/.github/workflows/package-linux.yml"
-grep -Fq '"$maximum" 2.39' "$repo/scripts/qualify-linux-release.sh"
+require_text "$repo/scripts/qualify-linux-release.sh" 'ld-linux-x86-64\.so\.2'
+require_text "$repo/scripts/qualify-linux-release.sh" 'release inventory must contain exactly six entries'
+require_text "$repo/.github/workflows/package-linux.yml" '/tmp/pangopup-cyclonedx-source-v1'
+require_pattern "$repo/.github/workflows/package-linux.yml" '^    runs-on: ubuntu-24[.]04$'
+require_text "$repo/.github/workflows/package-linux.yml" 'ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90'
+require_text "$repo/scripts/qualify-linux-release.sh" '"$maximum" 2.39'
 require_workflow_command "$repo/.github/workflows/package-linux.yml" '/source/scripts/smoke-linux-release.sh /release/pangopup-linux-x86_64 /source /tmp/data /tmp/pangopup-smoke-cache'
 smoke_invocation='              /source/scripts/smoke-linux-release.sh /release/pangopup-linux-x86_64 /source /tmp/data /tmp/pangopup-smoke-cache'
-grep -Fxq "$smoke_invocation" "$repo/.github/workflows/package-linux.yml"
-[[ "$(grep -Fc '/source/scripts/smoke-linux-release.sh' "$repo/.github/workflows/package-linux.yml")" == 1 ]]
+require_line "$repo/.github/workflows/package-linux.yml" "$smoke_invocation"
+equal 'the number of smoke-script invocations in the packaging workflow' 1 "$(grep -Fc '/source/scripts/smoke-linux-release.sh' "$repo/.github/workflows/package-linux.yml")"
 refuse_text "$repo/.github/workflows/package-linux.yml" 'GRCh38:chr12:6801301:G:A' 'a live oracle variant the packaging workflow would have to resolve'
 refuse_text "$repo/.github/workflows/package-linux.yml" 'GRCh38:chr1:5051:A:AC' 'a live oracle variant the packaging workflow would have to resolve'
 refuse_text "$repo/.github/workflows/package-linux.yml" 'make lint' 'a gate the packaging workflow must leave to ci'
@@ -464,33 +465,33 @@ refuse_text "$repo/scripts/qualify-linux-release.sh" '"$maximum" 2.35' 'a glibc 
 
 release_notes="$repo/planning/artifacts/054-release-notes.md"
 publication_record="$repo/planning/artifacts/055-public-v0.3.0.md"
-grep -Fq 'raw.githubusercontent.com/genomoncology/pangopup/v0.3.0/install.sh' "$release_notes"
-grep -Fq 'ghcr.io/genomoncology/pangopup:0.3.0' "$release_notes"
+require_text "$release_notes" 'raw.githubusercontent.com/genomoncology/pangopup/v0.3.0/install.sh'
+require_text "$release_notes" 'ghcr.io/genomoncology/pangopup:0.3.0'
 if grep -Eqi 'prepared v0[.]3[.]0 candidate|publication (is )?pending' "$repo/README.md" "$release_notes"; then
   fail 'tagged v0.3.0 documents retain candidate or pending-publication language'
 fi
-grep -Fq 'State: **COMPLETE — immutable v0.3.0 executable and native container are public and qualified.**' "$publication_record"
-grep -Fq 'release ID `365425336`' "$publication_record"
-grep -Fq 'sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0' "$publication_record"
-grep -Fq 'readonly PREVIOUS_RELEASE_ID=364960381' "$publication_record"
-grep -Fq 'readonly PREVIOUS_INDEX=sha256:ad1aa8c27cc61d107310f609cd63f8fcbaf591a4f9760db475384a0a71049de4' "$publication_record"
+require_text "$publication_record" 'State: **COMPLETE — immutable v0.3.0 executable and native container are public and qualified.**'
+require_text "$publication_record" 'release ID `365425336`'
+require_text "$publication_record" 'sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0'
+require_text "$publication_record" 'readonly PREVIOUS_RELEASE_ID=364960381'
+require_text "$publication_record" 'readonly PREVIOUS_INDEX=sha256:ad1aa8c27cc61d107310f609cd63f8fcbaf591a4f9760db475384a0a71049de4'
 refuse_text "$publication_record" 'orgs/genomoncology/packages/container/pangopup' 'an authenticated package API path in a record that must read anonymously'
-grep -Fq 'PUBLIC_DOCKER=$(mktemp -d)' "$publication_record"
-grep -Fq 'readonly PRIVATE PUBLIC_DOCKER' "$publication_record"
-grep -Fq 'jq -e '\''((.auths // {}) | length) == 0'\'' "$PUBLIC_DOCKER/config.json"' "$publication_record"
-grep -Fq -- '--data-urlencode scope=repository:genomoncology/pangopup:pull' "$publication_record"
-grep -Fq -- '--oauth2-bearer "$anonymous_token"' "$publication_record"
-grep -Fq 'anonymous_digest latest "$PREVIOUS_INDEX" latest' "$publication_record"
-grep -Fq 'anonymous_digest "$amd64" "$amd64" staged-amd64' "$publication_record"
-grep -Fq 'anonymous_digest "$arm64" "$arm64" staged-arm64' "$publication_record"
-grep -Fq 'planning/artifacts/054-release-notes.md' "$publication_record"
-grep -Fq 'scripts/qualify-linux-release.sh "$RELEASE_DIR" 0.3.0 "$COMMIT"' "$publication_record"
-grep -Fq 'uninstall --full --yes' "$publication_record"
+require_text "$publication_record" 'PUBLIC_DOCKER=$(mktemp -d)'
+require_text "$publication_record" 'readonly PRIVATE PUBLIC_DOCKER'
+require_text "$publication_record" 'jq -e '\''((.auths // {}) | length) == 0'\'' "$PUBLIC_DOCKER/config.json"'
+require_text "$publication_record" '--data-urlencode scope=repository:genomoncology/pangopup:pull'
+require_text "$publication_record" '--oauth2-bearer "$anonymous_token"'
+require_text "$publication_record" 'anonymous_digest latest "$PREVIOUS_INDEX" latest'
+require_text "$publication_record" 'anonymous_digest "$amd64" "$amd64" staged-amd64'
+require_text "$publication_record" 'anonymous_digest "$arm64" "$arm64" staged-arm64'
+require_text "$publication_record" 'planning/artifacts/054-release-notes.md'
+require_text "$publication_record" 'scripts/qualify-linux-release.sh "$RELEASE_DIR" 0.3.0 "$COMMIT"'
+require_text "$publication_record" 'uninstall --full --yes'
 final_tag_check=$(grep -nF 'test "$(gh api "repos/$REPO/git/matching-refs/tags/$TAG" --jq length)" -eq 0' "$publication_record" | tail -1 | cut -d: -f1)
 final_draft_check=$(grep -nF 'gh api "repos/$REPO/releases/$RELEASE_ID" >"$PRIVATE/prepublish.json"' "$publication_record" | cut -d: -f1)
 publish_request=$(grep -nF 'gh api --method PATCH "repos/$REPO/releases/$RELEASE_ID" \' "$publication_record" | cut -d: -f1)
-[[ -n "$final_tag_check" && -n "$final_draft_check" && -n "$publish_request" ]]
-[[ "$final_tag_check" -lt "$final_draft_check" && "$final_draft_check" -lt "$publish_request" ]]
+[[ -n "$final_tag_check" && -n "$final_draft_check" && -n "$publish_request" ]] || fail "the v0.3.0 publication record no longer shows all three publication steps: tag check ${final_tag_check:-none}, draft check ${final_draft_check:-none}, publish request ${publish_request:-none}"
+[[ "$final_tag_check" -lt "$final_draft_check" && "$final_draft_check" -lt "$publish_request" ]] || fail "the v0.3.0 publication record does not check the tag and the draft before it publishes: tag check at line $final_tag_check, draft check at line $final_draft_check, publish request at line $publish_request"
 if grep -Eqi '(authorization:[[:space:]]|bearer[[:space:]]+[a-z0-9]|ghp_[a-z0-9]|github_pat_[a-z0-9]|signed[_ -]?url)' "$publication_record"; then
   fail 'v0.3.0 publication record contains credential material'
 fi
@@ -526,7 +527,7 @@ check_v040_partial_record() {
     return 1
   fi
 }
-[[ "$(sha256sum "$v040_release_notes" | cut -d' ' -f1)" == 729fa6ed9ddb641501f2abdf5e63cd2fd9861154a46f02967bea7ff408ce4aa9 ]]
+equal 'the SHA-256 of the v0.4.0 release notes' 729fa6ed9ddb641501f2abdf5e63cd2fd9861154a46f02967bea7ff408ce4aa9 "$(sha256sum "$v040_release_notes" | cut -d' ' -f1)"
 check_v040_partial_record "$v040_publication_record" || fail 'v0.4.0 partial publication record is incomplete'
 mutated_v040_record="$root/v0.4.0-publication-record-without-partial-state.md"
 sed '/^State: \*\*PARTIAL /d' "$v040_publication_record" >"$mutated_v040_record"
@@ -554,18 +555,18 @@ fi
 candidate_release_notes="$repo/planning/artifacts/059-release-notes.md"
 candidate_publication_record="$repo/planning/artifacts/060-public-v0.4.1.md"
 v041_release_notes_sha256=a2e481810f3e9095c5a06437fc47b96162c79f6c66147d08b3c0f2711e5e1abe
-[[ "$(sha256sum "$candidate_release_notes" | cut -d' ' -f1)" == "$v041_release_notes_sha256" ]]
+equal 'the SHA-256 of the v0.4.1 release notes' "$v041_release_notes_sha256" "$(sha256sum "$candidate_release_notes" | cut -d' ' -f1)"
 mutated_v041_release_notes="$root/v0.4.1-release-notes-mutated.md"
 cp "$candidate_release_notes" "$mutated_v041_release_notes"
 printf '\nmutation\n' >>"$mutated_v041_release_notes"
 if [[ "$(sha256sum "$mutated_v041_release_notes" | cut -d' ' -f1)" == "$v041_release_notes_sha256" ]]; then
   fail 'v0.4.1 release-note digest check accepted changed bytes'
 fi
-grep -Fxq '# PangoPup v0.4.1 release notes' "$candidate_release_notes"
-grep -Fq 'The HTTP, JSON, command-line, and scoring contracts do not change from v0.4.0 except for the reported software version and its derived scoring identity.' "$candidate_release_notes"
-grep -Fq 'Scoring assets do not change.' "$candidate_release_notes"
-grep -Fq 'pangopup uninstall --full --yes' "$candidate_release_notes"
-grep -Fq 'measures warmed-query allocations only on the measured thread' "$candidate_release_notes"
+require_line "$candidate_release_notes" '# PangoPup v0.4.1 release notes'
+require_text "$candidate_release_notes" 'The HTTP, JSON, command-line, and scoring contracts do not change from v0.4.0 except for the reported software version and its derived scoring identity.'
+require_text "$candidate_release_notes" 'Scoring assets do not change.'
+require_text "$candidate_release_notes" 'pangopup uninstall --full --yes'
+require_text "$candidate_release_notes" 'measures warmed-query allocations only on the measured thread'
 
 check_v041_publication_record() {
   local record=$1

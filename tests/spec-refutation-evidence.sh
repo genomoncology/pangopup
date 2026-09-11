@@ -30,9 +30,10 @@ set -euo pipefail
 #      hangs the gate instead of failing it. See the settlement below.
 #   5. Refutations go through scripts/spec-refutes.sh, which reports the ways a
 #      refutation passes on nothing: a haystack with no bytes in it, a command
-#      that was never there to fail, and a lost path argument that turns the
-#      haystack into an inherited terminal the helper would read forever. That
-#      is arithmetic, so it is proved here against fixtures.
+#      that was never there to fail, a command that is there and could not be
+#      run, and a lost path argument that turns the haystack into an inherited
+#      terminal the helper would read forever. That is arithmetic, so it is
+#      proved here against fixtures.
 #
 # What this does not prove: that the refutations hold. `make spec` runs them.
 #
@@ -55,8 +56,14 @@ set -euo pipefail
 #                                there is one, in every refusal, and say that
 #                                nothing was searched when nothing was.
 #   --fails <command...>         The command must exit non-zero. Refuse when it
-#                                succeeded and when it was never there to run
-#                                (status 127). Name the command either way.
+#                                succeeded, when it was never there to run
+#                                (status 127), and when it was there and could
+#                                not be run (status 126) -- a file without its
+#                                execute bit, or a directory. Name the command
+#                                in each refusal, and say which of the three it
+#                                was: 126 and 127 are different accidents and a
+#                                reader has to be able to tell a missing
+#                                command from an unrunnable one.
 #
 # Neither form takes a bare call: a call with no mode, and --absent with no
 # pattern, are refused.
@@ -327,6 +334,47 @@ run_helper --fails "$fixture/no-such-command"
 case "$HELPER_OUTPUT" in
     *no-such-command*) ;;
     *) fail "the refusal does not name the command it could not run: $HELPER_OUTPUT" ;;
+esac
+# The 127 message stays what it is. It is what the 126 refusal below is held
+# apart from, so a repair that made the two read alike would leave both
+# assertions passing on one sentence.
+case "$HELPER_OUTPUT" in
+    *'never there'*) ;;
+    *) fail "the refusal for a command that does not exist no longer says it was never there to run: $HELPER_OUTPUT" ;;
+esac
+
+# A command that is there and cannot be run exits 126. Read as a plain non-zero
+# status that is a pin passing on a command that never ran a line: measured
+# before this case existed, a shell script left at mode 644 and named to
+# --fails made the helper exit 0 and report nothing. `spec/runtime-transport.md`
+# names `pangopup-build` on three --fails pins, so a build that left the
+# executable without its execute bit turned all three green.
+not_executable="$fixture/present-not-executable.sh"
+printf '#!/bin/sh\nexit 0\n' >"$not_executable"
+chmod 644 "$not_executable"
+run_helper --fails "$not_executable"
+[[ "$HELPER_STATUS" != 0 ]] || fail 'the helper accepted a command that is there and cannot be run, so an executable that lost its execute bit reads as a passing pin'
+case "$HELPER_OUTPUT" in
+    *present-not-executable.sh*) ;;
+    *) fail "the refusal does not name the command that could not be run: $HELPER_OUTPUT" ;;
+esac
+
+# A command that was never installed and one whose execute bit is gone want
+# different repairs. The 127 refusal says the command was never there, and
+# saying that of a command that is there sends a reader looking for a build
+# that already ran.
+case "$HELPER_OUTPUT" in
+    *'never there'*) fail "the helper reports a command that is there and could not be run as one that was never there, so a reader is sent to the wrong repair: $HELPER_OUTPUT" ;;
+esac
+
+# A directory named where a command was expected comes back with the same
+# status, and it is the accident a lost path component produces.
+mkdir -p "$fixture/a-directory"
+run_helper --fails "$fixture/a-directory"
+[[ "$HELPER_STATUS" != 0 ]] || fail 'the helper accepted a directory named where a command was expected, so a pin whose path lost a component reads as green'
+case "$HELPER_OUTPUT" in
+    *a-directory*) ;;
+    *) fail "the refusal does not name the directory it could not run: $HELPER_OUTPUT" ;;
 esac
 
 run_helper

@@ -403,5 +403,192 @@ for protected in \
         || fail "no gate forbids anything in $protected any more, so nothing reads what that file ships"
 done
 
-printf 'negative assertion strength: %s statement(s) in %s shell file(s), %s negation(s), 0 bare; %s forbidden text(s) refused when reintroduced\n' \
-    "$statements" "$scanned" "$negations" "$entries"
+# --- 6. a failing assertion says what it wanted -----------------------------
+#
+# The other half of the same hole. A bare `grep -Fq "$expected" "$file"` or a
+# bare `[[ ... ]]` under `set -euo pipefail` does stop the harness, so nothing
+# is left unchecked -- but it stops with status 1 and no output, and a
+# maintainer reads an exit code and bisects. Measured on 2026-09-10: changing
+# `install.sh` line 23 from `unknown argument: $1` to `unrecognised option: $1`
+# made `tests/executable-delivery.sh` exit 1 after printing two lines, both the
+# version banner from earlier work. Nothing said which assertion failed.
+#
+# The answer is `tests/support/expected-text.sh`, whose four forms each name
+# the expectation and what stood there instead. What is held here is that no
+# assertion in that harness goes back to the bare shape.
+#
+# One harness, named. `tests/production-release-qualification.sh` carries the
+# same shape in 69 more statements and cannot be exercised without a real
+# production release, so it is carried by its own ticket rather than widened
+# into this one: sdlc/tickets/drafts/0100. Naming the file rather than scanning
+# every harness is deliberate -- a rule over all of tests/ would be wider than
+# the repair that has been made and proved.
+assertion_harnesses=(executable-delivery.sh)
+
+# A statement led by `[[` or `grep` whose exit nothing consumes. For a `[[`
+# statement the search starts after the closing `]]`, because the `&&` inside
+# `[[ ! -e "$p" && ! -L "$p" ]]` joins two conditions rather than consuming the
+# statement's exit. Quoted text is cut out first, so a `||` inside a pattern is
+# not read as an operator.
+assertion_scan='
+{
+    statement = $0
+    sub(/^[[:space:]]*/, "", statement)
+    if (statement == "" || statement ~ /^#/) { next }
+    if (statement !~ /^(\[\[|grep)[[:space:]]/) { next }
+    assertions++
+    code = statement
+    gsub(/\047[^\047]*\047/, "", code)
+    gsub(/"[^"]*"/, "", code)
+    if (code ~ /^\[\[/) {
+        where = index(code, "]]")
+        if (where == 0) { next }
+        code = substr(code, where + 2)
+    }
+    if (index(code, "||") > 0 || index(code, "&&") > 0) { next }
+    printf "%s:%d: %s\n", FILENAME, FNR, statement > "/dev/stderr"
+    bare++
+}
+END { printf "%d %d\n", assertions, bare }
+'
+
+scan_assertions() { awk "$assertion_scan" "$@" </dev/null 2>"$work/silent"; }
+
+# The scan tells a naming assertion from a silent one. Both directions, against
+# a fixture, because a scan that refused the repaired shape would make the
+# repair impossible to write and a scan that accepted the bare shape would hold
+# nothing at all.
+silent_fixture="$work/silent-assertions.sh"
+printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    "grep -Fq 'wanted' file" \
+    '[[ "$a" == "$b" ]]' \
+    '[[ ! -e "$p" && ! -L "$p" ]]' \
+    >"$silent_fixture"
+
+naming_fixture="$work/naming-assertions.sh"
+printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    "require_text file 'wanted'" \
+    "equal 'what it is' \"\$b\" \"\$a\"" \
+    "grep -Fq 'wanted' file || fail 'it was not there'" \
+    '[[ ! -e "$p" && ! -L "$p" ]] || fail "it is already there: $p"' \
+    '[[ "$1" == -s ]] && printf one || printf two' \
+    "if grep -Fq 'wanted' file; then printf found; fi" \
+    >"$naming_fixture"
+
+read -r silent_assertions silent_bare < <(scan_assertions "$silent_fixture")
+[[ "$silent_bare" == 3 ]] \
+    || fail "the scan found $silent_bare of the 3 silent assertions in its own fixture, so it cannot see the shape it exists to refuse"
+[[ "$silent_assertions" == 3 ]] \
+    || fail "the scan read $silent_assertions of the 3 assertions in its own fixture"
+
+read -r naming_assertions naming_bare < <(scan_assertions "$naming_fixture")
+[[ "$naming_bare" == 0 ]] \
+    || fail "the scan refused an assertion that already names what it wanted: $(tr '\n' ' ' <"$work/silent")"
+[[ "$naming_assertions" -ge 3 ]] \
+    || fail "the scan saw $naming_assertions assertions in a fixture holding three led by \`[[\` or \`grep\`, so it is not reading the shape it claims to exempt"
+
+# The mechanism the repaired assertions go through.
+expected_support="$repository/tests/support/expected-text.sh"
+[[ -f "$expected_support" ]] \
+    || fail 'no tests/support/expected-text.sh: nothing gives a harness a way to assert that says what it wanted when it fails'
+
+for form in require_text require_line require_pattern equal; do
+    grep -qE "^[[:space:]]*$form\(\)" "$expected_support" \
+        || fail "tests/support/expected-text.sh does not define $form"
+done
+
+# Each form refuses, and the refusal carries both the expectation and where it
+# looked. `equal` carries what was found instead.
+expected_clean="$work/expected-clean.txt"
+printf 'runs-on: ubuntu-24.04\nglibc maximum 2.39\n' >"$expected_clean"
+
+run_expected() {
+    set +e
+    ( set -euo pipefail; source "$expected_support"; "$@" ) >"$work/out" 2>"$work/err"
+    EXPECTED_STATUS=$?
+    set -e
+    EXPECTED_ERROR=$(cat "$work/err")
+}
+
+run_expected require_text "$expected_clean" 'runs-on: ubuntu-24.04'
+[[ "$EXPECTED_STATUS" == 0 ]] \
+    || fail "require_text refused a file that holds the text it requires: $EXPECTED_ERROR"
+
+run_expected require_text "$expected_clean" 'runs-on: ubuntu-22.04'
+[[ "$EXPECTED_STATUS" != 0 ]] \
+    || fail 'require_text accepted a file that does not hold the text it requires'
+[[ "$EXPECTED_ERROR" == *'runs-on: ubuntu-22.04'* ]] \
+    || fail "the refusal does not name what was wanted: $EXPECTED_ERROR"
+[[ "$EXPECTED_ERROR" == *'expected-clean.txt'* ]] \
+    || fail "the refusal does not name the file it looked in: $EXPECTED_ERROR"
+
+run_expected require_line "$expected_clean" 'runs-on: ubuntu-24.04'
+[[ "$EXPECTED_STATUS" == 0 ]] \
+    || fail "require_line refused a whole line that stands in the file: $EXPECTED_ERROR"
+run_expected require_line "$expected_clean" 'runs-on: ubuntu-24.0'
+[[ "$EXPECTED_STATUS" != 0 ]] \
+    || fail 'require_line accepted a partial line, so it does not require the whole line'
+
+run_expected require_pattern "$expected_clean" '^glibc maximum 2[.]39$'
+[[ "$EXPECTED_STATUS" == 0 ]] \
+    || fail "require_pattern refused a pattern that matches: $EXPECTED_ERROR"
+run_expected require_pattern "$expected_clean" '^glibc maximum 2[.]35$'
+[[ "$EXPECTED_STATUS" != 0 ]] \
+    || fail 'require_pattern accepted a pattern that matches nothing'
+
+# A gate pointed at a path that does not exist reads nothing, and `grep`
+# answers "not found" for it, so without this the harness would report a plain
+# missing expectation over a file it never opened.
+run_expected require_text "$work/absent-expected.txt" 'runs-on: ubuntu-24.04'
+[[ "$EXPECTED_STATUS" != 0 ]] \
+    || fail 'require_text accepted a path it could not read'
+[[ "$EXPECTED_ERROR" == *'not a readable file'* ]] \
+    || fail "the refusal does not say the file could not be read: $EXPECTED_ERROR"
+
+run_expected equal 'the mode of the cache home' 700 700
+[[ "$EXPECTED_STATUS" == 0 ]] \
+    || fail "equal refused two strings that are the same: $EXPECTED_ERROR"
+run_expected equal 'the mode of the cache home' 700 755
+[[ "$EXPECTED_STATUS" != 0 ]] \
+    || fail 'equal accepted two strings that differ'
+for part in 'the mode of the cache home' 700 755; do
+    [[ "$EXPECTED_ERROR" == *"$part"* ]] \
+        || fail "the refusal does not carry '$part', so a reader cannot tell what was compared: $EXPECTED_ERROR"
+done
+
+# A caller that writes nothing after the call still stops, so the repair cannot
+# be undone by dropping a `|| fail` from one site.
+expected_carries_on="$work/expected-carries-on.sh"
+cat >"$expected_carries_on" <<FIXTURE
+#!/usr/bin/env bash
+set -euo pipefail
+source "$expected_support"
+require_text "$expected_clean" 'runs-on: ubuntu-22.04'
+echo REACHED
+FIXTURE
+if expected_carried=$(bash "$expected_carries_on" 2>/dev/null); then
+    fail 'a gate that requires a text and writes nothing after it still exits 0 when the text is gone'
+fi
+[[ "$expected_carried" != *REACHED* ]] \
+    || fail 'a gate carried on past a missing expectation'
+
+# The harness itself.
+assertion_total=0
+for name in "${assertion_harnesses[@]}"; do
+    harness="$repository/tests/$name"
+    [[ -f "$harness" ]] || fail "tests/$name is gone, so this scan is checking the wrong file"
+    grep -qE '^[^#]*support/expected-text\.sh' "$harness" \
+        || fail "tests/$name does not source tests/support/expected-text.sh, so its assertions have no way to say what they wanted"
+    read -r harness_assertions harness_bare < <(scan_assertions "$harness")
+    (( harness_assertions > 0 )) \
+        || fail "read no assertion out of tests/$name, so this rule held over nothing"
+    if [[ "$harness_bare" != 0 ]]; then
+        fail "$harness_bare assertion(s) in tests/$name stop the harness without saying what they wanted; write each as require_text, require_line, require_pattern, equal, or cmd || fail ...: $(tr '\n' ' ' <"$work/silent")"
+    fi
+    assertion_total=$((assertion_total + harness_assertions))
+done
+
+printf 'negative assertion strength: %s statement(s) in %s shell file(s), %s negation(s), 0 bare; %s forbidden text(s) refused when reintroduced; %s assertion(s) in %s harness(es), every one naming what it wanted\n' \
+    "$statements" "$scanned" "$negations" "$entries" "$assertion_total" "${#assertion_harnesses[@]}"
