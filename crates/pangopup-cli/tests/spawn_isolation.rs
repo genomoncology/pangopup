@@ -16,6 +16,40 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// A path in the repository, spelled the way `model_routing.rs` spells it.
+fn repository_path(relative: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(relative)
+}
+
+/// The miniature modelled lookup, which is the run that opens the model cache.
+/// A precomputed lookup never opens it, so a bad cache path set on such a run
+/// is never read and proves nothing about whether the value arrived.
+fn model_only_args() -> Vec<String> {
+    let mut args = vec![
+        "lookup".to_owned(),
+        "--model-only".to_owned(),
+        "--variant".to_owned(),
+        "GRCh38:chr1:5051:A:C".to_owned(),
+    ];
+    for (flag, fixture) in [
+        (
+            "--model-bundle",
+            "tests/fixtures/pangolin-model-kernel-mini/bundle",
+        ),
+        (
+            "--reference-bundle",
+            "tests/fixtures/reference-route-test/bundle",
+        ),
+        ("--mask", "tests/fixtures/route-mask/domains.pgm"),
+    ] {
+        args.push(flag.to_owned());
+        args.push(repository_path(fixture).display().to_string());
+    }
+    args
+}
+
 /// The default model cache a run resolves from one environment, spelled the way
 /// `resolve_model_cache_options` spells it: `XDG_CACHE_HOME` when it is set,
 /// otherwise `HOME/.cache`.
@@ -151,4 +185,30 @@ fn a_caller_may_still_name_a_cache_location_of_its_own() {
              product's own variables become untestable"
         );
     }
+
+    // Reading the command proves the helper asked for the value to go through.
+    // Running proves it arrived: a helper that dropped the three on the way out
+    // instead of on the way in would satisfy every assertion above and take the
+    // product's own variables away all the same. A modelled lookup opens the
+    // model cache, so a relative path has to come back refused by name.
+    let refused = support::pangopup()
+        .args(model_only_args())
+        .env("PANGOPUP_MODEL_CACHE", "relative/is/invalid")
+        .output()
+        .expect("run pangopup");
+    let reported = format!(
+        "{}{}",
+        String::from_utf8_lossy(&refused.stdout),
+        String::from_utf8_lossy(&refused.stderr)
+    );
+    assert!(
+        !refused.status.success(),
+        "a modelled lookup whose PANGOPUP_MODEL_CACHE names a relative path must be refused, and \
+         this run succeeded: {reported}"
+    );
+    assert!(
+        reported.contains("model cache path must be an absolute file path"),
+        "the product never read the PANGOPUP_MODEL_CACHE this caller set, so the helper takes the \
+         variable away from a caller that owns a location of its own: {reported}"
+    );
 }

@@ -19,6 +19,11 @@ set -euo pipefail
 # it exports each variable at a location it owns, runs the shipped executable
 # under the helper, and looks at what happened to that location afterwards.
 #
+# Both helpers are read that way. The shell one is sourced here directly. The
+# Rust one is reached by starting the built model-route suite from a shell that
+# exported the variables, because no `#[test]` can put them in its own process
+# to begin with.
+#
 # The boundary the ticket draws is in here too. The helper drops what a harness
 # inherited; the product keeps honouring all three for an operator running it.
 # Proving only the first half would let an implementation that broke the
@@ -30,6 +35,26 @@ helper_relative='tests/support/private-cache-home.sh'
 # Build before taking a cache home: the ONNX Runtime library the build resolves
 # lands under XDG_CACHE_HOME, so a build under a fresh one downloads it again.
 "$repo/scripts/require-built-commands.sh"
+# The Rust model-route suite is built here too, for the same reason, and run
+# further down as a plain executable. Calling `cargo` after the cache home is
+# taken is what would download the library again.
+model_route_suite=$(
+    cargo test --locked --no-run --message-format=json \
+        --manifest-path "$repo/Cargo.toml" --package pangopup-cli --test model_routing \
+        2>/dev/null \
+        | python3 -c '
+import json, sys
+
+for line in sys.stdin:
+    message = json.loads(line)
+    if message.get("reason") == "compiler-artifact" and message.get("executable"):
+        print(message["executable"])
+'      | tail -n 1
+)
+[[ -x "$model_route_suite" ]] || {
+    printf 'inherited cache variables: the Rust model-route suite did not build, so its half of this check cannot run\n' >&2
+    exit 1
+}
 # Spelled in full rather than through the variable: the sibling scan reads a
 # literal source line, and naming the helper in a variable establishes nothing.
 . "$repo/tests/support/private-cache-home.sh"
@@ -111,6 +136,47 @@ after=$(fingerprint "$decoy")
 [[ -f "$private_home/pangopup/model-results.sqlite3" ]] \
     || fail "the run under the helper filled no cache under $private_home, so finding the stand-in untouched proves nothing about where the run went"
 
+# --- the Rust helper, proved by running as well ------------------------------
+#
+# `crates/pangopup-cli/tests/spawn_isolation.rs` reads the command
+# `crates/pangopup-cli/tests/support/mod.rs` builds. It cannot do more: a
+# `#[test]` may not set `PANGOPUP_MODEL_CACHE` in its own process, because
+# `std::env::set_var` is unsound while sibling tests run in other threads, so
+# no test in that file ever has the variable to inherit. Reading a `Command`
+# proves the helper asked for the removal, not that a run honours it.
+#
+# The shell can hand the suite the variable the way an operator's shell does.
+# `model_routing.rs` is the file whose runs score the miniature model route, so
+# it is the file an inherited `PANGOPUP_MODEL_CACHE` destroys a cache through.
+# Start it from here with all three exported at locations this harness owns,
+# and require the stand-in to come back byte for byte. The suite runs as the
+# executable built above rather than through `cargo`, because a build under the
+# cache home this file already took would fetch the ONNX Runtime library again.
+
+rust_decoy="$owned/rust-model-results.sqlite3"
+PANGOPUP_MODEL_CACHE="$rust_decoy" "$executable" "${lookup_args[@]}" >/dev/null \
+    || fail 'the fixture lookup that fills the stand-in for the Rust suite failed, so there is nothing to protect'
+[[ -f "$rust_decoy" ]] \
+    || fail "the product wrote no cache at $rust_decoy, so the Rust half of this check has no destruction to refuse"
+rust_before=$(fingerprint "$rust_decoy")
+
+rust_status=0
+env PANGOPUP_MODEL_CACHE="$rust_decoy" \
+    PANGOPUP_CACHE_DIR="$owned/rust-downloads" \
+    PANGOPUP_DATA_DIR="$owned/rust-bundles" \
+    "$model_route_suite" >"$scratch/rust-suite.log" 2>&1 || rust_status=$?
+
+rust_after=$(fingerprint "$rust_decoy")
+[[ "$rust_before" == "$rust_after" ]] \
+    || fail "the Rust suite, started from a shell that exported PANGOPUP_MODEL_CACHE, reached the file it named and changed it from [$rust_before] to [$rust_after]: that is the operator's file on a real machine"
+(( rust_status == 0 )) \
+    || fail "the Rust model-route suite failed with the three cache variables exported, which is how an operator who exported one runs it: $(tail -n 20 "$scratch/rust-suite.log")"
+
+# The same wrong reason as above. A suite that scored nothing would leave the
+# stand-in untouched and prove nothing about where its runs went.
+grep -qE '^test result: ok\. [1-9]' "$scratch/rust-suite.log" \
+    || fail "the Rust model-route suite reported no passing test, so finding the stand-in untouched proves nothing about where its runs went: $(tail -n 20 "$scratch/rust-suite.log")"
+
 # The other two name directories rather than a file, so what proves they were
 # dropped is that the product stops reporting them. A relative value is refused
 # by name whenever it is read at all.
@@ -165,4 +231,4 @@ for name in PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR; do
     esac
 done
 
-printf 'the helper drops PANGOPUP_MODEL_CACHE, PANGOPUP_CACHE_DIR and PANGOPUP_DATA_DIR, and the product still reads all three\n'
+printf 'both helpers drop PANGOPUP_MODEL_CACHE, PANGOPUP_CACHE_DIR and PANGOPUP_DATA_DIR, and the product still reads all three\n'

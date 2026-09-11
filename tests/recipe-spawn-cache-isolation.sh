@@ -47,6 +47,26 @@ code_lines() {
         | { grep -vE '^[0-9]+:[[:space:]]*#' || true; }
 }
 
+# The same, for Python, with every `#` comment cut away first. A Makefile line
+# carries `$$` and a shell line carries `${bin#$PWD/}`, so neither can have its
+# tail removed; Python spells no expansion that way, and a trailing comment
+# naming a variable has handed the child nothing.
+python_code_lines() {
+    sed 's/#.*$//' "$1" | { grep -nE -- "$2" || true; }
+}
+
+# The path $1 names a location the recipe or the build owns, rather than a
+# location belonging to whoever ran it. Absolute is not the test: so is
+# `/home/someone/.cache`, and that is the file this whole check exists to keep
+# a run away from.
+owned_location() {
+    case "$1" in
+        /tmp/?*) return 0 ;;
+        */target/?*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # --- the three rules --------------------------------------------------------
 
 # A recipe line that reaches the executable gives the run a cache home under
@@ -60,18 +80,21 @@ makefile_holds() {
         number=${line%%:*}
         text=${line#*:}
         matched=$((matched + 1))
-        if ! grep -qE '(^|[[:space:]])XDG_CACHE_HOME=[^[:space:]]*target/' <<<"$text"; then
+        # `$(CURDIR)/target/` rather than any path spelling `target/`: the
+        # refusal below says "into the build directory", and a rule that
+        # accepts `/home/someone/target/cache` says something else.
+        if ! grep -qE '(^|[[:space:]])XDG_CACHE_HOME="?\$\(CURDIR\)/target/' <<<"$text"; then
             printf 'this recipe reaches the built executable without pointing XDG_CACHE_HOME into the build directory, so the run reads the cache directory of whoever runs it: %s:%s\n' \
                 "$relative" "$number" >&2
             refused=1
         fi
-        if ! grep -qE '(^|[[:space:]])HOME=[^[:space:]]*target/' <<<"$text"; then
+        if ! grep -qE '(^|[[:space:]])HOME="?\$\(CURDIR\)/target/' <<<"$text"; then
             printf 'this recipe reaches the built executable without moving HOME beside XDG_CACHE_HOME, so a block that clears XDG_CACHE_HOME falls back to the home directory of whoever runs it: %s:%s\n' \
                 "$relative" "$number" >&2
             refused=1
         fi
         for name in "${named_locations[@]}"; do
-            grep -qE -- "-u[[:space:]=]+$name([^_]|\$)|(^|[[:space:]])$name=[^[:space:]]*target/" <<<"$text" && continue
+            grep -qE -- "-u[[:space:]=]+$name([^_]|\$)|(^|[[:space:]])$name=\"?\\\$\\(CURDIR\\)/target/" <<<"$text" && continue
             printf 'this recipe reaches the built executable with %s inherited, and that variable names a cache location outright and is read ahead of XDG_CACHE_HOME: %s:%s\n' \
                 "$name" "$relative" "$number" >&2
             refused=1
@@ -91,7 +114,7 @@ makefile_holds() {
 # variable somewhere relative, or clearing it, gives that run back to whoever
 # ran the recipe.
 specs_hold() {
-    local root=$1 files=() file relative line number text refused=0 scanned
+    local root=$1 files=() file relative line number text refused=0 scanned examined=0
     while IFS= read -r file; do files+=("$file"); done < <(
         find "$root/spec" -type f -name '*.md' 2>/dev/null | sort
     )
@@ -106,16 +129,38 @@ specs_hold() {
             [[ -n "$line" ]] || continue
             number=${line%%:*}
             text=${line#*:}
-            grep -qE '(^|[[:space:]])(XDG_CACHE_HOME|HOME)=/' <<<"$text" && continue
+            examined=$((examined + 1))
+            block_holds_a_home "$text" && continue
             printf 'this spec block points HOME or XDG_CACHE_HOME somewhere the recipe does not own, so the run falls back to the cache of whoever ran it: %s:%s\n' \
                 "$relative" "$number" >&2
             refused=1
         done < <(
-            code_lines "$file" '(^|[[:space:]])(XDG_CACHE_HOME|HOME)=|unset[^#]*(XDG_CACHE_HOME|HOME)([^_]|$)'
+            # `unset` needs a word boundary before the name. Without one,
+            # `unset XDG_DATA_HOME` reads as an `unset ... HOME` and is refused
+            # for touching a variable it never names.
+            code_lines "$file" \
+                '(^|[[:space:]])(XDG_CACHE_HOME|HOME)=|unset[^#]*[[:space:]](XDG_CACHE_HOME|HOME)([^A-Z_]|$)'
         )
     done
     (( refused == 0 )) || return 1
-    printf '%s\n' "$scanned"
+    printf '%s %s\n' "$scanned" "$examined"
+}
+
+# The block on line $1 keeps a cache home the recipe owns. Every assignment of
+# either variable on that line has to name a location the block owns, and no
+# `unset` of either may appear: an absolute path is not enough on its own,
+# because `/home/someone/.cache` is absolute.
+block_holds_a_home() {
+    local text=$1 value owned=0
+    ! grep -qE 'unset[^#]*[[:space:]](XDG_CACHE_HOME|HOME)([^A-Z_]|$)' <<<"$text" || return 1
+    while IFS= read -r value; do
+        owned_location "$value" || return 1
+        owned=1
+    done < <(
+        grep -oE '(^|[[:space:]])(XDG_CACHE_HOME|HOME)=[^[:space:]]*' <<<"$text" \
+            | sed -E 's/^[[:space:]]*[A-Z_]+=//; s/^"//; s/"$//'
+    )
+    (( owned == 1 ))
 }
 
 # A Python file that reaches the executable hands the child a cache home, the
@@ -132,13 +177,13 @@ python_holds() {
     fi
     for file in "${files[@]}"; do
         relative=${file#"$root/"}
-        [[ -n "$(code_lines "$file" "$run")" ]] || continue
+        [[ -n "$(python_code_lines "$file" "$run")" ]] || continue
         reached=$((reached + 1))
         for name in XDG_CACHE_HOME HOME "${named_locations[@]}"; do
             # On a code line. A comment naming the variable has handed the
             # child nothing, and a rule satisfied by commentary is a rule that
             # passes on nothing.
-            [[ -z "$(code_lines "$file" "(^|[^A-Z_])$name([^A-Z_]|\$)")" ]] || continue
+            [[ -z "$(python_code_lines "$file" "(^|[^A-Z_])$name([^A-Z_]|\$)")" ]] || continue
             printf 'this file runs the built executable and never names %s, so the run reaches the cache of whoever runs it and can discard that file: %s\n' \
                 "$name" "$relative" >&2
             refused=1
@@ -184,6 +229,9 @@ plant_makefile() {
                 printf '\tcargo build --locked --package %s\n' "$package" ;;
             package-run)
                 printf '\tcargo run --locked --package %s -- lookup --help\n' "$package" ;;
+            elsewhere)
+                printf '\tenv -u %s -u %s -u %s XDG_CACHE_HOME=/home/someone/target/c HOME=/home/someone/target/h PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
+                    PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR debug ;;
         esac
     } >"$tree/Makefile"
 }
@@ -199,6 +247,9 @@ plant_spec() {
         absolute) printf 'XDG_CACHE_HOME=/tmp/pangopup-unused pangopup sync --offline\n' ;;
         reads) printf 'cache="$XDG_CACHE_HOME/pangopup/model-results.sqlite3"\n' ;;
         other) printf 'XDG_DATA_HOME=/tmp/pangopup-unused pangopup status\n' ;;
+        unset-other) printf 'unset XDG_DATA_HOME\n' ;;
+        quoted) printf 'XDG_CACHE_HOME="/tmp/pangopup-unused" pangopup sync --offline\n' ;;
+        operator-home) printf 'HOME=/home/someone pangopup lookup --help\n' ;;
     esac >"$tree/spec/$name"
 }
 
@@ -211,6 +262,11 @@ plant_python() {
                 printf 'def go():\n    return 0\n' ;;
             runs)
                 printf 'def go():\n    subprocess.run([repo / "target/%s/pangopup", "--version"])\n' release ;;
+            commented)
+                printf 'def go():\n'
+                printf '    # %s %s %s %s %s\n' \
+                    XDG_CACHE_HOME HOME PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR
+                printf '    subprocess.run([repo / "target/%s/pangopup", "--version"])\n' release ;;
             held)
                 printf 'def go():\n' 
                 printf '    environment = dict(os.environ)\n'
@@ -266,6 +322,12 @@ expect_refusal 'PANGOPUP_MODEL_CACHE inherited' makefile_holds "$fixtures/homes-
 plant_makefile "$fixtures/package-run" package-run
 expect_refusal 'Makefile:2' makefile_holds "$fixtures/package-run/Makefile" Makefile
 
+# `target/` in a path of someone else's is not the build directory, and the
+# refusal above says the build directory. `/home/someone/target` is absolute,
+# spells `target/`, and is not a location this repository owns.
+plant_makefile "$fixtures/elsewhere" elsewhere
+expect_refusal 'into the build directory' makefile_holds "$fixtures/elsewhere/Makefile" Makefile
+
 plant_makefile "$fixtures/held" held
 expect_acceptance 'the scanner refused a recipe that moves both homes and drops every named cache location, so it refuses the shape it exists to require' \
     makefile_holds "$fixtures/held/Makefile" Makefile
@@ -279,11 +341,18 @@ for shape in cleared unset relative; do
     expect_refusal "spec/cli.md:1" specs_hold "$fixtures/spec-$shape"
 done
 
-# An absolute path outside the recipe's tree is somewhere the block owns, a
-# read of the variable is not an assignment, and `XDG_DATA_HOME` is a different
-# variable. None of the three is the failure this rule exists to catch, and an
-# exemption wider than its target would refuse all of them.
-for shape in quiet absolute reads other; do
+# An absolute path is not on its own a location the block owns:
+# `/home/someone/.cache` is absolute too, and it is exactly the file this whole
+# check exists to keep a run away from.
+plant_spec "$fixtures/spec-operator-home" cli.md operator-home
+expect_refusal 'spec/cli.md:1' specs_hold "$fixtures/spec-operator-home"
+
+# A path under the recipe's build directory or under the temporary directory is
+# somewhere the block owns, quoted or not; a read of the variable is not an
+# assignment; and `XDG_DATA_HOME` is a different variable, whether it is
+# assigned or unset. None of these is the failure this rule exists to catch,
+# and an exemption wider than its target would refuse all of them.
+for shape in quiet absolute quoted reads other unset-other; do
     plant_spec "$fixtures/spec-ok-$shape" cli.md "$shape"
     expect_acceptance "the scanner refused a spec block of shape $shape, which reaches no cache belonging to whoever ran the recipe" \
         specs_hold "$fixtures/spec-ok-$shape"
@@ -295,6 +364,11 @@ expect_refusal 'held over nothing' python_holds "$fixtures/py-quiet"
 plant_python "$fixtures/py-runs" 'maintainers/measure.py' runs
 expect_refusal 'maintainers/measure.py' python_holds "$fixtures/py-runs"
 
+# A comment naming every variable hands the child none of them, so a rule a
+# comment can satisfy is a rule that passes on nothing.
+plant_python "$fixtures/py-commented" 'maintainers/measure.py' commented
+expect_refusal 'maintainers/measure.py' python_holds "$fixtures/py-commented"
+
 plant_python "$fixtures/py-held" 'maintainers/measure.py' held
 expect_acceptance 'the scanner refused a Python file that hands the child both homes and drops every named cache location, so it refuses the shape it exists to require' \
     python_holds "$fixtures/py-held"
@@ -304,10 +378,14 @@ expect_acceptance 'the scanner refused a Python file that hands the child both h
 problems=0
 
 recipes=$(makefile_holds "$repository/Makefile" Makefile) || problems=1
-specs=$(specs_hold "$repository") || problems=1
+spec_counts=$(specs_hold "$repository") || problems=1
 pythons=$(python_holds "$repository") || problems=1
 
 (( problems == 0 )) || exit 1
 
-printf 'examined %s recipe(s) reaching the built executable, %s spec file(s) and %s Python file(s) that reach it, each holding a cache home of its own\n' \
-    "$recipes" "$specs" "$pythons"
+# The spec rule's denominator is the files it read, because a spec tree that
+# points neither home anywhere is a tree with nothing to refuse. The second
+# number is the blocks that actually reached the rule, so a candidate pattern
+# that quietly stops matching shows up here as a zero rather than as a pass.
+printf 'examined %s recipe(s) reaching the built executable, %s spec file(s) carrying %s block(s) that name a cache home, and %s Python file(s) that reach it, each holding a cache home of its own\n' \
+    "$recipes" ${spec_counts} "$pythons"
