@@ -83,11 +83,24 @@ sections() {
 
 # Whether $1 is a later version than $2. Equal versions are not later, which is
 # what makes a repeated section an ordering refusal rather than a pass.
+#
+# Compared field by field rather than through `sort -V`. This gate runs on every
+# platform the portable qualification list runs on, and the `sort` macOS ships
+# has no version-sort option at all.
 later_version() {
-    local top
-    [[ "$1" != "$2" ]] || return 1
-    top=$(printf '%s\n%s\n' "$1" "$2" | sort -rV | head -1)
-    [[ "$top" == "$1" ]]
+    local -a left=() right=()
+    local index
+    IFS=. read -r -a left <<<"$1"
+    IFS=. read -r -a right <<<"$2"
+    for index in 0 1 2; do
+        if (( left[index] > right[index] )); then
+            return 0
+        fi
+        if (( left[index] < right[index] )); then
+            return 1
+        fi
+    done
+    return 1
 }
 
 # Refuse the changelog at $1 against the version at $2 and the released tags
@@ -204,7 +217,7 @@ while IFS= read -r tag; do
     else
         printf '%s\n' "$tag" >>"$aside"
     fi
-done < <(git -C "$repository" tag | sort -V)
+done < <(git -C "$repository" tag)
 
 released=$(wc -l <"$tags" | tr -d '[:space:]')
 set_aside=$(wc -l <"$aside" | tr -d '[:space:]')
@@ -232,7 +245,7 @@ refuses() {
 
 # The version moved and the changelog did not. The refusal names the version it
 # could not find.
-refuses "$version" "$changelog" '0.5.1' "$tags" 'a version with no section'
+refuses '0.5.1' "$changelog" '0.5.1' "$tags" 'a version with no section'
 
 # A tag the changelog does not cover.
 extra="$work/tags-with-an-extra-release"
