@@ -1,57 +1,20 @@
 # Pangopup Architecture
 
-Pangopup's target combines exact published Pangolin SNV lookup with compatible
-model inference. The shipped functional runtime answers GRCh38 SNV queries from
-the Wagner/Neverov precomputed dataset through a fixed 11-byte mmap index and
-typed CLI, plus Linux and macOS local installation, active-bundle discovery, the
-immutable public `snv-grch38-v1` release, and pinned resumable remote sync.
-The checked `pangopup-compat-v1` oracle now fixes upstream model and
-post-processing behavior. The shipped authenticated CPU kernel now executes
-the twelve raw selected Pangolin channels through one ONNX Runtime session.
-The shipped `pangopup-engine` composition now constructs supported literal
-GRCh38 variants, preserves compatible ensemble/indel/masking arithmetic, and
-routes authoritative lookup or installed-profile/explicit-path model fallback
-into ordered exact CLI results. Complete-request CPU qualification keeps the portable ordinary
-session at sequential `1/1` while retaining fixed `8/1` as this host's measured
-frontier result. A later equal-budget service-partition experiment retains
-host-qualified `1×1`, `1×2`, `1×4`, and `2×4` mappings while leaving portable
-`1×1` unchanged. The first zero-padded and paired-strand batching run is
-ineligible because the v2 exporter omitted its declared dynamic axes. The
-corrected full experiment retained singleton through both the drift and
-replacement gates. Persistent SQLite model-result reuse and the canonical
-four-asset compatibility profile and offline Linux/macOS XDG installer are
-established, and installed runtime consumption is shipped. Deterministic local
-model-side packaging, immutable publication, and pinned typed sync are
-shipped. Combined CLI provisioning/status, the foreground HTTP adapter, and a
-thin native AMD64/ARM64 Docker image are shipped. The reviewed public container
-delivery uses native digest-addressed leaves and one two-platform GHCR index;
-process-manager packaging remains future.
+Pangopup answers a GRCh38 variant query from one of three places. A
+memory-mapped index of published Pangolin scores holds one fixed 11-byte record
+for every covered single-nucleotide variant, and a lookup in that index answers
+first. A supported variant the index does not cover goes to the Pangolin model,
+which runs on the CPU through one ONNX Runtime session. Every exact model
+result is written to a SQLite cache that later requests read instead of running
+inference again, and every answer carries the provenance of the route that
+produced it.
 
-The closed three-codec reference comparison selected `acgt2-rle-v1`; its
-candidate modules, miniature, benchmark executable, and CLI have been removed
-from the compiled workspace. Retained reports and decisions preserve that
-historical selection evidence. The separate production `PGRREF01` bundle,
-authenticated builder, cheap-open mmap reader, and typed caller-buffer provider
-are the current compiled GRCh38 sequence-index implementation.
-
-GENCODE masking is at a different boundary. Ticket 012 authenticated an exact
-ordered GENCODE v38 logical source and compared three private `PGMBEN01`
-candidate layouts. The retained full-source run covers 60,649 genes and 88,202
-constant-membership domains. It selected `domains` at the first p95 speed step
-after all candidates passed exhaustive semantic and corruption controls.
-ADR 0013 promotes those exact selected bytes behind the domains-only
-`pangopup_index::mask` production provider, superseding ADR 0011's requirement
-for a separately renamed format. The exact mask delivery asset is public in
-`runtime-grch38-v1`; pinned typed runtime sync and combined CLI provisioning
-are shipped. The alternate-codec and
-qualification results remain in durable historical evidence, while their
-one-time source and executable surfaces are no longer compiled.
-
-SNV and production-reference construction now have separate, artifact-local
-builder provenance. The checked source/dependency evidence is compiled into
-the builder, unrelated subsystems do not churn either identity, and existing
-v1 assets carrying the former repository-wide fingerprint remain valid.
-ADR 0012 defines that descriptive provenance boundary.
+The CLI and the foreground HTTP service are the two ways in. Both compose one
+engine: variant construction, the compatibility oracle that fixes upstream
+numeric behaviour, the lookup and model providers, and the masking and ensemble
+arithmetic that turns raw channels into ordered per-gene records. Local assets
+arrive through a pinned resumable sync into XDG directories on Linux and macOS,
+and installation, status and removal run from the same CLI.
 
 ## Boundaries
 
@@ -122,3 +85,58 @@ Current work, unresolved priorities, and hypotheses belong in
 Linux x86_64 executable delivery is prepared as a direct binary with checksum,
 SBOM, canonical manifest, GPL license, and notice. Its installer does not
 provision data or mutate `PATH`; publication is a separate reviewed effect.
+
+## Build history
+
+Pangopup's target combines exact published Pangolin SNV lookup with compatible
+model inference. The shipped functional runtime answers GRCh38 SNV queries from
+the Wagner/Neverov precomputed dataset through a fixed 11-byte mmap index and
+typed CLI, plus Linux and macOS local installation, active-bundle discovery, the
+immutable public `snv-grch38-v1` release, and pinned resumable remote sync.
+The checked `pangopup-compat-v1` oracle now fixes upstream model and
+post-processing behavior. The shipped authenticated CPU kernel now executes
+the twelve raw selected Pangolin channels through one ONNX Runtime session.
+The shipped `pangopup-engine` composition now constructs supported literal
+GRCh38 variants, preserves compatible ensemble/indel/masking arithmetic, and
+routes authoritative lookup or installed-profile/explicit-path model fallback
+into ordered exact CLI results. Complete-request CPU qualification keeps the portable ordinary
+session at sequential `1/1` while retaining fixed `8/1` as this host's measured
+frontier result. A later equal-budget service-partition experiment retains
+host-qualified `1×1`, `1×2`, `1×4`, and `2×4` mappings while leaving portable
+`1×1` unchanged. The first zero-padded and paired-strand batching run is
+ineligible because the v2 exporter omitted its declared dynamic axes. The
+corrected full experiment retained singleton through both the drift and
+replacement gates. Persistent SQLite model-result reuse and the canonical
+four-asset compatibility profile and offline Linux/macOS XDG installer are
+established, and installed runtime consumption is shipped. Deterministic local
+model-side packaging, immutable publication, and pinned typed sync are
+shipped. Combined CLI provisioning/status, the foreground HTTP adapter, and a
+thin native AMD64/ARM64 Docker image are shipped. The reviewed public container
+delivery uses native digest-addressed leaves and one two-platform GHCR index;
+process-manager packaging remains future.
+
+The closed three-codec reference comparison selected `acgt2-rle-v1`; its
+candidate modules, miniature, benchmark executable, and CLI have been removed
+from the compiled workspace. Retained reports and decisions preserve that
+historical selection evidence. The separate production `PGRREF01` bundle,
+authenticated builder, cheap-open mmap reader, and typed caller-buffer provider
+are the current compiled GRCh38 sequence-index implementation.
+
+GENCODE masking is at a different boundary. Ticket 012 authenticated an exact
+ordered GENCODE v38 logical source and compared three private `PGMBEN01`
+candidate layouts. The retained full-source run covers 60,649 genes and 88,202
+constant-membership domains. It selected `domains` at the first p95 speed step
+after all candidates passed exhaustive semantic and corruption controls.
+ADR 0013 promotes those exact selected bytes behind the domains-only
+`pangopup_index::mask` production provider, superseding ADR 0011's requirement
+for a separately renamed format. The exact mask delivery asset is public in
+`runtime-grch38-v1`; pinned typed runtime sync and combined CLI provisioning
+are shipped. The alternate-codec and
+qualification results remain in durable historical evidence, while their
+one-time source and executable surfaces are no longer compiled.
+
+SNV and production-reference construction now have separate, artifact-local
+builder provenance. The checked source/dependency evidence is compiled into
+the builder, unrelated subsystems do not churn either identity, and existing
+v1 assets carrying the former repository-wide fingerprint remain valid.
+ADR 0012 defines that descriptive provenance boundary.

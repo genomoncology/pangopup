@@ -65,7 +65,6 @@ pangopup lookup --variant GRCh38:chr12:6801303:G:GA
 
 After `sync`, scoring is network-free. The SNV normally uses the precomputed index; the
 supported insertion automatically uses the model. Both commands return JSON Lines.
-Native macOS uses the same commands after a source install. The Storage and operations section shows that path.
 
 ## Input and output
 
@@ -253,9 +252,10 @@ Optionally remove downloads and cached model results with
 
 ## Citation and license
 
-To cite PangoPup, use [`CITATION.cff`](CITATION.cff). PangoPup is
-[GPL-3.0-only](LICENSE). Exact source identities, modifications, and attribution are in
-[`NOTICE`](NOTICE) and [`assets/notices/`](assets/notices/).
+To cite PangoPup, use [`CITATION.cff`](CITATION.cff). PangoPup is [GPL-3.0-only](LICENSE).
+Exact source identities, modifications, and attribution are in [`NOTICE`](NOTICE) and
+[`assets/notices/`](assets/notices/). [Why this project exists](architecture/motivation.md)
+describes the upstream licence and the public lookup service limits that led to PangoPup.
 
 PangoPup builds on these works:
 
