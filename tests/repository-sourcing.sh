@@ -14,8 +14,11 @@ set -euo pipefail
 #      subject whose source or date has gone.
 #
 #   2. What calling this software from other software means for that software's
-#      own licence. The explanation describes an arrangement and says plainly
-#      that it is not legal advice. It asserts no legal conclusion.
+#      own licence. The explanation describes an arrangement, quotes the text
+#      that governs it, and says plainly that it is not legal advice. It rules
+#      on nothing itself: a term of art out of the GPL stands here only where
+#      the sentence names whoever wrote it and shows the words or the place
+#      they came from.
 #
 #   3. `architecture/README.md` opens with a description of how the system is
 #      arranged rather than with the order the work happened in.
@@ -33,14 +36,37 @@ set -euo pipefail
 # nothing, and a check that refuses the sentence it exists to require cannot be
 # repaired by the stage that has to make it green.
 #
-# What this does not prove. That the explanation is correct, that a quotation is
-# faithful to the page it came from, or that the source still says today what
-# the document records it saying on the date beside it -- the date is what lets
-# a later reader go and check. That no individual is named: a person's name has
-# no shape a scan can recognise, and that one is left to review. That no
-# interpretation is expressed in words outside the set below; the set stops the
-# ordinary way the slip is written down, not every way. Nothing here reaches
-# the network, and nothing here writes into the checkout.
+# What this does not prove, stated so that nobody mistakes a green run for more
+# than it is.
+#
+# That the explanation is correct, that a quotation is faithful to the page it
+# came from, or that the source still says today what the document records it
+# saying on the date beside it -- the date is what lets a later reader go and
+# check.
+#
+# That no individual is named: a person's name has no shape a scan can
+# recognise, and that one is left to review.
+#
+# That no interpretation is expressed in words outside the set below. The set
+# stops the ordinary way the slip is written down, not every way, and a reading
+# of a score written in plain words reaches the same place unrefused. The
+# boundary is held by review; the set catches the habit.
+#
+# That this repository states no legal conclusion. What is refused is the
+# conclusion written in the licence's own vocabulary -- the sentence that says
+# an arrangement IS mere aggregation, IS a combined work, IS a separate
+# program. A paraphrase reaching the same conclusion in ordinary words carries
+# no term of art and passes. No gate reads meaning, and this one does not
+# pretend to. What it holds is that the licence's words are handed back to
+# whoever wrote them.
+#
+# That the material is worth reading. Nothing here measures whether an
+# explanation explains. The floors below refuse a stub -- a citation with
+# nobody named as saying it, an opening that lists the parts instead of
+# describing them -- and a document that clears them can still be thin. That
+# judgment belongs to whoever reviews what ships.
+#
+# Nothing here reaches the network, and nothing here writes into the checkout.
 
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
@@ -60,6 +86,10 @@ flatten() { tr '\n' ' ' <"$1" | tr -s ' '; }
 # One sentence per line. A full stop followed by a space ends one.
 sentences() { sed -E 's/\. /.\n/g'; }
 
+# A set of patterns as one alternation. Each set below is scanned in a single
+# pass: the same refusal for the same reason, without a process a term.
+alternation() { local joined; joined=$(printf '%s|' "$@"); printf '(%s)' "${joined%|}"; }
+
 # An ISO date. It is the shape a capture date is written in, and the only one a
 # later reader can order against the day they are reading.
 date_pattern='[0-9]{4}-[0-9]{2}-[0-9]{2}'
@@ -67,6 +97,36 @@ date_pattern='[0-9]{4}-[0-9]{2}-[0-9]{2}'
 # A reference to something outside this repository: a link, a DOI, or a PubMed
 # identifier. These are the three ways this material cites another party.
 source_pattern='(https?://|[Dd][Oo][Ii]\>|PMID\>)'
+
+# Words that hand a claim back to whoever made it. A sentence carrying one of
+# these reports what somebody else wrote. A sentence carrying none of them is
+# this repository speaking in its own voice, which is the difference the ticket
+# turns on: quote the text, describe the engineering, rule on neither.
+attributions='\<(states?|stated|says?|said|writes?|wrote|reads?|describes?|defines?|answers?|reports?|published|according to)\>'
+
+# Where the reported words, or the place they came from, stand: a quotation, a
+# numbered section of a licence, or a link. An attributing verb with none of
+# these beside it is a gesture at a source rather than a source.
+attribution_anchor='("|section [0-9]|https?://)'
+
+# A date that no reader can act on. The capture date exists so a later reader
+# can go and check; a date that never happened, or one that has not happened
+# yet, defeats that. The year is the granularity, so the gate does not change
+# its mind on the day a date passes.
+this_year=$(date +%Y)
+implausible_dates() {
+    awk -v maxyear="$this_year" '
+        {
+            s = $0
+            while (match(s, /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)) {
+                d = substr(s, RSTART, RLENGTH)
+                s = substr(s, RSTART + RLENGTH)
+                y = substr(d, 1, 4) + 0; m = substr(d, 6, 2) + 0; n = substr(d, 9, 2) + 0
+                if (y < 1970 || y > maxyear || m < 1 || m > 12 || n < 1 || n > 31) { print d }
+            }
+        }
+    '
+}
 
 # ---------------------------------------------------------------------------
 # units of prose
@@ -155,13 +215,17 @@ check_sources() {
         return 1
     fi
 
-    # --- the census: a unit that cites a source states the date it was read ---
-    local undated=
+    # --- the census: a unit that cites a source states the date it was read,
+    # --- and hands the words it reports back to whoever wrote them ---
+    local undated= unattributed=
     while IFS= read -r unit; do
         [[ -n "$unit" ]] || continue
         examined=$((examined + 1))
         if ! grep -Eq -- "$source_pattern" <<<"$unit"; then continue; fi
         sourced=$((sourced + 1))
+        if ! grep -Eqi -- "$attributions" <<<"$unit"; then
+            unattributed+=$'\n  '$(printf '%.110s' "$unit")
+        fi
         if grep -Eq -- "$date_pattern" <<<"$unit"; then continue; fi
         undated+=$'\n  '$(printf '%.110s' "$unit")
     done <<<"$all"
@@ -175,6 +239,23 @@ check_sources() {
     if [[ -n "$undated" ]]; then
         printf '%s cites a source without the date it was read, so a later reader cannot tell whether it still says this:%s\n' \
             "$motivation_relative" "$undated" >&2
+        return 1
+    fi
+
+    # A bare link beside a quoted string is a citation. The ticket asks for the
+    # claim to be carried as a quotation attributed to the party that made it,
+    # so the unit has to name somebody as saying it.
+    if [[ -n "$unattributed" ]]; then
+        printf '%s cites a source and never says who said it, so the claim stands as this project asserting it rather than as that party words:%s\n' \
+            "$motivation_relative" "$unattributed" >&2
+        return 1
+    fi
+
+    local bad_dates
+    bad_dates=$(implausible_dates <<<"$flat")
+    if [[ -n "$bad_dates" ]]; then
+        printf '%s dates a capture %s, which is not a day anybody could have read a page on, so the date buys a later reader nothing\n' \
+            "$motivation_relative" "$(head -n 1 <<<"$bad_dates")" >&2
         return 1
     fi
 
@@ -258,6 +339,31 @@ legal_conclusions=(
     '\<liable\>' '\<liabilit(y|ies)\>' '\<infringe(s|d|ment)?\>'
 )
 
+# The set above catches a sentence about what the law decides. It does not
+# catch the sentence this material is most likely to get wrong, because that
+# sentence uses no courtroom word at all. "This is mere aggregation." "That is
+# a combined work under one licence." "A caller is a separate program." Each is
+# a term of art out of the GPL and the guidance around it, and each says how
+# the licence applies to an arrangement. Saying so is the legal conclusion the
+# ticket forbids, whatever tone it is written in.
+#
+# So a term of art may stand here only where the sentence hands it back to
+# whoever wrote it: an attributing verb, and the words themselves or the place
+# they came from. "The LICENSE file states: '...aggregate...'" is the licence
+# speaking. "Running the executable is mere aggregation" is this repository
+# ruling, and is refused.
+#
+# The limit, stated plainly: this refuses the conclusion that uses the term of
+# art. A paraphrase that reaches the same conclusion in ordinary words -- "the
+# calling program keeps its own licence" -- carries no term of art and passes.
+# No gate reads meaning. What a gate can hold is that this repository does not
+# put the licence's own vocabulary in its own mouth, and that is what this one
+# holds. The rest is review.
+terms_of_art=(
+    'mere aggregation' 'combined work' 'separate programs?'
+    'derivative works?' 'works? based on' '\<copyleft\>'
+)
+
 interpretations=(
     '\<pathogenic(ity)?\>' '\<benign\>' '\<deleterious\>' '\<clinical(ly)?\>'
     '\<diagnos[a-z]*\>' '\<ACMG\>' 'variant classification' '\<evidence (for|of)\>'
@@ -278,6 +384,7 @@ check_explanation() {
     fi
 
     (( ${#legal_conclusions[@]} > 0 )) || fail 'the legal-conclusion set is empty, so this check refuses nothing'
+    (( ${#terms_of_art[@]} > 0 )) || fail 'the term-of-art set is empty, so this check refuses nothing'
     (( ${#interpretations[@]} > 0 )) || fail 'the interpretation set is empty, so this check refuses nothing'
     (( ${#identifiers[@]} > 0 )) || fail 'the identifier set is empty, so this check refuses nothing'
 
@@ -294,48 +401,74 @@ check_explanation() {
         return 1
     fi
 
-    # --- it says plainly that it is not legal advice ---
-    candidates=$(sentences <<<"$flat" | grep -i -- 'legal advice' || true)
+    # --- it says plainly that it is not legal advice, everywhere it says it ---
+    #
+    # This repository's own sentences only. A quotation from another party and
+    # a Markdown link label are somebody else's words, so both are lifted out
+    # before the census: a source that happens to use the phrase is not this
+    # repository claiming to give legal advice, and refusing it would push the
+    # code stage into paraphrasing a quotation it was told to reproduce.
+    #
+    # Every remaining sentence that names legal advice denies it -- not one of
+    # them, all of them. One honest denial beside a paragraph that offers
+    # advice for a commercial deployment is the document the reader must not
+    # get, and a rule satisfied by any single denial ships it.
+    local own undenied
+    own=$(sed -E 's/"[^"]*"//g; s/\[[^]]*\]//g' <<<"$flat")
+    candidates=$(sentences <<<"$own" | grep -i -- 'legal advice' || true)
     if [[ -z "$candidates" ]]; then
-        printf '%s explains what another party licence permits and never says that the explanation is not legal advice\n' \
+        printf '%s explains what another party licence permits and never says in its own words that the explanation is not legal advice\n' \
             "$motivation_relative" >&2
         return 1
     fi
     spans=$(claim_span 'legal advice' <<<"$candidates")
     [[ -n "$spans" ]] || fail 'the claim span for legal advice came back empty, so the denial test read nothing'
-    if ! grep -Eqi -- "$negations" <<<"$spans"; then
+    undenied=$(grep -Evi -- "$negations" <<<"$spans" || true)
+    if [[ -n "$undenied" ]]; then
         printf '%s names legal advice only to claim it, rather than to say the explanation is not legal advice: %s\n' \
-            "$motivation_relative" "$(head -n 1 <<<"$candidates")" >&2
+            "$motivation_relative" "$(head -n 1 <<<"$undenied")" >&2
         return 1
     fi
 
-    local pattern hit
-    for pattern in "${legal_conclusions[@]}"; do
-        hit=$(grep -Eoi -- "$pattern" <<<"$flat" || true)
-        if [[ -n "$hit" ]]; then
-            printf '%s says what the law decides rather than what the arrangement is: it uses %s, and this repository asserts no legal conclusion\n' \
-                "$motivation_relative" "$(head -n 1 <<<"$hit")" >&2
-            return 1
-        fi
-    done
+    # Each set is scanned as one alternation rather than one grep a term: the
+    # same refusal, named the same way, at a fraction of the process count.
+    local hit
+    hit=$(grep -Eoi -- "$(alternation "${legal_conclusions[@]}")" <<<"$flat" || true)
+    if [[ -n "$hit" ]]; then
+        printf '%s says what the law decides rather than what the arrangement is: it uses %s, and this repository asserts no legal conclusion\n' \
+            "$motivation_relative" "$(head -n 1 <<<"$hit")" >&2
+        return 1
+    fi
 
-    for pattern in "${interpretations[@]}"; do
-        hit=$(grep -Eoi -- "$pattern" <<<"$flat" || true)
-        if [[ -n "$hit" ]]; then
-            printf '%s uses %s; this repository states what the software computes and where the number came from, and interpretation is outside what it speaks to\n' \
-                "$motivation_relative" "$(head -n 1 <<<"$hit")" >&2
-            return 1
+    # --- a term of art belongs to whoever wrote it ---
+    local art asserted= art_pattern
+    art_pattern=$(alternation "${terms_of_art[@]}")
+    while IFS= read -r art; do
+        [[ -n "$art" ]] || continue
+        if grep -Eqi -- "$attributions" <<<"$art"; then
+            if grep -Eqi -- "$attribution_anchor" <<<"$art"; then continue; fi
         fi
-    done
+        asserted+=$'\n  '$(printf '%.110s' "$art")
+    done < <(sentences <<<"$flat" | grep -Ei -- "$art_pattern" || true)
+    if [[ -n "$asserted" ]]; then
+        printf '%s rules on how a licence applies rather than describing the arrangement and quoting the text: a term of art stands in this repository own voice, with nobody named as saying it and no quotation, section or link beside it:%s\n' \
+            "$motivation_relative" "$asserted" >&2
+        return 1
+    fi
 
-    for pattern in "${identifiers[@]}"; do
-        hit=$(grep -Eoi -- "$pattern" <<<"$flat" || true)
-        if [[ -n "$hit" ]]; then
-            printf '%s names %s, so a consumer of this software is not described generically\n' \
-                "$motivation_relative" "$(head -n 1 <<<"$hit")" >&2
-            return 1
-        fi
-    done
+    hit=$(grep -Eoi -- "$(alternation "${interpretations[@]}")" <<<"$flat" || true)
+    if [[ -n "$hit" ]]; then
+        printf '%s uses %s; this repository states what the software computes and where the number came from, and interpretation is outside what it speaks to\n' \
+            "$motivation_relative" "$(head -n 1 <<<"$hit")" >&2
+        return 1
+    fi
+
+    hit=$(grep -Eoi -- "$(alternation "${identifiers[@]}")" <<<"$flat" || true)
+    if [[ -n "$hit" ]]; then
+        printf '%s names %s, so a consumer of this software is not described generically\n' \
+            "$motivation_relative" "$(head -n 1 <<<"$hit")" >&2
+        return 1
+    fi
 
     # A word that is a commit identifier and not a number: seven or more
     # characters, every one of them a hexadecimal digit, with at least one
@@ -360,8 +493,9 @@ check_explanation() {
         return 1
     fi
 
-    printf '%s denies being legal advice, asserts none of %d legal conclusions, uses none of %d interpretation terms, and carries no identifier of %d named shapes or of a commit\n' \
-        "$motivation_relative" "${#legal_conclusions[@]}" "${#interpretations[@]}" "${#identifiers[@]}"
+    printf '%s denies being legal advice in every sentence that names it, asserts none of %d legal conclusions, attributes each of %d terms of art it uses, uses none of %d interpretation terms, and carries no identifier of %d named shapes or of a commit\n' \
+        "$motivation_relative" "${#legal_conclusions[@]}" "${#terms_of_art[@]}" \
+        "${#interpretations[@]}" "${#identifiers[@]}"
 }
 
 # ===========================================================================
@@ -391,6 +525,14 @@ history_markers=(
 
 arrangement_terms=( '\<lookup\>' '\<model\>' '\<cache\>' '\<CLI\>' '\<service\>' )
 
+# "Lookup, model, cache, CLI, service." names every part and describes no
+# arrangement. The ticket asks for plain sentences saying how the system is
+# arranged, so the opening has room for a clause about each part rather than
+# just the word for it. Six words a part is the floor, computed from the list
+# above so that adding a part raises it. Naming five parts in five words is a
+# list; this refuses a list.
+opening_words_per_part=6
+
 check_architecture_opening() {
     local tree=$1
     local file="$tree/$architecture_relative"
@@ -404,7 +546,7 @@ check_architecture_opening() {
     (( ${#history_markers[@]} > 0 )) || fail 'the build-history marker set is empty, so this check refuses nothing'
     (( ${#arrangement_terms[@]} > 0 )) || fail 'the arrangement term set is empty, so this check requires nothing'
 
-    local opening
+    local opening words floor
     opening=$(awk 'NR == 1 { next } /^## / { exit } { print }' "$file" | tr '\n' ' ' | tr -s ' ')
     if [[ -z "${opening// /}" ]]; then
         printf '%s has no opening: the first `## ` heading follows the title directly, so a reader meets a list of links and no description\n' \
@@ -412,15 +554,21 @@ check_architecture_opening() {
         return 1
     fi
 
+    words=$(wc -w <<<"$opening" | tr -d '[:space:]')
+    floor=$(( opening_words_per_part * ${#arrangement_terms[@]} ))
+    if (( words < floor )); then
+        printf '%s opens with %d words for %d parts of the system, which is a list of their names and not a description of how they are arranged; %d words is the floor\n' \
+            "$architecture_relative" "$words" "${#arrangement_terms[@]}" "$floor" >&2
+        return 1
+    fi
+
     local pattern hit
-    for pattern in "${history_markers[@]}"; do
-        hit=$(grep -Eoi -- "$pattern" <<<"$opening" || true)
-        if [[ -n "$hit" ]]; then
-            printf '%s opens with the order the work happened in rather than with how the system is arranged: %s stands above the first heading\n' \
-                "$architecture_relative" "$(head -n 1 <<<"$hit")" >&2
-            return 1
-        fi
-    done
+    hit=$(grep -Eoi -- "$(alternation "${history_markers[@]}")" <<<"$opening" || true)
+    if [[ -n "$hit" ]]; then
+        printf '%s opens with the order the work happened in rather than with how the system is arranged: %s stands above the first heading\n' \
+            "$architecture_relative" "$(head -n 1 <<<"$hit")" >&2
+        return 1
+    fi
 
     local missing=
     for pattern in "${arrangement_terms[@]}"; do
@@ -468,9 +616,12 @@ that is sold.
 Pangolin is under the GNU General Public License, and this repository is
 GPL-3.0-only because it inherits from it.
 
-Software that calls this one over its HTTP boundary or runs its executable is a
-separate program with its own licence. This is a description of an arrangement
-and not legal advice.
+Software that calls this one over its HTTP boundary, or runs its executable and
+reads the JSON it writes, is not linked against anything here, and this
+repository states no conclusion about that program own licence. The LICENSE file
+in this repository says: "Inclusion of a covered work in an aggregate does not
+cause this License to apply to the other parts of the aggregate." This is a
+description of an arrangement and not legal advice.
 WHY
 
     cat >"$tree/$architecture_relative" <<'ARCH'
@@ -509,9 +660,9 @@ mutate() {
     shift
     rm -rf "$tree"
     plant "$tree"
-    before=$(find "$tree" -type f -exec md5sum {} + | sort | md5sum)
+    before=$( { cat "$tree/$motivation_relative" "$tree/$architecture_relative" 2>/dev/null || true; } | md5sum )
     ( cd "$tree" && "$@" )
-    after=$(find "$tree" -type f -exec md5sum {} + | sort | md5sum)
+    after=$( { cat "$tree/$motivation_relative" "$tree/$architecture_relative" 2>/dev/null || true; } | md5sum )
     [[ "$before" != "$after" ]] || fail "the mutation for $tree changed nothing, so its case proves nothing"
     printf '%s' "$tree"
 }
@@ -588,6 +739,24 @@ expect_acceptance check_sources "$(mutate src-copy-edited swap "$motivation_rela
     'The predictor this project actually runs is Pangolin. It was published by Zeng T and Li YI in Genome Biology in 2022 under DOI 10.1186/s13059-022-02664-4, and that record was read on 2026-08-28.')" \
     'the same source and the same date in one unit, worded differently'
 
+# A citation with nobody named as saying it. The quoted words and the link are
+# there; what is gone is the party the words belong to, which is what turns a
+# quotation into this project asserting the thing itself.
+expect_refusal check_sources "$(mutate src-unattributed swap "$motivation_relative" \
+    'The public lookup service states: "This service supports no more than a handful of queries per-user per-minute." Read at' \
+    '"This service supports no more than a handful of queries per-user per-minute", https://spliceailookup.broadinstitute.org, 2026-08-28, and also at')" \
+    'never says who said it'
+
+# A capture date nobody could have read a page on. The date exists so a later
+# reader can go and check, and one that has not happened yet buys nothing.
+expect_refusal check_sources "$(mutate src-future-date \
+    sed -i 's|2026-08-28|2099-08-28|g' "$motivation_relative")" \
+    'not a day anybody could have read a page on'
+
+expect_refusal check_sources "$(mutate src-impossible-date \
+    sed -i 's|2026-08-28|2026-99-28|g' "$motivation_relative")" \
+    'not a day anybody could have read a page on'
+
 # A date that moved out of the unit its source stands in satisfies a rule that
 # reads the whole file and not this one.
 expect_refusal check_sources "$(mutate src-date-in-another-unit swap "$motivation_relative" \
@@ -628,31 +797,91 @@ do
 done
 
 expect_refusal check_explanation "$(mutate exp-boundary-gone swap "$motivation_relative" \
-    'Software that calls this one over its HTTP boundary or runs its executable is a separate program with its own licence.' \
+    'Software that calls this one over its HTTP boundary, or runs its executable and reads the JSON it writes, is not linked against anything here, and this repository states no conclusion about that program own licence.' \
     'Other software is welcome to use this one.')" \
     'never says in one sentence what calling this software from other software means'
 
-# The boundary written the other ordinary ways, and one that states the licence
-# in the sentence rather than borrowing it from the one before.
+# The boundary written the other ordinary ways. Each reaches the caller's own
+# licence, each shares no vocabulary with the others, and none of them says how
+# the licence applies: two point the reader at the text that does, and the third
+# states only what this repository declines to answer.
 for boundary in \
-    'A program that links this project crates into its own binary is a combined work under one licence.' \
-    'Running the executable and reading the JSON it writes is mere aggregation, and the reading program keeps its own licence.' \
-    'A caller across the HTTP boundary carries whatever licence it already had.'
+    'A consumer runs this executable and reads its JSON, or calls the HTTP service; which licence that consumer own software is under is answered from the licence text and not here.' \
+    'The GPL-3.0-only licence text in this repository LICENSE file is where a program that links or calls this one goes to read what applies to it.' \
+    'This repository names no licence for a caller, because it is not the caller licence that this repository is in a position to state.'
 do
     expect_acceptance check_explanation "$(mutate "exp-boundary-$(printf '%s' "$boundary" | cksum | cut -d' ' -f1)" \
         swap "$motivation_relative" \
-        'Software that calls this one over its HTTP boundary or runs its executable is a separate program with its own licence.' \
+        'Software that calls this one over its HTTP boundary, or runs its executable and reads the JSON it writes, is not linked against anything here, and this repository states no conclusion about that program own licence.' \
         "$boundary")" \
         "the boundary written as: $boundary"
+done
+
+# The sentence the ticket forbids, in the forms it is actually written in. Each
+# uses a term of art out of the GPL, each says that an arrangement IS one, and
+# none of them names anybody as saying so. This repository states no legal
+# conclusion of its own, and a rule that only watched for courtroom words would
+# let every one of these through.
+for ruling in \
+    'Running the executable and reading the JSON it writes is mere aggregation, and the reading program keeps its own licence.' \
+    'A program that links this project crates into its own binary is a combined work under one licence.' \
+    'Software that calls this one over its HTTP boundary is a separate program with its own licence.' \
+    'Nothing a caller builds on the JSON this repository emits is a derivative work of it, whatever licence that caller is under.'
+do
+    expect_refusal check_explanation "$(mutate "exp-ruling-$(printf '%s' "$ruling" | cksum | cut -d' ' -f1)" \
+        swap "$motivation_relative" \
+        'Software that calls this one over its HTTP boundary, or runs its executable and reads the JSON it writes, is not linked against anything here, and this repository states no conclusion about that program own licence.' \
+        "$ruling")" \
+        'rules on how a licence applies'
+done
+
+# The same term of art, handed back to the party whose words it is. The verb and
+# the quotation or the section are what make the difference. The fixture takes
+# its quotation from this repository own LICENSE file, so the rule is proved
+# against text checked into the tree beside it.
+for quoted in \
+    'The LICENSE file in this repository defines a covered work as "either the unmodified Program or a work based on the Program", and a caller that links none of it holds none of it.' \
+    'On what a combined work is, the GPL-3.0-only licence text at section 5 is what a caller reads, and this repository quotes it rather than summarising it.'
+do
+    expect_acceptance check_explanation "$(mutate "exp-attributed-$(printf '%s' "$quoted" | cksum | cut -d' ' -f1)" \
+        swap "$motivation_relative" \
+        'Software that calls this one over its HTTP boundary, or runs its executable and reads the JSON it writes, is not linked against anything here, and this repository states no conclusion about that program own licence.' \
+        "$quoted")" \
+        "a term of art attributed to whoever wrote it: $quoted"
+done
+
+# Two denials where one is reversed. A rule satisfied by any single denial ships
+# a document that denies giving legal advice and then gives some.
+for mixed in \
+    'None of this is legal advice. For a commercial deployment, what follows is legal advice.' \
+    'What follows is legal advice for a commercial deployment. None of this is legal advice.'
+do
+    expect_refusal check_explanation "$(mutate "exp-mixed-$(printf '%s' "$mixed" | cksum | cut -d' ' -f1)" \
+        swap "$motivation_relative" \
+        'This is a description of an arrangement and not legal advice.' "$mixed")" \
+        'only to claim it'
+done
+
+# The phrase inside somebody else's words. This material is built out of
+# quotations, and a source that uses the phrase is not this repository claiming
+# to give legal advice.
+for borrowed in \
+    'A third party writes: "nothing on this page is legal advice". This is a description of an arrangement and not legal advice.' \
+    'See [what counts as legal advice](https://example.invalid/x), read on 2026-08-28. This is a description of an arrangement and not legal advice.'
+do
+    expect_acceptance check_explanation "$(mutate "exp-borrowed-$(printf '%s' "$borrowed" | cksum | cut -d' ' -f1)" \
+        swap "$motivation_relative" \
+        'This is a description of an arrangement and not legal advice.' "$borrowed")" \
+        "the phrase standing inside somebody else words: $borrowed"
 done
 
 expect_refusal check_explanation "$(mutate exp-advice-gone swap "$motivation_relative" \
     'This is a description of an arrangement and not legal advice.' \
     'This is a description of an arrangement.')" \
-    'never says that the explanation is not legal advice'
+    'never says in its own words that the explanation is not legal advice'
 
 expect_refusal check_explanation "$(mutate exp-legal-conclusion swap "$motivation_relative" \
-    'Software that calls this one over its HTTP boundary or runs its executable is a separate program with its own licence.' \
+    'Software that calls this one over its HTTP boundary, or runs its executable and reads the JSON it writes, is not linked against anything here, and this repository states no conclusion about that program own licence.' \
     'A court would find that software calling this one over its HTTP boundary is a separate program with its own licence.')" \
     'says what the law decides rather than what the arrangement is'
 
@@ -706,6 +935,13 @@ expect_refusal check_architecture_opening "$(mutate arch-no-service swap "$archi
     'The CLI and the HTTP service are the two ways in.' \
     'The CLI is the way in.')" \
     'without naming part(s) of the system'
+
+# Every part named, and nothing said about any of them. This is the opening a
+# gate that counted names alone would call a description.
+expect_refusal check_architecture_opening "$(mutate arch-bare-list swap "$architecture_relative" \
+    'Pangopup answers a variant query from a memory-mapped precomputed lookup index first. A miss falls through to the Pangolin model, and every model answer is saved in a SQLite cache beside it. The CLI and the HTTP service are the two ways in.' \
+    'Lookup, model, cache, CLI, service.')" \
+    'a list of their names and not a description'
 
 expect_refusal check_architecture_opening "$(mutate arch-no-opening swap "$architecture_relative" \
     'Pangopup answers a variant query from a memory-mapped precomputed lookup index first. A miss falls through to the Pangolin model, and every model answer is saved in a SQLite cache beside it. The CLI and the HTTP service are the two ways in.' \

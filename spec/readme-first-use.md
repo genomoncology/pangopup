@@ -17,14 +17,27 @@ now say exactly that. `tests/readme-budget-exactness.sh` holds every figure on
 this page to what `README.md` measures, so raising one means stating a new
 measurement of a real tree.
 
-The budget did not move again for the link to `architecture/motivation.md`. The
-README stood at 1,766 words, four words under the cap, and the sentence carrying
-that link is longer than four words. Those words were paid for out of the guide
-rather than added to it. Raising a ceiling to admit the one change that needs it
-leaves no ceiling at all: the next sentence arrives with the same argument, and
-a number that moves whenever it binds stops saying anything. Cutting keeps the
-README the size a first-use guide is, and the cut stands in the same commit as
-the addition where a reader can see what was traded for what.
+The budget did not move again for the link to `architecture/motivation.md`.
+Raising a ceiling to admit the one change that needs it leaves no ceiling at
+all: the next sentence arrives with the same argument, and a number that moves
+whenever it binds stops saying anything. The words are paid for out of the
+guide rather than added to it, and the cut stands in the same commit as the
+addition where a reader can see what was traded for what.
+
+The arithmetic, so that nobody plans against a stale one. At the commit this
+rule was written against the README stood at 1,766 words and 260 lines, four
+words and ten lines under the cap, and the sentence carrying the link runs to
+seventeen words on two lines. On that tree the trade is about thirteen words
+and nothing at all in lines.
+
+That is not the tree the change lands on. The README has since taken a
+presentation section that carries it to 1,829 words and 271 lines, fifty-nine
+words and one line above the cap before this ticket adds anything, and that
+section brings a heading and a second image mark that the pinned lists in this
+file do not admit. Whoever writes the link finds a cut of roughly seventy-seven
+words in front of them and two pinned lists that no longer match the file.
+Restoring the budget the presentation section spent is its own change and is
+not this one; the cut for the link is the thirteen words above.
 
 ```bash
 test "$(wc -l < ../README.md)" -le 271
