@@ -136,6 +136,11 @@ scoring_identity = "sha256:" + "1" * 64
 # values. The stub keeps them different so a checker that compares an item
 # against the wrong one fails here instead of at a release.
 data_set_version = "sha256:" + "3" * 64
+# The runtime profile identity is a third value, over a third preimage. A
+# deployment that published one digest under two of these three names collapsed
+# something, so the stub keeps all three apart and the checker is held to
+# noticing when a mutation below brings any two of them together.
+runtime_profile_id = "sha256:" + "7" * 64
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     def emit(self, value):
@@ -149,7 +154,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         values = {
             "/livez": {"status":"live"},
             "/readyz": {"status":"ready"},
-            "/v1/status": {"version":"0.5.0","readiness":"ready","scoring_identity":scoring_identity,"data_set_version":data_set_version},
+            "/v1/status": {"version":"0.5.0","readiness":"ready","scoring_identity":scoring_identity,"data_set_version":data_set_version,"runtime_profile_id":runtime_profile_id},
         }
         self.emit(values[self.path])
     def do_POST(self):
@@ -355,6 +360,36 @@ for unstamped in http-snv.txt http-model.txt http-model-only.txt http-status.txt
     exit 1
   fi
 done
+
+# The deployment this release qualifies publishes three digests over three
+# different preimages: the deployment identity, the version a consumer stores,
+# and the identity of the admitted runtime profile. Any two of them being equal
+# means a deployment collapsed something. Before the mutations below prove the
+# checker refuses each collapse, hold the qualified output itself to the shape
+# those mutations depart from, so a stub that quietly stopped publishing three
+# distinct digests fails here rather than making every mutation below vacuous.
+python3 - "$root/output/http-status.txt" <<'THREEDIGESTS'
+import json
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+head, separator, body = path.read_bytes().partition(b"\r\n\r\n")
+assert separator, "qualified status response has no body"
+status = json.loads(body)
+names = ("scoring_identity", "data_set_version", "runtime_profile_id")
+values = []
+for name in names:
+    value = status.get(name)
+    assert isinstance(value, str), f"qualified status response omits {name}"
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", value), \
+        f"qualified status response publishes a malformed {name}"
+    values.append(value)
+assert len(values) == len(names) == 3
+assert len(set(values)) == 3, \
+    f"qualified status response publishes one digest under two of {names}"
+THREEDIGESTS
 
 # The two model oracles are the published model's answers, so the harness has to
 # keep replaying their scores. The record's shape is a different matter. The
@@ -762,6 +797,10 @@ elif mutation == "status-version-mismatch":
     value["data_set_version"] = "sha256:" + "5" * 64
 elif mutation == "status-version-missing":
     del value["data_set_version"]
+elif mutation == "status-profile-missing":
+    del value["runtime_profile_id"]
+elif mutation == "status-profile-malformed":
+    value["runtime_profile_id"] = "sha256:" + "C" * 64
 elif mutation == "extra-item-property":
     item["transport_extra"] = True
 elif mutation == "record-extra-property":
@@ -830,6 +869,14 @@ expect_http_contract_rejected status-version http-status.txt status-version-mism
   'HTTP SNV data-set version mismatch'
 expect_http_contract_rejected status-version-missing http-status.txt status-version-missing \
   'HTTP status data-set version is invalid'
+# The status response's third digest. It was published and unread: neither this
+# harness nor the checker named it, so a deployment could omit it or publish a
+# value that is not a digest at all and qualify. Hold it to the pattern the
+# other two are already held to.
+expect_http_contract_rejected status-profile-missing http-status.txt status-profile-missing \
+  'HTTP status runtime profile id is invalid'
+expect_http_contract_rejected status-profile-malformed http-status.txt status-profile-malformed \
+  'HTTP status runtime profile id is invalid'
 # A field added to the scored record inside the item, not to the item envelope.
 # `json_equal` is the checker's third and only decoded comparison, so an added
 # field has to be rejected there too or a change to what the tool prints
@@ -846,6 +893,89 @@ expect_http_contract_rejected integer-as-float http-snv.txt integer-as-float \
   'HTTP SNV response mismatch'
 expect_http_contract_rejected boolean-as-integer http-model.txt boolean-as-integer \
   'HTTP model response mismatch'
+
+# A deployment that published one digest under two names is not a deployment
+# with a mutated field: every item agrees with the status response, every value
+# is a well-formed digest, and every comparison the checker already makes is
+# satisfied. The collapse is visible only by comparing the three published
+# values with each other. So each collapse is applied across the whole
+# deployment rather than to one file, and each brings exactly one of the three
+# pairs together and leaves the other two apart. That is what holds the checker
+# to all three pairs rather than to whichever one it happens to compare.
+expect_collapsed_deployment_rejected() {
+  local label=$1 collapse=$2 expected=$3
+  local changed="$root/collapsed-$label"
+  cp -a "$root/output" "$changed"
+  python3 - "$changed" "$collapse" <<'COLLAPSE'
+import json
+import pathlib
+import sys
+
+deployment = pathlib.Path(sys.argv[1])
+collapse = sys.argv[2]
+items = ("http-snv.txt", "http-model.txt", "http-model-only.txt")
+
+
+def load(name):
+    path = deployment / name
+    head, separator, body = path.read_bytes().partition(b"\r\n\r\n")
+    assert separator, name
+    return path, head, json.loads(body)
+
+
+def store(path, head, value):
+    body = json.dumps(value, separators=(",", ":")).encode() + b"\n"
+    path.write_bytes(head + b"\r\n\r\n" + body)
+
+
+status_path, status_head, status = load("http-status.txt")
+before = dict(status)
+if collapse == "identity-onto-version":
+    status["data_set_version"] = status["scoring_identity"]
+    changed_items = 0
+    for name in items:
+        path, head, value = load(name)
+        value["results"][0]["data_set_version"] = status["data_set_version"]
+        store(path, head, value)
+        changed_items += 1
+    assert changed_items == len(items)
+elif collapse == "identity-onto-profile":
+    status["runtime_profile_id"] = status["scoring_identity"]
+elif collapse == "version-onto-profile":
+    status["runtime_profile_id"] = status["data_set_version"]
+else:
+    raise AssertionError(collapse)
+assert status != before, collapse
+published = (
+    status["scoring_identity"],
+    status["data_set_version"],
+    status["runtime_profile_id"],
+)
+# Exactly one pair collapsed: two distinct values left standing under three
+# names. A collapse that moved more than the pair it names would make the other
+# two expectations pass on the wrong evidence.
+assert len(set(published)) == 2, published
+store(status_path, status_head, status)
+COLLAPSE
+  if "$repo/scripts/check-production-qualification.py" "$changed" "$repo" \
+    >"$root/collapsed-$label.out" 2>"$root/collapsed-$label.err"; then
+    printf 'checker accepted a deployment that collapsed two identities: %s\n' "$label" >&2
+    exit 1
+  fi
+  if ! grep -Fxq "$expected" "$root/collapsed-$label.err"; then
+    printf 'collapsed deployment %s: expected refusal %s, checker printed:\n' \
+      "$label" "$expected" >&2
+    cat "$root/collapsed-$label.err" >&2
+    exit 1
+  fi
+}
+
+expect_collapsed_deployment_rejected identity-version identity-onto-version \
+  'HTTP status published one digest under both scoring_identity and data_set_version'
+expect_collapsed_deployment_rejected identity-profile identity-onto-profile \
+  'HTTP status published one digest under both scoring_identity and runtime_profile_id'
+expect_collapsed_deployment_rejected version-profile version-onto-profile \
+  'HTTP status published one digest under both data_set_version and runtime_profile_id'
 
 cp -a "$root/output" "$root/truncated-output"
 sed -i '$d' "$root/truncated-output/snv-unfiltered.jsonl"

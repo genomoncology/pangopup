@@ -285,10 +285,15 @@ def check_candidate(candidate: str) -> None:
             "candidate smoke executable output",
             rf"^  printf 'pangopup {re.escape(candidate)}\\n'$",
         ),
+        # The claim is the candidate version the stub reports, so the pattern
+        # ends at the last field it needs to have read past. What else the
+        # status response publishes beside it is the release checker's subject
+        # and not this file's, and pinning the whole field list here made a
+        # published value the checker gained a version-consistency failure.
         (
             "tests/production-release-qualification.sh",
             "candidate qualification server status",
-            rf'^            "/v1/status": {{"version":"{re.escape(candidate)}","readiness":"ready","scoring_identity":scoring_identity,"data_set_version":data_set_version}},$',
+            rf'^            "/v1/status": {{"version":"{re.escape(candidate)}","readiness":"ready","scoring_identity":scoring_identity,"data_set_version":data_set_version',
         ),
         (
             "tests/production-release-qualification.sh",
