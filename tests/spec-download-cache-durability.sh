@@ -20,9 +20,14 @@ set -euo pipefail
 # `ort-sys` 2.0.0-rc.12 resolves it in `src/internal/dirs.rs` as `ORT_CACHE_DIR`
 # when that is set, otherwise the platform default: on Linux `XDG_CACHE_HOME`
 # when it is an absolute path and `$HOME/.cache/ort.pyke.io` otherwise, and on
-# macOS `$HOME/Library/Caches/ort.pyke.io`. `resolve` below is that rule and
+# macOS `$HOME/Library/Caches/ort.pyke.io`. The probe below is that rule and
 # nothing more, so a recipe is read against what the build actually does rather
 # than against which variable someone remembered to name.
+#
+# The probe runs from the tree root, because that is where `make` runs a
+# recipe and what `$$PWD` in one resolves to. Reading it from wherever this
+# file happens to have been started would answer `ORT_CACHE_DIR="$$PWD/..."`
+# with a directory the recipe never names.
 #
 # The rule is deliberately not "XDG_CACHE_HOME must survive the recipe".
 # `make spec` runs under a model cache home of its own and that home is
@@ -165,9 +170,10 @@ inside() {
 # recipes it held on acceptance, the reason on refusal.
 makefile_holds() {
     local makefile=$1 root=$2 relative=$3
-    local target recipe removed prefix resolved directory
+    local target recipe removed prefix raw resolved directory
     local held=0 refused=0
     [[ -f "$makefile" ]] || { printf 'no %s to read\n' "$relative" >&2; return 1; }
+    mkdir -p "$root"
 
     while IFS= read -r target; do
         [[ -n "$target" ]] || continue
@@ -178,14 +184,21 @@ makefile_holds() {
         held=$((held + 1))
 
         prefix=$(printf '%s\n' "$recipe" | environment_prefix) || prefix=''
-        resolved=$(eval "$prefix bash \"\$probe\"") \
+        # Run from the tree root, because that is where make runs a recipe and
+        # what a relative answer stands against.
+        raw=$(cd "$root" && eval "$prefix bash \"\$probe\"") \
             || { printf 'could not resolve the downloaded-library cache of the %s recipe in %s\n' "$target" "$relative" >&2; refused=1; continue; }
-        if [[ -z "$resolved" ]]; then
-            printf 'the %s recipe in %s resolves no downloaded-library cache at all, so this rule read nothing about it\n' \
-                "$target" "$relative" >&2
-            refused=1
-            continue
-        fi
+        # A relative answer is not inside any directory named here. `ort-sys`
+        # takes `ORT_CACHE_DIR` verbatim with no absolute-path test, and cargo
+        # runs a build script from the dependency's own package root under
+        # `CARGO_HOME` rather than from `$(CURDIR)`, so a relative value lands
+        # beside the crate source and never in a directory this recipe removes.
+        # Measured with a build script that printed its own working directory.
+        resolved=
+        case "$raw" in
+            /*) resolved=$raw ;;
+        esac
+        [[ -n "$resolved" ]] || continue
 
         while IFS= read -r directory; do
             [[ -n "$directory" ]] || continue
@@ -235,6 +248,12 @@ plant() {
             durable)
                 printf '\trm -rf target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="$(CURDIR)/target/ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
+            relative-ort)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR=target/spec-cache/ort XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
+            pwd-ort)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$$PWD/target/spec-cache/ort" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
             removes-elsewhere)
                 printf '\trm -rf target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="$(CURDIR)/target/ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/ort-cache-not" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
@@ -298,6 +317,22 @@ expect_acceptance 'the rule refused a recipe whose downloaded-library cache stan
 plant "$work/removes-elsewhere" removes-elsewhere
 expect_acceptance 'the rule refused a recipe that empties its model cache home each run while keeping its downloaded-library cache elsewhere' \
     "$work/removes-elsewhere"
+
+# `$$PWD` names the directory make ran the recipe in, which is the tree root:
+# the same directory `$(CURDIR)` names, by the other spelling. A probe read
+# from wherever this file was started would answer with some other directory
+# and call this recipe clean.
+plant "$work/pwd-ort" pwd-ort
+expect_refusal 'fetches that library again' "$work/pwd-ort"
+
+# A relative `ORT_CACHE_DIR` is not this rule's business. `ort-sys` takes the
+# value verbatim, and cargo runs a build script from the dependency's own
+# package root under `CARGO_HOME`, so the cache lands beside the crate source
+# and not in the directory this recipe removes. Refusing it here would be a
+# rule wider than the thing it covers.
+plant "$work/relative-ort" relative-ort
+expect_acceptance 'the rule refused a recipe whose relative ORT_CACHE_DIR lands beside the crate source rather than in a directory the recipe removes' \
+    "$work/relative-ort"
 
 # --- the real tree ----------------------------------------------------------
 

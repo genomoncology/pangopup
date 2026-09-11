@@ -65,8 +65,16 @@ self_relative=tests/$self_relative
 helper_relative='tests/support/private-cache-home.sh'
 
 # The one shell script that runs an executable it is handed rather than one it
-# names.
+# names, and whose callers are therefore the thing to hold.
 smoke_relative='scripts/smoke-linux-release.sh'
+
+# Every script that runs an executable handed to it, paired with the gate that
+# reads it. Written out rather than discovered, because the point of the pair
+# is that someone decided how each one is held.
+argument_runner_gates=(
+    "$smoke_relative:tests/shell-spawn-cache-isolation.sh"
+    'scripts/run-production-qualification.sh:tests/qualification-runner-cache-isolation.sh'
+)
 
 # A call of that script, as opposed to a mention of its path. `.` is a
 # metacharacter, so the path is escaped into the pattern rather than pasted in.
@@ -271,6 +279,100 @@ hands_over() {
     logical_lines "$1" | grep -qE -- "$smoke_call"
 }
 
+# --- scripts that run an executable handed to them ---------------------------
+#
+# `examine` reads a path or a cargo option, so a script that runs the
+# executable it was handed as a positional argument names nothing it can see
+# and is read as quiet. Both scripts of that shape in this repository run the
+# shipped executable, and neither can take a cache home by sourcing the helper:
+# one is handed its homes by its caller, the other by its own arguments.
+#
+# So the shape is recognised and counted here rather than folded into the
+# harness count, and each script of it must be held by a gate that reads it.
+# The two this repository has are named below. A third would be held by
+# neither, and is refused here until a gate reads it.
+#
+# The recognition is a variable assigned from a positional parameter and then
+# standing where a command stands. Reading it from logical lines rather than
+# physical ones is what tells the command apart from an argument: `docker run
+# ... \` continued onto a line opening with `"$image"` is the argument shape,
+# and `scripts/qualify-container.sh` carries three of them. Conditional
+# expressions are cut out for the same reason -- `[[ "$output_dir" == /* ]]`
+# tests a path rather than running one.
+#
+# Measured over this tree: ten matching lines in two files, both of them
+# scripts that run the executable they were handed, and no other match.
+
+# The words a command can stand straight after, as in `smoke_words` but without
+# `source` and `.`: sourcing a file runs no executable.
+argument_words='bash|sh|env|exec|eval|command|sudo|timeout|nohup|xargs|then|do|else|if|elif|while|until|time|!'
+argument_lead="(^|[;&|(]|(^|[[:space:];&|(])($argument_words)[[:space:]]+)"
+
+# The variables file $1 assigns from a positional parameter, one per line.
+# The script's own arguments, so the assignment stands at file scope. A `local
+# name=$1` is a function's parameter rather than the script's, and reading
+# those as well would count `"$matcher" "$text" "$name"` in
+# `tests/model-cache-limit-inheritance.sh` -- a shell function called through a
+# variable -- as a script running an executable it was handed.
+positional_variables() {
+    { grep -oE '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\{?[0-9]' "$1" || true; } \
+        | sed -E 's/^[[:space:]]*//; s/=\$\{?[0-9].*//' \
+        | sort -u
+}
+
+# Whether $1 runs, as a command, something it was handed as a positional
+# argument.
+runs_an_argument() {
+    local source=$1 variable
+    while IFS= read -r variable; do
+        [[ -n "$variable" ]] || continue
+        logical_lines "$source" \
+            | sed -E 's/\[\[.*\]\]//g' \
+            | grep -qE -- "$argument_lead[[:space:]]*\"\\\$\{?$variable\}?\"[[:space:]]" \
+            && return 0
+    done < <(positional_variables "$source")
+    return 1
+}
+
+# The shell files under $1 that run an executable handed to them, relative and
+# sorted.
+argument_runners() {
+    local root=$1 source
+    while IFS= read -r source; do
+        runs_an_argument "$source" || continue
+        printf '%s\n' "${source#"$root/"}"
+    done < <(
+        find "$root" -type f -name '*.sh' -not -path '*/target/*' | sort
+    )
+}
+
+# Refuse the tree rooted at $1 unless every script that runs an executable
+# handed to it is one a gate reads. Prints the count on acceptance.
+argument_runners_held() {
+    local root=$1 relative known found refused=0 counted=0
+    while IFS= read -r relative; do
+        [[ -n "$relative" ]] || continue
+        counted=$((counted + 1))
+        found=no
+        for known in "${argument_runner_gates[@]}"; do
+            [[ "${known%%:*}" != "$relative" ]] || found=yes
+        done
+        [[ "$found" == yes ]] && continue
+        printf 'this script runs an executable handed to it as an argument, so no scan over %s can see which executable it runs, and no gate reads it: %s\n' \
+            'a path' "$relative" >&2
+        printf 'hold it the way %s holds %s -- by running it -- or name the gate that does\n' \
+            "${argument_runner_gates[1]#*:}" "${argument_runner_gates[1]%%:*}" >&2
+        refused=1
+    done < <(argument_runners "$root")
+    (( refused == 0 )) || return 1
+    if (( counted == 0 )); then
+        printf 'found no script under %s running an executable handed to it, so this rule held over nothing\n' \
+            "$root" >&2
+        return 1
+    fi
+    printf '%s\n' "$counted"
+}
+
 # Refuse the tree rooted at $1 if a shell file there runs the script that runs
 # an executable handed to it, without being one of the harnesses `examine`
 # accepted. Call it after `examine`, which is what fills `held_runners`.
@@ -422,6 +524,19 @@ plant() {
                 ;;
             package-short)
                 printf 'cargo run -p %s -- lookup --help\n' pangopup-cli
+                ;;
+            runs-argument)
+                printf 'given=$1\n'
+                printf '"$given" --version\n'
+                ;;
+            docker-continuation)
+                printf 'image=$1\n'
+                printf 'docker run --rm \\\n'
+                printf '  "$image" --version\n'
+                ;;
+            tests-argument)
+                printf 'given=$1\n'
+                printf '[[ "$given" == /* ]] || exit 1\n'
                 ;;
         esac
     } >"$tree/$path"
@@ -760,6 +875,44 @@ for ambient_directory in "$ambient/home" "$ambient/cache"; do
 done
 )
 
+# --- the argument-run shape is recognised ------------------------------------
+#
+# The same rule as everywhere else in this file: it is worth what it can
+# refuse, so each answer is exercised against a fixture before the real tree is
+# read.
+
+argument_shape() {
+    local name=$1 shape=$2
+    local tree="$fixtures/argument-$name"
+    plant "$tree" 'scripts/subject.sh' "$shape"
+    argument_runners "$tree"
+}
+
+[[ "$(argument_shape runs runs-argument)" == 'scripts/subject.sh' ]] \
+    || fail 'the scan does not see a script that runs an executable handed to it as an argument, so every such script reads as quiet and no count could ever rise'
+
+# The shape the line-based reading would have got wrong. `docker run ... \`
+# continued onto a line opening with `"$image"` is an argument, not a command,
+# and `scripts/qualify-container.sh` and its production sibling carry three of
+# them between them.
+[[ -z "$(argument_shape continuation docker-continuation)" ]] \
+    || fail 'the scan reads a continuation line opening with a variable as a command, so every `docker run ... \` in this repository is counted as a script running an executable handed to it'
+
+[[ -z "$(argument_shape tested tests-argument)" ]] \
+    || fail 'the scan reads a conditional expression as a command, so a script that only checks the path it was given is counted as running it'
+
+empty_arguments="$fixtures/argument-none"
+plant "$empty_arguments" 'scripts/quiet.sh' quiet
+if argument_runners_held "$empty_arguments" 2>/dev/null; then
+    fail 'the scan accepted a tree in which nothing runs an executable handed to it, so this rule can pass on nothing'
+fi
+
+unheld="$fixtures/argument-unheld"
+plant "$unheld" 'scripts/subject.sh' runs-argument
+if argument_runners_held "$unheld" 2>/dev/null; then
+    fail 'the scan accepted a script that runs an executable handed to it and that no gate reads, so a third one could be added and stay invisible'
+fi
+
 # --- the real tree ----------------------------------------------------------
 #
 # The two halves answer different questions and are reported independently. Run
@@ -804,6 +957,22 @@ if inheritors_hold "$repository"; then
         printf 'shell spawn cache isolation: tests/executable-delivery.sh no longer hands an executable to %s, so this scan is checking the wrong files\n' \
             "$smoke_relative" >&2
         problems=1
+    fi
+else
+    problems=1
+fi
+
+# Every script that runs an executable handed to it is one a gate reads. The
+# count is what the two named pairs above are for: a scan that stopped seeing
+# either of them would report one, or none, rather than two.
+if handed=$(argument_runners_held "$repository"); then
+    if (( handed != ${#argument_runner_gates[@]} )); then
+        printf 'shell spawn cache isolation: %s script(s) run an executable handed to them, but %s are named with the gate that reads them, so this scan is checking the wrong files\n' \
+            "$handed" "${#argument_runner_gates[@]}" >&2
+        problems=1
+    else
+        printf 'examined %s shell source(s), %s script(s) running an executable handed to them, each read by a gate\n' \
+            "$(find "$repository" -type f -name '*.sh' -not -path '*/target/*' | wc -l)" "$handed"
     fi
 else
     problems=1
