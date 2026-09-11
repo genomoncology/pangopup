@@ -444,6 +444,20 @@ assertion_harnesses=(executable-delivery.sh)
 # `[[ ... ]] && printf ...` -- a correct line in a one-line stub, and no
 # assertion of this harness at all. Their bodies are skipped, which is also
 # what keeps the assertion count honest.
+#
+# Section 1 deliberately has no such exemption, and the two are not in
+# disagreement. That rule reads every shell file in the repository and refuses
+# a shape that is wrong wherever it is written, so a heredoc exemption there
+# would be a hiding place. This rule reads one named harness and asks what its
+# own assertions say when they fail, and a line it writes into a file is not
+# one of them. The cost is that a harness writing a sub-harness into a heredoc
+# and running it would have that sub-harness's assertions skipped; the three
+# stubs here are one-liners, and widening this rule past one harness means
+# revisiting it.
+#
+# `<<<` is a here-string, not a heredoc, so a match whose `<<` is preceded by
+# a third `<` opens nothing. Without that, `cmd <<<word` would swallow every
+# line until one read `word`.
 assertion_scan='
 FNR == 1 { heredoc = "" }
 {
@@ -454,7 +468,8 @@ FNR == 1 { heredoc = "" }
         if (terminator == heredoc) { heredoc = "" }
         next
     }
-    if (match($0, /<<-?[[:space:]]*[\047"]?[A-Za-z_][A-Za-z0-9_]*[\047"]?/)) {
+    if (match($0, /<<-?[[:space:]]*[\047"]?[A-Za-z_][A-Za-z0-9_]*[\047"]?/) \
+        && substr($0, RSTART - 1, 1) != "<") {
         heredoc = substr($0, RSTART, RLENGTH)
         sub(/^<<-?[[:space:]]*/, "", heredoc)
         gsub(/[\047"]/, "", heredoc)
@@ -540,6 +555,22 @@ read -r heredoc_assertions heredoc_bare < <(scan_assertions "$heredoc_fixture")
     || fail "the scan read $heredoc_assertions assertion(s) out of a fixture whose only \`[[\` and \`grep\` lines stand inside a heredoc body, so it counts text a harness writes as a statement it runs"
 [[ "$heredoc_bare" == 0 ]] \
     || fail "the scan refused a line standing inside a heredoc body, which is text the harness writes rather than an assertion it makes"
+
+# `<<<` is a here-string and opens no body. Reading one as a heredoc would make
+# the scan skip every line after it until one read the word, which is the whole
+# rest of a harness.
+herestring_fixture="$work/herestring-assertions.sh"
+printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'grep -Fq wanted <<<word' \
+    "grep -Fq 'wanted' file" \
+    >"$herestring_fixture"
+
+read -r herestring_assertions herestring_bare < <(scan_assertions "$herestring_fixture")
+[[ "$herestring_assertions" == 2 ]] \
+    || fail "the scan read $herestring_assertions of the 2 assertions standing after a here-string, so it read \`<<<\` as a heredoc and skipped the rest of the file"
+[[ "$herestring_bare" == 2 ]] \
+    || fail "the scan found $herestring_bare of the 2 silent assertions standing after a here-string"
 
 # The mechanism the repaired assertions go through.
 expected_support="$repository/tests/support/expected-text.sh"
