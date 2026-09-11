@@ -2,11 +2,11 @@
 flow: build
 priority: 2
 ---
-# Four published claims are incomplete and nothing holds them
+# Five published claims are incomplete and nothing holds them
 
-Four documented claims are each incomplete or wrong, and no gate reads any of
+Five documented claims are each incomplete or wrong, and no gate reads any of
 them, so each can go stale unnoticed. They are one ticket because they are one
-job: correct a published sentence, then have a gate read it. Four claims, one
+job: correct a published sentence, then have a gate read it. Five claims, one
 gate design.
 
 ## The stored version is placed on the status route only
@@ -62,6 +62,29 @@ exception section rather than in the fixed-width payload. The document presents
 an arithmetic product as a measurement, in a public document a reader may check
 against a file they downloaded.
 
+## Two published transcripts are no longer what the command prints
+
+`mustmatch EXPECTED` compares canonical JSON when both sides parse as JSON, so
+an added field fails the pin. `mustmatch like EXPECTED` compares a subset, so an
+added field passes. Measured against mustmatch 0.1.0 on 2026-09-11:
+`printf '{"a":1,"b":2}' | mustmatch '{"a":1}'` exits 1, and the same input under
+`mustmatch like` exits 0.
+
+`spec/` carries 24 JSON-object pins written with `like`. Rewriting every
+`| mustmatch like '{` to `| mustmatch '{` and running `make spec` fails three of
+them. `spec/snv-lookup.md:17` and `spec/model-routing.md:100` each pin a whole
+lookup record whose `provenance` object does not carry
+`"software_version":"0.5.0"`. The product emits it; it arrived in `d37d558` on
+2026-09-09 and neither transcript changed. A reader takes those blocks as the
+bytes the command prints, and they are not. The third, `spec/full-bundle.md:32`,
+is a deliberate three-of-eleven-field excerpt beneath a paragraph about
+determinism, and is correct as it stands.
+
+This is the staleness ticket 0085 found in `spec/model-kernel.md`, where an
+inspect transcript had been missing `"representation":"singleton"` for 47 days.
+There the fence pinned nothing at all. Here the fence pins and still lets a
+field arrive unnoticed.
+
 Done, observably:
 
 - `architecture/service.md` tells a reader that every returned score item
@@ -85,12 +108,17 @@ Done, observably:
   red. The gate that already holds the disagreement figures to their artifact
   holds the substitution sentence too, and the same-strand statement is held to
   the frozen corpus case that pins the behaviour.
+- Every `spec/` block presenting a whole record as the bytes a command prints
+  pins them completely, so a field added to that record turns `make spec` red;
+  a block deliberately pinning part of a record says in the file that it is
+  partial and why.
 - The gate counts the claims it read, so a scan matching nothing fails rather
   than passes.
 - `make test`, `make spec` and `make lint` pass.
 
 Boundary: this ticket changes documentation and the gates that pin it. It
-changes no product source under `crates/`, does not alter `score_typed`, the
+changes no product source under `crates/`, does not change what any command
+prints, does not alter `score_typed`, the
 masking order, or any score, position, status, reason or provenance field. It
 publishes no new number and re-measures nothing: the variant set, the artifact's
 counts, the committed records, the mechanism statement and the ordering

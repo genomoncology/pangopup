@@ -2,12 +2,12 @@
 flow: build
 priority: 2
 ---
-# The cache home work leaves two residues
+# Three gate residues from the cache home and gate ladder work
 
-Ticket 0092 closed the three gaps ticket 0090 left. It left two things behind,
-both measured in this checkout on 2026-09-11. They are one ticket because they
-are one job: finishing the cache home work so a later contributor inherits a
-rule that holds and a download that survives.
+Tickets 0092 and 0085 closed the gaps they named and each left residue behind,
+all measured in this checkout on 2026-09-11. They are one ticket because they
+are one job: finishing that work so a later contributor inherits rules that hold
+and a download that survives.
 
 ## A route added tomorrow may inherit the entry limit
 
@@ -54,6 +54,28 @@ each other, because `ort-sys` emits no `cargo:rerun-if-env-changed` for
 Settled: the recipe keeps a cache home of its own and keeps deleting the
 directory it deletes today. What moves is only the downloaded library.
 
+## The currency scan reads a mention as a build, and a harness says nothing
+
+`tests/built-executable-currency.sh` holds that a harness reaching into
+`target/debug` builds first. Its `build_pattern` is a text match over a code
+line and `first_line` takes the lowest match, so a harness whose line 2 is
+`printf 'scripts/require-built-commands.sh\n'` inside a fixture generator, whose
+first use stands at line 3 and whose real build stands at line 4, is accepted:
+the scan reads line 2 as the build. `tests/shell-spawn-cache-isolation.sh`
+already carries three such lines, at 451, 484 and 513. It reaches into
+`target/debug` nowhere, so nothing is unheld today; the exposure arrives the
+moment one harness does both. Its `use_pattern` has the mirror shape, so a file
+that only names the path in a `grep` argument counts toward the floor of four
+without ever running the executable. That direction refuses rather than accepts,
+which is the safe one.
+
+Separately, `tests/production-release-qualification.sh` carries 69 assertions
+that end in a bare command under `set -e`, so a failure stops the harness with
+status 1 and no output naming the expectation. Ticket 0085 fixed this shape in
+`tests/executable-delivery.sh` and scoped its gate to that one file, because
+this harness needs a real production release to exercise. The repair is the
+same: `tests/support/expected-text.sh` already exists and names what it wanted.
+
 Done, observably:
 
 - A Makefile recipe that reaches the built executable while inheriting
@@ -69,6 +91,12 @@ Done, observably:
 - A check refuses a recipe that points a cache of downloaded artifacts at a
   directory that command removes, whether the remover is the recipe itself or
   `cargo clean`.
+- A harness that names the build script without running it is not counted as
+  having built, and the rule the currency scan enforces is stated in one
+  sentence in the file beside the check that holds it.
+- A failing assertion in `tests/production-release-qualification.sh` prints what
+  was expected and what was found before the harness exits, and the harness
+  still fails on every input it fails on today.
 - `make lint`, `make test` and `make spec` pass, and `make test` wall time does
   not grow by more than two seconds.
 
