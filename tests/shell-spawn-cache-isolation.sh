@@ -31,33 +31,49 @@ set -euo pipefail
 #
 #   * That the helper redirects anything. That is a runtime property, and the
 #     second half of this file exercises it directly.
-#   * That `scripts/smoke-linux-release.sh` holds a cache home. It runs an
-#     executable handed to it as an argument and names none, so no name scan
-#     can see it. On the host its only caller is `tests/executable-delivery.sh`,
-#     which is in scope here and whose cache home it inherits through the
-#     environment. `.github/workflows/package-linux.yml` runs it inside a
-#     container against that container's own filesystem, where there is no
+#   * That `scripts/smoke-linux-release.sh` runs the executable. It runs one
+#     handed to it as an argument and names none, so no name scan can see it.
+#     What covers it is inheritance: every shell file that names it has taken a
+#     cache home of its own first, and the executable it is handed runs under
+#     that. This file checks that rather than asserting it, because a comment
+#     saying "its only caller today is in scope" stays true only until someone
+#     adds a second caller. `.github/workflows/package-linux.yml` runs it inside
+#     a container against that container's own filesystem, where there is no
 #     operator cache to reach.
 
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+self_relative=${BASH_SOURCE[0]##*/}
+self_relative=tests/$self_relative
 helper_relative='tests/support/private-cache-home.sh'
+
+# The one shell script that runs an executable it is handed rather than one it
+# names.
+smoke_relative='scripts/smoke-linux-release.sh'
 
 # A run of the built executable. `pangopup-build` is a different binary with no
 # model cache, so the trailing class keeps `target/debug/pangopup-build` out.
 # `cargo run --bin pangopup` builds and runs the same executable by another
-# name and is a run like any other.
+# name and is a run like any other; cargo spells that option with a space or an
+# equals sign, so the separator class carries both.
 #
-# Only code counts. A line that mentions a path inside a comment runs nothing,
-# which is why every pattern here is anchored at `^[^#]*`.
-use='^[^#]*target/(debug|release)/pangopup([^-]|$)|^[^#]*--bin[[:space:]]+pangopup([^-]|$)'
+# Only code counts, and a whole-line comment is the only commentary these
+# patterns recognise. Anchoring them at `^[^#]*` instead would hide a run from
+# every code line carrying an earlier `#`, and `"${bin#$PWD/}"` is ordinary
+# shell. That is the one direction a gate like this must never fail in.
+# `code_lines` drops the comment lines instead.
+use='target/(debug|release)/pangopup([^-]|$)|--bin[[:space:]=]+pangopup([^-]|$)'
 
-# Sourcing the helper is what establishes the cache home.
-establish='^[^#]*tests/support/private-cache-home\.sh'
+# Sourcing the helper is what establishes the cache home, so the line has to
+# source it. A file that names the path in a variable or an error message has
+# established nothing.
+establish='^[[:space:]]*(\.|source)[[:space:]]+.*tests/support/private-cache-home\.sh'
 
-# A build step. `scripts/require-built-commands.sh` is the one wrapper around
-# `cargo build` the harnesses call, and it counts as a build wherever it
-# appears.
-build='^[^#]*([^-[:alnum:]_]|^)cargo[[:space:]]|^[^#]*scripts/require-built-commands\.sh'
+# A build step: `cargo` as the command the line runs, or the one wrapper around
+# `cargo build` the harnesses call. Anchored at the start of the line, past an
+# assignment and a command substitution, because the word `cargo` inside a
+# `grep` argument is a string being searched for rather than a build --
+# `tests/executable-delivery.sh` carries eight such lines.
+build='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=)?(\$\()?(cargo[[:space:]]|[^[:space:]]*scripts/require-built-commands\.sh)'
 
 # One file, named in full. `tests/built-executable-currency.sh` writes stub
 # executables into a fixture tree at those paths and runs the shipped one
@@ -71,19 +87,32 @@ exempt='tests/built-executable-currency.sh'
 
 fail() { printf 'shell spawn cache isolation: %s\n' "$*" >&2; exit 1; }
 
-# The first line number in $1 matching the extended pattern $2, or empty.
+# The line numbers in $1 matching the extended pattern $2, lowest first. A
+# whole-line comment is commentary rather than code and never matches.
+code_lines() {
+    { grep -nE -- "$2" "$1" || true; } \
+        | { grep -vE '^[0-9]+:[[:space:]]*#' || true; } \
+        | cut -d: -f1
+}
+
+# The first such line, or empty.
 first_line() {
-    { grep -nE -- "$2" "$1" || true; } | head -n 1 | cut -d: -f1
+    code_lines "$1" "$2" | head -n 1
 }
 
 # Refuse the tree rooted at $1. Prints its counts on acceptance, its reason on
-# refusal. `runners` is left holding the relative paths that ran the executable.
+# refusal. `runners` is left holding the relative paths that ran the
+# executable, and `held_runners` the ones that ran it under a cache home of
+# their own -- the first is what the scan matched, the second what it accepted.
 runners=()
+held_runners=()
 examine() {
     local root=$1
     local sources=() source relative use_line establish_line build_line scanned
+    local refused=0 warmed run_builds onnx held
 
     runners=()
+    held_runners=()
     while IFS= read -r source; do sources+=("$source"); done < <(
         find "$root" -type f -name '*.sh' -not -path '*/target/*' | sort
     )
@@ -104,22 +133,58 @@ examine() {
         if [[ -z "$establish_line" ]]; then
             printf 'this harness runs the built executable without a cache home of its own, so it reaches the model cache of whoever runs it and can discard that person'"'"'s cache: %s:%s\n' \
                 "$relative" "$use_line" >&2
-            printf 'source %s before that line\n' "$helper_relative" >&2
-            return 1
+            printf 'source %s before that line, with a leading `.` or `source`\n' "$helper_relative" >&2
+            refused=1
+            continue
         fi
         if (( establish_line > use_line )); then
             printf 'this harness runs the built executable at %s:%s but takes its cache home at line %s, so the runs before that line reach the model cache of whoever runs it\n' \
                 "$relative" "$use_line" "$establish_line" >&2
-            return 1
+            refused=1
+            continue
         fi
 
-        build_line=$(first_line "$source" "$build")
-        if [[ -n "$build_line" ]] && (( build_line > establish_line )); then
+        # Every build line, not just the first. A harness that builds, takes a
+        # cache home and builds again -- debug first and release after -- put
+        # its second build under the fresh home, and reading only the first
+        # build line calls that clean.
+        #
+        # The one build allowed after the cache home is the run itself.
+        # `cargo run --bin pangopup` is a build and a run on one line and the
+        # run has to come after the cache home, so that line is refused on the
+        # other condition instead: it is safe only where an earlier build
+        # already left `target/` warm, and a harness whose run is its only
+        # build has no such build.
+        warmed=no
+        run_builds=no
+        onnx=no
+        while IFS= read -r build_line; do
+            [[ -n "$build_line" ]] || continue
+            if (( build_line <= establish_line )); then
+                warmed=yes
+                continue
+            fi
+            if (( build_line == use_line )); then
+                run_builds=yes
+                continue
+            fi
             printf 'this harness takes its cache home at %s:%s and then builds at line %s: the ONNX Runtime library the build resolves lands under XDG_CACHE_HOME, so a build under a fresh cache home downloads it again instead of linking the copy already there. Build first, take the cache home after.\n' \
                 "$relative" "$establish_line" "$build_line" >&2
-            return 1
+            refused=1
+            onnx=yes
+        done < <(code_lines "$source" "$build")
+        held=yes
+        [[ "$onnx" != yes ]] || held=no
+        if [[ "$run_builds" == yes && "$warmed" == no ]]; then
+            held=no
+            printf 'this harness builds and runs the executable in one step at %s:%s under the cache home it took at line %s, and nothing builds before that line: the ONNX Runtime library the build resolves lands under XDG_CACHE_HOME, so it is downloaded again instead of linked. Build before taking the cache home.\n' \
+                "$relative" "$use_line" "$establish_line" >&2
+            refused=1
         fi
+        [[ "$held" != yes ]] || held_runners+=("$relative")
     done
+
+    (( refused == 0 )) || return 1
 
     if (( ${#runners[@]} == 0 )); then
         printf 'examined %s shell source(s) under %s and found none that runs the built executable, so this check read no run and proved nothing\n' \
@@ -129,6 +194,31 @@ examine() {
 
     printf 'examined %s shell source(s), %s harness(es) running the built executable, each holding a cache home of its own\n' \
         "$scanned" "${#runners[@]}"
+}
+
+# Refuse the tree rooted at $1 if a shell file there names the script that runs
+# an executable handed to it, without being one of the harnesses `examine`
+# accepted. Call it after `examine`, which is what fills `held_runners`.
+inheritors_hold() {
+    local root=$1 caller relative runner held refused=0
+    while IFS= read -r caller; do
+        relative=${caller#"$root/"}
+        [[ "$relative" != "$smoke_relative" ]] || continue
+        [[ "$relative" != "$self_relative" ]] || continue
+        held=no
+        for runner in "${held_runners[@]}"; do
+            [[ "$runner" != "$relative" ]] || held=yes
+        done
+        [[ "$held" == yes ]] && continue
+        printf 'this file names %s, which runs an executable handed to it as an argument, but takes no cache home of its own to hand it: %s\n' \
+            "$smoke_relative" "$relative" >&2
+        refused=1
+    done < <(
+        find "$root" -type f -name '*.sh' -not -path '*/target/*' -print0 \
+            | xargs -0 -r grep -lF -- "$smoke_relative" \
+            | sort
+    )
+    (( refused == 0 )) || return 1
 }
 
 # --- the scanner refuses what it exists to refuse ---------------------------
@@ -183,6 +273,40 @@ plant() {
                 ;;
             mentions)
                 printf '# a comment about $repo/target/%s/pangopup runs nothing\n' debug
+                ;;
+            builds-again)
+                printf 'cargo build --locked\n'
+                printf '. "$repo/%s"\n' "$helper_relative"
+                printf 'cargo build --release --locked\n'
+                printf '"$repo/target/%s/pangopup" --version\n' release
+                ;;
+            names-helper)
+                printf 'helper=%s\n' "$helper_relative"
+                printf '"$repo/target/%s/pangopup" --version\n' debug
+                ;;
+            bin-equals)
+                printf 'cargo run --package pangopup-cli --bin=%s -- lookup --help\n' pangopup
+                ;;
+            after-a-hash)
+                printf 'trimmed=${bin#$PWD/}; "$repo/target/%s/pangopup" --version\n' debug
+                ;;
+            held-cargo-run)
+                printf 'scripts/require-built-commands.sh\n'
+                printf '. "$repo/%s"\n' "$helper_relative"
+                printf 'cargo run --package pangopup-cli --bin %s -- lookup --help\n' pangopup
+                ;;
+            names-smoke)
+                printf '"$repo/%s" "$1" "$2"\n' "$smoke_relative"
+                ;;
+            held-names-smoke)
+                printf 'scripts/require-built-commands.sh\n'
+                printf '. "$repo/%s"\n' "$helper_relative"
+                printf '"$repo/target/%s/pangopup" --version\n' debug
+                printf '"$repo/%s" "$1" "$2"\n' "$smoke_relative"
+                ;;
+            cold-cargo-run)
+                printf '. "$repo/%s"\n' "$helper_relative"
+                printf 'cargo run --package pangopup-cli --bin %s -- lookup --help\n' pangopup
                 ;;
         esac
     } >"$tree/$path"
@@ -254,6 +378,39 @@ lookalike="$fixtures/lookalike"
 plant "$lookalike" 'crates/pangopup-cli/tests/built-executable-currency.sh' runs
 expect_refusal "$lookalike" 'crates/pangopup-cli/tests/built-executable-currency.sh:2'
 
+# Reading only the first build line calls a harness clean when it builds, takes
+# a cache home and builds again -- a debug build and then a release one, which
+# is the ordinary shape of a release harness. The second build is the one under
+# the fresh cache home.
+builds_again="$fixtures/builds-again"
+plant "$builds_again" 'tests/qualification.sh' builds-again
+expect_refusal "$builds_again" 'ONNX Runtime'
+
+# Naming the helper is not sourcing it. A file that assigns the path to a
+# variable and never sources it has taken no cache home.
+named="$fixtures/named"
+plant "$named" 'tests/qualification.sh' names-helper
+expect_refusal "$named" 'tests/qualification.sh:3'
+
+# `--bin=pangopup` is the same run as `--bin pangopup`.
+bin_equals="$fixtures/bin-equals"
+plant "$bin_equals" 'tests/help-contract.sh' bin-equals
+expect_refusal "$bin_equals" 'tests/help-contract.sh:2'
+
+# A run on a code line carrying an earlier `#` is still a run. `${bin#$PWD/}`
+# is ordinary shell, and a scan that reads it as a comment reads the harness as
+# quiet.
+hashed="$fixtures/hashed"
+plant "$hashed" 'tests/qualification.sh' after-a-hash
+expect_refusal "$hashed" 'tests/qualification.sh:2'
+
+# `cargo run` builds and runs in one step, so it cannot be moved before the
+# cache home. It is safe only where an earlier build left `target/` warm, and
+# refused where nothing built first.
+cold="$fixtures/cold"
+plant "$cold" 'tests/help-contract.sh' cold-cargo-run
+expect_refusal "$cold" 'nothing builds before that line'
+
 clean="$fixtures/clean"
 plant "$clean" 'tests/quiet.sh' quiet
 plant "$clean" 'tests/qualification.sh' held
@@ -267,6 +424,32 @@ plant "$exempted" "$exempt" runs
 expect_acceptance "$exempted" \
     "the scanner refused $exempt for writing stub executables into a fixture tree, which this check has no business demanding"
 
+# The shape `tests/release-help-contract.sh` has to take: build, take the cache
+# home, then build and run in one step. A rule with no satisfying shape for a
+# `cargo run` harness would be a rule that cannot be obeyed.
+warm="$fixtures/warm"
+plant "$warm" 'tests/help-contract.sh' held-cargo-run
+expect_acceptance "$warm" \
+    'the scanner refused a harness that builds, takes a cache home and only then runs cargo, which leaves a cargo-run harness no shape it can take'
+
+# A file that hands an executable to the script that runs whatever it is given
+# has to have taken a cache home first, or the run reaches the operator's cache
+# under a name no scan can read.
+inherited="$fixtures/inherited"
+plant "$inherited" 'tests/qualification.sh' held
+plant "$inherited" 'scripts/caller.sh' names-smoke
+examine "$inherited" >/dev/null \
+    || fail 'the inheritance fixture was refused by the name scan, so it proves nothing about inheritance'
+if inheritors_hold "$inherited" 2>/dev/null; then
+    fail 'the scanner accepted a file handing an executable to the smoke script without a cache home of its own'
+fi
+
+inheriting="$fixtures/inheriting"
+plant "$inheriting" 'tests/qualification.sh' held-names-smoke
+examine "$inheriting" >/dev/null || fail 'the inheriting fixture was refused by the name scan'
+inheritors_hold "$inheriting" \
+    || fail 'the scanner refused a harness that takes a cache home and only then hands an executable to the smoke script'
+
 # --- the helper redirects ---------------------------------------------------
 #
 # The scan above reads the calling side: it proves every harness takes a cache
@@ -274,6 +457,7 @@ expect_acceptance "$exempted" \
 # reach the operator's cache and the scan would still be green, because they
 # would still be taking a cache home. This reads the other side.
 
+helper_redirects() (
 helper="$repository/$helper_relative"
 [[ -f "$helper" ]] \
     || fail "no $helper_relative: nothing gives a shell harness a cache home of its own"
@@ -332,20 +516,42 @@ for ambient_directory in "$ambient/home" "$ambient/cache"; do
     [[ -z "$(find "$ambient_directory" -mindepth 1 -print -quit)" ]] \
         || fail "sourcing the helper wrote into $ambient_directory, which belongs to whoever runs the harness"
 done
+)
 
 # --- the real tree ----------------------------------------------------------
-examine "$repository" || exit 1
+#
+# The two halves answer different questions and are reported independently. Run
+# in sequence, whichever failed first would hide the other, and an operator
+# handed one of two verdicts has to fix it to find out what the second one is.
+# The helper half runs in a subshell so that its own refusals stop it without
+# stopping this file.
+
+problems=0
+
+examine "$repository" || problems=1
 
 # Discovered rather than listed, so a new harness is held without being added
-# here. The two the repository qualifies releases with are still named, so a
-# scan that quietly stops matching them fails here instead of passing.
-for anchor in tests/production-release-qualification.sh tests/executable-delivery.sh; do
+# here. The three the repository has today are still named, so a scan that
+# quietly stops matching one of them fails here instead of passing. Naming them
+# is also what makes the count honest: a floor of two under this loop could
+# never fail, because the loop has already put two entries in `runners`.
+for anchor in \
+    tests/production-release-qualification.sh \
+    tests/executable-delivery.sh \
+    tests/release-help-contract.sh; do
     found=no
     for runner in "${runners[@]}"; do
         [[ "$runner" != "$anchor" ]] || found=yes
     done
-    [[ "$found" == yes ]] \
-        || fail "$anchor no longer runs the built executable, so this scan is checking the wrong files"
+    if [[ "$found" != yes ]]; then
+        printf 'shell spawn cache isolation: %s no longer runs the built executable, so this scan is checking the wrong files\n' \
+            "$anchor" >&2
+        problems=1
+    fi
 done
-(( ${#runners[@]} >= 2 )) \
-    || fail "the scan found ${#runners[@]} harness(es) running the built executable, so it matched less than the repository holds"
+
+inheritors_hold "$repository" || problems=1
+
+helper_redirects || problems=1
+
+(( problems == 0 )) || exit 1
