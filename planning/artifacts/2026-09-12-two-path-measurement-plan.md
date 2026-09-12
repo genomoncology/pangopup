@@ -2,6 +2,8 @@
 
 Date: 2026-09-12
 
+Pilot result: [`2026-09-12-indel-fast-path-pilot.md`](2026-09-12-indel-fast-path-pilot.md). The independent chromosome 22 result supports an observed gnomAD catalogue plus an exact loss-only route. It does not support a 1000 Genomes catalogue alone or a classifier before the exact routes are exhausted.
+
 Related issues:
 
 - `planning/issues/2026-09-11-indel-model-cost-and-prefilter-soundness.md`

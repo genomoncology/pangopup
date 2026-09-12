@@ -2,6 +2,14 @@
 
 Status: open
 
+## Measurement update, 2026-09-12
+
+[`2026-09-12-indel-fast-path-pilot.md`](../artifacts/2026-09-12-indel-fast-path-pilot.md) measured the chromosome 22 routing shape on a leakage-free public split and an authorized independent aggregate. The full 1000 Genomes training catalogue covered 99.94 percent inside its own callset and only 75.16 percent on independent PASS traffic. The official gnomAD v4.1.1 genomes catalogue covered 98.45 percent of that independent traffic. This identifies exact catalogue membership. It does not supply Pangolin scores.
+
+The conservative exact loss rule resolved 95.89 percent of independent PASS genic indel requests as zero without inference. Combining that rule with gnomAD v4.1.1 genome membership covered 99.91 percent of loss-only requests. Gain and complete gain-and-loss requests remained at the 98.45 percent potential scored-catalogue rate.
+
+The shipped CPU route on an Apple M5 Max processed the same ten common one-gene indels in 34.293 seconds at one inference thread, 9.319 seconds at four, and 6.527 seconds at eight. One worker with eight threads won the bounded batch. Four workers did not improve it. The completed SQLite cache answered a single-indel loopback HTTP request in 0.088 milliseconds on average across 2,000 requests. A ten-indel cached batch averaged 0.185 milliseconds total. Full-autosome recurrence, scored catalogue entries, and direct residual-miss timing remain open.
+
 ## Observation
 
 Every indel inside a gene runs the Pangolin model. The index holds

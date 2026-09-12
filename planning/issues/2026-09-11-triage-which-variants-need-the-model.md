@@ -2,6 +2,12 @@
 
 Status: open
 
+## Measurement update, 2026-09-12
+
+[`2026-09-12-indel-fast-path-pilot.md`](../artifacts/2026-09-12-indel-fast-path-pilot.md) measured recurrence and length concentration on chromosome 22. One-base events supplied 50.41 percent of held-out genic requests. All lengths through four supplied 83.47 percent. The SpliceAI-style bounded class of one-base insertions and deletions through four bases supplied 67.57 percent. An observed-only catalogue therefore covers more real traffic with far fewer entries than exhaustive bounded enumeration in this pilot.
+
+The independent aggregate moved the full 1000 Genomes catalogue rate from 99.94 percent inside the shared callset to 75.16 percent. The official gnomAD v4.1.1 genomes catalogue covered 98.45 percent. The exact loss-zero rule combined with that catalogue covered 99.91 percent of loss-only requests. Defer a learned classifier until measured residual gain or complete-score requests still miss the target after exact routes.
+
 ## The question under the other four issues
 
 The index exists so that a covered variant never runs the model. Everything not
