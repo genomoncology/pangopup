@@ -909,6 +909,8 @@ fn publish_stage_with<F>(
 where
     F: FnMut(&Path) -> Result<(), CommandError>,
 {
+    #[cfg(not(target_os = "linux"))]
+    let _ = stage;
     #[cfg(target_os = "linux")]
     let renamed = rustix::fs::renameat_with(
         rustix::fs::CWD,

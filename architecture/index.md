@@ -431,7 +431,7 @@ Maintainers create one complete candidate from an immutable certified fixed-v1 b
 
 ```text
 pangopup-build sparse-candidate build \
-  --fixed-bundle data/pangopup/runtime-v0.5.0 \
+  --fixed-bundle /path/to/certified/fixed-bundle \
   --expected-bundle-id sha256:<FIXED_BUNDLE_ID> \
   --scratch data/pangopup/sparse-v1.scratch \
   --candidate data/pangopup/sparse-v1-candidate.pgi \
