@@ -246,6 +246,19 @@ pub struct DecodedSummary {
     pub segments: u64,
 }
 
+/// Peak caller-visible storage used by complete-gene fixed-v1 traversal.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct GeneTraversalSummary {
+    pub genes: u64,
+    pub loci: u64,
+    pub ordinary_loci: u64,
+    pub exceptions: u64,
+    pub segments: u64,
+    pub maximum_buffered_gene_loci: u64,
+    pub maximum_buffered_gene_capacity: u64,
+    pub maximum_buffered_gene_capacity_bytes: u64,
+}
+
 /// A deterministic writer or validated-reader failure.
 #[derive(Debug)]
 pub enum IndexError {
@@ -1549,6 +1562,167 @@ impl IndexReader {
             }
         }
         if !exceptions.is_empty() {
+            return Err(VisitAllError::Index(IndexError::Corrupt(
+                "exception gene without segment",
+            )));
+        }
+        Ok(summary)
+    }
+
+    /// Decode one complete gene at a time after checking its allocation bound.
+    ///
+    /// This maintainer traversal exists for format conversion. The limit is
+    /// checked from validated segment and exception metadata before reserving
+    /// the gene buffer. The visitor borrows that sole buffer directly.
+    pub fn visit_genes_bounded<E>(
+        &self,
+        maximum_gene_loci: u64,
+        maximum_gene_capacity_bytes: u64,
+        mut visitor: impl FnMut(&[InputLocus]) -> Result<(), E>,
+    ) -> Result<GeneTraversalSummary, VisitAllError<E>> {
+        let locus_bytes = u64::try_from(std::mem::size_of::<InputLocus>())
+            .map_err(|_| VisitAllError::Index(IndexError::Arithmetic("input locus size")))?;
+        let mut summary = GeneTraversalSummary {
+            segments: self.header.segment_count,
+            exceptions: self.header.exception_count,
+            ..GeneTraversalSummary::default()
+        };
+        let mut segment_index = 0_u64;
+        let mut exception_index = 0_u64;
+        while segment_index < self.header.segment_count {
+            let first = self
+                .segment(segment_index, &mut None)
+                .map_err(VisitAllError::Index)?;
+            let gene = first.gene;
+            if exception_index < self.header.exception_count {
+                let exception = self
+                    .exception(exception_index, &mut None)
+                    .map_err(VisitAllError::Index)?;
+                if exception.gene.numeric() < gene.numeric() {
+                    return Err(VisitAllError::Index(IndexError::Corrupt(
+                        "exception gene without segment",
+                    )));
+                }
+            }
+
+            let segment_start = segment_index;
+            let mut ordinary_loci = 0_u64;
+            while segment_index < self.header.segment_count {
+                let segment = self
+                    .segment(segment_index, &mut None)
+                    .map_err(VisitAllError::Index)?;
+                if segment.gene != gene {
+                    break;
+                }
+                ordinary_loci = ordinary_loci
+                    .checked_add(u64::from(segment.loci))
+                    .ok_or_else(|| {
+                        VisitAllError::Index(IndexError::Arithmetic("fixed gene locus count"))
+                    })?;
+                segment_index += 1;
+            }
+
+            let exception_start = exception_index;
+            while exception_index < self.header.exception_count {
+                let exception = self
+                    .exception(exception_index, &mut None)
+                    .map_err(VisitAllError::Index)?;
+                if exception.gene != gene {
+                    break;
+                }
+                exception_index += 1;
+            }
+            let exception_loci = exception_index - exception_start;
+            let gene_loci = ordinary_loci.checked_add(exception_loci).ok_or_else(|| {
+                VisitAllError::Index(IndexError::Arithmetic("fixed gene total loci"))
+            })?;
+            let requested_bytes = gene_loci.checked_mul(locus_bytes).ok_or_else(|| {
+                VisitAllError::Index(IndexError::Arithmetic("fixed gene allocation bytes"))
+            })?;
+            if gene_loci > maximum_gene_loci || requested_bytes > maximum_gene_capacity_bytes {
+                return Err(VisitAllError::Index(IndexError::InvalidInput(
+                    "fixed gene exceeds conversion allocation limit",
+                )));
+            }
+            let requested = usize::try_from(gene_loci).map_err(|_| {
+                VisitAllError::Index(IndexError::Arithmetic("fixed gene allocation length"))
+            })?;
+            let mut gene_buffer = Vec::new();
+            gene_buffer.try_reserve_exact(requested).map_err(|_| {
+                VisitAllError::Index(IndexError::InvalidInput("fixed gene allocation failed"))
+            })?;
+            let capacity = u64::try_from(gene_buffer.capacity()).map_err(|_| {
+                VisitAllError::Index(IndexError::Arithmetic("fixed gene allocation capacity"))
+            })?;
+            let capacity_bytes = capacity.checked_mul(locus_bytes).ok_or_else(|| {
+                VisitAllError::Index(IndexError::Arithmetic("fixed gene capacity bytes"))
+            })?;
+            if capacity_bytes > maximum_gene_capacity_bytes {
+                return Err(VisitAllError::Index(IndexError::InvalidInput(
+                    "fixed gene allocation exceeds capacity limit",
+                )));
+            }
+
+            for index in segment_start..segment_index {
+                let segment = self
+                    .segment(index, &mut None)
+                    .map_err(VisitAllError::Index)?;
+                for ordinal in 0..segment.loci {
+                    let offset = checked_add_u64(
+                        checked_add_u64(
+                            self.header.payload_offset,
+                            segment.payload_rel,
+                            "payload base",
+                        )?,
+                        checked_mul_u64(u64::from(ordinal), 11, "payload record")?,
+                        "payload record address",
+                    )
+                    .map_err(VisitAllError::Index)?;
+                    let start = usize::try_from(offset)
+                        .map_err(|_| VisitAllError::Index(IndexError::Corrupt("payload offset")))?;
+                    let raw = self.map.get(start..start + 11).ok_or_else(|| {
+                        VisitAllError::Index(IndexError::Corrupt("truncated fixed record"))
+                    })?;
+                    let position = GenomicPosition::new(segment.start + ordinal).map_err(|_| {
+                        VisitAllError::Index(IndexError::Corrupt("payload position"))
+                    })?;
+                    gene_buffer.push(InputLocus::Ordinary(
+                        decode_fixed_input(segment.gene, segment.contig, position, raw)
+                            .map_err(VisitAllError::Index)?,
+                    ));
+                }
+            }
+            for index in exception_start..exception_index {
+                gene_buffer.push(InputLocus::Ambiguous(
+                    self.exception(index, &mut None)
+                        .map_err(VisitAllError::Index)?,
+                ));
+            }
+            gene_buffer.sort_unstable_by_key(|locus| match locus {
+                InputLocus::Ordinary(value) => (value.contig.code(), value.position.get(), 0_u8),
+                InputLocus::Ambiguous(value) => (value.contig.code(), value.position.get(), 1_u8),
+            });
+            summary.genes = summary.genes.checked_add(1).ok_or_else(|| {
+                VisitAllError::Index(IndexError::Arithmetic("fixed traversal genes"))
+            })?;
+            summary.loci = summary.loci.checked_add(gene_loci).ok_or_else(|| {
+                VisitAllError::Index(IndexError::Arithmetic("fixed traversal loci"))
+            })?;
+            summary.ordinary_loci = summary
+                .ordinary_loci
+                .checked_add(ordinary_loci)
+                .ok_or_else(|| {
+                    VisitAllError::Index(IndexError::Arithmetic("fixed traversal ordinary loci"))
+                })?;
+            summary.maximum_buffered_gene_loci = summary.maximum_buffered_gene_loci.max(gene_loci);
+            summary.maximum_buffered_gene_capacity =
+                summary.maximum_buffered_gene_capacity.max(capacity);
+            summary.maximum_buffered_gene_capacity_bytes = summary
+                .maximum_buffered_gene_capacity_bytes
+                .max(capacity_bytes);
+            visitor(&gene_buffer).map_err(VisitAllError::Visitor)?;
+        }
+        if exception_index != self.header.exception_count {
             return Err(VisitAllError::Index(IndexError::Corrupt(
                 "exception gene without segment",
             )));

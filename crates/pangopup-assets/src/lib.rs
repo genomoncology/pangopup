@@ -82,7 +82,10 @@ pub use runtime_transport::{
     PackRuntimeTransportOutcome, UnpackRuntimeTransportOutcome, VerifyRuntimeTransportOutcome,
     pack_runtime_transport, unpack_runtime_transport, verify_runtime_transport,
 };
-pub use snv::{BundleCertification, MAX_FIXED11_BYTES, NOTICE, NOTICE_SHA256, certify_bundle};
+pub use snv::{
+    BundleCertification, CertifiedBundle, MAX_FIXED11_BYTES, NOTICE, NOTICE_SHA256, certify_bundle,
+    certify_bundle_members, certify_bundle_members_with_gene_limits,
+};
 pub use sync::{
     CachePathInputs, RuntimeCacheInspection, RuntimeSyncOutcome, SyncComponent, SyncEvent,
     SyncOutcome, SyncPhase, SyncRetryReason, SyncTransferMode, inspect_runtime_cache,

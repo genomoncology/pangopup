@@ -29,11 +29,12 @@ pub(crate) enum Leaf {
     ExecutableReleasePrepare,
     NamingBuild,
     NamingInspect,
+    SparseCandidateBuild,
 }
 
 impl Leaf {
     #[cfg(test)]
-    const ALL: [Self; 27] = [
+    const ALL: [Self; 28] = [
         Self::Inspect,
         Self::PrototypeRoundtrip,
         Self::PrototypeOpen,
@@ -61,6 +62,7 @@ impl Leaf {
         Self::ExecutableReleasePrepare,
         Self::NamingBuild,
         Self::NamingInspect,
+        Self::SparseCandidateBuild,
     ];
 }
 
@@ -263,6 +265,13 @@ const ENTRIES: &[Entry] = &[
         synopsis: "naming inspect --index <INDEX> <ENSG_ACCESSION>...",
         summary: "Report what a gene-name index holds for the Ensembl accessions named on the command line.",
     },
+    Entry {
+        leaf: Leaf::SparseCandidateBuild,
+        namespace: Some("sparse-candidate"),
+        action: "build",
+        synopsis: "sparse-candidate build --fixed-bundle <CERTIFIED_BUNDLE> --expected-bundle-id <SHA256_ID> --scratch <ABSENT_FILE> --candidate <ABSENT_FILE> --report <ABSENT_JSON>",
+        summary: "Build and certify one complete maintainer-only sparse SNV candidate.",
+    },
 ];
 
 pub(crate) fn resolve(arguments: &[OsString]) -> Option<(Leaf, &[OsString])> {
@@ -412,7 +421,8 @@ mod tests {
                 "runtime-transport",
                 "runtime-release",
                 "executable-release",
-                "naming"
+                "naming",
+                "sparse-candidate"
             ]
         );
         assert!(

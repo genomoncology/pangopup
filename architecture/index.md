@@ -425,6 +425,31 @@ The sparse reader splits validation by access tier. Open validates the header, e
 
 Gene-filtered lookup binary-searches the gene and exception directories, scans only that gene's segments and exceptions, and binary-searches the selected segment's block directory. Its cost is `O(log G + S_gene + log E + E_gene + log B)`, plus selected-block validation. Unfiltered lookup scans the gene-ordered segment and exception directories. Its cost is `O(S + E + K log B)` plus validation for the `K` selected overlapping blocks. Selected-block validation repeats across calls. Later side-by-side qualification measures whether these choices pass ADR 0027. They do not activate or qualify the candidate.
 
+### Certified complete sparse candidate build
+
+Maintainers create one complete candidate from an immutable certified fixed-v1 bundle with:
+
+```text
+pangopup-build sparse-candidate build \
+  --fixed-bundle data/pangopup/runtime-v0.5.0 \
+  --expected-bundle-id sha256:<FIXED_BUNDLE_ID> \
+  --scratch data/pangopup/sparse-v1.scratch \
+  --candidate data/pangopup/sparse-v1-candidate.pgi \
+  --report data/pangopup/sparse-v1-candidate-report.json
+```
+
+The command opens the exact `manifest.json`, `NOTICE`, and `scores.pgi` regular files before certification. Those inodes must remain immutable for the full command. Certification checks the closed canonical manifest, exact notice, member limits and hashes, canonical fixed structure, decoded counts, and both logical identities on the held files. The retained run supplies the expected bundle identity.
+
+Fixed-v1 traversal preflights each complete gene before allocation. It refuses more than 3,000,000 loci or 512 MiB of `InputLocus` capacity. It passes its sole gene buffer directly to the sparse writer. The report records the observed maximum length, capacity, and capacity bytes.
+
+The sparse writer transfers its already-held finished-candidate descriptor and cleanup ownership to the command. The command hashes that descriptor, maps it through `SparseIndexReader::open_file`, verifies every record, and reconstructs the canonical decoded logical digest. Writer counts, decoded counts, fixed manifest counts, and logical identities must agree exactly.
+
+Candidate publication creates the final path with no-replace semantics and streams only from the held verified staging descriptor. The copy must reproduce the verified byte count and SHA-256. The command syncs the candidate and its parent, then verifies that the final path still names the created inode. It creates, writes, and syncs the no-replace report second, then verifies report ownership. The report is the completion marker. This portable macOS and Linux design adds one sequential candidate copy and temporary space for both staged and final candidate bytes. Cleanup removes a path only while it still names the builder-owned inode. Candidate and report publication are not one atomic operation.
+
+The report uses canonical RFC 8785 JSON with schema `pangopup.sparse-candidate-report.v1`. It records the fixed bundle and member identities, candidate format, size and SHA-256, writer and decoded counts, source and decoded logical identities, gene-buffer measurements, and the 3,221,225,472-byte ADR 0027 gate. It omits paths, clocks, host data, elapsed time, and resident memory.
+
+The output remains a candidate. It has no bundle, installed asset identity, runtime profile, activation, or route. A passing size and logical-parity report does not complete ADR 0027 qualification.
+
 The correctness fixture selects edge cases. Ticket 002 used a deterministic
 stratified real lab corpus for comparative warm selection and instrumented
 logical bytes, mapped page numbers, allocations, and page faults. That corpus is

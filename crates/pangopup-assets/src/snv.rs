@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
     fs::{self, File},
-    io::{self, Read, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::Path,
 };
 
@@ -25,17 +25,103 @@ pub struct BundleCertification {
     pub members_verified: u64,
 }
 
+/// Exhaustively certified fixed-v1 bundle opened from held member handles.
+#[derive(Debug)]
+pub struct CertifiedBundle {
+    opened: BundleOpen,
+    certification: BundleCertification,
+    fixed_member_size: u64,
+    fixed_member_sha256: String,
+}
+
+impl CertifiedBundle {
+    pub fn certification(&self) -> &BundleCertification {
+        &self.certification
+    }
+
+    pub fn manifest(&self) -> &BundleManifest {
+        self.opened.manifest()
+    }
+
+    pub fn index(&self) -> &IndexReader {
+        self.opened.index()
+    }
+
+    pub fn fixed_member_size(&self) -> u64 {
+        self.fixed_member_size
+    }
+
+    pub fn fixed_member_sha256(&self) -> &str {
+        &self.fixed_member_sha256
+    }
+}
+
 /// Exhaustively certify an installed three-file bundle.
 pub fn certify_bundle(path: &Path) -> Result<BundleCertification, AssetError> {
     preflight_bundle_files(path)?;
-    let opened = BundleOpen::open(path).map_err(|error| match error {
-        IndexError::Io(_) => AssetError {
-            kind: AssetErrorKind::InputIo,
-            legacy_code: Some("BUNDLE_INVALID"),
-            message: error.to_string(),
-        },
-        _ => bundle_error(error.to_string()),
-    })?;
+    let (manifest, manifest_metadata) = open_regular(
+        &path.join("manifest.json"),
+        AssetErrorKind::InputIo,
+        AssetErrorKind::BundleInvalid,
+    )?;
+    if manifest_metadata.len() > MAX_MANIFEST_BYTES {
+        return Err(bundle_error_code("BUNDLE_INVALID", "manifest size"));
+    }
+    let (notice, _) = open_regular(
+        &path.join("NOTICE"),
+        AssetErrorKind::InputIo,
+        AssetErrorKind::BundleInvalid,
+    )?;
+    let (scores, _) = open_regular(
+        &path.join("scores.pgi"),
+        AssetErrorKind::InputIo,
+        AssetErrorKind::BundleInvalid,
+    )?;
+    Ok(certify_bundle_members(&manifest, &notice, &scores)?.certification)
+}
+
+/// Exhaustively certify the exact immutable member inodes supplied by a
+/// maintainer caller. No member pathname is reopened by this operation.
+pub fn certify_bundle_members(
+    manifest: &File,
+    notice: &File,
+    scores: &File,
+) -> Result<CertifiedBundle, AssetError> {
+    certify_bundle_members_with_gene_limits(manifest, notice, scores, u64::MAX, u64::MAX)
+}
+
+/// Certify held member handles while bounding every complete-gene allocation.
+pub fn certify_bundle_members_with_gene_limits(
+    manifest: &File,
+    notice: &File,
+    scores: &File,
+    maximum_gene_loci: u64,
+    maximum_gene_capacity_bytes: u64,
+) -> Result<CertifiedBundle, AssetError> {
+    let manifest_bytes = read_file_bounded(manifest, MAX_MANIFEST_BYTES)?;
+    let notice_size = held_regular_size(notice, "NOTICE")?;
+    if notice_size > MAX_NOTICE_BYTES {
+        return Err(bundle_error_code(
+            "BUNDLE_NOTICE",
+            "NOTICE exceeds the fixed-v1 certification ceiling",
+        ));
+    }
+    let scores_size = held_regular_size(scores, "scores.pgi")?;
+    if scores_size > MAX_FIXED11_BYTES {
+        return Err(bundle_error_code(
+            "BUNDLE_INDEX",
+            "scores.pgi exceeds the fixed-v1 certification ceiling",
+        ));
+    }
+    let opened =
+        BundleOpen::open_members(&manifest_bytes, notice, scores).map_err(|error| match error {
+            IndexError::Io(_) => AssetError {
+                kind: AssetErrorKind::InputIo,
+                legacy_code: Some("BUNDLE_INVALID"),
+                message: error.to_string(),
+            },
+            _ => bundle_error(error.to_string()),
+        })?;
     let notice_member = inner_member(opened.manifest(), "NOTICE")?;
     let scores_member = inner_member(opened.manifest(), "scores.pgi")?;
     if notice_member.size > MAX_NOTICE_BYTES || notice_member.size != NOTICE.len() as u64 {
@@ -51,7 +137,12 @@ pub fn certify_bundle(path: &Path) -> Result<BundleCertification, AssetError> {
         ));
     }
     for member in &opened.manifest().members {
-        let actual = hash_bundle_member(&path.join(&member.path))?;
+        let file = match member.path.as_str() {
+            "NOTICE" => notice,
+            "scores.pgi" => scores,
+            _ => return Err(bundle_error("inner manifest member set mismatch")),
+        };
+        let actual = hash_file(file)?;
         if actual != member.sha256 {
             return Err(bundle_error_code(
                 "BUNDLE_MEMBER_HASH",
@@ -59,14 +150,8 @@ pub fn certify_bundle(path: &Path) -> Result<BundleCertification, AssetError> {
             ));
         }
     }
-    let notice = read_bounded(
-        &path.join("NOTICE"),
-        MAX_NOTICE_BYTES,
-        AssetErrorKind::InputIo,
-        AssetErrorKind::BundleInvalid,
-    )
-    .map_err(with_legacy_io)?;
-    if notice != NOTICE {
+    let notice_bytes = read_file_bounded(notice, MAX_NOTICE_BYTES).map_err(with_legacy_io)?;
+    if notice_bytes != NOTICE {
         return Err(bundle_error_code(
             "BUNDLE_NOTICE",
             "NOTICE does not match Pangopup's byte-exact embedded notice",
@@ -76,7 +161,11 @@ pub fn certify_bundle(path: &Path) -> Result<BundleCertification, AssetError> {
         .index()
         .verify_canonical_structure()
         .map_err(|error| bundle_error_code("BUNDLE_INDEX", error.to_string()))?;
-    let decoded = decode_reader(opened.index())?;
+    let decoded = decode_reader(
+        opened.index(),
+        maximum_gene_loci,
+        maximum_gene_capacity_bytes,
+    )?;
     if decoded.logical != opened.manifest().logical_decoded
         || opened.manifest().logical_source != opened.manifest().logical_decoded
     {
@@ -86,10 +175,30 @@ pub fn certify_bundle(path: &Path) -> Result<BundleCertification, AssetError> {
         ));
     }
     validate_decoded_counts(opened.manifest(), opened.index(), &decoded)?;
-    Ok(BundleCertification {
+    let fixed_member_sha256 = inner_member(opened.manifest(), "scores.pgi")?
+        .sha256
+        .clone();
+    let fixed_member_size = inner_member(opened.manifest(), "scores.pgi")?.size;
+    let certification = BundleCertification {
         bundle_id: opened.bundle_id().to_owned(),
         members_verified: 2,
+    };
+    Ok(CertifiedBundle {
+        opened,
+        certification,
+        fixed_member_size,
+        fixed_member_sha256,
     })
+}
+
+fn held_regular_size(file: &File, label: &str) -> Result<u64, AssetError> {
+    let metadata = file
+        .metadata()
+        .map_err(|error| AssetError::new(AssetErrorKind::InputIo, error.to_string()))?;
+    if !metadata.file_type().is_file() {
+        return Err(bundle_error(format!("held {label} is not a regular file")));
+    }
+    Ok(metadata.len())
 }
 
 fn preflight_bundle_files(path: &Path) -> Result<(), AssetError> {
@@ -164,7 +273,11 @@ struct DecodedFacts {
     n_omit_t: u64,
 }
 
-fn decode_reader(reader: &IndexReader) -> Result<DecodedFacts, AssetError> {
+fn decode_reader(
+    reader: &IndexReader,
+    maximum_gene_loci: u64,
+    maximum_gene_capacity_bytes: u64,
+) -> Result<DecodedFacts, AssetError> {
     let mut hash = HashSink::new();
     let mut facts = DecodedFacts {
         logical: LogicalManifest {
@@ -184,65 +297,73 @@ fn decode_reader(reader: &IndexReader) -> Result<DecodedFacts, AssetError> {
     let mut previous: Option<(u64, u8, u32)> = None;
     let mut previous_ordinary: Option<(u64, u8, u32)> = None;
     reader
-        .visit_all(|locus| {
-            write_logical_text(&mut hash, locus)?;
-            add(&mut facts.logical.records, 3)?;
-            add(&mut facts.loci, 1)?;
-            let (gene, contig, position) = match locus {
-                InputLocus::Ordinary(value) => {
-                    let current = (
-                        value.gene.numeric(),
-                        value.contig.code(),
-                        value.position.get(),
-                    );
-                    if previous_ordinary.is_none_or(|prior| {
-                        prior.0 != current.0
-                            || prior.1 != current.1
-                            || prior.2.checked_add(1) != Some(current.2)
-                    }) {
-                        add(&mut facts.index_segments, 1)?;
+        .visit_genes_bounded(
+            maximum_gene_loci,
+            maximum_gene_capacity_bytes,
+            |gene_loci| {
+                for locus in gene_loci.iter().copied() {
+                    write_logical_text(&mut hash, locus)?;
+                    add(&mut facts.logical.records, 3)?;
+                    add(&mut facts.loci, 1)?;
+                    let (gene, contig, position) = match locus {
+                        InputLocus::Ordinary(value) => {
+                            let current = (
+                                value.gene.numeric(),
+                                value.contig.code(),
+                                value.position.get(),
+                            );
+                            if previous_ordinary.is_none_or(|prior| {
+                                prior.0 != current.0
+                                    || prior.1 != current.1
+                                    || prior.2.checked_add(1) != Some(current.2)
+                            }) {
+                                add(&mut facts.index_segments, 1)?;
+                            }
+                            previous_ordinary = Some(current);
+                            current
+                        }
+                        InputLocus::Ambiguous(value) => {
+                            add(&mut facts.n_ref_loci, 1)?;
+                            match value.omitted.to_string().as_str() {
+                                "A" => add(&mut facts.n_omit_a, 1)?,
+                                "T" => add(&mut facts.n_omit_t, 1)?,
+                                _ => {
+                                    return Err(io::Error::other("invalid omitted exception base"));
+                                }
+                            }
+                            (
+                                value.gene.numeric(),
+                                value.contig.code(),
+                                value.position.get(),
+                            )
+                        }
+                    };
+                    match previous {
+                        None => {
+                            add(&mut facts.genes, 1)?;
+                            add(&mut facts.source_segments, 1)?;
+                        }
+                        Some((prior_gene, _, _)) if prior_gene != gene => {
+                            add(&mut facts.genes, 1)?;
+                            add(&mut facts.source_segments, 1)?;
+                        }
+                        Some((_, prior_contig, prior_position)) => {
+                            if prior_contig != contig || position <= prior_position {
+                                return Err(io::Error::other("decoded logical order"));
+                            }
+                            let distance = u64::from(position - prior_position);
+                            if distance > 1 {
+                                add(&mut facts.gaps, 1)?;
+                                add(&mut facts.omitted_bases, distance - 1)?;
+                                add(&mut facts.source_segments, 1)?;
+                            }
+                        }
                     }
-                    previous_ordinary = Some(current);
-                    current
+                    previous = Some((gene, contig, position));
                 }
-                InputLocus::Ambiguous(value) => {
-                    add(&mut facts.n_ref_loci, 1)?;
-                    match value.omitted.to_string().as_str() {
-                        "A" => add(&mut facts.n_omit_a, 1)?,
-                        "T" => add(&mut facts.n_omit_t, 1)?,
-                        _ => return Err(io::Error::other("invalid omitted exception base")),
-                    }
-                    (
-                        value.gene.numeric(),
-                        value.contig.code(),
-                        value.position.get(),
-                    )
-                }
-            };
-            match previous {
-                None => {
-                    add(&mut facts.genes, 1)?;
-                    add(&mut facts.source_segments, 1)?;
-                }
-                Some((prior_gene, _, _)) if prior_gene != gene => {
-                    add(&mut facts.genes, 1)?;
-                    add(&mut facts.source_segments, 1)?;
-                }
-                Some((_, prior_contig, prior_position)) => {
-                    if prior_contig != contig || position <= prior_position {
-                        return Err(io::Error::other("decoded logical order"));
-                    }
-                    let distance = u64::from(position - prior_position);
-                    if distance > 1 {
-                        add(&mut facts.gaps, 1)?;
-                        add(&mut facts.omitted_bases, distance - 1)?;
-                        add(&mut facts.source_segments, 1)?;
-                    }
-                }
-            }
-            previous = Some((gene, contig, position));
-            Ok::<_, io::Error>(())
-        })
+                Ok::<_, io::Error>(())
+            },
+        )
         .map_err(|error| match error {
             VisitAllError::Index(error) => bundle_error_code("BUNDLE_INDEX", error.to_string()),
             VisitAllError::Visitor(error) => bundle_error(error.to_string()),
@@ -364,9 +485,17 @@ fn add(target: &mut u64, amount: u64) -> io::Result<()> {
     Ok(())
 }
 
-fn hash_bundle_member(path: &Path) -> Result<String, AssetError> {
-    let (mut file, _) = open_regular(path, AssetErrorKind::InputIo, AssetErrorKind::BundleInvalid)
-        .map_err(with_legacy_io)?;
+fn hash_file(file: &File) -> Result<String, AssetError> {
+    let mut file = file.try_clone().map_err(|error| AssetError {
+        kind: AssetErrorKind::InputIo,
+        legacy_code: Some("IO"),
+        message: error.to_string(),
+    })?;
+    file.seek(SeekFrom::Start(0)).map_err(|error| AssetError {
+        kind: AssetErrorKind::InputIo,
+        legacy_code: Some("IO"),
+        message: error.to_string(),
+    })?;
     let mut hash = Sha256::new();
     copy_hash(&mut file, &mut hash, None).map_err(|error| AssetError {
         kind: AssetErrorKind::InputIo,
@@ -374,6 +503,30 @@ fn hash_bundle_member(path: &Path) -> Result<String, AssetError> {
         message: error.to_string(),
     })?;
     Ok(format!("sha256:{:x}", hash.finalize()))
+}
+
+fn read_file_bounded(file: &File, cap: u64) -> Result<Vec<u8>, AssetError> {
+    let metadata = file
+        .metadata()
+        .map_err(|error| AssetError::new(AssetErrorKind::InputIo, error.to_string()))?;
+    if !metadata.file_type().is_file() || metadata.len() > cap {
+        return Err(bundle_error("bounded input exceeds size limit"));
+    }
+    let capacity = usize::try_from(metadata.len())
+        .map_err(|_| bundle_error("bounded input size conversion"))?;
+    let mut held = file
+        .try_clone()
+        .map_err(|error| AssetError::new(AssetErrorKind::InputIo, error.to_string()))?;
+    held.seek(SeekFrom::Start(0))
+        .map_err(|error| AssetError::new(AssetErrorKind::InputIo, error.to_string()))?;
+    let mut bytes = Vec::with_capacity(capacity);
+    held.take(cap + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| AssetError::new(AssetErrorKind::InputIo, error.to_string()))?;
+    if bytes.len() as u64 > cap {
+        return Err(bundle_error("bounded input grew beyond size limit"));
+    }
+    Ok(bytes)
 }
 
 fn inner_member<'a>(
@@ -408,34 +561,6 @@ fn copy_hash(
             .ok_or_else(|| io::Error::other("hash size overflow"))?;
     }
     Ok(total)
-}
-
-fn read_bounded(
-    path: &Path,
-    cap: u64,
-    io_kind: AssetErrorKind,
-    invalid_kind: AssetErrorKind,
-) -> Result<Vec<u8>, AssetError> {
-    let (file, metadata) = open_regular(path, io_kind, invalid_kind)?;
-    if metadata.len() > cap {
-        return Err(AssetError::new(
-            invalid_kind,
-            "bounded input exceeds size limit",
-        ));
-    }
-    let capacity = usize::try_from(metadata.len())
-        .map_err(|_| AssetError::new(invalid_kind, "bounded input size conversion"))?;
-    let mut bytes = Vec::with_capacity(capacity);
-    file.take(cap + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| AssetError::new(io_kind, error.to_string()))?;
-    if bytes.len() as u64 > cap {
-        return Err(AssetError::new(
-            invalid_kind,
-            "bounded input grew beyond size limit",
-        ));
-    }
-    Ok(bytes)
 }
 
 fn open_regular(

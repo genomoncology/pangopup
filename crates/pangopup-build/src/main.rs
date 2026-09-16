@@ -3,7 +3,7 @@ use pangopup_assets::{
     unpack_runtime_transport, unpack_transport, verify_runtime_transport, verify_transport,
 };
 use pangopup_build::{
-    CommandError, build_bundle,
+    CommandError, SparseCandidateArguments, build_bundle, build_sparse_candidate,
     compatibility::{CaptureArguments, capture_corpus, inspect_corpus},
     executable_release::prepare_executable_release,
     inspect_directory,
@@ -48,6 +48,7 @@ fn main() -> ExitCode {
         Some("runtime-release") => json_usage("runtime-release requires prepare"),
         Some("executable-release") => json_usage("executable-release requires prepare"),
         Some("naming") => json_usage("naming requires build or inspect"),
+        Some("sparse-candidate") => json_usage("sparse-candidate requires build"),
         Some(_) => unreachable!("closed namespace catalog"),
         None => json_failure(&CommandError::new("CLI_USAGE", LEGACY_USAGE)),
     }
@@ -139,6 +140,38 @@ fn dispatch(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
         Leaf::ExecutableReleasePrepare => executable_release_command(arguments),
         Leaf::NamingBuild => naming_build_command(arguments),
         Leaf::NamingInspect => naming_inspect_command(arguments),
+        Leaf::SparseCandidateBuild => sparse_candidate_build_command(arguments),
+    }
+}
+
+fn sparse_candidate_build_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let Ok(values) = parse_exact_flags(
+        arguments,
+        &[
+            "--fixed-bundle",
+            "--expected-bundle-id",
+            "--scratch",
+            "--candidate",
+            "--report",
+        ],
+    ) else {
+        return json_usage(
+            "sparse-candidate build requires --fixed-bundle, --expected-bundle-id, --scratch, --candidate, and --report exactly once",
+        );
+    };
+    let Some(expected_bundle_id) = values[1].to_str() else {
+        return json_usage("--expected-bundle-id must be UTF-8");
+    };
+    let arguments = SparseCandidateArguments {
+        fixed_bundle: Path::new(values[0]).to_owned(),
+        expected_bundle_id: Some(expected_bundle_id.to_owned()),
+        scratch: Path::new(values[2]).to_owned(),
+        candidate: Path::new(values[3]).to_owned(),
+        report: Path::new(values[4]).to_owned(),
+    };
+    match build_sparse_candidate(&arguments) {
+        Ok(outcome) => json_success(&outcome),
+        Err(error) => json_failure(&error),
     }
 }
 

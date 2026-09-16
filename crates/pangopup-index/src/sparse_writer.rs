@@ -48,6 +48,59 @@ pub struct SparseWriteSummary {
     pub exceptions: u64,
 }
 
+/// A finished sparse output whose published path remains cleanup-owned.
+///
+/// Callers can inspect the already-held descriptor before transferring both
+/// the descriptor and pathname ownership without reopening the output path.
+pub struct SparseHeldOutput {
+    summary: SparseWriteSummary,
+    path: PathBuf,
+    identity: FileIdentity,
+    file: Option<File>,
+    owned: bool,
+}
+
+impl SparseHeldOutput {
+    pub fn summary(&self) -> SparseWriteSummary {
+        self.summary
+    }
+
+    pub fn file(&self) -> &File {
+        self.file
+            .as_ref()
+            .expect("held sparse output keeps its descriptor until transfer")
+    }
+
+    pub fn cleanup(&mut self) -> Result<(), IndexError> {
+        remove_owned(&self.path, self.identity, &mut self.owned)?;
+        File::open(usable_parent(&self.path)?)?.sync_all()?;
+        Ok(())
+    }
+
+    pub fn into_parts(mut self) -> (SparseWriteSummary, File) {
+        self.owned = false;
+        let file = self
+            .file
+            .take()
+            .expect("held sparse output descriptor transfers once");
+        (self.summary, file)
+    }
+
+    fn into_published_summary(mut self) -> SparseWriteSummary {
+        self.owned = false;
+        self.file.take();
+        self.summary
+    }
+}
+
+impl Drop for SparseHeldOutput {
+    fn drop(&mut self) {
+        if self.owned {
+            let _ = remove_owned(&self.path, self.identity, &mut self.owned);
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct GeneEntry {
     gene: EnsemblGeneId,
@@ -391,7 +444,13 @@ impl SparseIndexWriter {
         Ok(())
     }
 
-    pub fn finish(mut self, output: &Path) -> Result<SparseWriteSummary, IndexError> {
+    pub fn finish(self, output: &Path) -> Result<SparseWriteSummary, IndexError> {
+        self.finish_held(output)
+            .map(SparseHeldOutput::into_published_summary)
+    }
+
+    /// Finish while retaining cleanup ownership and the assembled descriptor.
+    pub fn finish_held(mut self, output: &Path) -> Result<SparseHeldOutput, IndexError> {
         if self.poisoned {
             return Err(IndexError::InvalidInput("poisoned sparse writer"));
         }
@@ -406,7 +465,7 @@ impl SparseIndexWriter {
         result
     }
 
-    fn finish_inner(&mut self, output: &Path) -> Result<SparseWriteSummary, IndexError> {
+    fn finish_inner(&mut self, output: &Path) -> Result<SparseHeldOutput, IndexError> {
         let mut payload = self
             .payload
             .take()
@@ -488,12 +547,11 @@ impl SparseIndexWriter {
             publish_noreplace(&stage_path, stage_identity, output)?;
             Ok(())
         })();
-        drop(stage);
         if assembled.is_err() {
             remove_if_owned(&stage_path, stage_identity);
         }
         assembled?;
-        Ok(SparseWriteSummary {
+        let summary = SparseWriteSummary {
             bytes: file_len,
             genes: gene_count,
             loci: self.loci,
@@ -501,6 +559,13 @@ impl SparseIndexWriter {
             segments: segment_count,
             blocks: block_count,
             exceptions: self.exceptions,
+        };
+        Ok(SparseHeldOutput {
+            summary,
+            path: output.to_owned(),
+            identity: stage_identity,
+            file: Some(stage),
+            owned: true,
         })
     }
 
@@ -1138,6 +1203,21 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    #[test]
+    fn held_finish_owns_the_published_path_until_transfer() {
+        let temp = Temp::new("held-finish");
+        let scratch = temp.0.join("payload.scratch");
+        let output = temp.0.join("candidate.pgi");
+        let mut writer = SparseIndexWriter::create(&scratch).expect("writer");
+        writer.push_gene(&[ordinary(1)]).expect("gene");
+        let held = writer.finish_held(&output).expect("held finish");
+        assert!(output.exists());
+        assert_eq!(held.summary().genes, 1);
+        assert!(held.file().metadata().expect("held metadata").len() > 0);
+        drop(held);
+        assert!(!output.exists());
     }
 
     #[test]
