@@ -106,6 +106,21 @@ minimum_position_compared=100
 
 fail() { printf 'route disagreement rate: %s\n' "$*" >&2; exit 1; }
 
+# Bash 3.2 has indexed arrays but no associative arrays. Keys come only from
+# these fixed lists; copied measurement text is stored as a value, never code.
+key_index() {
+    local wanted=$1 key index=0
+    shift
+    for key in "$@"; do
+        [[ "$key" == "$wanted" ]] && { printf '%s' "$index"; return 0; }
+        (( index += 1 ))
+    done
+    return 1
+}
+
+measurement() { printf '%s' "${measured[$(key_index "$1" "${required[@]}")]}"; }
+record_count() { printf '%s' "${recomputed[$(key_index "$1" "${derived_keys[@]}")]}"; }
+
 # The `## <heading>` section of a Markdown file, up to the next `## ` heading.
 section() {
     awk -v want="$2" '
@@ -126,7 +141,16 @@ field() {
 
 # 12345 -> 12,345. The published prose groups large counts; the artifact does
 # not, so a count is looked for in both spellings.
-grouped() { printf '%s' "$1" | sed -E ':a;s/([0-9]+)([0-9]{3})/\1,\2/;ta'; }
+grouped() {
+    local number=$1 head length=${#1}
+    if (( length <= 3 )); then printf '%s' "$number"; return; fi
+    head=$(( (length - 1) % 3 + 1 ))
+    printf '%s' "${number:0:head}"
+    while (( head < length )); do
+        printf ',%s' "${number:head:3}"
+        (( head += 3 ))
+    done
+}
 
 # The columns of the per-record output, in order. A file whose first line is
 # anything else is not read, so a reordered or renamed column is refused rather
@@ -194,7 +218,7 @@ examine() {
         return 1
     }
 
-    declare -A measured=()
+    local -a measured=()
     for key in "${required[@]}"; do
         value=$(field "$artifact" "$key")
         [[ -n "$value" ]] || {
@@ -202,23 +226,23 @@ examine() {
                 "$artifact_relative" "$key" >&2
             return 1
         }
-        measured[$key]=$value
+        measured[$(key_index "$key" "${required[@]}")]=$value
     done
 
     for key in "${counts[@]}"; do
-        [[ ${measured[$key]} =~ ^[0-9]+$ ]] || {
-            printf '%s in %s reads %s, which is not a count\n' "$key" "$artifact_relative" "${measured[$key]}" >&2
+        [[ $(measurement "$key") =~ ^[0-9]+$ ]] || {
+            printf '%s in %s reads %s, which is not a count\n' "$key" "$artifact_relative" "$(measurement "$key")" >&2
             return 1
         }
     done
     for key in "${percents[@]}"; do
-        [[ ${measured[$key]} =~ ^[0-9]+\.[0-9]{2}$ ]] || {
-            printf '%s in %s reads %s, which is not a percentage in hundredths\n' "$key" "$artifact_relative" "${measured[$key]}" >&2
+        [[ $(measurement "$key") =~ ^[0-9]+\.[0-9]{2}$ ]] || {
+            printf '%s in %s reads %s, which is not a percentage in hundredths\n' "$key" "$artifact_relative" "$(measurement "$key")" >&2
             return 1
         }
     done
-    [[ ${measured[measured]} =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || {
-        printf 'the measurement date in %s reads %s, not a YYYY-MM-DD date\n' "$artifact_relative" "${measured[measured]}" >&2
+    [[ $(measurement "measured") =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || {
+        printf 'the measurement date in %s reads %s, not a YYYY-MM-DD date\n' "$artifact_relative" "$(measurement "measured")" >&2
         return 1
     }
 
@@ -227,15 +251,15 @@ examine() {
     # neither says nothing about coverage, and a limit sentence that never
     # mentions the class the set does not hold states no limit.
     for key in transversion transition; do
-        grep -qi -- "$key" <<<"${measured[substitution-coverage]}" || {
+        grep -qi -- "$key" <<<"$(measurement "substitution-coverage")" || {
             printf 'substitution-coverage in %s never mentions a %s, so it states nothing about which substitutions the published figures cover: "%s"\n' \
-                "$artifact_relative" "$key" "${measured[substitution-coverage]}" >&2
+                "$artifact_relative" "$key" "$(measurement "substitution-coverage")" >&2
             return 1
         }
     done
-    grep -qi -- transition <<<"${measured[substitution-limit]}" || {
+    grep -qi -- transition <<<"$(measurement "substitution-limit")" || {
         printf 'substitution-limit in %s never mentions a transition, so it states no limit on figures measured without one: "%s"\n' \
-            "$artifact_relative" "${measured[substitution-limit]}" >&2
+            "$artifact_relative" "$(measurement "substitution-limit")" >&2
         return 1
     }
 
@@ -259,22 +283,22 @@ examine() {
     local pair
     for pair in "${pairs[@]}"; do
         read -r numerator denominator percent <<<"$pair"
-        (( measured[$denominator] > 0 )) || {
+        (( $(measurement "$denominator") > 0 )) || {
             printf '%s in %s is 0, so %s was measured over nothing and states no rate\n' \
                 "$denominator" "$artifact_relative" "$percent" >&2
             return 1
         }
-        (( measured[$numerator] <= measured[$denominator] )) || {
-            printf '%s (%s) exceeds %s (%s) in %s\n' "$numerator" "${measured[$numerator]}" \
-                "$denominator" "${measured[$denominator]}" "$artifact_relative" >&2
+        (( $(measurement "$numerator") <= $(measurement "$denominator") )) || {
+            printf '%s (%s) exceeds %s (%s) in %s\n' "$numerator" "$(measurement "$numerator")" \
+                "$denominator" "$(measurement "$denominator")" "$artifact_relative" >&2
             return 1
         }
-        awk -v n="${measured[$numerator]}" -v d="${measured[$denominator]}" \
-            -v p="${measured[$percent]}" \
+        awk -v n="$(measurement "$numerator")" -v d="$(measurement "$denominator")" \
+            -v p="$(measurement "$percent")" \
             'BEGIN { exact = 100 * n / d; diff = exact - p; if (diff < 0) diff = -diff; exit (diff <= 0.005000001) ? 0 : 1 }' || {
             printf '%s in %s reads %s, but %s of %s is not that percentage\n' \
-                "$percent" "$artifact_relative" "${measured[$percent]}" \
-                "${measured[$numerator]}" "${measured[$denominator]}" >&2
+                "$percent" "$artifact_relative" "$(measurement "$percent")" \
+                "$(measurement "$numerator")" "$(measurement "$denominator")" >&2
             return 1
         }
     done
@@ -284,47 +308,47 @@ examine() {
     # Every compared record is either scored zero on both sides by both routes
     # or carries a non-zero score somewhere. A record comparable on position
     # carries one on both routes, so it is one of the latter.
-    (( measured[both-routes-zero-records] + measured[non-zero-records] == measured[compared-records] )) || {
+    (( $(measurement "both-routes-zero-records") + $(measurement "non-zero-records") == $(measurement "compared-records") )) || {
         printf 'both-routes-zero-records (%s) and non-zero-records (%s) do not add up to compared-records (%s) in %s\n' \
-            "${measured[both-routes-zero-records]}" "${measured[non-zero-records]}" \
-            "${measured[compared-records]}" "$artifact_relative" >&2
+            "$(measurement "both-routes-zero-records")" "$(measurement "non-zero-records")" \
+            "$(measurement "compared-records")" "$artifact_relative" >&2
         return 1
     }
-    (( measured[position-compared-records] <= measured[non-zero-records] )) || {
+    (( $(measurement "position-compared-records") <= $(measurement "non-zero-records") )) || {
         printf 'position-compared-records (%s) exceeds non-zero-records (%s) in %s, which no record can do\n' \
-            "${measured[position-compared-records]}" "${measured[non-zero-records]}" \
+            "$(measurement "position-compared-records")" "$(measurement "non-zero-records")" \
             "$artifact_relative" >&2
         return 1
     }
 
     # --- the named variant set is reachable ---
-    manifest=$root/${measured[variant-set-manifest]}
+    manifest=$root/$(measurement "variant-set-manifest")
     [[ -f "$manifest" ]] || {
         printf 'the variant set names %s, which is not a file in the repository, so nobody can re-run the set\n' \
-            "${measured[variant-set-manifest]}" >&2
+            "$(measurement "variant-set-manifest")" >&2
         return 1
     }
     rows=$(grep -cvE '^\s*(#|$)' "$manifest" || true)
-    (( rows == measured[variant-set-size] )) || {
+    (( rows == $(measurement "variant-set-size") )) || {
         printf '%s holds %s variant(s) and %s declares a set of %s\n' \
-            "${measured[variant-set-manifest]}" "$rows" "$artifact_relative" "${measured[variant-set-size]}" >&2
+            "$(measurement "variant-set-manifest")" "$rows" "$artifact_relative" "$(measurement "variant-set-size")" >&2
         return 1
     }
 
     # --- the set and its denominators are large enough to state a rate ---
-    (( measured[variant-set-size] >= minimum_variants )) || {
+    (( $(measurement "variant-set-size") >= minimum_variants )) || {
         printf 'the variant set holds %s variant(s), fewer than the %s a published rate needs\n' \
-            "${measured[variant-set-size]}" "$minimum_variants" >&2
+            "$(measurement "variant-set-size")" "$minimum_variants" >&2
         return 1
     }
-    (( measured[compared-records] >= minimum_compared )) || {
+    (( $(measurement "compared-records") >= minimum_compared )) || {
         printf 'compared-records is %s, fewer than the %s a published value rate needs\n' \
-            "${measured[compared-records]}" "$minimum_compared" >&2
+            "$(measurement "compared-records")" "$minimum_compared" >&2
         return 1
     }
-    (( measured[position-compared-records] >= minimum_position_compared )) || {
+    (( $(measurement "position-compared-records") >= minimum_position_compared )) || {
         printf 'position-compared-records is %s, fewer than the %s a published position rate needs\n' \
-            "${measured[position-compared-records]}" "$minimum_position_compared" >&2
+            "$(measurement "position-compared-records")" "$minimum_position_compared" >&2
         return 1
     }
 
@@ -334,42 +358,47 @@ examine() {
     # records themselves, recomputes every count the statement publishes, and
     # checks the one-sided ordering guarantee side by side rather than trusting
     # the sentence that states it.
-    local raw=$root/${measured[raw-records]} derived pair
+    local raw=$root/$(measurement "raw-records") derived pair
     [[ -f "$raw" ]] || {
         printf 'the measurement names %s as its per-record result, which is not a file in the repository, so the published counts rest on a run nothing kept\n' \
-            "${measured[raw-records]}" >&2
+            "$(measurement "raw-records")" >&2
         return 1
     }
     [[ $(head -n 1 "$raw") == "$raw_header" ]] || {
         printf '%s does not begin with the ten per-record columns, so nothing can be recomputed from it\n' \
-            "${measured[raw-records]}" >&2
+            "$(measurement "raw-records")" >&2
         return 1
     }
     derived=$(derive "$raw") || {
-        printf '%s cannot be read record by record: %s\n' "${measured[raw-records]}" "$derived" >&2
+        printf '%s cannot be read record by record: %s\n' "$(measurement "raw-records")" "$derived" >&2
         return 1
     }
 
-    declare -A recomputed=()
-    for pair in $derived; do recomputed[${pair%%=*}]=${pair#*=}; done
+    local -a recomputed=()
+    local -a derived_keys=(rows variants value-disagreements both-routes-zero-records \
+        non-zero-records position-compared-records position-disagreements violations sample)
+    for pair in $derived; do
+        key=${pair%%=*}
+        recomputed[$(key_index "$key" "${derived_keys[@]}")]=${pair#*=}
+    done
 
-    (( recomputed[rows] > 0 )) || {
+    (( $(record_count "rows") > 0 )) || {
         printf '%s holds no records, so every published count was recomputed from nothing\n' \
-            "${measured[raw-records]}" >&2
+            "$(measurement "raw-records")" >&2
         return 1
     }
-    (( recomputed[rows] == measured[compared-records] )) || {
+    (( $(record_count "rows") == $(measurement "compared-records") )) || {
         printf '%s holds %s record(s) and %s declares compared-records %s\n' \
-            "${measured[raw-records]}" "${recomputed[rows]}" "$artifact_relative" \
-            "${measured[compared-records]}" >&2
+            "$(measurement "raw-records")" "$(record_count "rows")" "$artifact_relative" \
+            "$(measurement "compared-records")" >&2
         return 1
     }
     for key in value-disagreements both-routes-zero-records non-zero-records \
         position-compared-records position-disagreements; do
-        (( recomputed[$key] == measured[$key] )) || {
+        (( $(record_count "$key") == $(measurement "$key") )) || {
             printf '%s yields %s of %s and %s declares %s, so the published number is not the one its records support\n' \
-                "${measured[raw-records]}" "${recomputed[$key]}" "$key" \
-                "$artifact_relative" "${measured[$key]}" >&2
+                "$(measurement "raw-records")" "$(record_count "$key")" "$key" \
+                "$artifact_relative" "$(measurement "$key")" >&2
             return 1
         }
     done
@@ -380,23 +409,23 @@ examine() {
     uncovered=$(comm -23 <(set_variants "$manifest") <(raw_variants "$raw") | wc -l)
     (( uncovered == 0 )) || {
         printf '%s answers %s of the %s variants in %s and says nothing about %s of them, so the rate is published over a sample of the set it names\n' \
-            "${measured[raw-records]}" "${recomputed[variants]}" "${measured[variant-set-size]}" \
-            "${measured[variant-set-manifest]}" "$uncovered" >&2
+            "$(measurement "raw-records")" "$(record_count "variants")" "$(measurement "variant-set-size")" \
+            "$(measurement "variant-set-manifest")" "$uncovered" >&2
         return 1
     }
     stranger=$(comm -13 <(set_variants "$manifest") <(raw_variants "$raw") | wc -l)
     (( stranger == 0 )) || {
         printf '%s carries %s variant(s) that are not in %s, so it was measured over some other set\n' \
-            "${measured[raw-records]}" "$stranger" "${measured[variant-set-manifest]}" >&2
+            "$(measurement "raw-records")" "$stranger" "$(measurement "variant-set-manifest")" >&2
         return 1
     }
 
     # The ordering the contract publishes, checked against the records instead
     # of pinned as prose: on every comparable side, the precomputed position is
     # at or before the modeled one.
-    (( recomputed[violations] == 0 )) || {
+    (( $(record_count "violations") == 0 )) || {
         printf '%s holds %s record(s) whose precomputed position is later than the modeled one, %s among them, so the published ordering that a precomputed position falls at or before a modeled one is false on its own records\n' \
-            "${measured[raw-records]}" "${recomputed[violations]}" "${recomputed[sample]}" >&2
+            "$(measurement "raw-records")" "$(record_count "violations")" "$(record_count "sample")" >&2
         return 1
     }
 
@@ -431,35 +460,35 @@ examine() {
         # Value disagreement and position disagreement are two numbers. Each
         # has to stand in a sentence naming what it is a disagreement about.
         sentences=$(printf '%s' "$text" | sed -E 's/\. /.\n/g')
-        grep -qi 'value' < <(grep -F -- "${measured[value-disagreement-percent]}" <<<"$sentences") || {
+        grep -qi 'value' < <(grep -F -- "$(measurement "value-disagreement-percent")" <<<"$sentences") || {
             printf '%s carries no sentence reporting %s as the value disagreement %s records\n' \
-                "$relative" "${measured[value-disagreement-percent]}" "$artifact_relative" >&2
+                "$relative" "$(measurement "value-disagreement-percent")" "$artifact_relative" >&2
             return 1
         }
-        grep -qi 'position' < <(grep -F -- "${measured[position-disagreement-percent]}" <<<"$sentences") || {
+        grep -qi 'position' < <(grep -F -- "$(measurement "position-disagreement-percent")" <<<"$sentences") || {
             printf '%s carries no sentence reporting %s as the position disagreement %s records\n' \
-                "$relative" "${measured[position-disagreement-percent]}" "$artifact_relative" >&2
+                "$relative" "$(measurement "position-disagreement-percent")" "$artifact_relative" >&2
             return 1
         }
         # The full denominator is mostly two routes agreeing about zero, so the
         # figure over the records that carry a call stands beside it.
-        grep -qi 'value' < <(grep -F -- "${measured[non-zero-value-disagreement-percent]}" <<<"$sentences") || {
+        grep -qi 'value' < <(grep -F -- "$(measurement "non-zero-value-disagreement-percent")" <<<"$sentences") || {
             printf '%s carries no sentence reporting %s as the value disagreement over the records carrying a score, which %s records\n' \
-                "$relative" "${measured[non-zero-value-disagreement-percent]}" "$artifact_relative" >&2
+                "$relative" "$(measurement "non-zero-value-disagreement-percent")" "$artifact_relative" >&2
             return 1
         }
 
         # The measured set holds one substitution class, and a reader meets
         # the figures here rather than in the artifact, so the coverage and its
         # limit stand here too. Both documents, because both publish figures.
-        grep -qF -- "${measured[substitution-coverage]}" <<<"$text" || {
+        grep -qF -- "$(measurement "substitution-coverage")" <<<"$text" || {
             printf '%s publishes a disagreement figure without saying which substitutions it covers: %s says "%s"\n' \
-                "$relative" "$artifact_relative" "${measured[substitution-coverage]}" >&2
+                "$relative" "$artifact_relative" "$(measurement "substitution-coverage")" >&2
             return 1
         }
-        grep -qF -- "${measured[substitution-limit]}" <<<"$text" || {
+        grep -qF -- "$(measurement "substitution-limit")" <<<"$text" || {
             printf '%s publishes a disagreement figure without saying what a set holding the other substitution class could do to it: %s says "%s"\n' \
-                "$relative" "$artifact_relative" "${measured[substitution-limit]}" >&2
+                "$relative" "$artifact_relative" "$(measurement "substitution-limit")" >&2
             return 1
         }
 
@@ -467,55 +496,55 @@ examine() {
 
         # The contract records the set, its size and the date measured, and
         # states how zero scores were treated in the artifact's own words.
-        grep -qF -- "${measured[variant-set]}" <<<"$text" || {
-            printf '%s states a rate without naming the variant set %s\n' "$relative" "${measured[variant-set]}" >&2
+        grep -qF -- "$(measurement "variant-set")" <<<"$text" || {
+            printf '%s states a rate without naming the variant set %s\n' "$relative" "$(measurement "variant-set")" >&2
             return 1
         }
-        grep -qF -- "${measured[measured]}" <<<"$text" || {
-            printf '%s states a rate without the date %s it was measured\n' "$relative" "${measured[measured]}" >&2
+        grep -qF -- "$(measurement "measured")" <<<"$text" || {
+            printf '%s states a rate without the date %s it was measured\n' "$relative" "$(measurement "measured")" >&2
             return 1
         }
-        grep -qE -- "$(grouped "${measured[variant-set-size]}")|${measured[variant-set-size]}" <<<"$text" || {
+        grep -qE -- "$(grouped "$(measurement "variant-set-size")")|$(measurement "variant-set-size")" <<<"$text" || {
             printf '%s states a rate without the size of the set it was measured over\n' "$relative" >&2
             return 1
         }
-        grep -qF -- "${measured[denominator-composition]}" <<<"$text" || {
+        grep -qF -- "$(measurement "denominator-composition")" <<<"$text" || {
             printf '%s does not carry what its value denominator is made of: %s says "%s"\n' \
-                "$relative" "$artifact_relative" "${measured[denominator-composition]}" >&2
+                "$relative" "$artifact_relative" "$(measurement "denominator-composition")" >&2
             return 1
         }
-        grep -qF -- "${measured[zero-score-treatment]}" <<<"$text" || {
+        grep -qF -- "$(measurement "zero-score-treatment")" <<<"$text" || {
             printf '%s does not carry how zero scores were treated: %s says "%s"\n' \
-                "$relative" "$artifact_relative" "${measured[zero-score-treatment]}" >&2
+                "$relative" "$artifact_relative" "$(measurement "zero-score-treatment")" >&2
             return 1
         }
         # No gate re-runs this measurement, so the contract states that limit
         # where the number is read instead of leaving it in the evidence file.
-        grep -qF -- "${measured[evidence-limit]}" <<<"$text" || {
+        grep -qF -- "$(measurement "evidence-limit")" <<<"$text" || {
             printf '%s does not carry the limit of its own evidence: %s says "%s"\n' \
-                "$relative" "$artifact_relative" "${measured[evidence-limit]}" >&2
+                "$relative" "$artifact_relative" "$(measurement "evidence-limit")" >&2
             return 1
         }
 
         # A position figure with no mechanism beside it reads as a defect in
         # this code. The contract states why the two routes address the same
         # call differently, and states the one-sided ordering that follows.
-        grep -qF -- "${measured[position-mechanism]}" <<<"$text" || {
+        grep -qF -- "$(measurement "position-mechanism")" <<<"$text" || {
             printf '%s reports a position disagreement rate without the mechanism behind it: %s says "%s"\n' \
-                "$relative" "$artifact_relative" "${measured[position-mechanism]}" >&2
+                "$relative" "$artifact_relative" "$(measurement "position-mechanism")" >&2
             return 1
         }
-        grep -qF -- "${measured[position-ordering]}" <<<"$text" || {
+        grep -qF -- "$(measurement "position-ordering")" <<<"$text" || {
             printf '%s does not carry the one-sided ordering statement: %s says "%s"\n' \
-                "$relative" "$artifact_relative" "${measured[position-ordering]}" >&2
+                "$relative" "$artifact_relative" "$(measurement "position-ordering")" >&2
             return 1
         }
     done
 
     printf '%s disagreement on value (%s%%) and %s on position (%s%%) over %s, published and recorded alike; the published ordering held over %s comparable record(s)\n' \
-        "${measured[value-disagreements]}" "${measured[value-disagreement-percent]}" \
-        "${measured[position-disagreements]}" "${measured[position-disagreement-percent]}" \
-        "${measured[variant-set]}" "${recomputed[position-compared-records]}"
+        "$(measurement "value-disagreements")" "$(measurement "value-disagreement-percent")" \
+        "$(measurement "position-disagreements")" "$(measurement "position-disagreement-percent")" \
+        "$(measurement "variant-set")" "$(record_count "position-compared-records")"
 }
 
 # --- the check refuses what it exists to refuse ------------------------------
@@ -679,14 +708,23 @@ swap() {
 drop() {
     local target=$1 pattern=$2
     grep -qE -- "$pattern" "$target" || fail "the fixture edit for $target matched nothing"
-    sed -i -E "/$pattern/d" "$target"
+    edit_record -E "/$pattern/d" "$target"
+}
+
+# Rewrite a copied fixture through a sibling temporary file. GNU and BSD sed
+# disagree on -i; neither is needed for these small files.
+edit_record() {
+    local target=${@: -1} temporary
+    temporary=$(mktemp "${target}.XXXXXX")
+    sed "$@" >"$temporary" || { rm -f "$temporary"; return 1; }
+    mv "$temporary" "$target"
 }
 
 # Rewrite one whole `key: value` line of the artifact's measurement block.
 retype() {
     local target=$1 key=$2 value=$3
     grep -q "^$key: " "$target" || fail "the fixture edit for $target matched no $key"
-    sed -i -E "s|^$key: .*|$key: $value|" "$target"
+    edit_record -E "s|^$key: .*|$key: $value|" "$target"
 }
 
 # Rewrite several `key: value` lines of the measurement block together, for a
@@ -715,9 +753,9 @@ mutate() {
     local tree="$fixtures/$1" before after
     shift
     plant "$tree"
-    before=$(find "$tree" -type f -exec md5sum {} + | sort | md5sum)
+    before=$(find "$tree" -type f -exec cksum {} + | sort | cksum)
     ( cd "$tree" && "$@" )
-    after=$(find "$tree" -type f -exec md5sum {} + | sort | md5sum)
+    after=$(find "$tree" -type f -exec cksum {} + | sort | cksum)
     [[ "$before" != "$after" ]] || fail "the mutation for $tree changed nothing, so its case proves nothing"
     printf '%s' "$tree"
 }
@@ -730,6 +768,11 @@ expect_refusal "$(mutate empty-field retype "$artifact_relative" measured '')" \
     'carries no measured'
 expect_refusal "$(mutate unreadable-count retype "$artifact_relative" compared-records many)" \
     'which is not a count'
+hostile_marker=$fixtures/hostile-marker
+hostile_tree=$(mutate hostile-measurement retype "$artifact_relative" compared-records \
+    "\$(touch $hostile_marker)")
+expect_refusal "$hostile_tree" 'compared-records in planning/artifacts/0059-route-disagreement-rate.md reads'
+[[ ! -e "$hostile_marker" ]] || fail 'a hostile copied measurement value ran as shell code and created its marker'
 expect_refusal "$(mutate unreadable-percent retype "$artifact_relative" value-disagreement-percent '20%')" \
     'not a percentage in hundredths'
 expect_refusal "$(mutate unreadable-date retype "$artifact_relative" measured 'last Tuesday')" \
@@ -849,25 +892,25 @@ expect_refusal "$(mutate silent-on-ordering swap "$compatibility_relative" \
 # --- the per-record result -----------------------------------------------------
 expect_refusal "$(mutate no-records rm -f planning/artifacts/fixture-records.tsv)" \
     'which is not a file in the repository, so the published counts rest on a run nothing kept'
-expect_refusal "$(mutate renamed-column sed -i '1s/bundle_gain_position/bundle_gain_pos/' \
+expect_refusal "$(mutate renamed-column edit_record '1s/bundle_gain_position/bundle_gain_pos/' \
     planning/artifacts/fixture-records.tsv)" \
     'does not begin with the ten per-record columns'
-expect_refusal "$(mutate unreadable-record sed -i '2s/0\.00/none/' \
+expect_refusal "$(mutate unreadable-record edit_record '2s/0\.00/none/' \
     planning/artifacts/fixture-records.tsv)" \
     'where a score belongs'
-expect_refusal "$(mutate records-truncated sed -i '3,202d' \
+expect_refusal "$(mutate records-truncated edit_record '3,202d' \
     planning/artifacts/fixture-records.tsv)" \
     'holds 1000 record(s) and'
-expect_refusal "$(mutate records-contradict-count sed -i '826s/0\.10\t7/0.10\t-5/' \
+expect_refusal "$(mutate records-contradict-count edit_record '826s/0\.10\t7/0.10\t-5/' \
     planning/artifacts/fixture-records.tsv)" \
     'yields 18 of position-disagreements'
-expect_refusal "$(mutate records-sample-the-set sed -i \
+expect_refusal "$(mutate records-sample-the-set edit_record \
     's|^GRCh38:chr1:[0-9]*:A:T|GRCh38:chr1:1:A:T|' planning/artifacts/fixture-records.tsv)" \
     'is published over a sample of the set it names'
-expect_refusal "$(mutate records-from-another-set sed -i \
+expect_refusal "$(mutate records-from-another-set edit_record \
     '2s|^GRCh38:chr1:1:A:T|GRCh38:chr9:1:A:T|' planning/artifacts/fixture-records.tsv)" \
     'variant(s) that are not in'
-expect_refusal "$(mutate precomputed-position-later sed -i '827s/0\.10\t-5/0.10\t9/' \
+expect_refusal "$(mutate precomputed-position-later edit_record '827s/0\.10\t-5/0.10\t9/' \
     planning/artifacts/fixture-records.tsv)" \
     'later than the modeled one'
 
