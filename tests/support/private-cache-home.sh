@@ -47,10 +47,9 @@ __private_cache_home=$(
 )/target/shell-harness-cache-home
 
 rm -rf -- "$__private_cache_home"
-mkdir -p -- "$__private_cache_home"
-# Whatever the caller's umask says. A cache home others can read is a cache
-# home shared with them.
-chmod 700 -- "$__private_cache_home"
+# Set the mode at creation. A later chmod leaves a window where a caller with
+# umask 000 exposes the new home to other users.
+mkdir -m 700 -p "$__private_cache_home"
 
 HOME=$__private_cache_home
 XDG_CACHE_HOME=$__private_cache_home

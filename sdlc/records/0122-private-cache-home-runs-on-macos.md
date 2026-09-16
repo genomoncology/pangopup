@@ -1,0 +1,7 @@
+# The private cache-home helper runs on macOS
+
+The shell helper now creates its cache directory with owner-only mode in the creation call. It does not rely on a later `chmod`. The inheritance check sources the helper under `umask 000`, intercepts directory creation to inspect the resulting mode immediately, and confirms the sourcing shell's umask is unchanged. It still verifies that test runs leave the stand-in operator cache unchanged while filling the helper's private cache. The separate model-cache-limit check still covers the fourth inherited setting.
+
+On macOS, `bash tests/inherited-cache-variables.sh` and `bash tests/model-cache-limit-inheritance.sh` exited 0. After the reviewed change, `make lint` exited 0. `make test` passed both checks and stopped later in `tests/published-claim-evidence.sh` on BSD `sed` syntax. `make spec` reported 186 passed and the same three Mac portability failures recorded in record 0121. These are separate work. This record does not claim green Mac gates.
+
+The code reviewer checked the creation behavior against the published [Apple mkdir source](https://github.com/apple-oss-distributions/file_cmds/blob/main/mkdir/mkdir.c) and [GNU coreutils documentation](https://www.gnu.org/software/coreutils/manual/html_node/mkdir-invocation.html). An exact pushed-SHA Linux test run remains the final cross-platform proof.

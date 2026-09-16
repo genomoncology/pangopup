@@ -81,6 +81,29 @@ print(chosen[0])
 }
 # Spelled in full rather than through the variable: the sibling scan reads a
 # literal source line, and naming the helper in a variable establishes nothing.
+# Intercept mkdir in a separate shell and read the new home's mode before the
+# helper can run chmod. The mode field of ls works on macOS and Linux.
+bash -c '
+    set -euo pipefail
+    umask 000
+    expected_umask=$(umask)
+    creation_checks=0
+    mkdir() {
+        command mkdir "$@"
+        creation_checks=$((creation_checks + 1))
+        mode=$(LC_ALL=C ls -ld "${@: -1}" | cut -c2-10)
+        [[ "$mode" == rwx------ ]] || {
+            printf "inherited cache variables: helper home mode at creation is [%s], not owner-only\n" "$mode" >&2
+            return 1
+        }
+    }
+    . "$1"
+    (( creation_checks == 1 ))
+    [[ $(umask) == "$expected_umask" ]] || {
+        printf "inherited cache variables: helper changed the callers umask\n" >&2
+        exit 1
+    }
+' bash "$repo/tests/support/private-cache-home.sh"
 . "$repo/tests/support/private-cache-home.sh"
 
 executable="$repo/target/debug/pangopup"
