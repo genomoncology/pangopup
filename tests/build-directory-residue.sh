@@ -36,13 +36,14 @@ trap 'chmod -R u+w "$work" 2>/dev/null || true; rm -rf "$work"' EXIT
 # Prints nothing when there are none.
 unwritable_directories() {
     local root=$1
-    find "$root" -type d -not -writable -printf '%P\n' | sort
+    find "$root" -type d ! -perm -u=w -print |
+        while IFS= read -r path; do printf '%s\n' "${path#"$root"/}"; done | sort
 }
 
 # How many directories stand under $1 at all. A check that read none proved
 # nothing, whatever it reports.
 directory_count() {
-    find "$1" -type d -printf '.\n' | wc -l
+    find "$1" -type d -print | wc -l
 }
 
 # --- 1. the check tells a restored harness from a leftover one ---------------
