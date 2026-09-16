@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-09-15
+Updated: 2026-09-16
 
 ## Current release state
 
@@ -71,12 +71,14 @@ and typed mmap provider are established; its local transport, installation,
 and immutable public release are shipped. Future SNV and sequence-index builds use
 separate causal source/dependency fingerprints; their existing production
 assets remain immutable and readable.
-ADR 0027 now makes a qualified smaller SNV format the next 0.5 dependency. No
-candidate has passed. Qualification requires a complete `scores.pgi` no larger
-than 3,221,225,472 bytes; predeclared same-run fixed-v1 latency controls and
-historical caps; exhaustive canonical-stream and public-result parity;
-separate bounded-open, touched-record, and offline corruption proof; and new
-format, SNV asset profile, bundle, and runtime-profile identities. The active
+ADR 0027 makes a qualified smaller SNV format the next 0.5 dependency. The
+complete 2,035,371,437-byte sparse candidate passes the size and exhaustive
+logical-parity gates. On the retained Ryzen host, it also passes every
+predeclared latency gate at 1,663 / 16,222 / 157,189 ns for 1 / 10 / 100 warm
+gene-filtered requests, versus fixed-v1 at 461 / 4,379 / 41,341 ns. Unfiltered
+lookup and whole-genome throughput remain unmeasured. Qualification still
+requires separate corruption proof, semantic command and service parity, new
+format and installed identities, packaging, and rollback evidence. The active
 profile moves only after every gate passes. Fixed-v1 remains the shipped,
 readable rollback format.
 The checked repository side now has a read-only workflow token, full-SHA action

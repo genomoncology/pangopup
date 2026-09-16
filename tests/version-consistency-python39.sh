@@ -32,7 +32,7 @@ try:
     required_public_container_version = "0.4.1"
     required_public_container_index = "sha256:2177c02fc045136a2ef066dbbfa669f59d56dc15e44765e7b7bfbbc9969a6eb8"
     required_v041_release_notes_sha256 = "a2e481810f3e9095c5a06437fc47b96162c79f6c66147d08b3c0f2711e5e1abe"
-    required_frontier_updated_date = "2026-09-15"
+    required_frontier_updated_date = "2026-09-16"
     if checker_globals.get("PUBLIC_EXECUTABLE_VERSION") != required_public_executable_version:
         raise AssertionError("checker does not pin the public executable version")
     if checker_globals.get("PUBLIC_EXECUTABLE_RELEASE_ID") != required_public_executable_release_id:

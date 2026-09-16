@@ -1,0 +1,7 @@
+# The complete sparse index passes latency qualification
+
+The complete 2,035,371,437-byte sparse candidate passed every predeclared latency control against the complete 15,033,158,255-byte fixed-v1 member on the retained AMD Ryzen 7 5825U host. The sparse reader measured 1,663 / 16,222 / 157,189 ns at p50 for 1 / 10 / 100 requests. Fixed-v1 measured 461 / 4,379 / 41,341 ns. The sparse reader was 3.61 to 3.80 times slower and remained below both the ten-times control and the 2,100 / 19,640 / 195,880 ns absolute ceilings.
+
+The release benchmark at clean pushed commit `142787ce82471544a9bb8356b8dc8ef834eef1ca` verified equality for all 100 gene-filtered manifest requests before timing. It opened both files once, alternated reader order, ran 20 warmups, retained 20 samples per reader and workload, and computed nearest-rank p50. The canonical report retains exact executable, input, request, environment, raw-sample, and gate evidence. The exact pushed Linux checkout passed all 19 focused benchmark tests, its command parser test, strict all-target builder lint, and the diff check before measurement. The completed change passed `make lint`, `make test`, `make spec`, and `git diff --check` on macOS.
+
+The candidate now passes ADR 0027's complete size, logical parity, and gene-filtered latency gates. The measurement does not cover unfiltered lookup or whole-genome throughput. The candidate remains inactive. Corruption qualification, installed identities, semantic command and service parity, packaging, and rollback evidence remain open before activation.
