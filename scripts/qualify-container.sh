@@ -28,7 +28,14 @@ expect_equal() {
 image=$1
 source_tree=$(realpath "$2")
 pangopup_build=$(realpath "$3")
-work=$(realpath -m "$4")
+work_parent_input=$(dirname -- "$4")
+work_name=$(basename -- "$4")
+[[ "$work_name" != . && "$work_name" != .. && -d "$work_parent_input" ]] || {
+  printf 'container qualification inputs are invalid\n' >&2
+  exit 2
+}
+work_parent=$(cd -P -- "$work_parent_input" && pwd -P)
+work="$work_parent/$work_name"
 expected_registry_digest=${5:-}
 [[ -d "$source_tree" && -x "$pangopup_build" && ! -e "$work" ]] || {
   printf 'container qualification inputs are invalid\n' >&2
@@ -37,9 +44,14 @@ expected_registry_digest=${5:-}
 
 case "$(uname -m)" in
   x86_64) expected_arch=amd64 ;;
-  aarch64) expected_arch=arm64 ;;
+  aarch64|arm64) expected_arch=arm64 ;;
   *) printf 'container qualification requires native AMD64 or ARM64\n' >&2; exit 2 ;;
 esac
+
+if [[ -n "$expected_registry_digest" && ! "$expected_registry_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  printf 'container qualification expected registry digest is invalid\n' >&2
+  exit 2
+fi
 
 prefix="pangopup-q-$PPID-$$"
 data_volume="$prefix-data"
@@ -100,10 +112,6 @@ copy_cache_database() {
 
 stage=image-metadata
 if [[ -n "$expected_registry_digest" ]]; then
-  [[ "$expected_registry_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
-    printf 'container qualification expected registry digest is invalid\n' >&2
-    exit 2
-  }
   repository=${image%@*}
   expect_equal held-image-reference "$repository@$expected_registry_digest" "$image"
   repo_digests=$(docker image inspect --format '{{json .RepoDigests}}' "$image")

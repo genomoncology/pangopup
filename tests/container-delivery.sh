@@ -2,14 +2,10 @@
 set -euo pipefail
 
 # This harness stays in `make spec`, which `spec/container-image.md` invokes.
-# It does execute `scripts/qualify-container.sh`, whose EXIT trap calls
-# `docker rm --force` twice and `docker volume rm --force` once. That is still
-# a gate that costs nothing and reaches nowhere: `qualify-container.sh` refuses
-# an invalid expected registry digest and exits 2 before its first
-# `docker image inspect`, so no image is pulled, built or started, and all
-# three removal calls are redirected under `|| true`. A machine without docker
-# is unaffected; a machine with it sees removals of names that do not exist.
-# No line here reaches the network.
+# It does execute `scripts/qualify-container.sh` with an invalid expected
+# registry digest. A recording Docker stub proves the qualifier refuses that
+# digest before its first Docker command or persistent cleanup target. No line
+# here reaches the network.
 #
 # It reads `Dockerfile` and `.github/workflows/` by relative path and writes
 # under `target/`, so the spec block that runs it changes directory to the
@@ -153,17 +149,73 @@ grep -Fq '[EXPECTED_REGISTRY_DIGEST]' scripts/qualify-container.sh
 grep -Fq 'held-image-reference' scripts/qualify-container.sh
 grep -Fq 'check=held-registry-digest' scripts/qualify-container.sh
 grep -Fq 'length == 1 and .[0] == $held' scripts/qualify-container.sh
-invalid_digest_work="target/container-invalid-digest-$$"
-invalid_digest_error="target/container-invalid-digest-$$.err"
-if scripts/qualify-container.sh example.invalid/pangopup@sha256:bad . /bin/true \
-  "$invalid_digest_work" sha256:bad 2>"$invalid_digest_error"; then
-  printf 'container qualification accepted an invalid held digest\n' >&2
+invalid_digest_root="target/container-invalid-digest-$$"
+invalid_digest_bin="$invalid_digest_root/bin"
+invalid_digest_log="$invalid_digest_root/docker.log"
+mkdir -p "$invalid_digest_bin" "$invalid_digest_root/canonical/parent"
+ln -s canonical "$invalid_digest_root/linked-parent"
+cleanup_invalid_digest() { rm -rf -- "$invalid_digest_root"; }
+trap cleanup_invalid_digest EXIT
+cat >"$invalid_digest_bin/docker" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$CONTAINER_DOCKER_LOG"
+if [[ -n ${CONTAINER_RETARGET_LINK:-} && ! -e ${CONTAINER_RETARGET_MARKER:-} ]]; then
+  : >"$CONTAINER_RETARGET_MARKER"
+  unlink "$CONTAINER_RETARGET_LINK"
+  ln -s "$CONTAINER_RETARGET_TARGET" "$CONTAINER_RETARGET_LINK"
+fi
+exit 99
+STUB
+cat >"$invalid_digest_bin/uname" <<'STUB'
+#!/usr/bin/env bash
+[[ ${1:-} == -m ]]
+printf '%s\n' "$CONTAINER_TEST_MACHINE"
+STUB
+chmod +x "$invalid_digest_bin/docker" "$invalid_digest_bin/uname"
+inert_executable=$(type -P true)
+[[ -n "$inert_executable" && -x "$inert_executable" ]]
+for native_machine in x86_64 aarch64 arm64; do
+  invalid_digest_work="$invalid_digest_root/linked-parent/parent/../parent/$native_machine-work"
+  invalid_digest_error="$invalid_digest_root/$native_machine.err"
+  if CONTAINER_DOCKER_LOG="$invalid_digest_log" CONTAINER_TEST_MACHINE="$native_machine" \
+    PATH="$invalid_digest_bin:$PATH" scripts/qualify-container.sh \
+      example.invalid/pangopup@sha256:bad . "$inert_executable" \
+      "$invalid_digest_work" sha256:bad 2>"$invalid_digest_error"; then
+    printf 'container qualification accepted an invalid held digest on %s\n' \
+      "$native_machine" >&2
+    exit 1
+  else
+    [[ $? == 2 ]]
+  fi
+  grep -Fq 'expected registry digest is invalid' "$invalid_digest_error"
+  [[ ! -e "$invalid_digest_work" ]]
+done
+[[ ! -s "$invalid_digest_log" ]]
+
+mkdir "$invalid_digest_root/attacker"
+printf 'keep\n' >"$invalid_digest_root/attacker/sentinel"
+canonical_work="$invalid_digest_root/canonical/parent/stable-work"
+retargeted_work="$invalid_digest_root/linked-parent/parent/../parent/stable-work"
+stable_error="$invalid_digest_root/stable.err"
+if CONTAINER_DOCKER_LOG="$invalid_digest_log" \
+  CONTAINER_TEST_MACHINE="$(uname -m)" \
+  CONTAINER_RETARGET_LINK="$invalid_digest_root/linked-parent" \
+  CONTAINER_RETARGET_TARGET=attacker \
+  CONTAINER_RETARGET_MARKER="$invalid_digest_root/retargeted" \
+  PATH="$invalid_digest_bin:$PATH" scripts/qualify-container.sh \
+    example.invalid/pangopup@sha256:$(printf '0%.0s' {1..64}) . "$inert_executable" \
+    "$retargeted_work" sha256:$(printf '0%.0s' {1..64}) 2>"$stable_error"; then
+  printf 'container qualification unexpectedly passed the Docker stub\n' >&2
   exit 1
 else
-  [[ $? == 2 ]]
+  [[ $? == 99 ]]
 fi
-grep -Fq 'expected registry digest is invalid' "$invalid_digest_error"
-rm -f -- "$invalid_digest_error"
+[[ -s "$invalid_digest_log" ]]
+[[ -e "$invalid_digest_root/retargeted" ]]
+[[ ! -e "$canonical_work" ]]
+grep -Fxq keep "$invalid_digest_root/attacker/sentinel"
+cleanup_invalid_digest
+trap - EXIT
 bash tests/container-receipt-admission.sh
 bash tests/container-tag-absence.sh
 bash tests/container-tag-digest.sh

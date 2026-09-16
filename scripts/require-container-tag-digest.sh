@@ -27,18 +27,16 @@ expected=$4
   exit 1
 }
 
-mapfile -t observed < <(
-  awk 'tolower($0) ~ /^docker-content-digest:[[:space:]]*/ {
-      sub(/^[^:]*:[[:space:]]*/, "")
-      sub(/\r$/, "")
-      print
-    }' "$headers"
-)
-[[ "${#observed[@]}" == 1 && "${observed[0]}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+observed=$(awk 'tolower($0) ~ /^docker-content-digest:[[:space:]]*/ {
+    sub(/^[^:]*:[[:space:]]*/, "")
+    sub(/\r$/, "")
+    print
+  }' "$headers")
+[[ "$observed" =~ ^sha256:[0-9a-f]{64}$ ]] || {
   printf 'container tag %s returned an invalid digest header\n' "$tag" >&2
   exit 1
 }
-[[ "${observed[0]}" == "$expected" ]] || {
+[[ "$observed" == "$expected" ]] || {
   printf 'container tag %s no longer resolves to its reviewed predecessor\n' "$tag" >&2
   exit 1
 }

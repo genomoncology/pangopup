@@ -6,6 +6,14 @@ fail() {
   exit 1
 }
 
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
 [[ $# -ge 1 ]] || fail 'missing action'
 action=$1
 shift
@@ -45,10 +53,10 @@ case "$action" in
     [[ -f "$archive" && ! -L "$archive" ]] || fail 'artifact archive is not a direct regular file'
     [[ ! -e "$output" && ! -L "$output" ]] || fail 'receipt output already exists'
     IFS=$'\t' read -r _ expected_digest < <("$0" metadata "$artifacts" "$expected_name")
-    observed_digest="sha256:$(sha256sum "$archive" | cut -d' ' -f1)"
+    observed_digest="sha256:$(sha256_file "$archive")"
     [[ "$observed_digest" == "$expected_digest" ]] || fail 'artifact archive digest does not match Actions metadata'
-    mapfile -t members < <(unzip -Z1 "$archive")
-    [[ "${#members[@]}" == 1 && "${members[0]}" == stage-receipt.json ]] ||
+    members=$(unzip -Z1 "$archive")
+    [[ "$members" == stage-receipt.json ]] ||
       fail 'artifact archive inventory is not canonical'
     scratch=$(mktemp -d)
     chmod 0700 "$scratch"
@@ -57,9 +65,9 @@ case "$action" in
     unzip -q "$archive" -d "$scratch"
     receipt=$scratch/stage-receipt.json
     [[ -f "$receipt" && ! -L "$receipt" ]] || fail 'receipt is not a direct regular file'
-    [[ "$(find "$scratch" -mindepth 1 -maxdepth 1 | wc -l)" == 1 ]] ||
+    [[ $(find "$scratch" -mindepth 1 -maxdepth 1 | wc -l) -eq 1 ]] ||
       fail 'extracted artifact inventory is not canonical'
-    [[ "$(wc -l <"$receipt")" == 1 && "$(stat -c %s "$receipt")" -le 1024 ]] ||
+    [[ $(wc -l <"$receipt") -eq 1 && $(wc -c <"$receipt") -le 1024 ]] ||
       fail 'receipt size or line count is invalid'
     [[ "$(jq -cS . "$receipt")" == "$(cat "$receipt")" ]] || fail 'receipt JSON is not canonical'
     jq -e --arg commit "$commit" --arg workflow_sha "$workflow_sha" --argjson run_id "$run_id" \
@@ -69,7 +77,8 @@ case "$action" in
        (.amd64 | test("^sha256:[0-9a-f]{64}$")) and
        (.arm64 | test("^sha256:[0-9a-f]{64}$")) and .amd64 != .arm64' \
       "$receipt" >/dev/null || fail 'receipt identity or schema is invalid'
-    cp --update=none -- "$receipt" "$output" || fail 'receipt output publication failed'
+    (set -o noclobber; umask 077; cat "$receipt" >"$output") 2>/dev/null ||
+      fail 'receipt output publication failed'
     [[ -f "$output" && ! -L "$output" ]] || fail 'receipt output is not a direct regular file'
     cmp "$receipt" "$output" || fail 'receipt output identity changed'
     chmod 0600 "$output"

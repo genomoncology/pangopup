@@ -63,3 +63,8 @@ jq -cn --arg name "$name" --arg digest "$bad_digest" \
   '[{id:456,name:$name,expired:false,digest:$digest}]' >"$root/bad-artifacts.json"
 expect_rejected malformed-receipt "$helper" archive "$root/bad-artifacts.json" "$name" \
   "$root/bad.zip" "$commit" "$commit" 123 "$root/bad-output.json"
+
+printf 'preserve\n' >"$root/existing-output.json"
+expect_rejected existing-output "$helper" archive "$root/good-artifacts.json" "$name" \
+  "$root/good.zip" "$commit" "$commit" 123 "$root/existing-output.json"
+grep -Fxq preserve "$root/existing-output.json"

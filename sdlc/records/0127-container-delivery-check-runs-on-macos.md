@@ -1,0 +1,11 @@
+# The container invalid-digest control runs on macOS and Linux
+
+The qualifier now resolves the existing work parent physically with portable shell code before it appends the one missing final component. Relative paths, `..`, and symlinked parents therefore produce one stable absolute cleanup target. A regression retargets the supplied parent symlink during the first stubbed Docker command; cleanup removes the original canonical work directory and preserves a sentinel under the replacement target. The qualifier accepts both `aarch64` and `arm64` as native ARM64 host names. It validates an optional held registry digest before it creates the work directory or installs the cleanup trap. Valid digests retain the existing image-reference and local-image checks.
+
+The container-delivery check locates the host's real `true` executable. Its recording Docker stub proves the invalid digest returns status 2 with the expected refusal, creates no work path, and issues zero Docker commands. The check covers `x86_64`, `aarch64`, and `arm64` host spellings, so removing the early refusal or moving it after Docker or cleanup makes the check fail.
+
+Receipt admission now uses Bash 3.2-compatible scalar capture for its one-member archive inventory, portable byte counts, a `sha256sum`/`shasum` digest adapter, and noclobber output creation. The same scalar treatment preserves the container tag digest header's exactly-one-value rule without `mapfile`. Focused receipt tests preserve an existing output byte-for-byte.
+
+`/bin/bash tests/container-receipt-admission.sh`, `/bin/bash tests/container-tag-digest.sh`, and `/bin/bash tests/container-delivery.sh` exited 0 on macOS 15 ARM64 and Ubuntu Linux x86_64. The invalid-digest controls observed status 2, zero Docker commands, and no created work path for all three host spellings. The Orange Linux checkout stayed under `/tmp`; the command removed it and verified its absence. Bash syntax validation, `git diff --check`, `make lint`, and `make test` passed.
+
+Mac `make spec` advanced beyond `spec/container-image.md` and reported 188 passed with one separate failure. `spec/model-kernel.md` expects `x86_64` while the ARM64 build reports `aarch64`. This record does not claim a green full spec gate until that separate fixture failure is fixed.
