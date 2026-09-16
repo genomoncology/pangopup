@@ -23,16 +23,20 @@ gate below:
 - Its complete installed `scores.pgi` member is at most 3 GiB, or
   3,221,225,472 bytes. This ceiling does not include `NOTICE` or
   `manifest.json`.
-- The authoritative latency comparison uses the retained 134-gene corpus and
-  `planning/artifacts/002-query-manifest.tsv`, release builds, 20 warmups, 20
-  retained samples, nearest-rank p50, and the Ryzen 7 5825U Ubuntu 24.04
-  reference host recorded in `planning/artifacts/002-index-format-benchmark.md`.
-  The candidate and hardened fixed-v1 reader run side by side in the same
-  invocation. The evidence records both readers and each candidate/fixed ratio
-  for 1, 10, and 100 warm one-open exact lookups. Each candidate workload must
-  stay within ten times its same-run fixed control and at or below its
-  historical cap: 2,100 ns for 1 lookup, 19,640 ns for 10, and 195,880 ns for
-  100.
+- The authoritative latency comparison uses the complete certified fixed and
+  candidate members. The retained 134-gene corpus and
+  `planning/artifacts/002-selected-genes.tsv` remain the provenance for the
+  exact requests in `planning/artifacts/002-query-manifest.tsv`; they are not
+  rebuilt as smaller timed index files. Timing the complete members preserves
+  the directory depth and mapped layout that the release will serve. The run
+  uses release builds, 20 warmups, 20 retained samples, nearest-rank p50, and
+  the Ryzen 7 5825U Ubuntu 24.04 reference host recorded in
+  `planning/artifacts/002-index-format-benchmark.md`. The candidate and
+  hardened fixed-v1 reader run side by side in the same invocation. The
+  evidence records both readers and each candidate/fixed ratio for 1, 10, and
+  100 warm one-open exact lookups. Each candidate workload must stay within
+  ten times its same-run fixed control and at or below its historical cap:
+  2,100 ns for 1 lookup, 19,640 ns for 10, and 195,880 ns for 100.
 - An exhaustive canonical-stream comparison covers all 1,366,418,555
   gene-loci and all three ordered alternates per locus. Gene, contig,
   coordinate, reference, alternate, gain and loss scores, relative positions,
