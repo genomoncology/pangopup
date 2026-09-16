@@ -1,6 +1,6 @@
 # 0006 — Fixed 11-byte locus index selected by measurement
 
-Status: accepted
+Status: accepted for fixed-v1; superseded by ADR 0027 for selection of the next SNV format
 Date: 2026-07-21
 
 ## Decision

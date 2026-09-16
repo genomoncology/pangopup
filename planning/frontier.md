@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-09-06
+Updated: 2026-09-15
 
 ## Current release state
 
@@ -12,8 +12,8 @@ Repository onboarding, source ingestion, format selection, full-corpus build
 and certification, and typed SNV lookup are established. Pangopup is standalone
 open-source software. Its shipped CLI accepts an explicit GRCh38 SNV and
 optional gene filter and returns all matching source records by default from an
-explicit fixed-v1 bundle or the active Linux or macOS user-data installation. Speed
-leads memory and download size. Deterministic local transport, atomic install,
+explicit fixed-v1 bundle or the active Linux or macOS user-data installation.
+Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
 established. The first-user README now presents one accessible, release-neutral
 lookup-first performance hero containing the retained PangoPup and
@@ -71,6 +71,14 @@ and typed mmap provider are established; its local transport, installation,
 and immutable public release are shipped. Future SNV and sequence-index builds use
 separate causal source/dependency fingerprints; their existing production
 assets remain immutable and readable.
+ADR 0027 now makes a qualified smaller SNV format the next 0.5 dependency. No
+candidate has passed. Qualification requires a complete `scores.pgi` no larger
+than 3,221,225,472 bytes; predeclared same-run fixed-v1 latency controls and
+historical caps; exhaustive canonical-stream and public-result parity;
+separate bounded-open, touched-record, and offline corruption proof; and new
+format, SNV asset profile, bundle, and runtime-profile identities. The active
+profile moves only after every gate passes. Fixed-v1 remains the shipped,
+readable rollback format.
 The checked repository side now has a read-only workflow token, full-SHA action
 references, digest-authenticated maintenance tools, and an advisory, license,
 bans, and source policy in `make lint`. The policy preserves the

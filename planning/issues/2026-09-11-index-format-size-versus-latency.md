@@ -1,13 +1,27 @@
 # The index is 14 GiB because size was ranked third
 
-Status: open
+Status: decided by ADR 0027 on 2026-09-15
+
+## Resolution
+
+[`architecture/decisions/0027-smaller-snv-format-release-gates.md`](../../architecture/decisions/0027-smaller-snv-format-release-gates.md)
+supersedes ADR 0006 for selection of the next SNV format. It makes a qualified
+smaller asset a 0.5 dependency and fixes the member-size, same-run latency,
+exhaustive parity, corruption, identity, and activation gates before candidate
+measurement. Fixed-v1 remains the shipped readable rollback. No candidate has
+passed those gates yet.
 
 ## Observation
 
-`scores.pgi` is 15,030,604,105 bytes. A measured alternative holds the same data
-in 1,706,199,888 bytes and answers from mmap without decompressing anything. The
-difference is 13,324,404,217 bytes, and the measured latency cost is 39
-nanoseconds on the comparison that was run.
+The current certified shipped `scores.pgi` is 15,033,158,255 bytes. A
+complete-corpus calculation estimates the sparse-direct representation at
+1,706,199,888 bytes. The difference is 13,326,958,367 bytes. The lab-corpus
+candidate answered from mmap without decompression and added 39 nanoseconds on
+the comparison that was run.
+
+The earlier 15,030,604,105-byte figure is exactly the ordinary-locus payload:
+1,366,418,555 loci multiplied by 11 bytes. It excludes the header, directories,
+and exception records in the certified published member.
 
 Nothing about the data requires 14 GiB. ADR 0004 ranked query performance first,
 resident memory second, and size third, and ADR 0006 selected the fixed layout
@@ -52,7 +66,7 @@ concentration:
 
 A fixed-width array pays full price for 1,056,149,297 loci that say nothing.
 
-## The measured alternative
+## The calculated alternative
 
 The hierarchical sparse direct layout stores two reference bits per locus, one
 presence bit per locus, a six-bit pair mask for the 310,269,258 loci that carry
@@ -62,7 +76,7 @@ popcounts over mapped bytes. No block is decompressed.
 
 | Format | Bytes | GiB |
 |---|---:|---:|
-| Fixed 11-byte, shipping | 15,030,604,105 | 13.998 |
+| Fixed 11-byte, certified and shipped | 15,033,158,255 | 14.001 |
 | Hierarchical sparse direct, calculated | 1,706,199,888 | 1.589 |
 | Zstd-1 blocks at 4,096 loci | 1,617,984,690 | 1.507 |
 | Joint-locus entropy floor | 1,024,115,911 | 0.954 |

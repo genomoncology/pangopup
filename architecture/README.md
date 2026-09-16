@@ -67,6 +67,9 @@ and installation, status and removal run from the same CLI.
 - [`decisions/0026-minimal-container-image.md`](decisions/0026-minimal-container-image.md)
   — pinned distroless image, explicit persistent volumes, and native final-image
   qualification; later GHCR publication preserves this image boundary.
+- [`decisions/0027-smaller-snv-format-release-gates.md`](decisions/0027-smaller-snv-format-release-gates.md)
+  — predeclared size, latency, parity, corruption, identity, and activation
+  gates for the next SNV format while fixed-v1 remains the shipped rollback.
 - [`delivery.md`](delivery.md) — release assets, installation, and immutable
   bundles.
 - [`decisions/0007-deterministic-snv-transport.md`](decisions/0007-deterministic-snv-transport.md)

@@ -3,6 +3,15 @@
 Date: 2026-07-21
 Status: retained comparative warm evidence; fixed 11-byte v1 selected
 
+## Later decision
+
+ADR 0027 supersedes this selection for the next SNV format without changing
+the historical result or fixed-v1. Its predeclared qualification reuses this
+report's 134-gene corpus, exact query manifest, reference host, warmup and
+sample counts, and nearest-rank p50 method. Fixed-v1 remains the shipped
+readable rollback. The earlier sparse-direct measurements do not show that a
+complete hardened candidate has passed the new release gates.
+
 ## Outcome
 
 The fixed 11-byte locus representation won the accepted priority ordering. It
