@@ -69,7 +69,17 @@ sentences() { sed -E 's/\. /.\n/g'; }
 
 # 12345 -> 12,345. The published prose groups large counts; a table cell in the
 # build artifact groups them too, and arithmetic here does not.
-grouped() { printf '%s' "$1" | sed -E ':a;s/([0-9]+)([0-9]{3})/\1,\2/;ta'; }
+grouped() {
+    printf '%s\n' "$1" | awk '{
+        number = $0
+        groups = ""
+        while (length(number) > 3) {
+            groups = "," substr(number, length(number) - 2) groups
+            number = substr(number, 1, length(number) - 3)
+        }
+        print number groups
+    }'
+}
 
 # 12,345 -> 12345.
 ungrouped() { printf '%s' "$1" | tr -d ','; }
@@ -825,7 +835,20 @@ expect_refusal() {
 drop_line() {
     local target=$1 pattern=$2
     grep -qE -- "$pattern" "$target" || fail "the fixture edit for $target matched nothing"
-    sed -i -E "/$pattern/d" "$target"
+    fixture_sed "$target" -E "/$pattern/d"
+}
+
+# BSD and GNU sed both write a new fixture through standard output. Each edit
+# replaces its own fixture file only after sed succeeds.
+fixture_sed() {
+    local target=$1 edited
+    shift
+    edited=$(mktemp "$target.XXXXXX")
+    if ! sed "$@" "$target" >"$edited"; then
+        rm -f "$edited"
+        return 1
+    fi
+    mv "$edited" "$target"
 }
 
 clean="$work/clean"
@@ -851,8 +874,8 @@ expect_refusal check_stored_version "$(mutate sv-reversed swap architecture/serv
 expect_refusal check_stored_version "$(mutate sv-no-section drop_line architecture/service.md \
     '^## Active scoring identity$')" \
     'has no `## Active scoring identity` section'
-expect_refusal check_stored_version "$(mutate sv-inventory-dropped sed -i \
-    '/score item/d' "$inventory_relative")" \
+expect_refusal check_stored_version "$(mutate sv-inventory-dropped fixture_sed \
+    "$inventory_relative" '/score item/d')" \
     'no longer enumerates `data_set_version` on the score item'
 
 expect_refusal check_stored_version "$(mutate sv-no-item swap architecture/service.md \
@@ -914,22 +937,20 @@ expect_refusal check_same_strand "$(mutate ss-uncited swap "$inventory_relative"
     'without naming P01-same-strand-order'
 expect_refusal check_same_strand "$(mutate ss-case-gone rm -f "$corpus_cases")" \
     'the frozen corpus the contract points at is not here'
-expect_refusal check_same_strand "$(mutate ss-unlisted sed -i \
-    's/"P01-same-strand-order"\]/"P02-other"]/' "$corpus_manifest")" \
+expect_refusal check_same_strand "$(mutate ss-unlisted fixture_sed \
+    "$corpus_manifest" 's/"P01-same-strand-order"\]/"P02-other"]/')" \
     'does not list P01-same-strand-order among its case ids'
-expect_refusal check_same_strand "$(mutate ss-one-gene sed -i \
-    's/,{"id":"GENE_B","boundaries":\[101\]}//' "$corpus_cases")" \
+expect_refusal check_same_strand "$(mutate ss-one-gene fixture_sed \
+    "$corpus_cases" 's/,{"id":"GENE_B","boundaries":\[101\]}//')" \
     'and a claim about one gene'
-expect_refusal check_same_strand "$(mutate ss-masked-agree sed -i \
-    's/"gain_bits":"3e99999a","gain_position":2,"loss_bits":"00000000","loss_position":-2/"gain_bits":"3f333333","gain_position":1,"loss_bits":"bf19999a","loss_position":-1/' \
-    "$corpus_cases")" \
+expect_refusal check_same_strand "$(mutate ss-masked-agree fixture_sed \
+    "$corpus_cases" 's/"gain_bits":"3e99999a","gain_position":2,"loss_bits":"00000000","loss_position":-2/"gain_bits":"3f333333","gain_position":1,"loss_bits":"bf19999a","loss_position":-1/')" \
     'agree after masking'
-expect_refusal check_same_strand "$(mutate ss-unmasked-differ sed -i \
-    's/{"gene":"GENE_B","gain_bits":"3f4ccccd","gain_position":-1,"loss_bits":"bf19999a","loss_position":-1}/{"gene":"GENE_B","gain_bits":"3e4ccccd","gain_position":-3,"loss_bits":"be4ccccd","loss_position":-3}/' \
-    "$corpus_cases")" \
+expect_refusal check_same_strand "$(mutate ss-unmasked-differ fixture_sed \
+    "$corpus_cases" 's/{"gene":"GENE_B","gain_bits":"3f4ccccd","gain_position":-1,"loss_bits":"bf19999a","loss_position":-1}/{"gene":"GENE_B","gain_bits":"3e4ccccd","gain_position":-3,"loss_bits":"be4ccccd","loss_position":-3}/')" \
     'already disagree before masking'
-expect_refusal check_same_strand "$(mutate ss-unmutated sed -i \
-    's/P01-same-strand-order/P02-other/' "$corpus_mutation_tests")" \
+expect_refusal check_same_strand "$(mutate ss-unmutated fixture_sed \
+    "$corpus_mutation_tests" 's/P01-same-strand-order/P02-other/')" \
     'no longer names P01-same-strand-order'
 
 expect_refusal check_same_strand "$(mutate ss-record-unnamed swap "$inventory_relative" \
@@ -942,9 +963,8 @@ expect_refusal check_same_strand "$(mutate ss-record-wrong-gene swap "$inventory
 expect_refusal check_same_strand "$(mutate ss-record-wrong-locus swap "$inventory_relative" \
     'chr9:100:G:T in GENE_TWO' 'chr9:900:G:T in GENE_TWO')" \
     'names both chr9:100:G:T and GENE_TWO'
-expect_refusal check_same_strand "$(mutate ss-record-not-alone sed -i \
-    's/^GRCh38:chr2:300:T:A\tGENE_FIVE\t0.00\t-50\t0.00\t-50\t0.00/GRCh38:chr2:300:T:A\tGENE_FIVE\t0.00\t-50\t0.00\t-50\t0.04/' \
-    "$measured_records")" \
+expect_refusal check_same_strand "$(mutate ss-record-not-alone fixture_sed \
+    "$measured_records" 's/^GRCh38:chr2:300:T:A\tGENE_FIVE\t0.00\t-50\t0.00\t-50\t0.00/GRCh38:chr2:300:T:A\tGENE_FIVE\t0.00\t-50\t0.00\t-50\t0.04/')" \
     'and the contract states there is one'
 expect_refusal check_same_strand "$(mutate ss-records-gone rm -f "$measured_records")" \
     'has no measurement to be read out of'
@@ -993,8 +1013,8 @@ expect_refusal check_index_size "$(mutate ix-no-source swap "$index_relative" \
 expect_refusal check_index_size "$(mutate ix-product-drifted swap "$index_relative" \
     'a derived 11,000,000 bytes' 'a derived 11,000,001 bytes')" \
     'is not the product it is presented as'
-expect_refusal check_index_size "$(mutate ix-payload-drifted sed -i \
-    's/10,999,670-byte payload/10,999,600-byte payload/' "$build_artifact_relative")" \
+expect_refusal check_index_size "$(mutate ix-payload-drifted fixture_sed \
+    "$build_artifact_relative" 's/10,999,670-byte payload/10,999,600-byte payload/')" \
     'the two no longer reconcile'
 expect_refusal check_index_size "$(mutate ix-exceptions-dropped drop_line \
     "$build_artifact_relative" '^\| REF=N loci \|')" \
