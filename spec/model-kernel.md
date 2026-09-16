@@ -18,11 +18,31 @@ Host strings are evidence but are normalized in this portable executable
 contract.
 
 ```bash run id=model-qualify
-pangopup-build model qualify --bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle --evidence ../tests/fixtures/pangolin-model-kernel-mini/evidence | sed -E 's/"cpu":"[^"]*"/"cpu":"<cpu>"/; s/"rustc":"[^"]*"/"rustc":"<rustc>"/'
+pangopup-build model qualify --bundle ../tests/fixtures/pangolin-model-kernel-mini/bundle --evidence ../tests/fixtures/pangolin-model-kernel-mini/evidence | perl ../tests/support/normalize-model-qualification.pl
 ```
 
 ```text expect=model-qualify exact
-{"bundle_id":"sha256:aba3f0a07075f24cc5c3c59eb4312176bae4f2886db8946500280b19e686edca","cases":2,"channel_arrays":48,"command":"model.qualify","maximum_absolute_error":0,"profile":"pangopup-model-kernel-mini-v1","runtime":{"architecture":"x86_64","cpu":"<cpu>","execution_mode":"sequential","execution_provider":"CPUExecutionProvider","graph_optimization":"all","inter_op_threads":1,"intra_op_threads":1,"onnx_runtime":"1.24.2","ort_crate":"2.0.0-rc.12","rustc":"<rustc>"},"scalar_comparisons":816,"sequence_evaluations":4,"status":"ok","strands":2}
+{"bundle_id":"sha256:aba3f0a07075f24cc5c3c59eb4312176bae4f2886db8946500280b19e686edca","cases":2,"channel_arrays":48,"command":"model.qualify","maximum_absolute_error":0,"profile":"pangopup-model-kernel-mini-v1","runtime":{"architecture":"<architecture>","cpu":"<cpu>","execution_mode":"sequential","execution_provider":"CPUExecutionProvider","graph_optimization":"all","inter_op_threads":1,"intra_op_threads":1,"onnx_runtime":"1.24.2","ort_crate":"2.0.0-rc.12","rustc":"<rustc>"},"scalar_comparisons":816,"sequence_evaluations":4,"status":"ok","strands":2}
+```
+
+The raw architecture must occur exactly once and must name one of the two
+supported runtime architectures. A missing architecture and every other value
+fail before normalization.
+
+```bash run id=model-qualify-missing-architecture exit=1 stream=stderr
+printf '%s\n' '{"runtime":{"cpu":"held"}}' | perl ../tests/support/normalize-model-qualification.pl
+```
+
+```text expect=model-qualify-missing-architecture exact
+model qualification requires exactly one supported runtime architecture
+```
+
+```bash run id=model-qualify-unsupported-architecture exit=1 stream=stderr
+printf '%s\n' '{"runtime":{"architecture":"arm64"}}' | perl ../tests/support/normalize-model-qualification.pl
+```
+
+```text expect=model-qualify-unsupported-architecture exact
+model qualification requires exactly one supported runtime architecture
 ```
 
 The model command grammar is closed. Missing actions, unknown actions, and
