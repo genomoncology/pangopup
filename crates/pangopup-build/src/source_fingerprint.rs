@@ -204,7 +204,7 @@ mod tests {
     };
 
     const EXPECTED_SNV_SHA256: &str =
-        "b71b84e9531583070944fca4bc6463cdca9b4f9c6660bb9d39f6932c6a65307b";
+        "3ee5791d9b2023394fac4080694d60b9b96d7e06110113b956935e430492532a";
     const EXPECTED_REFERENCE_SHA256: &str =
         "09cd44449b77592e4b9948cc0756e736b01ecf5220b3d5312c52b12b6b6e9c65";
     static RESOLVER_SERIAL: AtomicU64 = AtomicU64::new(0);

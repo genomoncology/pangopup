@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 #[cfg(feature = "test-read-audit")]
 use std::cell::Cell;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     fmt,
     fs::{self, File},
     io::{self, BufReader, Read, Write},
@@ -1491,82 +1491,19 @@ impl IndexReader {
         &self,
         mut visitor: impl FnMut(InputLocus) -> Result<(), E>,
     ) -> Result<DecodedSummary, VisitAllError<E>> {
-        let mut exceptions: BTreeMap<u64, Vec<InputLocus>> = BTreeMap::new();
-        for index in 0..self.header.exception_count {
-            let value = self
-                .exception(index, &mut None)
-                .map_err(VisitAllError::Index)?;
-            exceptions
-                .entry(value.gene.numeric())
-                .or_default()
-                .push(InputLocus::Ambiguous(value));
-        }
-        let mut summary = DecodedSummary {
-            segments: self.header.segment_count,
-            exceptions: self.header.exception_count,
-            ..DecodedSummary::default()
-        };
-        let mut index = 0_u64;
-        while index < self.header.segment_count {
-            let first = self
-                .segment(index, &mut None)
-                .map_err(VisitAllError::Index)?;
-            let gene = first.gene.numeric();
-            let mut gene_loci = Vec::new();
-            while index < self.header.segment_count {
-                let segment = self
-                    .segment(index, &mut None)
-                    .map_err(VisitAllError::Index)?;
-                if segment.gene.numeric() != gene {
-                    break;
-                }
-                for ordinal in 0..segment.loci {
-                    let offset = checked_add_u64(
-                        checked_add_u64(
-                            self.header.payload_offset,
-                            segment.payload_rel,
-                            "payload base",
-                        )?,
-                        checked_mul_u64(u64::from(ordinal), 11, "payload record")?,
-                        "payload record address",
-                    )
-                    .map_err(VisitAllError::Index)?;
-                    let start = usize::try_from(offset)
-                        .map_err(|_| VisitAllError::Index(IndexError::Corrupt("payload offset")))?;
-                    let raw = self.map.get(start..start + 11).ok_or_else(|| {
-                        VisitAllError::Index(IndexError::Corrupt("truncated fixed record"))
-                    })?;
-                    let position = GenomicPosition::new(segment.start + ordinal).map_err(|_| {
-                        VisitAllError::Index(IndexError::Corrupt("payload position"))
-                    })?;
-                    gene_loci.push(InputLocus::Ordinary(
-                        decode_fixed_input(segment.gene, segment.contig, position, raw)
-                            .map_err(VisitAllError::Index)?,
-                    ));
-                }
-                index += 1;
+        let traversed = self.visit_genes_bounded(u64::MAX, u64::MAX, |gene_loci| {
+            for locus in gene_loci.iter().copied() {
+                visitor(locus)?;
             }
-            gene_loci.extend(exceptions.remove(&gene).unwrap_or_default());
-            gene_loci.sort_by_key(|locus| match locus {
-                InputLocus::Ordinary(value) => (value.contig.code(), value.position.get(), 0_u8),
-                InputLocus::Ambiguous(value) => (value.contig.code(), value.position.get(), 1_u8),
-            });
-            summary.genes += 1;
-            for locus in gene_loci {
-                summary.loci += 1;
-                match locus {
-                    InputLocus::Ordinary(_) => summary.ordinary_loci += 1,
-                    InputLocus::Ambiguous(_) => {}
-                }
-                visitor(locus).map_err(VisitAllError::Visitor)?;
-            }
-        }
-        if !exceptions.is_empty() {
-            return Err(VisitAllError::Index(IndexError::Corrupt(
-                "exception gene without segment",
-            )));
-        }
-        Ok(summary)
+            Ok::<_, E>(())
+        })?;
+        Ok(DecodedSummary {
+            genes: traversed.genes,
+            loci: traversed.loci,
+            ordinary_loci: traversed.ordinary_loci,
+            exceptions: traversed.exceptions,
+            segments: traversed.segments,
+        })
     }
 
     /// Decode one complete gene at a time after checking its allocation bound.
@@ -1588,22 +1525,33 @@ impl IndexReader {
             ..GeneTraversalSummary::default()
         };
         let mut segment_index = 0_u64;
-        let mut exception_index = 0_u64;
-        while segment_index < self.header.segment_count {
-            let first = self
-                .segment(segment_index, &mut None)
-                .map_err(VisitAllError::Index)?;
-            let gene = first.gene;
-            if exception_index < self.header.exception_count {
-                let exception = self
-                    .exception(exception_index, &mut None)
-                    .map_err(VisitAllError::Index)?;
-                if exception.gene.numeric() < gene.numeric() {
-                    return Err(VisitAllError::Index(IndexError::Corrupt(
-                        "exception gene without segment",
-                    )));
+        let mut previous_exception_gene = None;
+        let mut next_exception = self
+            .next_exception_gene(previous_exception_gene)
+            .map_err(VisitAllError::Index)?;
+        while segment_index < self.header.segment_count || next_exception.is_some() {
+            let segment_gene = if segment_index < self.header.segment_count {
+                Some(
+                    self.segment(segment_index, &mut None)
+                        .map_err(VisitAllError::Index)?
+                        .gene,
+                )
+            } else {
+                None
+            };
+            let exception_gene = next_exception.map(|(gene, _)| gene);
+            let gene = match (segment_gene, exception_gene) {
+                (Some(segment), Some(exception)) => {
+                    if segment.numeric() <= exception.numeric() {
+                        segment
+                    } else {
+                        exception
+                    }
                 }
-            }
+                (Some(segment), None) => segment,
+                (None, Some(exception)) => exception,
+                (None, None) => break,
+            };
 
             let segment_start = segment_index;
             let mut ordinary_loci = 0_u64;
@@ -1622,17 +1570,9 @@ impl IndexReader {
                 segment_index += 1;
             }
 
-            let exception_start = exception_index;
-            while exception_index < self.header.exception_count {
-                let exception = self
-                    .exception(exception_index, &mut None)
-                    .map_err(VisitAllError::Index)?;
-                if exception.gene != gene {
-                    break;
-                }
-                exception_index += 1;
-            }
-            let exception_loci = exception_index - exception_start;
+            let exception_loci = next_exception
+                .filter(|(exception_gene, _)| *exception_gene == gene)
+                .map_or(0, |(_, count)| count);
             let gene_loci = ordinary_loci.checked_add(exception_loci).ok_or_else(|| {
                 VisitAllError::Index(IndexError::Arithmetic("fixed gene total loci"))
             })?;
@@ -1692,11 +1632,24 @@ impl IndexReader {
                     ));
                 }
             }
-            for index in exception_start..exception_index {
-                gene_buffer.push(InputLocus::Ambiguous(
-                    self.exception(index, &mut None)
-                        .map_err(VisitAllError::Index)?,
-                ));
+            if exception_loci != 0 {
+                for index in 0..self.header.exception_count {
+                    let exception = self
+                        .exception(index, &mut None)
+                        .map_err(VisitAllError::Index)?;
+                    if exception.gene == gene {
+                        gene_buffer.push(InputLocus::Ambiguous(exception));
+                    }
+                }
+                previous_exception_gene = Some(gene.numeric());
+                next_exception = self
+                    .next_exception_gene(previous_exception_gene)
+                    .map_err(VisitAllError::Index)?;
+            }
+            if gene_buffer.len() != requested {
+                return Err(VisitAllError::Index(IndexError::Corrupt(
+                    "fixed gene preflight count changed",
+                )));
             }
             gene_buffer.sort_unstable_by_key(|locus| match locus {
                 InputLocus::Ordinary(value) => (value.contig.code(), value.position.get(), 0_u8),
@@ -1722,12 +1675,42 @@ impl IndexReader {
                 .max(capacity_bytes);
             visitor(&gene_buffer).map_err(VisitAllError::Visitor)?;
         }
-        if exception_index != self.header.exception_count {
-            return Err(VisitAllError::Index(IndexError::Corrupt(
-                "exception gene without segment",
-            )));
-        }
         Ok(summary)
+    }
+
+    fn next_exception_gene(
+        &self,
+        after: Option<u64>,
+    ) -> Result<Option<(EnsemblGeneId, u64)>, IndexError> {
+        // The fixed exception directory is ordered by genomic coordinate for
+        // lookup, not by gene. Re-scan its compact fixed-width entries to keep
+        // traversal storage at one complete gene instead of retaining a
+        // second all-exception index or locus buffer.
+        let mut next = None;
+        let mut count = 0_u64;
+        for index in 0..self.header.exception_count {
+            let gene = self.exception(index, &mut None)?.gene;
+            if after.is_some_and(|previous| gene.numeric() <= previous) {
+                continue;
+            }
+            match next {
+                None => {
+                    next = Some(gene);
+                    count = 1;
+                }
+                Some(current) if gene.numeric() < current.numeric() => {
+                    next = Some(gene);
+                    count = 1;
+                }
+                Some(current) if gene == current => {
+                    count = count
+                        .checked_add(1)
+                        .ok_or(IndexError::Arithmetic("fixed exception gene locus count"))?;
+                }
+                Some(_) => {}
+            }
+        }
+        Ok(next.map(|gene| (gene, count)))
     }
 
     /// Encoded metadata work performed by structural validation during open.
@@ -2766,6 +2749,148 @@ mod tests {
                 })
             })
             .collect()
+    }
+
+    fn ambiguous(gene: &str, position: u32) -> InputLocus {
+        InputLocus::Ambiguous(AmbiguousInputLocus {
+            gene: gene.parse().expect("gene"),
+            contig: "chr1".parse().expect("contig"),
+            position: GenomicPosition::new(position).expect("position"),
+            omitted: DnaBase::T,
+            alternatives: [
+                InputAlternative {
+                    alternate: DnaBase::A,
+                    score: score(1, -50, 0, -50),
+                },
+                InputAlternative {
+                    alternate: DnaBase::C,
+                    score: default_score().expect("score"),
+                },
+                InputAlternative {
+                    alternate: DnaBase::G,
+                    score: default_score().expect("score"),
+                },
+            ],
+        })
+    }
+
+    #[test]
+    fn complete_gene_traversal_merges_exception_only_genes_in_numeric_order() {
+        use crate::{sparse_reader::SparseIndexReader, sparse_writer::SparseIndexWriter};
+
+        let mut input = ordinary("ENSG00000000002", 100, 1);
+        input.extend(ordinary("ENSG00000000004", 200, 1));
+        input.extend([
+            ambiguous("ENSG00000000005", 10),
+            ambiguous("ENSG00000000002", 110),
+            ambiguous("ENSG00000000003", 50),
+            ambiguous("ENSG00000000001", 300),
+            ambiguous("ENSG00000000002", 90),
+        ]);
+        let fixed = path("exception-only-union-fixed");
+        write_index(&fixed, &input).expect("write fixed index");
+        let reader = IndexReader::open(&fixed).expect("open fixed index");
+        let scratch = path("exception-only-union-scratch");
+        let sparse = path("exception-only-union-sparse");
+        let mut writer = SparseIndexWriter::create(&scratch).expect("sparse writer");
+        let mut observed = Vec::new();
+        let traversal = reader
+            .visit_genes_bounded(10, 1024 * 1024, |gene_loci| {
+                observed.push(
+                    gene_loci
+                        .iter()
+                        .map(|locus| match locus {
+                            InputLocus::Ordinary(value) => {
+                                (value.gene.numeric(), value.position.get(), "ordinary")
+                            }
+                            InputLocus::Ambiguous(value) => {
+                                (value.gene.numeric(), value.position.get(), "exception")
+                            }
+                        })
+                        .collect::<Vec<_>>(),
+                );
+                writer.push_gene(gene_loci)
+            })
+            .expect("bounded traversal");
+        let sparse_summary = writer.finish(&sparse).expect("finish sparse index");
+        assert_eq!(traversal.genes, 5);
+        assert_eq!(traversal.loci, 7);
+        assert_eq!(traversal.ordinary_loci, 2);
+        assert_eq!(traversal.exceptions, 5);
+        assert_eq!(sparse_summary.genes, 5);
+        assert_eq!(
+            observed.iter().map(|gene| gene[0].0).collect::<Vec<_>>(),
+            vec![1, 2, 3, 4, 5]
+        );
+        assert_eq!(
+            observed[1],
+            vec![
+                (2, 90, "exception"),
+                (2, 100, "ordinary"),
+                (2, 110, "exception")
+            ]
+        );
+        let mut complete = Vec::new();
+        let complete_summary = reader
+            .visit_all(|locus| {
+                complete.push(match locus {
+                    InputLocus::Ordinary(value) => value.gene.numeric(),
+                    InputLocus::Ambiguous(value) => value.gene.numeric(),
+                });
+                Ok::<_, ()>(())
+            })
+            .expect("complete traversal");
+        assert_eq!(complete_summary.genes, 5);
+        assert_eq!(complete, vec![1, 2, 2, 2, 3, 4, 5]);
+        let sparse_reader = SparseIndexReader::open(&sparse).expect("open sparse index");
+        assert_eq!(
+            sparse_reader
+                .visit_all(|_| Ok::<_, ()>(()))
+                .expect("visit sparse output")
+                .genes,
+            5
+        );
+        fs::remove_file(fixed).expect("remove fixed index");
+        fs::remove_file(sparse).expect("remove sparse index");
+    }
+
+    #[test]
+    fn complete_gene_traversal_accepts_an_entirely_exception_only_index() {
+        let input = [
+            ambiguous("ENSG00000000003", 10),
+            ambiguous("ENSG00000000001", 300),
+            ambiguous("ENSG00000000001", 301),
+            ambiguous("ENSG00000000002", 100),
+        ];
+        let fixed = path("entirely-exception-only-fixed");
+        write_index(&fixed, &input).expect("write fixed index");
+        let reader = IndexReader::open(&fixed).expect("open fixed index");
+        let mut visited = false;
+        assert!(
+            reader
+                .visit_genes_bounded(1, 1024 * 1024, |_| {
+                    visited = true;
+                    Ok::<_, ()>(())
+                })
+                .is_err()
+        );
+        assert!(!visited, "exception-only limit must fire before visitor");
+        let mut genes = Vec::new();
+        let summary = reader
+            .visit_genes_bounded(2, 1024 * 1024, |gene_loci| {
+                let InputLocus::Ambiguous(locus) = gene_loci[0] else {
+                    panic!("exception-only gene decoded as ordinary");
+                };
+                genes.push(locus.gene.numeric());
+                Ok::<_, ()>(())
+            })
+            .expect("exception-only traversal");
+        assert_eq!(genes, vec![1, 2, 3]);
+        assert_eq!(summary.genes, 3);
+        assert_eq!(summary.loci, 4);
+        assert_eq!(summary.ordinary_loci, 0);
+        assert_eq!(summary.exceptions, 4);
+        fs::remove_file(fixed).expect("remove fixed index");
     }
 
     #[test]
