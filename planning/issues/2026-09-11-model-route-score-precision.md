@@ -1,10 +1,14 @@
 # The model route has more precision than it reports
 
-Status: high-priority draft candidate after lint cleanup
+Status: deferred by the two-route precision rule
 
-## 2026-09-15 scope decision
+## 2026-09-15 superseding scope decision
 
-Ian wants to keep a third reported decimal under consideration. The existing published SNV corpus has exact hundredths and cannot supply a third digit. The model retains finer internal values before PangoPup rounds them. A draft should therefore test an explicit model-route precision option, not promise three decimals on the current index route. Cross-host stability, clinical meaning, route-aware output, and compatibility still need evidence before any public change. The default remains the current two-decimal contract until that work is reviewed.
+Ian requires the SNV index and the model route to report the same score precision. If either route cannot supply a verified third decimal, both routes keep two decimals. A model-only third digit is out of scope.
+
+The official Zenodo v1 archive completed the 4,099,255,665-row source build recorded in [`003-full-index-build.md`](../artifacts/003-full-index-build.md). Its score parser in [`pangopup-build/src/snv.rs`](../../crates/pangopup-build/src/snv.rs) rejects more than two fractional digits. It does not truncate them. The certified source and decoded bundle have the same logical digest. These records support exact hundredths in the official v1 dataset and no accidental loss of a third digit in the index builder. An independently verified source row with a third score digit would reopen this finding.
+
+The model retains finer internal values, but that does not meet Ian's two-route condition. Keep the current hundredth score type, output, cache, CLI, and HTTP contract. This defers the precision draft; it does not block 0.5.
 
 ## Observation
 
@@ -39,11 +43,11 @@ The rounding exists to make the two routes report the same granularity. That is
 a real reason. It is also the reason the extra precision is unavailable on the
 route that has it.
 
-## The escalation shape Ian proposed
+## Earlier escalation idea, now out of scope
 
-Answer from the index as today. When the index value falls inside a band around
-a caller-stated threshold, re-run the model at that locus and return the
-unrounded value.
+The earlier idea was to re-run the model near a caller-stated threshold and
+return an unrounded value. It would produce different reported precision by
+route. Ian's superseding decision rules it out.
 
 Three properties make this cheap. The band is narrow, so few variants trigger
 it. The model result cache
@@ -52,7 +56,7 @@ means a triggered variant costs 4.3 seconds once and 0.7 milliseconds after. The
 lookup-first routing already exists
 ([ADR 0016](../../architecture/decisions/0016-lookup-first-cli-model-routing.md)).
 
-Ticket 0059 supplies the evidence that the escalation is sound. Over 2,790
+Ticket 0059 supplies limited route-comparison evidence. Over 2,790
 compared gene records the two routes disagreed on value in 2 records, 0.07
 percent, and in 0.52 percent of the 381 records carrying a non-zero score on at
 least one route. The routes agree at hundredths granularity, so a precomputed
@@ -90,18 +94,14 @@ disagreement, 17 of 379 comparable records, and attributed it to the rounding
 order rather than to the model. Finer scores do not fix positions and may expose
 that difference more often.
 
-## What a ticket would need
+## Preconditions before any precision ticket
 
-- A decision on the reported type and its range: three decimals, or the raw
-  float, or a caller-selected precision. The reversible choice is a request
-  option defaulting to today's behavior.
+- A verified three-decimal score source that can populate a complete SNV index.
 - Measured cross-provider and cross-host agreement at the proposed precision,
   with a stated tolerance decided in advance.
 - A literature check on whether Pangolin scores are meaningful below hundredths,
   per the clinical-questions rule in the workspace instructions. If no source
   supports it, the finer value ships as a reported number with that limit stated
   and not as a recommended threshold resolution.
-- The contract change: how a record declares its route and precision, and what
-  refuses when a caller compares across them.
-- The escalation rule itself, including who states the threshold and the band,
-  and what a record reports when escalation was attempted and the model refused.
+- The contract change for both routes together, including core score types,
+  cache, CLI, HTTP, and exact comparison behavior.
