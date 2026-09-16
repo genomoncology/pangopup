@@ -1,0 +1,15 @@
+# A bounded sparse reader proves answers and corruption boundaries
+
+The candidate-only `pangopup_index::sparse_reader` module now opens and reads `pangopup.sparse-direct.v1`. It does not change fixed-v1, bundle opening, manifests, profiles, installed assets, score precision, or runtime routing.
+
+Open validates the exact file and section layout, checked sizes and arithmetic, typed and ordered directories, unique ownership, nonoverlapping segment coverage, contiguous block and payload ownership, exception ownership and order, and reserved metadata bytes. Open reads no ordinary payload bytes. Filtered lookup binary-searches the gene and block directories. Unfiltered lookup scans gene-ordered segments and exceptions. Lookup validates the complete structural shape of each selected block and every score pair at the addressed locus before it returns a score or a reference mismatch. Offline traversal validates every pair once per block and streams the canonical writer input without retaining a gene or corpus.
+
+The test-only payload audit records individual payload byte accesses through the shared payload reader. It proves open reads zero payload bytes, lookup reads payload bytes, and lookup may leave unrelated score pairs in a selected block unread. `verify_all` detects malformed unread pairs. Valid score bytes changed to another valid score change the independent oracle comparison; the unauthenticated candidate does not mislabel them as structurally corrupt.
+
+The independent miniature cases cover complete 4,097-locus traversal across 64-locus rank and 4,096-locus block boundaries, different partial masks by alternate, exact scores and positions, default records, overlaps and filtered overlaps, reference mismatch, misses, both `REF=N` shapes, exception-only genes and files, every reference base, and the maximum coordinate. Mutation cases cover headers, directories, ownership, truncation, reserved bytes, checked arithmetic, block counts, both rank values, flags, masks, unused tail bits, pair counts, pair reserved bits, invalid scores and positions, touched and untouched pairs, and validation before a reference-mismatch return.
+
+The single-process allocator gate measured zero added peak and retained heap from reader creation through a nonallocating traversal for both 64 and 50,000 loci. Its limits are 1 MiB peak and 64 KiB retained. The focused reader suite passed 11 tests. Independent Astra XHigh design and code reviews rejected incomplete drafts, then accepted the bounded contract and remediated implementation.
+
+On macOS, `make lint`, `make test`, `make spec`, focused tests with `test-read-audit`, strict package clippy, formatting, and `git diff --check` pass. The specification gate passed 193 blocks. Linux AMD64 exact-commit verification is recorded below after the implementation commit is pushed.
+
+This ticket proves a candidate reader and its validation boundary. It makes no complete-genome size, lookup-latency, full-corpus parity, installed-asset, identity, routing, or ADR 0027 promotion claim.

@@ -396,9 +396,9 @@ and peak allocator state plus RSS growth with the 33,000,000-byte disk spool;
 this detects retaining logical loci or an artifact-sized heap, rather than
 merely asserting that a scratch file grew.
 
-## Sparse-direct v1 candidate writer
+## Sparse-direct v1 candidate codec
 
-`pangopup.sparse-direct.v1` is a candidate byte format. `PGSPRS01` and little-endian version `1` identify it. The candidate module provides a writer and no reader or lookup. It has no bundle, manifest, asset profile, installed format, or runtime route.
+`pangopup.sparse-direct.v1` is a candidate byte format. `PGSPRS01` and little-endian version `1` identify it. The candidate modules provide a writer and bounded mmap reader for qualification. The format has no bundle, manifest, asset profile, installed format, or runtime route.
 
 The writer accepts complete genes in increasing numeric Ensembl order. Each gene's loci must increase strictly by contig code and coordinate. It validates ordinary and `REF=N` alternate sets and the fixed-v1 `-50..=50` relative-position range before writing that gene. Any rejected submission or spool write failure poisons the writer. A poisoned writer cannot publish its accepted prefix.
 
@@ -420,6 +420,10 @@ Exception entries are 40 bytes in gene, contig, and coordinate order. They hold 
 The independent test decoder validates every header field, section boundary, gene range and count, segment and block order, payload offset, rank checkpoint, stored score pair, exception order, and reserved byte. Mutation cases change each directory field, rank pair, stored score pair, section declaration, and reserved byte. Every mutation fails decoding or changes the decoded logical stream.
 
 `sparse_heap_bound` measures allocator state from writer creation through every gene submission and final assembly. A concurrent sampler covers Linux resident memory through final assembly. Its nondefault-score corpus makes the disk payload dominate directory state, then requires peak and retained heap to stay below one eighth of final bytes and Linux resident growth to stay below one half. This evidence covers bounded construction only. It makes no complete-corpus size, reader safety, lookup latency, parity, corruption, or ADR 0027 promotion claim.
+
+The sparse reader splits validation by access tier. Open validates the header, exact adjacent sections, checked section products, every reserved metadata byte, typed genes, contigs and coordinates, ordered unique gene ownership, nonoverlapping segment coverage, complete block and payload ownership, exception encodings and order, declared exception genes, and exception separation from ordinary loci. Open reads no ordinary payload bytes. Lookup validates the selected block header and exact length, every rank checkpoint, complete reference, active and mask arrays, unused tail bits, active and pair totals, active-mask consistency, and every pair for the addressed locus before returning a score or reference mismatch. `visit_all` and `verify_all` additionally decode and validate every score pair in every block. This offline tier detects corruption that open and an unrelated lookup may leave untouched.
+
+Gene-filtered lookup binary-searches the gene and exception directories, scans only that gene's segments and exceptions, and binary-searches the selected segment's block directory. Its cost is `O(log G + S_gene + log E + E_gene + log B)`, plus selected-block validation. Unfiltered lookup scans the gene-ordered segment and exception directories. Its cost is `O(S + E + K log B)` plus validation for the `K` selected overlapping blocks. Selected-block validation repeats across calls. Later side-by-side qualification measures whether these choices pass ADR 0027. They do not activate or qualify the candidate.
 
 The correctness fixture selects edge cases. Ticket 002 used a deterministic
 stratified real lab corpus for comparative warm selection and instrumented

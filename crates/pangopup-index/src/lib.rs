@@ -18,4 +18,7 @@ mod snv;
 /// Candidate-only deterministic sparse SNV writer.
 pub mod sparse_writer;
 
+/// Candidate-only bounded sparse SNV reader.
+pub mod sparse_reader;
+
 pub use snv::*;
