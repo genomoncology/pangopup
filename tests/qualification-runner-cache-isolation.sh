@@ -107,6 +107,44 @@ absent_set() {
         "$scratch" "$name" "$scratch" "$name" "$scratch" "$name"
 }
 
+# macOS system Bash predates mapfile. Keep the same three-line fixture on both
+# platforms and read it with the Bash built-in available in 3.2.
+read_absent_set() {
+    local name=$1 path
+    paths=()
+    while IFS= read -r path; do
+        paths+=("$path")
+    done < <(absent_set "$name")
+    (( ${#paths[@]} == 3 )) || fail "the $name fixture supplied ${#paths[@]} paths instead of three"
+}
+
+assert_absent_candidates() {
+    local context=$1 path candidate
+    shift
+    for path in "$@"; do
+        candidate=$path
+        if [[ "$candidate" != /* ]]; then candidate="$working/$candidate"; fi
+        if [[ -e "$candidate" || -L "$candidate" ]]; then
+            fail "the runner created $candidate before refusing the relative $context path"
+        fi
+    done
+}
+
+# Exercise the absence assertion itself. Each planted file represents the
+# absolute candidate replaced by a relative argument in one refusal case.
+for position in data cache output; do
+    read_absent_set "assertion-$position"
+    case "$position" in
+        data) index=0 ;;
+        cache) index=1 ;;
+        output) index=2 ;;
+    esac
+    touch "${paths[$index]}"
+    if (assert_absent_candidates "$position" "${paths[@]}" relative/data relative/cache relative/out) 2>/dev/null; then
+        fail "the absence assertion missed the overwritten absolute $position candidate"
+    fi
+done
+
 # --- 1. the runner refuses a runtime path that is not absolute --------------
 #
 # A relative `XDG_DATA_HOME`, `XDG_CACHE_HOME` or output directory is resolved
@@ -115,7 +153,8 @@ absent_set() {
 # all three before it creates anything.
 
 for position in data cache output; do
-    mapfile -t paths < <(absent_set "relative-$position")
+    read_absent_set "relative-$position"
+    absolute_candidates=("${paths[@]}")
     case "$position" in
         data) paths[0]=relative/data ;;
         cache) paths[1]=relative/cache ;;
@@ -134,11 +173,7 @@ for position in data cache output; do
         *'must be absolute'*) ;;
         *) fail "the runner refused a relative $position path without saying that runtime paths must be absolute, so an operator cannot act on it: $reported" ;;
     esac
-    for path in relative/data relative/cache relative/out; do
-        if [[ -e "$working/$path" ]]; then
-            fail "the runner created $path relative to the directory it was started in before refusing it, so a relative runtime path lands in whatever tree the operator was standing in"
-        fi
-    done
+    assert_absent_candidates "$position" "${absolute_candidates[@]}" relative/data relative/cache relative/out
 done
 
 # --- 2. the first spawn runs under the homes the runner was given -----------
@@ -146,7 +181,7 @@ done
 # The runner is started with every cache variable exported at a location this
 # file owns, and the executable it is handed records what it was started with.
 
-mapfile -t paths < <(absent_set held)
+read_absent_set held
 status=0
 reported=$(start_runner "${paths[@]}") || status=$?
 checks=$((checks + 1))
