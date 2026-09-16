@@ -450,6 +450,23 @@ The report uses canonical RFC 8785 JSON with schema `pangopup.sparse-candidate-r
 
 The output remains a candidate. It has no bundle, installed asset identity, runtime profile, activation, or route. A passing size and logical-parity report does not complete ADR 0027 qualification.
 
+### Complete candidate latency measurement
+
+Maintainers compare the complete fixed-v1 member and the complete sparse candidate on the retained reference host with one release executable:
+
+```text
+cargo build --release --locked --package pangopup-build --bin pangopup-sparse-latency
+target/release/pangopup-sparse-latency \
+  --fixed /path/to/certified/fixed-v1/scores.pgi \
+  --candidate /path/to/certified/sparse-candidate/scores.pgi \
+  --queries planning/artifacts/002-query-manifest.tsv \
+  --selection planning/artifacts/002-selected-genes.tsv \
+  --output planning/artifacts/0133-sparse-index-latency-report.json \
+  --command-commit "$(git rev-parse HEAD)"
+```
+
+The command accepts only a clean pushed checkout, the exact complete member and provenance-file identities declared by Ticket 0133, a release build, and the retained Ryzen 7 5825U Ubuntu 24.04 host with its full default 16-CPU affinity and recorded Crucial storage. The build embeds the checked-out commit, build-time cleanliness, and builder-source fingerprint. It tracks detached HEAD, the active branch reference, and packed references for rebuilds. Ordinary builder binaries can compile without Git metadata, but this latency command rejects unavailable or dirty build provenance and rejects a checkout whose requested, running, and compiled commits differ. It opens both complete members once, checks all 100 ordered answers before timing, alternates reader order, and writes every retained nanosecond sample plus exact gate operands to a create-new canonical JSON report. The result measures warm one-open library lookups. It does not measure cold input, command startup, service behavior, asset activation, or rollback.
+
 The correctness fixture selects edge cases. Ticket 002 used a deterministic
 stratified real lab corpus for comparative warm selection and instrumented
 logical bytes, mapped page numbers, allocations, and page faults. That corpus is

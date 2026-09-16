@@ -13,6 +13,7 @@ pub mod runtime_profile;
 mod snv;
 mod source_fingerprint;
 mod sparse_candidate;
+pub mod sparse_latency;
 
 pub use command_error::CommandError;
 pub use production::{BuildOutcome, VerifyOutcome, build_bundle, verify_bundle};
