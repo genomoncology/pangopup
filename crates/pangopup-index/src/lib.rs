@@ -15,4 +15,7 @@ mod reference_writer;
 
 mod snv;
 
+/// Candidate-only deterministic sparse SNV writer.
+pub mod sparse_writer;
+
 pub use snv::*;

@@ -396,6 +396,31 @@ and peak allocator state plus RSS growth with the 33,000,000-byte disk spool;
 this detects retaining logical loci or an artifact-sized heap, rather than
 merely asserting that a scratch file grew.
 
+## Sparse-direct v1 candidate writer
+
+`pangopup.sparse-direct.v1` is a candidate byte format. `PGSPRS01` and little-endian version `1` identify it. The candidate module provides a writer and no reader or lookup. It has no bundle, manifest, asset profile, installed format, or runtime route.
+
+The writer accepts complete genes in increasing numeric Ensembl order. Each gene's loci must increase strictly by contig code and coordinate. It validates ordinary and `REF=N` alternate sets and the fixed-v1 `-50..=50` relative-position range before writing that gene. Any rejected submission or spool write failure poisons the writer. A poisoned writer cannot publish its accepted prefix.
+
+The writer encodes one bounded 4,096-locus block at a time into a create-new disk spool. A second create-new spool holds fixed-width `REF=N` entries. Heap state retains gene, segment, and block directories. It does not retain score payload. Final assembly streams the held spool descriptors into a create-new sibling staging file and syncs it. The writer then verifies and removes both exact writer-owned scratch inodes before publication. A cleanup failure prevents publication. Drop retries cleanup after failures. Successful cleanup disarms both scratch paths. The writer publishes the staged inode with an atomic no-replace hard link and syncs the output parent. A bare relative output uses `.` as its parent. Existing output and replaced scratch paths stay unchanged.
+
+The 256-byte header has these fields:
+
+- bytes 0..8 hold `PGSPRS01`; bytes 8..12 hold version `1`; bytes 12..16 hold header length `256`; bytes 16..24 hold exact file length;
+- bytes 24..104 hold five `(offset, length)` pairs for the gene, segment, block, payload, and exception sections in that order;
+- bytes 104..144 hold gene, segment, block, ordinary-locus, and exception counts;
+- bytes 144..148 hold block capacity `4096`; bytes 148..152 hold rank stride `64`; bytes 152..256 are zero.
+
+Every section starts where the preceding section ends. The exception section ends at the declared file length. Gene entries are 32 bytes and sort by gene. They hold gene number, first segment, segment count, and ordinary-locus count. Segment entries are 48 bytes and sort by gene, contig, and start coordinate. They hold gene, contig, inclusive start and end, locus count, first block, and block count. Block entries are 40 bytes and sort by segment and first locus. They hold segment index, first segment-relative locus, locus count, payload-relative offset, payload length, active-locus count, and score-pair count. Every unassigned entry byte is zero.
+
+A payload block begins with active-locus count, score-pair count, rank count, and one zero `u32`. Two-bit reference bases and one-bit active flags follow. Each 64-locus rank entry stores the preceding active-locus and score-pair counts as two `u32` values. Active loci contribute one packed six-bit mask in canonical alternate order. Each mask bit selects gain or loss. Selected pairs use one little-endian `u16`: bits 0 through 6 hold the 0..100 magnitude, bits 7 through 13 hold relative position plus 50, and bits 14 and 15 are zero. An omitted pair means magnitude zero and position -50. This distinction preserves zero scores that carry a nondefault position.
+
+Exception entries are 40 bytes in gene, contig, and coordinate order. They hold contig, omitted base, three canonical alternate bases, gene, coordinate, and three gain/loss pair pairs. Reserved bytes are zero. All format lengths, offsets, counts, products, sums, and numeric conversions use checked arithmetic.
+
+The independent test decoder validates every header field, section boundary, gene range and count, segment and block order, payload offset, rank checkpoint, stored score pair, exception order, and reserved byte. Mutation cases change each directory field, rank pair, stored score pair, section declaration, and reserved byte. Every mutation fails decoding or changes the decoded logical stream.
+
+`sparse_heap_bound` measures allocator state from writer creation through every gene submission and final assembly. A concurrent sampler covers Linux resident memory through final assembly. Its nondefault-score corpus makes the disk payload dominate directory state, then requires peak and retained heap to stay below one eighth of final bytes and Linux resident growth to stay below one half. This evidence covers bounded construction only. It makes no complete-corpus size, reader safety, lookup latency, parity, corruption, or ADR 0027 promotion claim.
+
 The correctness fixture selects edge cases. Ticket 002 used a deterministic
 stratified real lab corpus for comparative warm selection and instrumented
 logical bytes, mapped page numbers, allocations, and page faults. That corpus is
