@@ -1,5 +1,7 @@
 # Can the SNV landscape safely screen indels?
 
+2026-09-15 decision: park broad threshold screening after the bounded pilot. The pilot found no model-positive indel at 0.10 and cannot test safety. Its complete-input ceiling was 73.15 percent for the tested flank rule. Do not expand this issue or schedule a classifier without a model-positive validation set and a downstream threshold contract. The exact loss-only route remains a separate arithmetic question. Ian can reopen this issue with those inputs. Observed-indel precomputation is archived by Ian, not a secondary strategy.
+
 Date: 2026-09-12
 
 ## Question
@@ -9,13 +11,13 @@ PangoPup already holds the Pangolin score for every supported SNV. Determine whe
 1. Can nearby SNV scores reliably place an indel above or below a caller-supplied threshold?
 2. Do stretches of low or zero SNV scores identify regions where an indel can safely be ignored?
 
-The earlier observed-indel recurrence work answers a different question. It measures exact indel reuse. It does not answer either question here. Keep that work as a secondary strategy.
+The earlier observed-indel recurrence work answers a different question. It measures exact indel reuse. It does not answer either question here. Preserve it as evidence, not as an active strategy.
 
 ## Decision
 
 Measure the SNV landscape as an approximate indel screen before doing more catalogue work. Start with simple rules that a caller can inspect. Do not train another model unless the simple rules leave useful signal that they cannot express.
 
-This decision supersedes the catalogue-first next step in `planning/artifacts/2026-09-12-indel-fast-path-pilot.md`. Exact indel recurrence remains a secondary strategy. Catalogue membership alone is not an available fast score because the catalogue still needs PangoPup results.
+This decision superseded the catalogue-first next step in `planning/artifacts/2026-09-12-indel-fast-path-pilot.md` at the time. The 2026-09-15 ruling parks both the SNV-based threshold screen and indel precomputation. Catalogue membership alone is not an available fast score because the catalogue still needs PangoPup results.
 
 The accepted cost is a model-labelled research corpus. Empirical testing can estimate an error rate. It cannot turn an SNV proxy into an exact biological guarantee.
 

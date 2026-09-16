@@ -1,6 +1,12 @@
 # Deciding cheaply which variants are worth the model
 
-Status: open
+Status: parked on 2026-09-15; indel precompute archived
+
+## 2026-09-15 ruling
+
+Ian parked observed-indel and exhaustive-indel precomputation. Preserve the chromosome 22 recurrence measurements below. Exact catalogue membership on independent traffic was high, but membership alone supplies no score. Parking the idea accepts slower first calls for indels that no current exact result covers. Ian can reopen it if full-genome traffic and scoring costs later justify a scored catalogue.
+
+Do not schedule a second classifier or a PangoPup-owned clinical cutoff. The bounded SNV-neighborhood pilot found no model result at or above 0.10, so it cannot establish a safe dismiss rate. Its complete-input ceiling was 73.15 percent in one balanced chromosome 22 sample. The origin of 0.106 remains untraced. Keep caller-supplied thresholds and the exact loss-only arithmetic question separate from this archived classifier proposal. Ian can reopen threshold triage when a downstream contract and model-positive validation set exist.
 
 ## Measurement update, 2026-09-12
 

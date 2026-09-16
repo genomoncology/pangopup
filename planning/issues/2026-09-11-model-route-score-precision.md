@@ -1,6 +1,10 @@
 # The model route has more precision than it reports
 
-Status: open
+Status: high-priority draft candidate after lint cleanup
+
+## 2026-09-15 scope decision
+
+Ian wants to keep a third reported decimal under consideration. The existing published SNV corpus has exact hundredths and cannot supply a third digit. The model retains finer internal values before PangoPup rounds them. A draft should therefore test an explicit model-route precision option, not promise three decimals on the current index route. Cross-host stability, clinical meaning, route-aware output, and compatibility still need evidence before any public change. The default remains the current two-decimal contract until that work is reviewed.
 
 ## Observation
 

@@ -1,6 +1,10 @@
 # Indel model cost, and what a location prefilter may and may not skip
 
-Status: open
+Status: open for exact loss-only routing and CPU miss cost
+
+## 2026-09-15 scope decision
+
+Ian parked scored-indel catalogue construction and accelerator work. The recurrence measurements below remain evidence, not an active build plan. This issue stays open for an exact loss-only answer and for reducing the cost of a genuine model miss. The decision accepts slow first calls outside current exact results. Ian can reopen a catalogue proposal after full-genome traffic and scoring-cost measurements.
 
 ## Measurement update, 2026-09-12
 

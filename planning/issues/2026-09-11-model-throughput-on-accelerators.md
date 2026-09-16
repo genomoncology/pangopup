@@ -1,6 +1,10 @@
 # Nobody has measured Pangolin on anything but a CPU core
 
-Status: open
+Status: archived by Ian on 2026-09-15
+
+## 2026-09-15 ruling
+
+Do not schedule accelerator measurements for an indel precompute programme. The programme itself is parked. Keep the CPU measurements and the questions below as historical evidence. A later decision to use an accelerator for a different, bounded inference experiment can reopen this issue. This ruling does not retire the goal of faster CPU inference.
 
 ## Observation
 
