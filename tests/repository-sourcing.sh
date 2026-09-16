@@ -650,6 +650,17 @@ swap() {
     ' "$1"
 }
 
+# Replace every matching run for cases that remove or invalidate every captured
+# date. Like swap, refuse a fixture edit that finds no match.
+swap_all() {
+    SWAP_OLD=$2 SWAP_NEW=$3 perl -0777 -i -pe '
+        my $old = $ENV{SWAP_OLD};
+        my $pat = join("\\s+", map { quotemeta } split /\s+/, $old);
+        my $changed = s/$pat/$ENV{SWAP_NEW}/sg;
+        die "swap_all matched nothing: $old\n" unless $changed;
+    ' "$1"
+}
+
 append() { printf '\n%s\n' "$2" >>"$1"; }
 
 # A fixture repository with one thing changed. A mutation that changes no byte
@@ -698,23 +709,24 @@ done
 # --- 1. sources and dates ---------------------------------------------------
 
 expect_refusal check_sources "$(mutate src-date-dropped \
-    sed -i 's| on 2026-08-28\.| .|' "$motivation_relative")" \
+    swap_all "$motivation_relative" ' on 2026-08-28.' ' .')" \
     'cites a source without the date it was read'
 
 expect_refusal check_sources "$(mutate src-one-date-dropped \
-    sed -i 's|https://spliceailookup.broadinstitute.org on 2026-08-28\.|https://spliceailookup.broadinstitute.org.|' "$motivation_relative")" \
+    swap "$motivation_relative" 'https://spliceailookup.broadinstitute.org on 2026-08-28.' \
+        'https://spliceailookup.broadinstitute.org.')" \
     'cites a source without the date it was read'
 
 expect_refusal check_sources "$(mutate src-licence-source-dropped \
-    sed -i 's|https://github.com/Illumina/SpliceAI|the upstream repository|' "$motivation_relative")" \
+    swap "$motivation_relative" 'https://github.com/Illumina/SpliceAI' 'the upstream repository')" \
     'the upstream predictor licence'
 
 expect_refusal check_sources "$(mutate src-service-quote-dropped \
-    sed -i 's|handful of queries|a few queries|' "$motivation_relative")" \
+    swap "$motivation_relative" 'handful of queries' 'a few queries')" \
     'the public lookup service'
 
 expect_refusal check_sources "$(mutate src-doi-dropped \
-    sed -i 's|10\.1186/s13059-022-02664-4|a 2022 paper|' "$motivation_relative")" \
+    swap "$motivation_relative" '10.1186/s13059-022-02664-4' 'a 2022 paper')" \
     'the upstream model paper'
 
 expect_refusal check_sources "$(mutate src-undated-addition \
@@ -726,7 +738,7 @@ expect_refusal check_sources "$(mutate src-stale-licence-line \
     'GPLv3'
 
 expect_refusal check_sources "$(mutate src-own-licence-dropped \
-    sed -i 's|GPL-3\.0-only|the same licence|' "$motivation_relative")" \
+    swap "$motivation_relative" 'GPL-3.0-only' 'the same licence')" \
     'never says which licence this repository is itself under'
 
 expect_refusal check_sources "$(mutate src-gone rm "$motivation_relative")" \
@@ -750,11 +762,11 @@ expect_refusal check_sources "$(mutate src-unattributed swap "$motivation_relati
 # A capture date nobody could have read a page on. The date exists so a later
 # reader can go and check, and one that has not happened yet buys nothing.
 expect_refusal check_sources "$(mutate src-future-date \
-    sed -i 's|2026-08-28|2099-08-28|g' "$motivation_relative")" \
+    swap_all "$motivation_relative" '2026-08-28' '2099-08-28')" \
     'not a day anybody could have read a page on'
 
 expect_refusal check_sources "$(mutate src-impossible-date \
-    sed -i 's|2026-08-28|2026-99-28|g' "$motivation_relative")" \
+    swap_all "$motivation_relative" '2026-08-28' '2026-99-28')" \
     'not a day anybody could have read a page on'
 
 # A date that moved out of the unit its source stands in satisfies a rule that
