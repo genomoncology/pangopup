@@ -10,6 +10,8 @@ The independent miniature cases cover complete 4,097-locus traversal across 64-l
 
 The single-process allocator gate measured zero added peak and retained heap from reader creation through a nonallocating traversal for both 64 and 50,000 loci. Its limits are 1 MiB peak and 64 KiB retained. The focused reader suite passed 11 tests. Independent Astra XHigh design and code reviews rejected incomplete drafts, then accepted the bounded contract and remediated implementation.
 
-On macOS, `make lint`, `make test`, `make spec`, focused tests with `test-read-audit`, strict package clippy, formatting, and `git diff --check` pass. The specification gate passed 193 blocks. Linux AMD64 exact-commit verification is recorded below after the implementation commit is pushed.
+On macOS, `make lint`, `make test`, `make spec`, focused tests with `test-read-audit`, strict package clippy, formatting, and `git diff --check` pass. The specification gate passed 193 blocks.
+
+The exact pushed implementation commit `763f1c975b39deb837fcef0d64794838619bde23` passed all 11 focused reader tests and the allocator gate in a disposable Linux AMD64 container. The first container attempt reached compilation but its temporary target used a non-executable memory mount, so a Rust build script could not start. The rerun used an anonymous executable build volume and passed. Docker removed both `--rm` containers and their anonymous storage; no retained container remains.
 
 This ticket proves a candidate reader and its validation boundary. It makes no complete-genome size, lookup-latency, full-corpus parity, installed-asset, identity, routing, or ADR 0027 promotion claim.
