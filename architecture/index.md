@@ -93,7 +93,7 @@ performance first, so fixed 11-byte remains the private v1 format.
 
 ## Leading practical representations
 
-### Hierarchical sparse direct lookup — rejected v1 alternative
+### Hierarchical sparse direct lookup
 
 A decompression-free structure can store:
 
@@ -110,9 +110,11 @@ and is only about 88 MB larger than the measured 4,096-locus Zstd result.
 
 Query performance is the primary product objective, resident memory and pages
 touched are second, and compressed download size is third. Hierarchical direct
-won size and mapped-page work but lost the measured query priority to fixed v1.
-Its comparison implementation has been removed; the retained report preserves
-the result, and it is not a supported runtime format.
+won size and mapped-page work but lost the original measured query priority to
+fixed v1. ADR 0027 later reopened the smaller format under explicit size and
+latency gates. The complete sparse-direct v1 member passed those gates and its
+bounded reader now supports runtime bundle opening. The active release remains
+fixed-v1.
 
 ### Independently compressed sparse blocks
 
@@ -142,10 +144,10 @@ benchmark report.
 
 ## Query-oriented structure
 
-The runtime does not open 19,913 source files. The shipped deployment bundle
-contains one immutable fixed-v1 index member, a manifest, and attribution.
-Historical candidates included per-contig members, but private v1 is the
-certified monolithic 11-byte representation.
+The runtime does not open 19,913 source files. A runtime bundle contains one
+immutable fixed-v1 or sparse-direct-v1 index member, a manifest, and attribution.
+The shipped deployment bundle remains the certified monolithic fixed-v1
+representation.
 
 The logical sections are:
 
@@ -175,20 +177,17 @@ Candidate interval-structure benchmarking is historical; a prefix-maximum
 array was not selected because it does not guarantee that bound for arbitrary
 nested spans.
 
-The shipped reader implements this through one long-lived `BundleOpen` provider.
-Its manifest, computed bundle identity, frozen provenance, and mmap reader are
-private after successful construction; offline verification and measurement use
-read-only accessors. Open rejects manifest metadata above 1 MiB before buffer
-allocation and also bounds the subsequent read. It first decodes only the
-schema and index-format discriminator, so a future version with unknown fields
-is typed as incompatible. Supported v1 then uses the strict closed decoder and
-canonical-validates the manifest, exact member set and sizes, mmap
-header/sections, every segment and interval node, and every exception. It does
-not hash members or deliberately touch ordinary payload. A filtered lookup is
-`O(log S + log E)` plus one constant-width decode; unfiltered enumeration is
-`O(log S + K)`. Public sorting adds `O(K log K + A log A)` and owned result
-allocation is `O(K + A)`. Every addressed ordinary record validates all six
-score/position pairs, even when the caller selects only one alternate.
+The runtime implements both formats through one long-lived `BundleOpen`
+provider. Its manifest, computed bundle identity, frozen provenance, and private
+reader dispatch remain fixed after successful construction. Open rejects
+manifest metadata above 1 MiB before buffer allocation and also bounds the
+subsequent read. It first decodes only the schema and index-format discriminator,
+so a future version with unknown fields is typed as incompatible. Each supported
+format then uses the same strict closed manifest decoder and its exact member
+media type. The selected reader validates its bounded structure before lookup.
+Open does not hash members or deliberately touch ordinary score payload.
+Fixed-v1 exhaustive certification and measured lookup remain fixed-only and
+return a typed incompatibility for a sparse bundle.
 
 At a stored `REF=N` coordinate, any syntactically valid concrete REF/ALT query
 returns the same gene-specific ambiguity and never returns the exception's
@@ -396,9 +395,15 @@ and peak allocator state plus RSS growth with the 33,000,000-byte disk spool;
 this detects retaining logical loci or an artifact-sized heap, rather than
 merely asserting that a scratch file grew.
 
-## Sparse-direct v1 candidate codec
+## Sparse-direct v1 codec
 
-`pangopup.sparse-direct.v1` is a candidate byte format. `PGSPRS01` and little-endian version `1` identify it. The candidate modules provide a writer and bounded mmap reader for qualification. The format has no bundle, manifest, asset profile, installed format, or runtime route.
+`pangopup.sparse-direct.v1` is a qualified runtime-readable byte format.
+`PGSPRS01` and little-endian version `1` identify it. A bundle manifest selects
+it with media type `application/vnd.pangopup.sparse-direct`. `BundleOpen`
+dispatches privately to its bounded mmap reader and preserves the existing score
+provider behavior and provenance. The writer and complete generated member
+remain maintainer qualification artifacts. No active asset profile, installed
+release, or published asset selects this format.
 
 The writer accepts complete genes in increasing numeric Ensembl order. Each gene's loci must increase strictly by contig code and coordinate. It validates ordinary and `REF=N` alternate sets and the fixed-v1 `-50..=50` relative-position range before writing that gene. Any rejected submission or spool write failure poisons the writer. A poisoned writer cannot publish its accepted prefix.
 
@@ -419,11 +424,11 @@ Exception entries are 40 bytes in gene, contig, and coordinate order. They hold 
 
 The independent test decoder validates every header field, section boundary, gene range and count, segment and block order, payload offset, rank checkpoint, stored score pair, exception order, and reserved byte. Mutation cases change each directory field, rank pair, stored score pair, section declaration, and reserved byte. Every mutation fails decoding or changes the decoded logical stream.
 
-`sparse_heap_bound` measures allocator state from writer creation through every gene submission and final assembly. A concurrent sampler covers Linux resident memory through final assembly. Its nondefault-score corpus makes the disk payload dominate directory state, then requires peak and retained heap to stay below one eighth of final bytes and Linux resident growth to stay below one half. This evidence covers bounded construction only. It makes no complete-corpus size, reader safety, lookup latency, parity, corruption, or ADR 0027 promotion claim.
+`sparse_heap_bound` measures allocator state from writer creation through every gene submission and final assembly. A concurrent sampler covers Linux resident memory through final assembly. Its nondefault-score corpus makes the disk payload dominate directory state, then requires peak and retained heap to stay below one eighth of final bytes and Linux resident growth to stay below one half. This evidence covers bounded construction only. Later tickets supplied complete-corpus size, reader safety, logical parity, corruption, and latency evidence.
 
 The sparse reader splits validation by access tier. Open validates the header, exact adjacent sections, checked section products, every reserved metadata byte, typed genes, contigs and coordinates, ordered unique gene ownership, nonoverlapping segment coverage, complete block and payload ownership, exception encodings and order, declared exception genes, and exception separation from ordinary loci. Open reads no ordinary payload bytes. Lookup validates the selected block header and exact length, every rank checkpoint, complete reference, active and mask arrays, unused tail bits, active and pair totals, active-mask consistency, and every pair for the addressed locus before returning a score or reference mismatch. `visit_all` and `verify_all` additionally decode and validate every score pair in every block. This offline tier detects corruption that open and an unrelated lookup may leave untouched.
 
-Gene-filtered lookup binary-searches the gene and exception directories, scans only that gene's segments and exceptions, and binary-searches the selected segment's block directory. Its cost is `O(log G + S_gene + log E + E_gene + log B)`, plus selected-block validation. Unfiltered lookup scans the gene-ordered segment and exception directories. Its cost is `O(S + E + K log B)` plus validation for the `K` selected overlapping blocks. Selected-block validation repeats across calls. Later side-by-side qualification measures whether these choices pass ADR 0027. They do not activate or qualify the candidate.
+Gene-filtered lookup binary-searches the gene and exception directories, scans only that gene's segments and exceptions, and binary-searches the selected segment's block directory. Its cost is `O(log G + S_gene + log E + E_gene + log B)`, plus selected-block validation. Unfiltered lookup scans the gene-ordered segment and exception directories. Its cost is `O(S + E + K log B)` plus validation for the `K` selected overlapping blocks. Selected-block validation repeats across calls. Retained side-by-side qualification shows that the gene-filtered path passes ADR 0027's latency gates. Unfiltered performance remains unmeasured.
 
 ### Certified complete sparse candidate build
 

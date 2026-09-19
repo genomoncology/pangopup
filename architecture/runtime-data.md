@@ -2,11 +2,17 @@
 
 ## Lookup path
 
-An indexed SNV lookup needs only the Pangopup fixed-v1 score bundle. The variant's
-GRCh38 contig, position, reference, and alternate select the record. The bundle
-already contains the source Ensembl gene identity, masked gain/loss values, and
-their relative positions. It does not need a FASTA, GTF, transcript database,
-or network call on this path.
+An indexed SNV lookup needs only a supported Pangopup score bundle. The runtime
+opener accepts `pangopup.fixed11.v1` and `pangopup.sparse-direct.v1` behind the
+same score-provider behavior. The variant's GRCh38 contig, position, reference,
+and alternate select the record. The bundle already contains the source Ensembl
+gene identity, masked gain/loss values, and their relative positions. It does
+not need a FASTA, GTF, transcript database, or network call on this path.
+
+The active `snv-grch38-v1` release and runtime profile remain fixed-v1. Sparse
+runtime opening does not publish, install, or activate the qualified sparse
+candidate. Fixed-v1 exhaustive certification and benchmark measurement reject a
+sparse bundle with a typed incompatibility.
 
 On Linux and macOS, `pangopup sync` downloads both exact compiled-in public transports into disposable XDG cache and passes them to the same `pangopup assets install` boundary that reconstructs a supplied transport under XDG user data. The installer records its canonical receipt and atomically selects it in `active.json`. Normal lookup discovers that active bundle without a `--bundle` argument and performs only cheap manifest, size, and structure checks. `--bundle` remains an explicit override. Lookup never downloads data or scans the complete score payload at startup. Only the explicit sync command uses the network.
 
@@ -269,8 +275,9 @@ independent-per-gene policy requires a separately named profile.
 - PostgreSQL or gffutils as a runtime dependency. SQLite is used only for the
   disposable model-result cache, never for reference, mask, or SNV lookup.
 
-The shipped standalone lookup deployment is the executable plus the fixed-v1
-score bundle. Explicit-path or activated-profile fallback additionally needs
+The shipped standalone lookup deployment is the executable plus the active
+fixed-v1 score bundle. An explicit score-bundle path may use either runtime
+format. Explicit-path or activated-profile fallback additionally needs
 the converted model bundle, compact GRCh38 sequence bundle, and compiled
 Pangolin mask member. The shipped coherent profile and offline XDG installer
 install and activate those four identities together; its local transport is

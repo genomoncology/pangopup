@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-09-16
+Updated: 2026-09-19
 
 ## Current release state
 
@@ -12,7 +12,8 @@ Repository onboarding, source ingestion, format selection, full-corpus build
 and certification, and typed SNV lookup are established. Pangopup is standalone
 open-source software. Its shipped CLI accepts an explicit GRCh38 SNV and
 optional gene filter and returns all matching source records by default from an
-explicit fixed-v1 bundle or the active Linux or macOS user-data installation.
+explicit fixed-v1 or sparse-direct-v1 bundle or the active Linux or macOS
+user-data installation. The active installation remains fixed-v1.
 Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
 established. The first-user README now presents one accessible, release-neutral
@@ -75,12 +76,14 @@ ADR 0027 makes a qualified smaller SNV format the next 0.5 dependency. The
 complete 2,035,371,437-byte sparse candidate passes the size and exhaustive
 logical-parity gates. On the retained Ryzen host, it also passes every
 predeclared latency gate at 1,663 / 16,222 / 157,189 ns for 1 / 10 / 100 warm
-gene-filtered requests, versus fixed-v1 at 461 / 4,379 / 41,341 ns. Unfiltered
-lookup and whole-genome throughput remain unmeasured. Qualification still
-requires separate corruption proof, semantic command and service parity, new
-format and installed identities, packaging, and rollback evidence. The active
-profile moves only after every gate passes. Fixed-v1 remains the shipped,
-readable rollback format.
+gene-filtered requests, versus fixed-v1 at 461 / 4,379 / 41,341 ns. The runtime
+bundle opener now admits either format through the same typed provider. Its
+cross-format miniature proves filtered and unfiltered answers, provenance,
+bounded open, and touched-record corruption. Unfiltered production performance
+and whole-genome throughput remain unmeasured. Qualification still requires
+semantic command and service parity, an installed identity, packaging, and
+rollback evidence. The active profile moves only after every gate passes.
+Fixed-v1 remains the shipped, readable rollback format.
 The checked repository side now has a read-only workflow token, full-SHA action
 references, digest-authenticated maintenance tools, and an advisory, license,
 bans, and source policy in `make lint`. The policy preserves the
@@ -177,9 +180,12 @@ attribution, and matching independent source/decoded logical-stream digests.
 
 ## Established — typed SNV lookup
 
-The cheap bundle open scans all fixed metadata and exceptions but does not hash
-members or traverse ordinary score payload. One long-lived typed provider owns
-the mmap and safely serves filtered or all-overlap requests. The CLI opens once,
+The cheap bundle open dispatches from the closed canonical manifest to the
+fixed-v1 or sparse-direct-v1 reader. It validates bounded format metadata and
+exceptions but does not hash members or traverse ordinary score payload. One
+long-lived typed provider owns the mmap and safely serves filtered or
+all-overlap requests. Fixed-v1 certification and measurement accessors reject
+sparse input as incompatible. The CLI opens once,
 validates the complete batch, returns exact JSONL or table bytes, and reports
 misses, source-reference ambiguities, mixed results, incompatible bundles, and
 touched-payload corruption distinctly. Full hashing and payload scans remain an

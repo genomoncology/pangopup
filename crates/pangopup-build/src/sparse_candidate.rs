@@ -165,8 +165,10 @@ fn build_sparse_candidate_inner(
 
     let mut writer = SparseIndexWriter::create(&arguments.scratch)
         .map_err(|error| command_error("SPARSE_WRITE", error))?;
-    let traversal = certified
+    let fixed_index = certified
         .index()
+        .map_err(|error| command_error("SPARSE_FIXED_TRAVERSAL", error))?;
+    let traversal = fixed_index
         .visit_genes_bounded(limits.gene_loci, limits.gene_capacity_bytes, |gene| {
             writer.push_gene(gene)
         })

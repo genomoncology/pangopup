@@ -532,7 +532,9 @@ fn component_error(error: AssetError, runtime: bool) -> ComponentError {
         }
     } else {
         match error.kind() {
-            AssetErrorKind::InstallConflict => "BUNDLE_INCOMPATIBLE",
+            AssetErrorKind::BundleIncompatible | AssetErrorKind::InstallConflict => {
+                "BUNDLE_INCOMPATIBLE"
+            }
             _ => error.kind().code(),
         }
     };

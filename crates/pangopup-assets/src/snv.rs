@@ -43,7 +43,8 @@ impl CertifiedBundle {
         self.opened.manifest()
     }
 
-    pub fn index(&self) -> &IndexReader {
+    /// Return the fixed-v1 reader admitted by exhaustive certification.
+    pub fn index(&self) -> Result<&IndexReader, IndexError> {
         self.opened.index()
     }
 
@@ -122,6 +123,14 @@ pub fn certify_bundle_members_with_gene_limits(
             },
             _ => bundle_error(error.to_string()),
         })?;
+    let fixed_index = opened.index().map_err(|error| match error {
+        IndexError::Incompatible(_) => AssetError {
+            kind: AssetErrorKind::BundleIncompatible,
+            legacy_code: Some("BUNDLE_INCOMPATIBLE"),
+            message: error.to_string(),
+        },
+        _ => bundle_error_code("BUNDLE_INDEX", error.to_string()),
+    })?;
     let notice_member = inner_member(opened.manifest(), "NOTICE")?;
     let scores_member = inner_member(opened.manifest(), "scores.pgi")?;
     if notice_member.size > MAX_NOTICE_BYTES || notice_member.size != NOTICE.len() as u64 {
@@ -157,15 +166,10 @@ pub fn certify_bundle_members_with_gene_limits(
             "NOTICE does not match Pangopup's byte-exact embedded notice",
         ));
     }
-    opened
-        .index()
+    fixed_index
         .verify_canonical_structure()
         .map_err(|error| bundle_error_code("BUNDLE_INDEX", error.to_string()))?;
-    let decoded = decode_reader(
-        opened.index(),
-        maximum_gene_loci,
-        maximum_gene_capacity_bytes,
-    )?;
+    let decoded = decode_reader(fixed_index, maximum_gene_loci, maximum_gene_capacity_bytes)?;
     if decoded.logical != opened.manifest().logical_decoded
         || opened.manifest().logical_source != opened.manifest().logical_decoded
     {
@@ -174,7 +178,7 @@ pub fn certify_bundle_members_with_gene_limits(
             "complete decoded logical stream does not match the manifest",
         ));
     }
-    validate_decoded_counts(opened.manifest(), opened.index(), &decoded)?;
+    validate_decoded_counts(opened.manifest(), fixed_index, &decoded)?;
     let fixed_member_sha256 = inner_member(opened.manifest(), "scores.pgi")?
         .sha256
         .clone();
@@ -626,5 +630,103 @@ fn bundle_error_code(code: &'static str, message: impl Into<String>) -> AssetErr
         kind: AssetErrorKind::BundleInvalid,
         legacy_code: Some(code),
         message: message.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pangopup_core::{
+        DnaBase, EnsemblGeneId, GenomicPosition, PangolinScore, RelativePosition, ScoreMagnitude,
+    };
+    use pangopup_index::{
+        AmbiguousInputLocus, BundleManifest, InputAlternative, InputLocus,
+        canonical_manifest_bytes,
+        sparse_writer::{SPARSE_INDEX_FORMAT, SparseIndexWriter},
+    };
+    use std::{
+        path::PathBuf,
+        sync::atomic::{AtomicU64, Ordering},
+    };
+
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    struct Temp(PathBuf);
+
+    impl Temp {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "pangopup-sparse-certification-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&path).expect("create temporary directory");
+            Self(path)
+        }
+    }
+
+    impl Drop for Temp {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).expect("remove temporary directory");
+        }
+    }
+
+    #[test]
+    fn exhaustive_fixed_certification_rejects_a_sparse_bundle_as_incompatible() {
+        let temp = Temp::new();
+        let scratch = temp.0.join("sparse.scratch");
+        let scores_path = temp.0.join("scores.pgi");
+        let mut writer = SparseIndexWriter::create(&scratch).expect("sparse writer");
+        writer
+            .push_gene(&[InputLocus::Ambiguous(AmbiguousInputLocus {
+                gene: EnsemblGeneId::from_numeric(1).expect("gene"),
+                contig: "chr1".parse().expect("contig"),
+                position: GenomicPosition::new(1).expect("position"),
+                alternatives: [DnaBase::C, DnaBase::G, DnaBase::T].map(|alternate| {
+                    InputAlternative {
+                        alternate,
+                        score: PangolinScore::new(
+                            ScoreMagnitude::new(0).expect("score"),
+                            RelativePosition::new(-50).expect("position"),
+                            ScoreMagnitude::new(0).expect("score"),
+                            RelativePosition::new(-50).expect("position"),
+                        ),
+                    }
+                }),
+                omitted: DnaBase::A,
+            })])
+            .expect("sparse gene");
+        writer.finish(&scores_path).expect("sparse index");
+
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("tests/fixtures/snv-regression/bundle");
+        let mut manifest: BundleManifest = serde_json::from_slice(
+            &fs::read(fixture.join("manifest.json")).expect("fixture manifest"),
+        )
+        .expect("manifest");
+        manifest.index_format = SPARSE_INDEX_FORMAT.to_owned();
+        manifest.members[1].media_type = "application/vnd.pangopup.sparse-direct".to_owned();
+        manifest.members[1].size = fs::metadata(&scores_path).expect("scores metadata").len();
+        let manifest_path = temp.0.join("manifest.json");
+        fs::write(
+            &manifest_path,
+            canonical_manifest_bytes(&manifest).expect("canonical manifest"),
+        )
+        .expect("write manifest");
+
+        let manifest = File::open(manifest_path).expect("manifest file");
+        let notice = File::open(fixture.join("NOTICE")).expect("notice file");
+        let scores = File::open(scores_path).expect("scores file");
+        let error = certify_bundle_members(&manifest, &notice, &scores)
+            .expect_err("fixed-only certification must reject sparse input");
+        assert_eq!(error.kind(), AssetErrorKind::BundleIncompatible);
+        assert_eq!(error.kind().code(), "BUNDLE_INCOMPATIBLE");
+        assert_eq!(error.legacy_build_code(), Some("BUNDLE_INCOMPATIBLE"));
+        assert!(
+            error
+                .to_string()
+                .contains("fixed-v1 operation requires a fixed-v1 bundle")
+        );
     }
 }

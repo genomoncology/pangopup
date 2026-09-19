@@ -1,7 +1,4 @@
-//! Candidate-only bounded reader for `pangopup.sparse-direct.v1`.
-//!
-//! This reader exists for qualification. It has no bundle, asset, profile, or
-//! runtime routing integration.
+//! Bounded reader for the qualified `pangopup.sparse-direct.v1` runtime format.
 
 use crate::{
     AmbiguousInputLocus, DecodedSummary, IndexError, InputAlternative, InputLocus,
@@ -175,7 +172,7 @@ struct BlockLayout<'a> {
     values_start: usize,
 }
 
-/// Validated memory-mapped reader for the sparse-direct v1 candidate.
+/// Validated memory-mapped reader for sparse-direct v1.
 #[derive(Debug)]
 pub struct SparseIndexReader {
     map: Mmap,

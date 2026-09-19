@@ -3,6 +3,7 @@
 //! The byte layout is not a public compatibility promise. Integer fields are
 //! little-endian and mapped bytes are never cast to Rust structs.
 
+use crate::{sparse_reader::SparseIndexReader, sparse_writer::SPARSE_INDEX_FORMAT};
 use memmap2::Mmap;
 use pangopup_core::{
     DnaBase, EnsemblGeneId, GeneScoreRecord, GenomicPosition, Grch38Contig, Grch38Snv, LookupError,
@@ -60,6 +61,8 @@ pub const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 
 pub const INDEX_FORMAT: &str = "pangopup.fixed11.v1";
 pub const BUNDLE_SCHEMA: &str = "pangopup.bundle.v1";
+const FIXED_INDEX_MEDIA_TYPE: &str = "application/vnd.pangopup.fixed11";
+const SPARSE_INDEX_MEDIA_TYPE: &str = "application/vnd.pangopup.sparse-direct";
 
 /// One alternate record in canonical logical input.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -135,9 +138,9 @@ pub struct BundleManifest {
 /// The version fields that select the strict manifest decoder.
 ///
 /// This envelope intentionally permits unknown fields: a newer manifest must
-/// be reported as incompatible even when it contains fields that fixed v1 does
-/// not understand. Once both discriminators select v1, `BundleManifest`'s
-/// closed schema remains authoritative.
+/// be reported as incompatible even when it contains fields that a supported
+/// v1 format does not understand. Once both discriminators select supported
+/// values, `BundleManifest`'s closed schema remains authoritative.
 #[derive(Deserialize)]
 struct ManifestDiscriminator {
     schema: String,
@@ -234,7 +237,13 @@ pub struct BundleOpen {
     manifest: BundleManifest,
     bundle_id: String,
     provenance: PrecomputedProvenance,
-    index: IndexReader,
+    index: BundleIndex,
+}
+
+#[derive(Debug)]
+enum BundleIndex {
+    Fixed(IndexReader),
+    Sparse(SparseIndexReader),
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -313,7 +322,10 @@ pub fn parse_bundle_manifest_bytes(bytes: &[u8]) -> Result<BundleManifest, Index
     if discriminator.schema != BUNDLE_SCHEMA {
         return Err(IndexError::Incompatible("bundle schema version"));
     }
-    if discriminator.index_format != INDEX_FORMAT {
+    if !matches!(
+        discriminator.index_format.as_str(),
+        INDEX_FORMAT | SPARSE_INDEX_FORMAT
+    ) {
         return Err(IndexError::Incompatible("index format version"));
     }
     let manifest: BundleManifest =
@@ -420,7 +432,7 @@ pub fn bundle_id(bytes: &[u8]) -> String {
 
 impl BundleOpen {
     /// Cheap bundle open: validate the closed canonical manifest, exact member
-    /// set, regular-file identities, declared sizes, and fixed-v1 structure.
+    /// set, regular-file identities, declared sizes, and selected index structure.
     /// Member byte hashes remain the responsibility of offline verification.
     pub fn open(path: &Path) -> Result<Self, IndexError> {
         let mut names = Vec::with_capacity(3);
@@ -491,7 +503,11 @@ impl BundleOpen {
                 return Err(IndexError::Corrupt("bundle member size"));
             }
         }
-        let index = IndexReader::open_file(scores)?;
+        let index = match manifest.index_format.as_str() {
+            INDEX_FORMAT => BundleIndex::Fixed(IndexReader::open_file(scores)?),
+            SPARSE_INDEX_FORMAT => BundleIndex::Sparse(SparseIndexReader::open_file(scores)?),
+            _ => return Err(IndexError::Incompatible("index format version")),
+        };
         let bundle_id = bundle_id(manifest_bytes);
         let provenance = PrecomputedProvenance::new(
             bundle_id.clone(),
@@ -537,17 +553,28 @@ impl BundleOpen {
         &self.manifest
     }
 
-    /// Read-only index access for the offline verifier.
-    pub fn index(&self) -> &IndexReader {
-        &self.index
+    /// Read-only fixed-v1 index access for offline verification.
+    ///
+    /// Sparse runtime bundles return a typed incompatibility because exhaustive
+    /// certification remains fixed-v1-only.
+    pub fn index(&self) -> Result<&IndexReader, IndexError> {
+        match &self.index {
+            BundleIndex::Fixed(index) => Ok(index),
+            BundleIndex::Sparse(_) => Err(IndexError::Incompatible(
+                "fixed-v1 operation requires a fixed-v1 bundle",
+            )),
+        }
     }
 
-    /// Instrument a benchmark batch without exposing mutable provider state.
+    /// Instrument a fixed-v1 benchmark batch without exposing mutable provider state.
+    ///
+    /// Sparse runtime bundles return a typed incompatibility because the
+    /// retained benchmark evidence and metrics describe fixed-v1 only.
     pub fn lookup_batch_measured(
         &self,
         queries: &[(Grch38Snv, Option<EnsemblGeneId>)],
     ) -> Result<LookupMetrics, IndexError> {
-        self.index.lookup_batch_measured(queries)
+        self.index()?.lookup_batch_measured(queries)
     }
 }
 
@@ -557,10 +584,18 @@ impl ScoreProvider for BundleOpen {
         snv: Grch38Snv,
         gene: Option<EnsemblGeneId>,
     ) -> Result<LookupResult, LookupError> {
-        let raw = self
-            .index
-            .lookup_inner(snv, gene, None)
-            .map_err(|_| LookupError::CorruptProviderData)?;
+        let raw = match &self.index {
+            BundleIndex::Fixed(index) => index.lookup_inner(snv, gene, None),
+            BundleIndex::Sparse(index) => {
+                index
+                    .lookup_parts(snv, gene)
+                    .map(|(records, ambiguities)| RawLookupResult {
+                        records,
+                        ambiguities,
+                    })
+            }
+        }
+        .map_err(|_| LookupError::CorruptProviderData)?;
         Ok(LookupResult::new(
             raw.records,
             raw.ambiguities,
@@ -573,14 +608,22 @@ fn validate_manifest(manifest: &BundleManifest) -> Result<(), IndexError> {
     if manifest.schema != BUNDLE_SCHEMA {
         return Err(IndexError::Incompatible("bundle schema version"));
     }
-    if manifest.index_format != INDEX_FORMAT {
+    if !matches!(
+        manifest.index_format.as_str(),
+        INDEX_FORMAT | SPARSE_INDEX_FORMAT
+    ) {
         return Err(IndexError::Incompatible("index format version"));
     }
+    let expected_media_type = match manifest.index_format.as_str() {
+        INDEX_FORMAT => FIXED_INDEX_MEDIA_TYPE,
+        SPARSE_INDEX_FORMAT => SPARSE_INDEX_MEDIA_TYPE,
+        _ => return Err(IndexError::Incompatible("index format version")),
+    };
     if manifest.members.len() != 2
         || manifest.members[0].path != "NOTICE"
         || manifest.members[0].media_type != "text/plain; charset=utf-8"
         || manifest.members[1].path != "scores.pgi"
-        || manifest.members[1].media_type != "application/vnd.pangopup.fixed11"
+        || manifest.members[1].media_type != expected_media_type
     {
         return Err(IndexError::Corrupt("manifest members"));
     }

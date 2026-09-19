@@ -1202,6 +1202,7 @@ fn cache_content_error(kind: AssetErrorKind) -> bool {
         kind,
         AssetErrorKind::ManifestInvalid
             | AssetErrorKind::TransportIncompatible
+            | AssetErrorKind::BundleIncompatible
             | AssetErrorKind::PartSetInvalid
             | AssetErrorKind::TransportHashMismatch
             | AssetErrorKind::CompressionInvalid

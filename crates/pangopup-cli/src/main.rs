@@ -1863,7 +1863,9 @@ fn map_install_error(error: AssetError) -> Failure {
 
 fn map_status_error(error: AssetError) -> Failure {
     let code = match error.kind() {
-        AssetErrorKind::InstallConflict => "BUNDLE_INCOMPATIBLE",
+        AssetErrorKind::BundleIncompatible | AssetErrorKind::InstallConflict => {
+            "BUNDLE_INCOMPATIBLE"
+        }
         _ => error.kind().code(),
     };
     Failure {
@@ -1914,7 +1916,9 @@ fn map_sync_error(error: AssetError) -> Failure {
 
 fn map_lookup_asset_error(error: AssetError) -> Failure {
     let code = match error.kind() {
-        AssetErrorKind::InstallConflict => "BUNDLE_INCOMPATIBLE",
+        AssetErrorKind::BundleIncompatible | AssetErrorKind::InstallConflict => {
+            "BUNDLE_INCOMPATIBLE"
+        }
         _ => error.kind().code(),
     };
     Failure {
