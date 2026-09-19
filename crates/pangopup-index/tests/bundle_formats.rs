@@ -216,6 +216,43 @@ fn fixed_only_accessors_reject_sparse_bundles() {
 }
 
 #[test]
+fn exhaustive_bundle_traversal_dispatches_by_format() {
+    let temp = Temp::new("exhaustive-dispatch");
+    let genes = fixture();
+    let expected = genes.iter().flatten().copied().collect::<Vec<_>>();
+    let fixed_path = temp.0.join("fixed.pgi");
+    let sparse_path = temp.0.join("sparse.pgi");
+    write_fixed(&fixed_path, &genes);
+    write_sparse(&temp.0.join("sparse.scratch"), &sparse_path, &genes);
+    let (fixed, _) = open_bundle(FIXED_FORMAT, FIXED_MEDIA_TYPE, &fixed_path);
+    let (sparse, _) = open_bundle(SPARSE_INDEX_FORMAT, SPARSE_MEDIA_TYPE, &sparse_path);
+
+    let mut fixed_loci = Vec::new();
+    let fixed_summary = fixed
+        .visit_all_bounded(u64::MAX, u64::MAX, |locus| {
+            fixed_loci.push(locus);
+            Ok::<_, ()>(())
+        })
+        .expect("fixed traversal");
+    let mut sparse_loci = Vec::new();
+    let sparse_summary = sparse
+        .visit_all_bounded(0, 0, |locus| {
+            sparse_loci.push(locus);
+            Ok::<_, ()>(())
+        })
+        .expect("streaming sparse traversal");
+    assert_eq!(fixed_loci, expected);
+    assert_eq!(sparse_loci, expected);
+    assert_eq!(fixed_summary, sparse_summary);
+
+    assert!(matches!(
+        fixed.visit_all_bounded(0, 0, |_| Ok::<_, ()>(())),
+        Err(pangopup_index::VisitAllError::Index(error))
+            if error.to_string().contains("allocation limit")
+    ));
+}
+
+#[test]
 fn sparse_touched_record_corruption_reaches_the_provider_error_boundary() {
     let temp = Temp::new("touched-corruption");
     let genes = fixture();

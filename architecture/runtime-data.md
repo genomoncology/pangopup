@@ -11,8 +11,12 @@ not need a FASTA, GTF, transcript database, or network call on this path.
 
 The active `snv-grch38-v1` release and runtime profile remain fixed-v1. Sparse
 runtime opening does not publish, install, or activate the qualified sparse
-candidate. Fixed-v1 exhaustive certification and benchmark measurement reject a
-sparse bundle with a typed incompatibility.
+candidate. Exhaustive asset certification accepts either admitted format and
+returns one format-neutral member identity and decoded summary. Sparse
+certification applies the 3,221,225,472-byte held and declared member ceiling
+before mapping or hashing, then streams the complete payload without a
+fixed-style gene buffer. Benchmark measurement and sparse-candidate conversion
+remain explicitly fixed-only.
 
 On Linux and macOS, `pangopup sync` downloads both exact compiled-in public transports into disposable XDG cache and passes them to the same `pangopup assets install` boundary that reconstructs a supplied transport under XDG user data. The installer records its canonical receipt and atomically selects it in `active.json`. Normal lookup discovers that active bundle without a `--bundle` argument and performs only cheap manifest, size, and structure checks. `--bundle` remains an explicit override. Lookup never downloads data or scans the complete score payload at startup. Only the explicit sync command uses the network.
 

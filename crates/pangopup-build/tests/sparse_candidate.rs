@@ -1,6 +1,9 @@
 use pangopup_assets::MAX_FIXED11_BYTES;
 use pangopup_build::{SparseCandidateArguments, build_sparse_candidate, verify_bundle};
-use pangopup_index::{BundleManifest, IndexReader, VisitAllError, canonical_manifest_bytes};
+use pangopup_index::{
+    BundleManifest, IndexReader, VisitAllError, canonical_manifest_bytes,
+    sparse_writer::SPARSE_INDEX_FORMAT,
+};
 use sha2::{Digest, Sha256};
 use std::{
     cell::Cell,
@@ -115,6 +118,36 @@ fn miniature_build_is_exact_deterministic_and_bounded() {
             .expect("maximum capacity bytes")
             < 512 * 1024 * 1024
     );
+}
+
+#[test]
+fn sparse_source_is_rejected_without_output_or_scratch() {
+    let temp = TempDir::new().expect("temp");
+    let fixed = prepare_bundle(&temp);
+    let seed = arguments(&temp, &fixed, "seed");
+    build_sparse_candidate(&seed).expect("seed sparse candidate");
+
+    let sparse = temp.path().join("sparse-source");
+    fs::create_dir(&sparse).expect("sparse bundle directory");
+    fs::copy(fixed.join("NOTICE"), sparse.join("NOTICE")).expect("copy notice");
+    fs::copy(&seed.candidate, sparse.join("scores.pgi")).expect("copy sparse scores");
+    fs::copy(fixed.join("manifest.json"), sparse.join("manifest.json")).expect("copy manifest");
+    rewrite_manifest(&sparse, |manifest| {
+        let scores = fs::read(sparse.join("scores.pgi")).expect("sparse scores");
+        manifest.index_format = SPARSE_INDEX_FORMAT.to_owned();
+        manifest.members[1].media_type = "application/vnd.pangopup.sparse-direct".to_owned();
+        manifest.members[1].size = scores.len() as u64;
+        manifest.members[1].sha256 = format!("sha256:{:x}", Sha256::digest(scores));
+    });
+
+    let rejected = arguments(&temp, &sparse, "rejected");
+    let sidecar = PathBuf::from(format!("{}.exceptions", rejected.scratch.display()));
+    let error = build_sparse_candidate(&rejected).expect_err("sparse source format");
+    assert_eq!(error.code, "SPARSE_INPUT_FORMAT");
+    assert!(!rejected.scratch.exists());
+    assert!(!sidecar.exists());
+    assert!(!rejected.candidate.exists());
+    assert!(!rejected.report.exists());
 }
 
 #[test]

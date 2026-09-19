@@ -555,14 +555,53 @@ impl BundleOpen {
 
     /// Read-only fixed-v1 index access for offline verification.
     ///
-    /// Sparse runtime bundles return a typed incompatibility because exhaustive
-    /// certification remains fixed-v1-only.
+    /// Sparse runtime bundles return a typed incompatibility because this
+    /// accessor exposes the concrete fixed-v1 reader.
     pub fn index(&self) -> Result<&IndexReader, IndexError> {
         match &self.index {
             BundleIndex::Fixed(index) => Ok(index),
             BundleIndex::Sparse(_) => Err(IndexError::Incompatible(
                 "fixed-v1 operation requires a fixed-v1 bundle",
             )),
+        }
+    }
+
+    /// Exhaustively decode the admitted bundle in canonical logical order.
+    ///
+    /// Fixed-v1 verifies its complete structure and uses the caller's
+    /// complete-gene allocation bounds. Sparse-direct-v1 streams loci without
+    /// allocating a complete-gene buffer, so the fixed-only bounds do not
+    /// apply to that format.
+    pub fn visit_all_bounded<E>(
+        &self,
+        maximum_gene_loci: u64,
+        maximum_gene_capacity_bytes: u64,
+        mut visitor: impl FnMut(InputLocus) -> Result<(), E>,
+    ) -> Result<DecodedSummary, VisitAllError<E>> {
+        match &self.index {
+            BundleIndex::Fixed(index) => {
+                index
+                    .verify_canonical_structure()
+                    .map_err(VisitAllError::Index)?;
+                let traversed = index.visit_genes_bounded(
+                    maximum_gene_loci,
+                    maximum_gene_capacity_bytes,
+                    |gene_loci| {
+                        for locus in gene_loci.iter().copied() {
+                            visitor(locus)?;
+                        }
+                        Ok::<_, E>(())
+                    },
+                )?;
+                Ok(DecodedSummary {
+                    genes: traversed.genes,
+                    loci: traversed.loci,
+                    ordinary_loci: traversed.ordinary_loci,
+                    exceptions: traversed.exceptions,
+                    segments: traversed.segments,
+                })
+            }
+            BundleIndex::Sparse(index) => index.visit_all(visitor),
         }
     }
 

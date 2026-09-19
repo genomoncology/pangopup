@@ -1,9 +1,9 @@
 //! Maintainer-only certified fixed-v1 to sparse-candidate conversion.
 
 use crate::CommandError;
-use pangopup_assets::certify_bundle_members_with_gene_limits;
+use pangopup_assets::{MAX_SPARSE_DIRECT_BYTES, certify_bundle_members_with_gene_limits};
 use pangopup_index::{
-    DecodedSummary, InputLocus, VisitAllError,
+    DecodedSummary, INDEX_FORMAT, IndexReader, InputLocus, VisitAllError,
     sparse_reader::SparseIndexReader,
     sparse_writer::{SPARSE_INDEX_FORMAT, SparseIndexWriter, SparseWriteSummary},
 };
@@ -19,7 +19,7 @@ use std::{
 
 pub const MAX_GENE_LOCI: u64 = 3_000_000;
 pub const MAX_GENE_CAPACITY_BYTES: u64 = 512 * 1024 * 1024;
-pub const ADR_0027_SIZE_GATE_BYTES: u64 = 3_221_225_472;
+pub const ADR_0027_SIZE_GATE_BYTES: u64 = MAX_SPARSE_DIRECT_BYTES;
 
 static STAGE_SERIAL: AtomicU64 = AtomicU64::new(0);
 
@@ -152,6 +152,12 @@ fn build_sparse_candidate_inner(
             error.to_string(),
         )
     })?;
+    if certified.index_format() != INDEX_FORMAT {
+        return Err(CommandError::new(
+            "SPARSE_INPUT_FORMAT",
+            "sparse candidate conversion requires a fixed-v1 source bundle",
+        ));
+    }
     if let Some(expected) = &arguments.expected_bundle_id
         && expected != &certified.certification().bundle_id
     {
@@ -165,8 +171,7 @@ fn build_sparse_candidate_inner(
 
     let mut writer = SparseIndexWriter::create(&arguments.scratch)
         .map_err(|error| command_error("SPARSE_WRITE", error))?;
-    let fixed_index = certified
-        .index()
+    let fixed_index = IndexReader::open_file(&scores)
         .map_err(|error| command_error("SPARSE_FIXED_TRAVERSAL", error))?;
     let traversal = fixed_index
         .visit_genes_bounded(limits.gene_loci, limits.gene_capacity_bytes, |gene| {
@@ -217,8 +222,8 @@ fn build_sparse_candidate_inner(
             schema: "pangopup.sparse-candidate-report.v1".to_owned(),
             input_bundle_id: certified.certification().bundle_id.clone(),
             fixed_format: certified.manifest().index_format.clone(),
-            fixed_member_bytes: certified.fixed_member_size(),
-            fixed_member_sha256: certified.fixed_member_sha256().to_owned(),
+            fixed_member_bytes: certified.member_size(),
+            fixed_member_sha256: certified.member_sha256().to_owned(),
             candidate_format: SPARSE_INDEX_FORMAT.to_owned(),
             candidate_bytes: writer_summary.bytes,
             candidate_sha256: candidate_sha256.clone(),

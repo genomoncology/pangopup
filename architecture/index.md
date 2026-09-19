@@ -186,8 +186,9 @@ so a future version with unknown fields is typed as incompatible. Each supported
 format then uses the same strict closed manifest decoder and its exact member
 media type. The selected reader validates its bounded structure before lookup.
 Open does not hash members or deliberately touch ordinary score payload.
-Fixed-v1 exhaustive certification and measured lookup remain fixed-only and
-return a typed incompatibility for a sparse bundle.
+Exhaustive certification dispatches through the private reader and supports
+both admitted formats. Measured lookup remains fixed-only and returns a typed
+incompatibility for a sparse bundle.
 
 At a stored `REF=N` coordinate, any syntactically valid concrete REF/ALT query
 returns the same gene-specific ambiguity and never returns the exception's
@@ -428,6 +429,8 @@ The independent test decoder validates every header field, section boundary, gen
 
 The sparse reader splits validation by access tier. Open validates the header, exact adjacent sections, checked section products, every reserved metadata byte, typed genes, contigs and coordinates, ordered unique gene ownership, nonoverlapping segment coverage, complete block and payload ownership, exception encodings and order, declared exception genes, and exception separation from ordinary loci. Open reads no ordinary payload bytes. Lookup validates the selected block header and exact length, every rank checkpoint, complete reference, active and mask arrays, unused tail bits, active and pair totals, active-mask consistency, and every pair for the addressed locus before returning a score or reference mismatch. `visit_all` and `verify_all` additionally decode and validate every score pair in every block. This offline tier detects corruption that open and an unrelated lookup may leave untouched.
 
+Asset certification checks a held and declared sparse member against the 3,221,225,472-byte ceiling before mapping or hashing. It then checks the exact notice and member digest, streams every sparse locus through exhaustive validation, reconstructs both logical identity fields, and compares every reconstructable manifest count. Fixed-v1 keeps its 17,179,869,184-byte ceiling and complete-gene allocation bounds. The certified result exposes format, member size and digest, and one format-neutral exhaustive summary rather than either concrete reader.
+
 Gene-filtered lookup binary-searches the gene and exception directories, scans only that gene's segments and exceptions, and binary-searches the selected segment's block directory. Its cost is `O(log G + S_gene + log E + E_gene + log B)`, plus selected-block validation. Unfiltered lookup scans the gene-ordered segment and exception directories. Its cost is `O(S + E + K log B)` plus validation for the `K` selected overlapping blocks. Selected-block validation repeats across calls. Retained side-by-side qualification shows that the gene-filtered path passes ADR 0027's latency gates. Unfiltered performance remains unmeasured.
 
 ### Certified complete sparse candidate build
@@ -443,7 +446,7 @@ pangopup-build sparse-candidate build \
   --report data/pangopup/sparse-v1-candidate-report.json
 ```
 
-The command opens the exact `manifest.json`, `NOTICE`, and `scores.pgi` regular files before certification. Those inodes must remain immutable for the full command. Certification checks the closed canonical manifest, exact notice, member limits and hashes, canonical fixed structure, decoded counts, and both logical identities on the held files. The retained run supplies the expected bundle identity.
+The command opens the exact `manifest.json`, `NOTICE`, and `scores.pgi` regular files before certification. Those inodes must remain immutable for the full command. Certification checks the closed canonical manifest, exact notice, member limits and hashes, canonical structure, decoded counts, and both logical identities on the held files. The candidate command then requires fixed-v1 explicitly and rejects a certified sparse source before creating scratch or output paths. The retained run supplies the expected bundle identity.
 
 Fixed-v1 traversal preflights each complete gene before allocation. It refuses more than 3,000,000 loci or 512 MiB of `InputLocus` capacity. It passes its sole gene buffer directly to the sparse writer. The report records the observed maximum length, capacity, and capacity bytes.
 
