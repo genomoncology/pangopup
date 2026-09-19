@@ -82,15 +82,11 @@ cross-format miniature proves filtered and unfiltered answers, provenance,
 bounded open, and touched-record corruption. Exhaustive certification now
 admits either format and checks the sparse size ceiling before mapping or
 hashing. Unfiltered production performance and whole-genome throughput remain
-unmeasured. Qualification still requires semantic command and service parity,
-an installed identity, packaging, and rollback evidence. The active profile
-moves only after every gate passes.
+unmeasured. Activation still requires semantic command and service parity,
+runtime-profile binding, upgrade and rollback evidence, and defined unfiltered
+performance gates. The active profile moves only after every gate passes.
 Fixed-v1 remains the shipped, readable rollback format.
-Sparse release tooling now authenticates the complete immutable v1 corpus
-authority, records distinct candidate and assembler provenance, and produces
-deterministic miniature bundle, transport, proof, and profile bytes. The
-retained candidate has not passed that release run yet, and no v2 authority is
-active or published.
+Sparse release tooling now authenticates the complete immutable v1 corpus authority, records distinct candidate and assembler provenance, and produces deterministic bundle, transport, proof, and profile bytes. Two independent retained complete runs reproduced the v2 local publication set and passed exhaustive certification, isolated installation, and the checked lookup workload. No v2 authority is active or published.
 The checked repository side now has a read-only workflow token, full-SHA action
 references, digest-authenticated maintenance tools, and an advisory, license,
 bans, and source policy in `make lint`. The policy preserves the

@@ -402,9 +402,7 @@ merely asserting that a scratch file grew.
 `PGSPRS01` and little-endian version `1` identify it. A bundle manifest selects
 it with media type `application/vnd.pangopup.sparse-direct`. `BundleOpen`
 dispatches privately to its bounded mmap reader and preserves the existing score
-provider behavior and provenance. The writer and complete generated member
-remain maintainer qualification artifacts. No active asset profile, installed
-release, or published asset selects this format.
+provider behavior and provenance. The writer and complete generated member remain maintainer qualification artifacts. A checked local publication-candidate profile selects this format, but no active installed profile or published asset selects it.
 
 The writer accepts complete genes in increasing numeric Ensembl order. Each gene's loci must increase strictly by contig code and coordinate. It validates ordinary and `REF=N` alternate sets and the fixed-v1 `-50..=50` relative-position range before writing that gene. Any rejected submission or spool write failure poisons the writer. A poisoned writer cannot publish its accepted prefix.
 
