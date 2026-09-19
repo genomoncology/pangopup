@@ -20,6 +20,8 @@ opening payload parts or contacting GitHub. A mutable release is not a
 fallback. This observed immutable contract is the source of truth consumed by
 the shipped pinned remote-sync implementation.
 
+Sparse v2 tooling currently generates local candidate authorities only. `sparse-release assemble` accepts the exact checked v1 bundle as its sole corpus authority and creates a certified three-file sparse bundle from an already-built member. The resulting manifest keeps the original v1 builder under sparse provenance and records the current assembler version at the top level. `sparse-release prepare` verifies that bundle through its complete transport and writes a canonical proof, profile, checksum list, and release notes. The checked v1 bundle manifest beside the v1 proof supplies the complete immutable authority facts used by preparation. Preparation accepts only a tooling commit that equals the executable's compiled commit from a clean checkout; the separately supplied release target may differ. No v2 proof or profile is checked in here yet. A later retained run will bind these generated authorities to an exact clean tooling commit. The production v1 files in this directory remain byte-for-byte unchanged.
+
 `runtime-release-profile.json` is the checked outer authority for the public
 `runtime-grch38-v1` release and its exact ten-file download set.
 `runtime-transport.json` is the checked inner authority for the nine installed

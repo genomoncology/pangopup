@@ -193,11 +193,7 @@ Pangolin tree, including the original checkpoint containers, accompanies the
 converted model as GPL preferred source; it is not installed runtime data. The
 exact Pangopup target tree separately carries the converter and build source.
 
-The SNV transport compresses only the exact `scores.pgi` byte stream as one
-deterministic Zstandard frame, then cuts that stream into ordered
-1,000,000,000-byte parts. It carries canonical transport metadata plus exact
-copies of the installed bundle manifest and CC BY notice. It does not put the
-three-file bundle in tar and does not alter the reconstructed fixed-v1 member.
+The SNV transport compresses only the exact `scores.pgi` byte stream as one deterministic Zstandard frame, then cuts that stream into ordered 1,000,000,000-byte parts. It carries canonical transport metadata plus exact copies of the installed bundle manifest and CC BY notice. It does not put the three-file bundle in tar and does not alter the reconstructed member. The transport accepts certified fixed-v1 and sparse-direct-v1 bundles. It preserves the encoder settings, ordinal part names, full nonfinal parts, final-part rule, and 1,000-part ceiling for both formats.
 The checked `snv-grch38-v1` release profile fixes the GitHub asset names, sizes,
 digests, and literal immutable-release URLs for those members.
 That contract is published at
@@ -212,6 +208,8 @@ pangopup-build transport pack --bundle <BUNDLE> --output <ABSENT_DIR>
 pangopup-build transport verify --transport <TRANSPORT_DIR>
 pangopup-build transport unpack --transport <TRANSPORT_DIR> --output <ABSENT_DIR>
 pangopup-build release prepare --transport <TRANSPORT_DIR> --receipt <PROOF_RECEIPT_JSON> --output <ABSENT_DIR>
+pangopup-build sparse-release assemble --authority <FIXED_V1_BUNDLE> --sparse <SPARSE_PGI> --candidate-commit <40_LOWERCASE_HEX> --output <ABSENT_DIR>
+pangopup-build sparse-release prepare --transport <DIR> --tooling-commit <40_LOWERCASE_HEX> --release-target-commit <40_LOWERCASE_HEX> --output <ABSENT_DIR>
 ```
 
 Pack first exhaustively certifies the installed bundle. Integrity-only verify
@@ -222,6 +220,10 @@ Release preparation inspects only the three bounded metadata files and
 no-follow name/type/size metadata for payload parts. It emits the reviewed
 profile, receipt copy, digest list, and release notes atomically; it performs no
 network or publication action and never opens a part.
+
+Sparse release preparation uses two local steps. Assembly exhaustively authenticates the exact immutable `snv-grch38-v1` bundle before it inherits source, reference, count, attribution, and logical-stream facts. It then hashes and exhaustively certifies the supplied sparse member. The sparse manifest records the v1 authority identity and original v1 builder separately. Its top-level builder records the current assembler version and a domain-separated fingerprint covering the sparse writer, converter, assembler, manifest code, and dependency inputs. It also records the syntactically checked candidate-producing commit. Fixed-v1 does not admit these sparse-only fields and keeps its closed schema and errors. The checked inventory includes the embedded notice, causal crate roots and manifests, shared core encoding, and the locked workspace dependency graph.
+
+Preparation verifies the complete transport, reconstructs and completely certifies the sparse bundle, then derives canonical v2 proof and profile bytes. It checks every inherited fact against the canonical checked v1 bundle manifest. The supplied tooling commit must equal the executable's compiled Git commit and that build must record a clean checkout. The separate release target may differ. The candidate commit remains a construction fact. The proof lists the three installed member sizes and every fresh-download member size, with an exact sum for each view. Both commands publish only to absent local paths. They perform no network operation and do not alter the checked v1 receipt, profile, remote sync authority, active profile, or installed production data. The retained v2 run and checked small authorities belong to the next release step.
 No Pangopup crate or binary uploads release assets. A later independently
 reviewed publication lifecycle will have the coordinator invoke an
 authenticated official `gh` executable directly. Deterministic preparation

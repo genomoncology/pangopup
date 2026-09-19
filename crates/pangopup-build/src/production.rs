@@ -395,6 +395,7 @@ fn build_staged(
             license: "CC-BY-4.0".to_owned(),
             transformed: true,
         },
+        sparse_provenance: None,
     };
     let manifest_bytes = canonical_manifest_bytes(&manifest)
         .map_err(|error| CommandError::new("BUNDLE_MANIFEST", error.to_string()))?;

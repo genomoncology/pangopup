@@ -707,7 +707,8 @@ mod tests {
     };
     use pangopup_index::{
         AmbiguousInputLocus, BundleCounts, BundleManifest, INDEX_FORMAT, InputAlternative,
-        InputLocus, OrdinaryInputLocus, bundle_id, canonical_manifest_bytes,
+        InputLocus, OrdinaryInputLocus, SparseProvenanceManifest, bundle_id,
+        canonical_manifest_bytes,
         sparse_writer::{SPARSE_INDEX_FORMAT, SparseIndexWriter},
         write_index,
     };
@@ -1013,6 +1014,14 @@ mod tests {
         )
         .expect("manifest");
         manifest.index_format = format.to_owned();
+        manifest.sparse_provenance =
+            (format == SPARSE_INDEX_FORMAT).then(|| SparseProvenanceManifest {
+                corpus_authority_bundle_id:
+                    "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                        .to_owned(),
+                corpus_authority_builder: manifest.builder.clone(),
+                candidate_commit: "2222222222222222222222222222222222222222".to_owned(),
+            });
         manifest.counts = BundleCounts {
             genes: 3,
             source_rows: 12,

@@ -30,11 +30,13 @@ pub(crate) enum Leaf {
     NamingBuild,
     NamingInspect,
     SparseCandidateBuild,
+    SparseReleaseAssemble,
+    SparseReleasePrepare,
 }
 
 impl Leaf {
     #[cfg(test)]
-    const ALL: [Self; 28] = [
+    const ALL: [Self; 30] = [
         Self::Inspect,
         Self::PrototypeRoundtrip,
         Self::PrototypeOpen,
@@ -63,6 +65,8 @@ impl Leaf {
         Self::NamingBuild,
         Self::NamingInspect,
         Self::SparseCandidateBuild,
+        Self::SparseReleaseAssemble,
+        Self::SparseReleasePrepare,
     ];
 }
 
@@ -272,6 +276,20 @@ const ENTRIES: &[Entry] = &[
         synopsis: "sparse-candidate build --fixed-bundle <CERTIFIED_BUNDLE> --expected-bundle-id <SHA256_ID> --scratch <ABSENT_FILE> --candidate <ABSENT_FILE> --report <ABSENT_JSON>",
         summary: "Build and certify one complete maintainer-only sparse SNV candidate.",
     },
+    Entry {
+        leaf: Leaf::SparseReleaseAssemble,
+        namespace: Some("sparse-release"),
+        action: "assemble",
+        synopsis: "sparse-release assemble --authority <FIXED_V1_BUNDLE> --sparse <SPARSE_PGI> --candidate-commit <40_LOWERCASE_HEX> --output <ABSENT_DIR>",
+        summary: "Assemble a certified sparse bundle from the checked fixed-v1 corpus authority.",
+    },
+    Entry {
+        leaf: Leaf::SparseReleasePrepare,
+        namespace: Some("sparse-release"),
+        action: "prepare",
+        synopsis: "sparse-release prepare --transport <DIR> --tooling-commit <40_LOWERCASE_HEX> --release-target-commit <40_LOWERCASE_HEX> --output <ABSENT_DIR>",
+        summary: "Prepare a verified sparse SNV proof, profile, checksums, and notes.",
+    },
 ];
 
 pub(crate) fn resolve(arguments: &[OsString]) -> Option<(Leaf, &[OsString])> {
@@ -422,7 +440,8 @@ mod tests {
                 "runtime-release",
                 "executable-release",
                 "naming",
-                "sparse-candidate"
+                "sparse-candidate",
+                "sparse-release"
             ]
         );
         assert!(

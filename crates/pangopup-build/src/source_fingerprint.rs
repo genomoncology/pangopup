@@ -10,8 +10,11 @@ const ALGORITHM: &[u8] = include_bytes!("source_fingerprint/algorithm.v1");
 const SNV_INVENTORY_DECLARATION: &[u8] = include_bytes!("source_fingerprint/snv-inventory.v1");
 const REFERENCE_INVENTORY_DECLARATION: &[u8] =
     include_bytes!("source_fingerprint/reference-inventory.v2");
+const SPARSE_ASSEMBLER_INVENTORY_DECLARATION: &[u8] =
+    include_bytes!("source_fingerprint/sparse-assembler-inventory.v1");
 const SNV_DOMAIN: &[u8] = b"pangopup.snv-builder-source.v1";
 const REFERENCE_DOMAIN: &[u8] = b"pangopup.reference-builder-source.v2";
+const SPARSE_ASSEMBLER_DOMAIN: &[u8] = b"pangopup.sparse-assembler-source.v1";
 
 #[derive(Clone, Copy)]
 struct Entry<'a> {
@@ -117,6 +120,69 @@ const REFERENCE_ENTRIES: &[Entry<'static>] = &[
     },
 ];
 
+const SPARSE_ASSEMBLER_ENTRIES: &[Entry<'static>] = &[
+    Entry {
+        path: "Cargo.lock",
+        bytes: include_bytes!("../../../Cargo.lock"),
+    },
+    Entry {
+        path: "NOTICE",
+        bytes: include_bytes!("../../../assets/notices/SNV-BUNDLE-NOTICE-v1"),
+    },
+    Entry {
+        path: "crates/pangopup-assets/Cargo.toml",
+        bytes: include_bytes!("../../pangopup-assets/Cargo.toml"),
+    },
+    Entry {
+        path: "crates/pangopup-assets/src/lib.rs",
+        bytes: include_bytes!("../../pangopup-assets/src/lib.rs"),
+    },
+    Entry {
+        path: "crates/pangopup-assets/src/snv.rs",
+        bytes: include_bytes!("../../pangopup-assets/src/snv.rs"),
+    },
+    Entry {
+        path: "crates/pangopup-build/Cargo.toml",
+        bytes: include_bytes!("../Cargo.toml"),
+    },
+    Entry {
+        path: "crates/pangopup-build/src/lib.rs",
+        bytes: include_bytes!("lib.rs"),
+    },
+    Entry {
+        path: "crates/pangopup-build/src/sparse_candidate.rs",
+        bytes: include_bytes!("sparse_candidate.rs"),
+    },
+    Entry {
+        path: "crates/pangopup-build/src/sparse_release.rs",
+        bytes: include_bytes!("sparse_release.rs"),
+    },
+    Entry {
+        path: "crates/pangopup-core/Cargo.toml",
+        bytes: include_bytes!("../../pangopup-core/Cargo.toml"),
+    },
+    Entry {
+        path: "crates/pangopup-core/src/lib.rs",
+        bytes: include_bytes!("../../pangopup-core/src/lib.rs"),
+    },
+    Entry {
+        path: "crates/pangopup-index/Cargo.toml",
+        bytes: include_bytes!("../../pangopup-index/Cargo.toml"),
+    },
+    Entry {
+        path: "crates/pangopup-index/src/lib.rs",
+        bytes: include_bytes!("../../pangopup-index/src/lib.rs"),
+    },
+    Entry {
+        path: "crates/pangopup-index/src/snv.rs",
+        bytes: include_bytes!("../../pangopup-index/src/snv.rs"),
+    },
+    Entry {
+        path: "crates/pangopup-index/src/sparse_writer.rs",
+        bytes: include_bytes!("../../pangopup-index/src/sparse_writer.rs"),
+    },
+];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FingerprintError {
     EmptyDomain,
@@ -189,6 +255,14 @@ pub(crate) fn reference_source_sha256() -> String {
     )
 }
 
+pub(crate) fn sparse_assembler_source_sha256() -> String {
+    compiled_fingerprint(
+        SPARSE_ASSEMBLER_DOMAIN,
+        SPARSE_ASSEMBLER_INVENTORY_DECLARATION,
+        SPARSE_ASSEMBLER_ENTRIES,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,9 +278,11 @@ mod tests {
     };
 
     const EXPECTED_SNV_SHA256: &str =
-        "3ee5791d9b2023394fac4080694d60b9b96d7e06110113b956935e430492532a";
+        "091e7f048e7a38feb4eae7c4ac56033f886ad969882077baa20d5db1fc083c93";
     const EXPECTED_REFERENCE_SHA256: &str =
-        "09cd44449b77592e4b9948cc0756e736b01ecf5220b3d5312c52b12b6b6e9c65";
+        "9d19e7cc7dda6d6b7475c80cdb60f2601b2c7ff0ce2ab9274b5d8f078cc5b8cd";
+    const EXPECTED_SPARSE_ASSEMBLER_SHA256: &str =
+        "07a6884d3d8d94c4fbe28c6a1cb2a263eed21a236b30dde2568b0a7b3c1ac623";
     static RESOLVER_SERIAL: AtomicU64 = AtomicU64::new(0);
     static MANIFEST_MODEL: OnceLock<ManifestModel> = OnceLock::new();
 
@@ -236,6 +312,23 @@ mod tests {
         "projections/reference-core-contract.v2",
         "wiring/reference-facade-wiring.v2",
         "wiring/reference-root-wiring.v2",
+    ];
+    const SPARSE_ASSEMBLER_PATHS: &[&str] = &[
+        "Cargo.lock",
+        "NOTICE",
+        "crates/pangopup-assets/Cargo.toml",
+        "crates/pangopup-assets/src/lib.rs",
+        "crates/pangopup-assets/src/snv.rs",
+        "crates/pangopup-build/Cargo.toml",
+        "crates/pangopup-build/src/lib.rs",
+        "crates/pangopup-build/src/sparse_candidate.rs",
+        "crates/pangopup-build/src/sparse_release.rs",
+        "crates/pangopup-core/Cargo.toml",
+        "crates/pangopup-core/src/lib.rs",
+        "crates/pangopup-index/Cargo.toml",
+        "crates/pangopup-index/src/lib.rs",
+        "crates/pangopup-index/src/snv.rs",
+        "crates/pangopup-index/src/sparse_writer.rs",
     ];
     const REPRESENTATIVE_EXCLUDED: &[&str] = &[
         "crates/pangopup-build/build.rs",
@@ -1376,7 +1469,7 @@ mod tests {
             let items = &parsed[&package];
             let selected_modules = required_modules.get(&package).cloned().unwrap_or_default();
             for symbol in symbols {
-                let matches: Vec<_> = items
+                let direct_modules: Vec<_> = items
                     .iter()
                     .filter_map(|item| match item {
                         RootItem::Module {
@@ -1384,6 +1477,12 @@ mod tests {
                             public,
                             normalized,
                         } if *public && name == &symbol => Some(normalized),
+                        _ => None,
+                    })
+                    .collect();
+                let reexports: Vec<_> = items
+                    .iter()
+                    .filter_map(|item| match item {
                         RootItem::Reexport {
                             source,
                             exports,
@@ -1398,6 +1497,11 @@ mod tests {
                         _ => None,
                     })
                     .collect();
+                let matches = if direct_modules.is_empty() {
+                    reexports
+                } else {
+                    direct_modules
+                };
                 if matches.len() != 1 {
                     return Err(format!(
                         "{package} must expose {symbol} through one root wiring item"
@@ -1791,15 +1895,25 @@ mod tests {
     fn source_fingerprint_compiled_inventories_are_canonical_complete_and_distinct() {
         let snv_paths: Vec<_> = SNV_ENTRIES.iter().map(|entry| entry.path).collect();
         let reference_paths: Vec<_> = REFERENCE_ENTRIES.iter().map(|entry| entry.path).collect();
+        let sparse_paths: Vec<_> = SPARSE_ASSEMBLER_ENTRIES
+            .iter()
+            .map(|entry| entry.path)
+            .collect();
         assert_eq!(snv_paths, SNV_PATHS);
         assert_eq!(reference_paths, REFERENCE_PATHS);
+        assert_eq!(sparse_paths, SPARSE_ASSEMBLER_PATHS);
         assert_eq!(declaration_paths(SNV_INVENTORY_DECLARATION), SNV_PATHS);
         assert_eq!(
             declaration_paths(REFERENCE_INVENTORY_DECLARATION),
             REFERENCE_PATHS
         );
+        assert_eq!(
+            declaration_paths(SPARSE_ASSEMBLER_INVENTORY_DECLARATION),
+            SPARSE_ASSEMBLER_PATHS
+        );
         assert!(snv_paths.windows(2).all(|pair| pair[0] < pair[1]));
         assert!(reference_paths.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(sparse_paths.windows(2).all(|pair| pair[0] < pair[1]));
         assert_eq!(
             snv_source_sha256(),
             EXPECTED_SNV_SHA256,
@@ -1832,7 +1946,40 @@ mod tests {
             EXPECTED_REFERENCE_SHA256,
             "independent reference oracle"
         );
+        assert_eq!(
+            sparse_assembler_source_sha256(),
+            EXPECTED_SPARSE_ASSEMBLER_SHA256,
+            "hard sparse assembler source fingerprint"
+        );
+        assert_eq!(
+            oracle_digest(
+                ALGORITHM,
+                SPARSE_ASSEMBLER_DOMAIN,
+                SPARSE_ASSEMBLER_INVENTORY_DECLARATION,
+                SPARSE_ASSEMBLER_ENTRIES
+            )
+            .expect("sparse assembler oracle"),
+            EXPECTED_SPARSE_ASSEMBLER_SHA256,
+            "independent sparse assembler oracle"
+        );
         assert_ne!(snv_source_sha256(), reference_source_sha256());
+        assert_ne!(snv_source_sha256(), sparse_assembler_source_sha256());
+        assert_ne!(reference_source_sha256(), sparse_assembler_source_sha256());
+
+        for path in SPARSE_ASSEMBLER_PATHS {
+            let mut candidate = owned(SPARSE_ASSEMBLER_ENTRIES);
+            mutate(&mut candidate, path);
+            assert_ne!(
+                digest(
+                    ALGORITHM,
+                    SPARSE_ASSEMBLER_DOMAIN,
+                    SPARSE_ASSEMBLER_INVENTORY_DECLARATION,
+                    &candidate
+                ),
+                sparse_assembler_source_sha256(),
+                "{path}"
+            );
+        }
 
         let declared: BTreeSet<_> = snv_paths
             .iter()

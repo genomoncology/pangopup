@@ -133,6 +133,50 @@ pub struct BundleManifest {
     pub logical_decoded: LogicalManifest,
     pub members: Vec<MemberManifest>,
     pub attribution: AttributionManifest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sparse_provenance: Option<SparseProvenanceManifest>,
+}
+
+/// Provenance carried only by assembled sparse-direct bundles.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SparseProvenanceManifest {
+    pub corpus_authority_bundle_id: String,
+    pub corpus_authority_builder: BuilderManifest,
+    pub candidate_commit: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FixedBundleManifest {
+    schema: String,
+    index_format: String,
+    builder: BuilderManifest,
+    source: SourceManifest,
+    reference: ReferenceManifest,
+    counts: BundleCounts,
+    logical_source: LogicalManifest,
+    logical_decoded: LogicalManifest,
+    members: Vec<MemberManifest>,
+    attribution: AttributionManifest,
+}
+
+impl From<FixedBundleManifest> for BundleManifest {
+    fn from(value: FixedBundleManifest) -> Self {
+        Self {
+            schema: value.schema,
+            index_format: value.index_format,
+            builder: value.builder,
+            source: value.source,
+            reference: value.reference,
+            counts: value.counts,
+            logical_source: value.logical_source,
+            logical_decoded: value.logical_decoded,
+            members: value.members,
+            attribution: value.attribution,
+            sparse_provenance: None,
+        }
+    }
 }
 
 /// The version fields that select the strict manifest decoder.
@@ -299,6 +343,11 @@ impl From<io::Error> for IndexError {
 }
 
 pub fn canonical_manifest_bytes(manifest: &BundleManifest) -> Result<Vec<u8>, IndexError> {
+    if (manifest.index_format == INDEX_FORMAT && manifest.sparse_provenance.is_some())
+        || (manifest.index_format == SPARSE_INDEX_FORMAT && manifest.sparse_provenance.is_none())
+    {
+        return Err(IndexError::Corrupt("manifest format provenance"));
+    }
     serde_jcs::to_vec(manifest).map_err(|_| IndexError::Corrupt("manifest serialization"))
 }
 
@@ -328,8 +377,13 @@ pub fn parse_bundle_manifest_bytes(bytes: &[u8]) -> Result<BundleManifest, Index
     ) {
         return Err(IndexError::Incompatible("index format version"));
     }
-    let manifest: BundleManifest =
-        serde_json::from_slice(bytes).map_err(|_| IndexError::Corrupt("manifest JSON"))?;
+    let manifest: BundleManifest = if discriminator.index_format == INDEX_FORMAT {
+        serde_json::from_slice::<FixedBundleManifest>(bytes)
+            .map(BundleManifest::from)
+            .map_err(|_| IndexError::Corrupt("manifest JSON"))?
+    } else {
+        serde_json::from_slice(bytes).map_err(|_| IndexError::Corrupt("manifest JSON"))?
+    };
     if canonical_manifest_bytes(&manifest)? != bytes {
         return Err(IndexError::Corrupt("manifest is not canonical"));
     }
@@ -658,6 +712,19 @@ fn validate_manifest(manifest: &BundleManifest) -> Result<(), IndexError> {
         SPARSE_INDEX_FORMAT => SPARSE_INDEX_MEDIA_TYPE,
         _ => return Err(IndexError::Incompatible("index format version")),
     };
+    match (&*manifest.index_format, &manifest.sparse_provenance) {
+        (INDEX_FORMAT, None) => {}
+        (SPARSE_INDEX_FORMAT, Some(provenance))
+            if valid_prefixed_hex(&provenance.corpus_authority_bundle_id, "sha256:", 64)
+                && !provenance.corpus_authority_builder.version.is_empty()
+                && valid_prefixed_hex(
+                    &provenance.corpus_authority_builder.source_sha256,
+                    "sha256:",
+                    64,
+                )
+                && valid_lower_commit(&provenance.candidate_commit) => {}
+        _ => return Err(IndexError::Corrupt("manifest format provenance")),
+    }
     if manifest.members.len() != 2
         || manifest.members[0].path != "NOTICE"
         || manifest.members[0].media_type != "text/plain; charset=utf-8"
@@ -751,6 +818,13 @@ fn validate_manifest(manifest: &BundleManifest) -> Result<(), IndexError> {
         return Err(IndexError::Corrupt("manifest digest"));
     }
     Ok(())
+}
+
+fn valid_lower_commit(value: &str) -> bool {
+    value.len() == 40
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn valid_prefixed_hex(value: &str, prefix: &str, digits: usize) -> bool {

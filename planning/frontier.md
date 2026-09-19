@@ -86,6 +86,11 @@ unmeasured. Qualification still requires semantic command and service parity,
 an installed identity, packaging, and rollback evidence. The active profile
 moves only after every gate passes.
 Fixed-v1 remains the shipped, readable rollback format.
+Sparse release tooling now authenticates the complete immutable v1 corpus
+authority, records distinct candidate and assembler provenance, and produces
+deterministic miniature bundle, transport, proof, and profile bytes. The
+retained candidate has not passed that release run yet, and no v2 authority is
+active or published.
 The checked repository side now has a read-only workflow token, full-SHA action
 references, digest-authenticated maintenance tools, and an advisory, license,
 bans, and source policy in `make lint`. The policy preserves the

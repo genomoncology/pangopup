@@ -378,10 +378,18 @@ fn pack_bundle_portable(bundle: &Path, output: &Path) -> Result<PackOutcome, Ass
             "reread NOTICE does not match the certified manifest",
         ));
     }
-    if scores_member.size > MAX_FIXED11_BYTES {
-        return Err(bundle_error(
-            "fixed-v1 score member exceeds the transport ceiling",
-        ));
+    let score_limit = match inner.index_format.as_str() {
+        pangopup_index::INDEX_FORMAT => MAX_FIXED11_BYTES,
+        pangopup_index::sparse_writer::SPARSE_INDEX_FORMAT => MAX_SPARSE_DIRECT_BYTES,
+        _ => return Err(bundle_error("unsupported bundle format for transport")),
+    };
+    if scores_member.size > score_limit {
+        let message = if inner.index_format == pangopup_index::INDEX_FORMAT {
+            "fixed-v1 score member exceeds the transport ceiling"
+        } else {
+            "sparse-direct-v1 score member exceeds the transport ceiling"
+        };
+        return Err(bundle_error(message));
     }
     let scores_path = bundle.join("scores.pgi");
     let (mut input, input_metadata) = open_regular(
@@ -733,6 +741,11 @@ fn validate_bundle_metadata(
         .map_err(|error| bundle_error(error.to_string()))?;
     let notice_member = inner_member(&inner, "NOTICE")?;
     let scores_member = inner_member(&inner, "scores.pgi")?;
+    let score_limit = match inner.index_format.as_str() {
+        pangopup_index::INDEX_FORMAT => MAX_FIXED11_BYTES,
+        pangopup_index::sparse_writer::SPARSE_INDEX_FORMAT => MAX_SPARSE_DIRECT_BYTES,
+        _ => return Err(bundle_error("unsupported bundle format for transport")),
+    };
     if sha256(notice) != outer.bundle.notice.sha256
         || outer.bundle.notice.size != notice.len() as u64
     {
@@ -749,6 +762,11 @@ fn validate_bundle_metadata(
     {
         return Err(bundle_error(
             "inner bundle members or exact CC BY notice do not match transport",
+        ));
+    }
+    if scores_member.size > score_limit {
+        return Err(bundle_error(
+            "bundle score member exceeds its format ceiling",
         ));
     }
     Ok(())

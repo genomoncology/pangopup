@@ -3,7 +3,8 @@ use pangopup_assets::{
     unpack_runtime_transport, unpack_transport, verify_runtime_transport, verify_transport,
 };
 use pangopup_build::{
-    CommandError, SparseCandidateArguments, build_bundle, build_sparse_candidate,
+    CommandError, SparseBundleArguments, SparseCandidateArguments, assemble_sparse_bundle,
+    build_bundle, build_sparse_candidate,
     compatibility::{CaptureArguments, capture_corpus, inspect_corpus},
     executable_release::prepare_executable_release,
     inspect_directory,
@@ -12,7 +13,7 @@ use pangopup_build::{
         inspect_model_bundle, qualify_model_bundle,
     },
     naming::{build_gene_name_index, inspect_gene_name_index, provenance_document},
-    prepare_benchmark_corpus, prototype_open, prototype_roundtrip,
+    prepare_benchmark_corpus, prepare_sparse_release, prototype_open, prototype_roundtrip,
     reference::{build_reference_bundle, inspect_reference_bundle, reference_window},
     runtime_profile::prepare_runtime_profile,
     verify_bundle,
@@ -49,6 +50,7 @@ fn main() -> ExitCode {
         Some("executable-release") => json_usage("executable-release requires prepare"),
         Some("naming") => json_usage("naming requires build or inspect"),
         Some("sparse-candidate") => json_usage("sparse-candidate requires build"),
+        Some("sparse-release") => json_usage("sparse-release requires assemble or prepare"),
         Some(_) => unreachable!("closed namespace catalog"),
         None => json_failure(&CommandError::new("CLI_USAGE", LEGACY_USAGE)),
     }
@@ -141,6 +143,62 @@ fn dispatch(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
         Leaf::NamingBuild => naming_build_command(arguments),
         Leaf::NamingInspect => naming_inspect_command(arguments),
         Leaf::SparseCandidateBuild => sparse_candidate_build_command(arguments),
+        Leaf::SparseReleaseAssemble => sparse_release_assemble_command(arguments),
+        Leaf::SparseReleasePrepare => sparse_release_prepare_command(arguments),
+    }
+}
+
+fn sparse_release_prepare_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let Ok(values) = parse_exact_flags(
+        arguments,
+        &[
+            "--transport",
+            "--tooling-commit",
+            "--release-target-commit",
+            "--output",
+        ],
+    ) else {
+        return json_usage(
+            "sparse-release prepare requires --transport, --tooling-commit, --release-target-commit, and --output exactly once",
+        );
+    };
+    let Some(tooling_commit) = values[1].to_str() else {
+        return json_usage("--tooling-commit must be UTF-8");
+    };
+    let Some(release_target_commit) = values[2].to_str() else {
+        return json_usage("--release-target-commit must be UTF-8");
+    };
+    match prepare_sparse_release(
+        Path::new(values[0]),
+        tooling_commit,
+        release_target_commit,
+        Path::new(values[3]),
+    ) {
+        Ok(outcome) => json_success(&outcome),
+        Err(error) => json_failure(&error),
+    }
+}
+
+fn sparse_release_assemble_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let Ok(values) = parse_exact_flags(
+        arguments,
+        &["--authority", "--sparse", "--candidate-commit", "--output"],
+    ) else {
+        return json_usage(
+            "sparse-release assemble requires --authority, --sparse, --candidate-commit, and --output exactly once",
+        );
+    };
+    let Some(candidate_commit) = values[2].to_str() else {
+        return json_usage("--candidate-commit must be UTF-8");
+    };
+    match assemble_sparse_bundle(&SparseBundleArguments {
+        authority_bundle: Path::new(values[0]).to_owned(),
+        sparse_member: Path::new(values[1]).to_owned(),
+        candidate_commit: candidate_commit.to_owned(),
+        output: Path::new(values[3]).to_owned(),
+    }) {
+        Ok(outcome) => json_success(&outcome),
+        Err(error) => json_failure(&error),
     }
 }
 
