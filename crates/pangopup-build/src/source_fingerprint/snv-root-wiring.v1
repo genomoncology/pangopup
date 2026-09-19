@@ -1,5 +1,6 @@
 crates/pangopup-assets/src/lib.rs	mod error ;
 crates/pangopup-assets/src/lib.rs	mod input_audit ;
+crates/pangopup-assets/src/lib.rs	mod runtime_profile ;
 crates/pangopup-assets/src/lib.rs	mod snv ;
 crates/pangopup-assets/src/lib.rs	pub use snv :: { BundleCertification , CertifiedBundle , CertifiedBundleSummary , MAX_FIXED11_BYTES , MAX_SPARSE_DIRECT_BYTES , NOTICE , NOTICE_SHA256 , certify_bundle , certify_bundle_members , certify_bundle_members_with_gene_limits , } ;
 crates/pangopup-build/src/lib.rs	mod command_error ;

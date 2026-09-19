@@ -192,6 +192,59 @@ pub fn production_runtime_profile() -> RuntimeProfile {
     }
 }
 
+/// Exhaustively certify one sparse bundle and compose its canonical inactive
+/// runtime profile against the exact checked v2 authority.
+#[doc(hidden)]
+pub fn qualified_sparse_runtime_profile(
+    path: &Path,
+) -> Result<RuntimeProfile, RuntimeProfileError> {
+    let qualified =
+        crate::release::qualified_v2_profile().map_err(|_| RuntimeProfileError::InvalidFacts)?;
+    qualified_sparse_runtime_profile_against(path, &qualified.snv)
+}
+
+#[cfg(test)]
+pub(super) fn qualified_sparse_runtime_profile_with_authority(
+    path: &Path,
+    authority: &SnvProfile,
+) -> Result<RuntimeProfile, RuntimeProfileError> {
+    qualified_sparse_runtime_profile_against(path, authority)
+}
+
+fn qualified_sparse_runtime_profile_against(
+    path: &Path,
+    authority: &SnvProfile,
+) -> Result<RuntimeProfile, RuntimeProfileError> {
+    let certified =
+        crate::snv::certify_bundle_details(path).map_err(|error| match error.kind() {
+            crate::AssetErrorKind::InputIo => RuntimeProfileError::InputIo,
+            crate::AssetErrorKind::BundleIncompatible => RuntimeProfileError::Incompatible,
+            _ => RuntimeProfileError::InvalidFacts,
+        })?;
+    if certified.index_format() != pangopup_index::sparse_writer::SPARSE_INDEX_FORMAT {
+        return Err(RuntimeProfileError::Incompatible);
+    }
+    let snv = SnvBundleInspection {
+        bundle_id: certified.certification().bundle_id.clone(),
+        format: certified.index_format().to_owned(),
+        member_bytes: certified.member_size(),
+        member_sha256: certified.member_sha256().to_owned(),
+    };
+    if !snv_profile_matches(&snv, authority) {
+        return Err(RuntimeProfileError::Incompatible);
+    }
+    let mut profile = production_runtime_profile();
+    profile.snv = authority.clone();
+    Ok(profile)
+}
+
+fn snv_profile_matches(inspection: &SnvBundleInspection, profile: &SnvProfile) -> bool {
+    inspection.bundle_id == profile.bundle_id
+        && inspection.format == profile.format
+        && inspection.member_bytes == profile.member_bytes
+        && inspection.member_sha256 == profile.member_sha256
+}
+
 pub fn canonical_runtime_profile_bytes(
     profile: &RuntimeProfile,
 ) -> Result<Vec<u8>, RuntimeProfileError> {
@@ -536,8 +589,10 @@ impl<'de> Visitor<'de> for NoDuplicateVisitor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ActiveScoringIdentityPreimage, ScoringDataSetVersionPreimage};
+    use pangopup_model::{CpuExecutionMode, CpuPolicy, IntraOpThreads};
     use serde_json::Value;
-    use std::fs;
+    use std::{fs, num::NonZeroUsize};
     use tempfile::tempdir;
 
     fn fixture_bundle() -> &'static Path {
@@ -557,6 +612,56 @@ mod tests {
         );
         assert!(!first.ends_with(b"\n"));
         profile.require_trusted_production().expect("trusted tuple");
+    }
+
+    #[test]
+    fn qualified_sparse_descriptor_changes_only_snv_and_derived_identities() {
+        let fixed = production_runtime_profile();
+        let qualified = crate::release::qualified_v2_profile().expect("qualified authority");
+        let mut expected = fixed.clone();
+        expected.snv = qualified.snv;
+        let sparse = expected;
+        assert_eq!(sparse.model, fixed.model);
+        assert_eq!(sparse.reference, fixed.reference);
+        assert_eq!(sparse.mask, fixed.mask);
+        assert_eq!(sparse.scoring, fixed.scoring);
+        assert_eq!(
+            sparse.require_trusted_production(),
+            Err(RuntimeProfileError::Incompatible)
+        );
+
+        let fixed_bytes = canonical_runtime_profile_bytes(&fixed).expect("fixed bytes");
+        let sparse_bytes = canonical_runtime_profile_bytes(&sparse).expect("sparse bytes");
+        let fixed_id = runtime_profile_id(&fixed_bytes).expect("fixed identity");
+        let sparse_id = runtime_profile_id(&sparse_bytes).expect("sparse identity");
+        assert_ne!(fixed_id, sparse_id);
+        assert_eq!(
+            sparse_id.as_str(),
+            "sha256:ce91b332d04a776f12a4603e60cf40894dc002360c13b3541e03d3b748cd3983"
+        );
+
+        let policy = CpuPolicy::new(
+            CpuExecutionMode::Sequential,
+            IntraOpThreads::Fixed(NonZeroUsize::MIN),
+            NonZeroUsize::MIN,
+        )
+        .expect("fixed policy");
+        let fixed_scoring =
+            ActiveScoringIdentityPreimage::new("0.5.0", &fixed_id, policy).identity();
+        let sparse_scoring =
+            ActiveScoringIdentityPreimage::new("0.5.0", &sparse_id, policy).identity();
+        let fixed_data = ScoringDataSetVersionPreimage::new("0.5.0", &fixed_id).version();
+        let sparse_data = ScoringDataSetVersionPreimage::new("0.5.0", &sparse_id).version();
+        assert_ne!(fixed_scoring, sparse_scoring);
+        assert_ne!(fixed_data, sparse_data);
+        assert_eq!(
+            sparse_scoring.as_str(),
+            "sha256:0dd20757842838d969c3819b21b63c33fd1e93074db0460cdb13e199d80d655e"
+        );
+        assert_eq!(
+            sparse_data.as_str(),
+            "sha256:5ffac268858dbae7d6cc4ee6ecf05e0677dcfafda3fcc0aee1ec3970bfe0c82d"
+        );
     }
 
     #[test]

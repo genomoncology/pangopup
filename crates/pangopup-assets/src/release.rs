@@ -1,9 +1,13 @@
 //! Strict bounded metadata used to prepare the public SNV data release.
 
 use super::{
-    AssetError, AssetErrorKind, MAX_SAFE_JSON_U64, TransportInspection, create_stage,
+    AssetError, AssetErrorKind, MAX_SAFE_JSON_U64, SnvProfile, TransportInspection, create_stage,
     ensure_output_absent, finish_staged, inspect_transport, open_regular, publish_stage,
     reject_duplicate_json, sha256, sync_directory, write_synced,
+};
+use pangopup_index::{
+    BundleCounts, LogicalManifest, ReferenceManifest, SourceManifest, bundle_id,
+    parse_bundle_manifest_bytes,
 };
 use serde::{Deserialize, Serialize};
 use std::{io::Read, path::Path};
@@ -18,6 +22,43 @@ const PRODUCTION_RECEIPT_SHA256: &str =
     "sha256:9ddae771d200fe73bda5f31f5a04a52227b77c5d3f225dc7ee52294cd9aea475";
 const PRODUCTION_PROFILE_SHA256: &str =
     "sha256:63f3842ea6cb40ebc0a2b6ca23fba4f35d53f829d96c33f597a2c5bcac238ca6";
+const QUALIFIED_V2_PROOF: &[u8] =
+    include_bytes!("../../../release-profiles/proofs/snv-grch38-v2.json");
+const QUALIFIED_V2_PROFILE: &[u8] = include_bytes!("../../../release-profiles/snv-grch38-v2.json");
+const V1_AUTHORITY_MANIFEST: &[u8] =
+    include_bytes!("../../../release-profiles/proofs/snv-grch38-v1-bundle-manifest.json");
+const QUALIFIED_V2_PROOF_SHA256: &str =
+    "sha256:9c5f945af8b52d21d44331325d908cf66dfbc6430d301d43d4dfa3a23e1c727c";
+const QUALIFIED_V2_PROFILE_SHA256: &str =
+    "sha256:37ae3f859e23cdf73b6cc4a5f49f3f8fdeff11b955571c827aabb273e89dd1b0";
+const V1_AUTHORITY_BUNDLE_ID: &str =
+    "sha256:c4c4162b34a73ecd8c44d379f9e4fbc4e5e07869af1967a6695b8d439d2819b3";
+const V2_BUNDLE_ID: &str =
+    "sha256:17085bb737bd3a9e54df9cb60d643c8ad8b8b6cb2c5bf0dbe4fc4c1e95c2b4f7";
+const V2_SCORE_SHA256: &str =
+    "sha256:354343dc1a9f6558e46693e2481b5181461be2115cd92e029ffd4d4abef4a01e";
+const V2_TRANSPORT_ID: &str =
+    "sha256:e2a9090a71c4fb68dfcf496e5389db2b29b767a5b95d8fa50acdf2b75458be0e";
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct QualifiedSparseRelease {
+    pub(crate) snv: SnvProfile,
+}
+
+/// Return the descriptor from the one reviewed sparse authority. This is not
+/// the ordinary production selector and does not admit or activate a runtime.
+pub(crate) fn qualified_v2_profile() -> Result<QualifiedSparseRelease, AssetError> {
+    let (proof, _) =
+        validate_qualified_v2_contract_bytes(QUALIFIED_V2_PROOF, QUALIFIED_V2_PROFILE)?;
+    Ok(QualifiedSparseRelease {
+        snv: SnvProfile {
+            bundle_id: proof.bundle.bundle_id,
+            format: proof.bundle.index_format,
+            member_bytes: proof.bundle.members[1].size,
+            member_sha256: proof.bundle.members[1].sha256.clone(),
+        },
+    })
+}
 
 pub(crate) fn production_profile()
 -> Result<(&'static [u8], &'static str, ReleaseProfile), AssetError> {
@@ -203,6 +244,110 @@ pub struct ProfileProof {
     pub asset_name: String,
     pub size: u64,
     pub sha256: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SparseProofReceipt {
+    schema: String,
+    authority: SparseAuthority,
+    source: SourceManifest,
+    reference: ReferenceManifest,
+    counts: BundleCounts,
+    logical_source: LogicalManifest,
+    logical_decoded: LogicalManifest,
+    bundle: SparseProofBundle,
+    transport: SparseProofTransport,
+    tool: SparseProofTool,
+    sizing: SparseProofSizing,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SparseAuthority {
+    bundle_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SparseProofBundle {
+    schema: String,
+    index_format: String,
+    bundle_id: String,
+    builder_version: String,
+    assembler_source_sha256: String,
+    candidate_commit: String,
+    manifest: ProofIdentity,
+    members: Vec<ProofMember>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SparseProofTransport {
+    schema: String,
+    transport_id: String,
+    manifest: ProofIdentity,
+    compressed: ProofIdentity,
+    compression: SparseCompression,
+    parts: Vec<ProofPart>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SparseCompression {
+    format: String,
+    level: i32,
+    checksum: bool,
+    content_size: bool,
+    dictionary: bool,
+    workers: u32,
+    encoder_crate: String,
+    libzstd_version: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SparseProofTool {
+    implementation_commit: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SparseProofSizing {
+    snv_installed_members: Vec<SparseSizedMember>,
+    snv_installed_bytes: u64,
+    fresh_install_members: Vec<SparseSizedMember>,
+    fresh_install_bytes: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SparseSizedMember {
+    path: String,
+    size: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SparseReleaseProfile {
+    schema: String,
+    profile: String,
+    repository: String,
+    release: ProfileRelease,
+    authority: SparseAuthority,
+    source: SourceManifest,
+    reference: ReferenceManifest,
+    bundle: SparseProfileBundle,
+    transport: ProfileTransport,
+    proof: ProfileProof,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SparseProfileBundle {
+    schema: String,
+    index_format: String,
+    bundle_id: String,
 }
 
 /// Injectable release contract used only by bounded miniature tests.
@@ -402,6 +547,329 @@ fn validate_profile(profile: &ReleaseProfile) -> Result<(), AssetError> {
         ));
     }
     Ok(())
+}
+
+fn parse_sparse_proof(bytes: &[u8]) -> Result<SparseProofReceipt, AssetError> {
+    parse_sparse_canonical(bytes, "sparse proof receipt", QUALIFIED_V2_PROOF.len())
+}
+
+fn parse_sparse_profile(bytes: &[u8]) -> Result<SparseReleaseProfile, AssetError> {
+    parse_sparse_canonical(bytes, "sparse release profile", QUALIFIED_V2_PROFILE.len())
+}
+
+fn parse_sparse_canonical<T>(bytes: &[u8], label: &str, limit: usize) -> Result<T, AssetError>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    if bytes.len() > limit {
+        return Err(release_error(format!("{label} exceeds its size bound")));
+    }
+    reject_duplicate_json(bytes)
+        .map_err(|_| release_error(format!("{label} contains invalid or duplicate JSON")))?;
+    let value: serde_json::Value = serde_json::from_slice(bytes)
+        .map_err(|_| release_error(format!("{label} is not valid JSON")))?;
+    let canonical = serde_jcs::to_vec(&value)
+        .map_err(|_| release_error(format!("cannot canonicalize {label}")))?;
+    if canonical != bytes {
+        return Err(release_error(format!(
+            "{label} is not canonical RFC 8785 JSON"
+        )));
+    }
+    serde_json::from_value(value)
+        .map_err(|_| release_error(format!("{label} is not closed v2 JSON")))
+}
+
+fn validate_qualified_v2_contract_bytes(
+    proof_bytes: &[u8],
+    profile_bytes: &[u8],
+) -> Result<(SparseProofReceipt, SparseReleaseProfile), AssetError> {
+    if proof_bytes.len() != 5_405
+        || sha256(proof_bytes) != QUALIFIED_V2_PROOF_SHA256
+        || profile_bytes.len() != 4_755
+        || sha256(profile_bytes) != QUALIFIED_V2_PROFILE_SHA256
+    {
+        return Err(release_error(
+            "qualified sparse release contract identity mismatch",
+        ));
+    }
+    let proof = parse_sparse_proof(proof_bytes)?;
+    let profile = parse_sparse_profile(profile_bytes)?;
+    validate_sparse_proof(&proof)?;
+    validate_sparse_profile(&profile, &proof)?;
+    Ok((proof, profile))
+}
+
+fn validate_sparse_proof(proof: &SparseProofReceipt) -> Result<(), AssetError> {
+    let authority = parse_bundle_manifest_bytes(V1_AUTHORITY_MANIFEST)
+        .map_err(|_| release_error("checked v1 authority manifest is invalid"))?;
+    if bundle_id(V1_AUTHORITY_MANIFEST) != V1_AUTHORITY_BUNDLE_ID
+        || authority.index_format != "pangopup.fixed11.v1"
+    {
+        return Err(release_error("checked v1 authority identity mismatch"));
+    }
+    if proof.schema != "pangopup.sparse-proof-receipt.v1"
+        || proof.authority.bundle_id != V1_AUTHORITY_BUNDLE_ID
+        || proof.source != authority.source
+        || proof.reference != authority.reference
+        || proof.counts != authority.counts
+        || proof.logical_source != authority.logical_source
+        || proof.logical_decoded != authority.logical_decoded
+        || proof.logical_source != proof.logical_decoded
+    {
+        return Err(release_error(
+            "qualified sparse proof differs from the v1 corpus authority",
+        ));
+    }
+
+    let expected_parts = [
+        (
+            0,
+            "payload.pgi.zst.part0000",
+            1_000_000_000,
+            "sha256:454a989476759852687a2aba513703e14cc9b3717c4d75cffe82df293ede33bb",
+        ),
+        (
+            1,
+            "payload.pgi.zst.part0001",
+            310_940_560,
+            "sha256:888d1a13d73aa5841c222cd1e4f1433202e8a729a106e1a005eeb63cd7cb8ac2",
+        ),
+    ];
+    let parts_match = proof.transport.parts.len() == expected_parts.len()
+        && proof.transport.parts.iter().zip(expected_parts).all(
+            |(part, (ordinal, path, size, digest))| {
+                part.ordinal == ordinal
+                    && part.path == path
+                    && part.size == size
+                    && part.sha256 == digest
+            },
+        );
+    let part_size_sum = proof
+        .transport
+        .parts
+        .iter()
+        .try_fold(0_u64, |total, part| total.checked_add(part.size))
+        .ok_or_else(|| release_error("qualified sparse transport size overflow"))?;
+    if proof.bundle.schema != "pangopup.bundle.v1"
+        || proof.bundle.index_format != "pangopup.sparse-direct.v1"
+        || proof.bundle.bundle_id != V2_BUNDLE_ID
+        || proof.bundle.builder_version != "0.5.0"
+        || proof.bundle.assembler_source_sha256
+            != "sha256:07a6884d3d8d94c4fbe28c6a1cb2a263eed21a236b30dde2568b0a7b3c1ac623"
+        || proof.bundle.candidate_commit != "1b1d95d6b5d32112a7c57faeb3af50d88ed93f08"
+        || proof.bundle.manifest.size != 3_924
+        || proof.bundle.manifest.sha256 != V2_BUNDLE_ID
+        || proof.bundle.members.len() != 2
+        || proof.bundle.members[0].path != "NOTICE"
+        || proof.bundle.members[0].size != 1_709
+        || proof.bundle.members[0].sha256
+            != "sha256:9b8e898daa53b28cf421f9a59676e920dc5cefb1c23b9d185f75d3cfd4281af7"
+        || proof.bundle.members[1].path != "scores.pgi"
+        || proof.bundle.members[1].size != 2_035_371_437
+        || proof.bundle.members[1].sha256 != V2_SCORE_SHA256
+    {
+        return Err(release_error("qualified sparse bundle values mismatch"));
+    }
+    if proof.transport.schema != "pangopup.snv-transport.v1"
+        || proof.transport.transport_id != V2_TRANSPORT_ID
+        || proof.transport.manifest.size != 1_265
+        || proof.transport.manifest.sha256
+            != "sha256:23de0b99c2a9e3cae1d4044f385687c6cb5ecdce9112075495ea8700cac2ccdf"
+        || proof.transport.compressed.size != 1_310_940_560
+        || proof.transport.compressed.sha256
+            != "sha256:220a1049663b1b732852d712471e49640a135b84b167bf9bafb29809d2616bd2"
+        || proof.transport.compressed.size != part_size_sum
+        || proof.transport.compression.format != "zstd.frame.v1"
+        || proof.transport.compression.level != 9
+        || !proof.transport.compression.checksum
+        || !proof.transport.compression.content_size
+        || proof.transport.compression.dictionary
+        || proof.transport.compression.workers != 0
+        || proof.transport.compression.encoder_crate != "zstd/0.13.3"
+        || proof.transport.compression.libzstd_version != "1.5.7"
+        || !parts_match
+    {
+        return Err(release_error("qualified sparse transport values mismatch"));
+    }
+    if proof.tool.implementation_commit != "8eb8917ff9f788c28b29287ed3a06b6b4762c554" {
+        return Err(release_error("qualified sparse tooling values mismatch"));
+    }
+
+    let installed = [
+        ("manifest.json", 3_924),
+        ("NOTICE", 1_709),
+        ("scores.pgi", 2_035_371_437),
+    ];
+    let fresh = [
+        ("installed/manifest.json", 3_924),
+        ("installed/NOTICE", 1_709),
+        ("installed/scores.pgi", 2_035_371_437),
+        ("transport/transport.json", 1_265),
+        ("transport/bundle-manifest.json", 3_924),
+        ("transport/NOTICE", 1_709),
+        ("transport/payload.pgi.zst.part0000", 1_000_000_000),
+        ("transport/payload.pgi.zst.part0001", 310_940_560),
+    ];
+    if !sized_members_match(&proof.sizing.snv_installed_members, &installed)
+        || proof.sizing.snv_installed_bytes != checked_size_sum(&installed)?
+        || !sized_members_match(&proof.sizing.fresh_install_members, &fresh)
+        || proof.sizing.fresh_install_bytes != checked_size_sum(&fresh)?
+        || proof.sizing.snv_installed_bytes != 2_035_377_070
+        || proof.sizing.fresh_install_bytes != 3_346_324_528
+        || sparse_proof_has_unsafe_integer(proof)
+        || !valid_identity(&proof.bundle.assembler_source_sha256)
+        || !valid_commit(&proof.bundle.candidate_commit)
+        || !valid_commit(&proof.tool.implementation_commit)
+    {
+        return Err(release_error(
+            "qualified sparse proof sizing or provenance mismatch",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_sparse_profile(
+    profile: &SparseReleaseProfile,
+    proof: &SparseProofReceipt,
+) -> Result<(), AssetError> {
+    if profile.schema != "pangopup.release-profile.v2"
+        || profile.profile != "snv-grch38-v2"
+        || profile.repository != "genomoncology/pangopup"
+        || profile.release.tag != profile.profile
+        || profile.release.title != "Pangopup GRCh38 sparse SNV scores v2"
+        || profile.release.target_commit != proof.tool.implementation_commit
+        || profile.release.page_url
+            != "https://github.com/genomoncology/pangopup/releases/tag/snv-grch38-v2"
+        || profile.authority != proof.authority
+        || profile.source != proof.source
+        || profile.reference != proof.reference
+        || profile.bundle.schema != proof.bundle.schema
+        || profile.bundle.index_format != proof.bundle.index_format
+        || profile.bundle.bundle_id != proof.bundle.bundle_id
+        || profile.transport.schema != proof.transport.schema
+        || profile.transport.transport_id != proof.transport.transport_id
+        || profile.proof.schema != proof.schema
+        || profile.proof.asset_name != "proof-receipt.json"
+        || profile.proof.size != QUALIFIED_V2_PROOF.len() as u64
+        || profile.proof.sha256 != QUALIFIED_V2_PROOF_SHA256
+        || !valid_commit(&profile.release.target_commit)
+    {
+        return Err(release_error(
+            "qualified sparse profile cross-link mismatch",
+        ));
+    }
+    let expected = [
+        (
+            "transport.json",
+            proof.transport.manifest.size,
+            proof.transport.manifest.sha256.as_str(),
+        ),
+        (
+            "bundle-manifest.json",
+            proof.bundle.manifest.size,
+            proof.bundle.manifest.sha256.as_str(),
+        ),
+        (
+            "NOTICE",
+            proof.bundle.members[0].size,
+            proof.bundle.members[0].sha256.as_str(),
+        ),
+        (
+            proof.transport.parts[0].path.as_str(),
+            proof.transport.parts[0].size,
+            proof.transport.parts[0].sha256.as_str(),
+        ),
+        (
+            proof.transport.parts[1].path.as_str(),
+            proof.transport.parts[1].size,
+            proof.transport.parts[1].sha256.as_str(),
+        ),
+    ];
+    let prefix = "https://github.com/genomoncology/pangopup/releases/download/snv-grch38-v2/";
+    if profile.transport.members.len() != expected.len()
+        || profile
+            .transport
+            .members
+            .iter()
+            .zip(expected)
+            .any(|(member, (name, size, digest))| {
+                member.logical_path != name
+                    || member.asset_name != name
+                    || member.size != size
+                    || member.sha256 != digest
+                    || member.url != format!("{prefix}{name}")
+                    || member.size > MAX_SAFE_JSON_U64
+                    || !valid_identity(&member.sha256)
+            })
+    {
+        return Err(release_error("qualified sparse profile member mismatch"));
+    }
+    Ok(())
+}
+
+fn sized_members_match(actual: &[SparseSizedMember], expected: &[(&str, u64)]) -> bool {
+    actual.len() == expected.len()
+        && actual
+            .iter()
+            .zip(expected)
+            .all(|(member, (path, size))| member.path == *path && member.size == *size)
+}
+
+fn checked_size_sum(members: &[(&str, u64)]) -> Result<u64, AssetError> {
+    members.iter().try_fold(0_u64, |total, (_, size)| {
+        total
+            .checked_add(*size)
+            .ok_or_else(|| release_error("qualified sparse sizing sum overflow"))
+    })
+}
+
+fn sparse_proof_has_unsafe_integer(proof: &SparseProofReceipt) -> bool {
+    let count_values = [
+        proof.counts.genes,
+        proof.counts.source_rows,
+        proof.counts.gene_loci,
+        proof.counts.ascending_members,
+        proof.counts.descending_members,
+        proof.counts.source_segments,
+        proof.counts.index_segments,
+        proof.counts.gap_transitions,
+        proof.counts.omitted_bases,
+        proof.counts.n_ref_loci,
+        proof.counts.n_omit_a,
+        proof.counts.n_omit_t,
+        proof.logical_source.records,
+        proof.logical_decoded.records,
+        proof.source.published_archive_size,
+        proof.source.observed_member_count,
+        proof.reference.input_size,
+        proof.reference.extra_record_count,
+        proof.bundle.manifest.size,
+        proof.bundle.members[0].size,
+        proof.bundle.members[1].size,
+        proof.transport.manifest.size,
+        proof.transport.compressed.size,
+        proof.sizing.snv_installed_bytes,
+        proof.sizing.fresh_install_bytes,
+    ];
+    count_values
+        .into_iter()
+        .any(|value| value > MAX_SAFE_JSON_U64)
+        || proof
+            .reference
+            .aliases
+            .iter()
+            .any(|alias| alias.length > MAX_SAFE_JSON_U64)
+        || proof
+            .transport
+            .parts
+            .iter()
+            .any(|part| part.size > MAX_SAFE_JSON_U64)
+        || proof
+            .sizing
+            .snv_installed_members
+            .iter()
+            .chain(&proof.sizing.fresh_install_members)
+            .any(|member| member.size > MAX_SAFE_JSON_U64)
 }
 
 fn validate_production_contract() -> Result<(ProofReceipt, ReleaseProfile), AssetError> {
@@ -917,6 +1385,11 @@ fn release_error(message: impl Into<String>) -> AssetError {
 mod tests {
     use super::*;
 
+    fn assert_release_invalid<T>(result: Result<T, AssetError>) {
+        let error = result.err().expect("release input must fail");
+        assert_eq!(error.kind(), AssetErrorKind::ReleaseInvalid);
+    }
+
     #[test]
     fn production_receipt_and_profile_are_exact_canonical_contracts() {
         assert_eq!(PRODUCTION_RECEIPT.len(), 2_194);
@@ -1032,5 +1505,147 @@ mod tests {
         let mut noncanonical = PRODUCTION_PROFILE.to_vec();
         noncanonical.push(b'\n');
         assert!(parse_release_profile(&noncanonical).is_err());
+    }
+
+    #[test]
+    fn qualified_sparse_authority_is_exact_closed_and_separate_from_production() {
+        assert_eq!(QUALIFIED_V2_PROOF.len(), 5_405);
+        assert_eq!(sha256(QUALIFIED_V2_PROOF), QUALIFIED_V2_PROOF_SHA256);
+        assert_eq!(QUALIFIED_V2_PROFILE.len(), 4_755);
+        assert_eq!(sha256(QUALIFIED_V2_PROFILE), QUALIFIED_V2_PROFILE_SHA256);
+        let qualified = qualified_v2_profile().expect("qualified sparse authority");
+        assert_eq!(qualified.snv.bundle_id, V2_BUNDLE_ID);
+        assert_eq!(qualified.snv.format, "pangopup.sparse-direct.v1");
+        assert_eq!(qualified.snv.member_bytes, 2_035_371_437);
+        assert_eq!(qualified.snv.member_sha256, V2_SCORE_SHA256);
+
+        let (_, production) = validate_production_contract().expect("production authority");
+        assert_eq!(production.profile, "snv-grch38-v1");
+        assert_ne!(production.bundle.bundle_id, qualified.snv.bundle_id);
+
+        for bytes in [QUALIFIED_V2_PROOF, QUALIFIED_V2_PROFILE] {
+            let mut changed = bytes.to_vec();
+            let middle = changed.len() / 2;
+            changed[middle] ^= 1;
+            assert_release_invalid(validate_qualified_v2_contract_bytes(
+                if bytes.len() == QUALIFIED_V2_PROOF.len() {
+                    &changed
+                } else {
+                    QUALIFIED_V2_PROOF
+                },
+                if bytes.len() == QUALIFIED_V2_PROFILE.len() {
+                    &changed
+                } else {
+                    QUALIFIED_V2_PROFILE
+                },
+            ));
+        }
+    }
+
+    #[test]
+    fn sparse_v2_parsers_reject_extensions_duplicates_noncanonical_and_crossed_versions() {
+        let mut proof: serde_json::Value =
+            serde_json::from_slice(QUALIFIED_V2_PROOF).expect("proof value");
+        proof["source"]["title"] = "x".into();
+        proof["extension"] = true.into();
+        let extended = serde_jcs::to_vec(&proof).expect("extended proof");
+        assert!(extended.len() < QUALIFIED_V2_PROOF.len());
+        assert_release_invalid(parse_sparse_proof(&extended));
+
+        let mut nested: serde_json::Value =
+            serde_json::from_slice(QUALIFIED_V2_PROOF).expect("proof value");
+        nested["source"]["title"] = "x".into();
+        nested["bundle"]["extension"] = true.into();
+        let nested = serde_jcs::to_vec(&nested).expect("nested extension");
+        assert!(nested.len() < QUALIFIED_V2_PROOF.len());
+        assert_release_invalid(parse_sparse_proof(&nested));
+
+        let duplicate =
+            br#"{"schema":"pangopup.release-profile.v2","schema":"pangopup.release-profile.v2"}"#;
+        assert!(duplicate.len() < QUALIFIED_V2_PROFILE.len());
+        assert_release_invalid(parse_sparse_profile(duplicate));
+
+        let mut shortened: serde_json::Value =
+            serde_json::from_slice(QUALIFIED_V2_PROFILE).expect("profile value");
+        shortened["release"]["title"] = "x".into();
+        let mut noncanonical = serde_jcs::to_vec(&shortened).expect("short profile");
+        noncanonical.push(b'\n');
+        assert!(noncanonical.len() < QUALIFIED_V2_PROFILE.len());
+        assert_release_invalid(parse_sparse_profile(&noncanonical));
+
+        assert_release_invalid(parse_sparse_proof(&vec![
+            b' ';
+            QUALIFIED_V2_PROOF.len() + 1
+        ]));
+        assert_release_invalid(parse_release_profile(QUALIFIED_V2_PROFILE));
+        assert_release_invalid(parse_sparse_profile(PRODUCTION_PROFILE));
+        assert_release_invalid(parse_proof_receipt(QUALIFIED_V2_PROOF));
+        assert_release_invalid(parse_sparse_proof(PRODUCTION_RECEIPT));
+    }
+
+    #[test]
+    fn sparse_v2_semantics_reject_unsafe_integers_order_versions_and_cross_links() {
+        let proof = parse_sparse_proof(QUALIFIED_V2_PROOF).expect("proof");
+        let profile = parse_sparse_profile(QUALIFIED_V2_PROFILE).expect("profile");
+
+        let mut unsafe_value: serde_json::Value =
+            serde_json::from_slice(QUALIFIED_V2_PROOF).expect("proof value");
+        unsafe_value["counts"]["source_rows"] = (MAX_SAFE_JSON_U64 + 1).into();
+        unsafe_value["source"]["title"] = "x".into();
+        let unsafe_bytes = serde_jcs::to_vec(&unsafe_value).expect("unsafe integer proof");
+        assert!(unsafe_bytes.len() < QUALIFIED_V2_PROOF.len());
+        let unsafe_integer = parse_sparse_proof(&unsafe_bytes).expect("bounded closed proof");
+        assert_release_invalid(validate_sparse_proof(&unsafe_integer));
+
+        let mut wrong_authority = proof.clone();
+        wrong_authority.authority.bundle_id = V2_BUNDLE_ID.to_owned();
+        assert_release_invalid(validate_sparse_proof(&wrong_authority));
+
+        let mut wrong_format = proof.clone();
+        wrong_format.bundle.index_format = "pangopup.unknown.v1".to_owned();
+        assert_release_invalid(validate_sparse_proof(&wrong_format));
+
+        let mut wrong_version = proof.clone();
+        wrong_version.schema = "pangopup.sparse-proof-receipt.v2".to_owned();
+        assert_release_invalid(validate_sparse_proof(&wrong_version));
+
+        let mut reordered = proof.clone();
+        reordered.transport.parts.swap(0, 1);
+        assert_release_invalid(validate_sparse_proof(&reordered));
+
+        let mut crossed = profile.clone();
+        crossed.proof.sha256 = PRODUCTION_RECEIPT_SHA256.to_owned();
+        assert_release_invalid(validate_sparse_profile(&crossed, &proof));
+
+        let mut reordered_profile = profile;
+        reordered_profile.transport.members.swap(0, 1);
+        assert_release_invalid(validate_sparse_profile(&reordered_profile, &proof));
+    }
+
+    #[test]
+    fn self_consistent_changed_sparse_pair_still_fails_independent_byte_pins() {
+        let changed_commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let mut proof: serde_json::Value =
+            serde_json::from_slice(QUALIFIED_V2_PROOF).expect("proof value");
+        proof["tool"]["implementation_commit"] = changed_commit.into();
+        let changed_proof = serde_jcs::to_vec(&proof).expect("changed proof");
+        assert_eq!(changed_proof.len(), QUALIFIED_V2_PROOF.len());
+
+        let mut profile: serde_json::Value =
+            serde_json::from_slice(QUALIFIED_V2_PROFILE).expect("profile value");
+        profile["release"]["target_commit"] = changed_commit.into();
+        profile["proof"]["sha256"] = sha256(&changed_proof).into();
+        let changed_profile = serde_jcs::to_vec(&profile).expect("changed profile");
+        assert_eq!(changed_profile.len(), QUALIFIED_V2_PROFILE.len());
+        assert_eq!(
+            profile["proof"]["sha256"],
+            serde_json::Value::String(sha256(&changed_proof))
+        );
+        assert_ne!(sha256(&changed_proof), QUALIFIED_V2_PROOF_SHA256);
+        assert_ne!(sha256(&changed_profile), QUALIFIED_V2_PROFILE_SHA256);
+        assert_release_invalid(validate_qualified_v2_contract_bytes(
+            &changed_proof,
+            &changed_profile,
+        ));
     }
 }

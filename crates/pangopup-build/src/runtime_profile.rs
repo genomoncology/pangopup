@@ -2,9 +2,9 @@
 
 use crate::CommandError;
 use pangopup_assets::{
-    MaskProfile, ModelProfile, ReferenceProfile, RuntimeProfile, ScoringProfile, SnvProfile,
+    MaskProfile, ModelProfile, ReferenceProfile, RuntimeProfile, ScoringProfile,
     canonical_runtime_profile_bytes, inspect_snv_bundle, production_runtime_profile,
-    runtime_profile_id,
+    qualified_sparse_runtime_profile, runtime_profile_id,
 };
 use pangopup_core::ReferenceProvider;
 use pangopup_index::{
@@ -53,6 +53,31 @@ pub fn prepare_runtime_profile(
             "SNV bundle is not the accepted production member",
         ));
     }
+    prepare_runtime_profile_inner(trusted, model_bundle, reference_bundle, mask, output, true)
+}
+
+/// Exhaustively certify the exact qualified sparse bundle and prepare its
+/// inactive runtime profile. No command-line route calls this inner boundary.
+#[doc(hidden)]
+pub fn prepare_qualified_sparse_runtime_profile(
+    snv_bundle: &Path,
+    model_bundle: &Path,
+    reference_bundle: &Path,
+    mask: &Path,
+    output: &Path,
+) -> Result<PrepareRuntimeProfileOutcome, CommandError> {
+    let trusted = qualified_sparse_runtime_profile(snv_bundle).map_err(map_snv_error)?;
+    prepare_runtime_profile_inner(trusted, model_bundle, reference_bundle, mask, output, false)
+}
+
+fn prepare_runtime_profile_inner(
+    trusted: RuntimeProfile,
+    model_bundle: &Path,
+    reference_bundle: &Path,
+    mask: &Path,
+    output: &Path,
+    require_production: bool,
+) -> Result<PrepareRuntimeProfileOutcome, CommandError> {
     let model = inspect_runtime_profile_bundle(model_bundle).map_err(map_model_error)?;
     if model.bundle_id.as_str() != trusted.model.bundle_id
         || model.profile != trusted.model.profile
@@ -90,12 +115,7 @@ pub fn prepare_runtime_profile(
     }
     let profile = RuntimeProfile {
         schema: "pangopup.runtime-profile.v1".to_owned(),
-        snv: SnvProfile {
-            bundle_id: snv.bundle_id,
-            format: snv.format,
-            member_bytes: snv.member_bytes,
-            member_sha256: snv.member_sha256,
-        },
+        snv: trusted.snv.clone(),
         model: ModelProfile {
             bundle_id: model.bundle_id.to_string(),
             profile: model.profile,
@@ -126,9 +146,11 @@ pub fn prepare_runtime_profile(
             cpu_policy: "sequential:1/1".to_owned(),
         },
     };
-    profile
-        .require_trusted_production()
-        .map_err(|_| incompatible("runtime assets do not match the accepted production tuple"))?;
+    if require_production {
+        profile.require_trusted_production().map_err(|_| {
+            incompatible("runtime assets do not match the accepted production tuple")
+        })?;
+    }
     let bytes = canonical_runtime_profile_bytes(&profile)
         .map_err(|_| corrupt("runtime profile serialization failed"))?;
     let identity = runtime_profile_id(&bytes)

@@ -66,7 +66,7 @@ pub use runtime_profile::{
     MaskProfile, ModelProfile, RUNTIME_PROFILE_SCHEMA, ReferenceProfile, RuntimeProfile,
     RuntimeProfileError, RuntimeProfileId, ScoringProfile, SnvBundleInspection, SnvProfile,
     canonical_runtime_profile_bytes, inspect_snv_bundle, parse_runtime_profile,
-    production_runtime_profile, runtime_profile_id,
+    production_runtime_profile, qualified_sparse_runtime_profile, runtime_profile_id,
 };
 pub use runtime_release::{
     PrepareRuntimeReleaseOutcome, RuntimeReleaseProfile, parse_runtime_release_profile,

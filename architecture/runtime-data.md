@@ -18,6 +18,8 @@ before mapping or hashing, then streams the complete payload without a
 fixed-style gene buffer. Benchmark measurement and sparse-candidate conversion
 remain explicitly fixed-only.
 
+Production code authenticates the exact checked `snv-grch38-v2` proof and release profile as an inactive authority. An internal accessor exposes only its exact sparse SNV descriptor. Canonical runtime-profile preparation may substitute that descriptor after independent exhaustive certification. This substitution keeps the model, reference, mask, scoring policy, software version, and effective CPU policy fixed. The runtime-profile, scoring, and data-set identities change through their existing derivation functions. Trusted production admission, installed discovery, remote sync, and the compiled runtime release remain v1-only. Sparse fixture lookup parity proves provider behavior. It makes no active HTTP or full-route performance claim.
+
 On Linux and macOS, `pangopup sync` downloads both exact compiled-in public transports into disposable XDG cache and passes them to the same `pangopup assets install` boundary that reconstructs a supplied transport under XDG user data. The installer records its canonical receipt and atomically selects it in `active.json`. Normal lookup discovers that active bundle without a `--bundle` argument and performs only cheap manifest, size, and structure checks. `--bundle` remains an explicit override. Lookup never downloads data or scans the complete score payload at startup. Only the explicit sync command uses the network.
 
 The request's reference allele remains part of the key. A wrong reference

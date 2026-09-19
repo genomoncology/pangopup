@@ -76,6 +76,10 @@ impl CertifiedBundle {
 
 /// Exhaustively certify an installed three-file bundle.
 pub fn certify_bundle(path: &Path) -> Result<BundleCertification, AssetError> {
+    Ok(certify_bundle_details(path)?.certification)
+}
+
+pub(super) fn certify_bundle_details(path: &Path) -> Result<CertifiedBundle, AssetError> {
     preflight_bundle_files(path)?;
     let (manifest, manifest_metadata) = open_regular(
         &path.join("manifest.json"),
@@ -95,7 +99,7 @@ pub fn certify_bundle(path: &Path) -> Result<BundleCertification, AssetError> {
         AssetErrorKind::InputIo,
         AssetErrorKind::BundleInvalid,
     )?;
-    Ok(certify_bundle_members(&manifest, &notice, &scores)?.certification)
+    certify_bundle_members(&manifest, &notice, &scores)
 }
 
 /// Exhaustively certify the exact immutable member inodes supplied by a
@@ -780,6 +784,69 @@ mod tests {
         let fixed_limit = certify_path(&fixed, 0, 0).expect_err("fixed gene limit remains active");
         assert_eq!(fixed_limit.legacy_build_code(), Some("BUNDLE_INDEX"));
         assert!(fixed_limit.to_string().contains("allocation limit"));
+    }
+
+    #[test]
+    fn sparse_runtime_profile_preparation_certifies_real_members_before_derivation() {
+        use crate::runtime_profile::{RuntimeProfileError, SnvProfile, production_runtime_profile};
+
+        let temp = Temp::new();
+        let sparse = write_bundle(
+            &temp,
+            "runtime-profile-sparse",
+            SPARSE_INDEX_FORMAT,
+            SPARSE_MEDIA_TYPE,
+            &miniature(),
+        );
+        let manifest_bytes = fs::read(sparse.join("manifest.json")).expect("manifest bytes");
+        let manifest =
+            pangopup_index::parse_bundle_manifest_bytes(&manifest_bytes).expect("sparse manifest");
+        let scores = manifest
+            .members
+            .iter()
+            .find(|member| member.path == "scores.pgi")
+            .expect("scores member");
+        let authority = SnvProfile {
+            bundle_id: bundle_id(&manifest_bytes),
+            format: manifest.index_format.clone(),
+            member_bytes: scores.size,
+            member_sha256: scores.sha256.clone(),
+        };
+
+        let profile = crate::runtime_profile::qualified_sparse_runtime_profile_with_authority(
+            &sparse, &authority,
+        )
+        .expect("certified sparse profile");
+        let production = production_runtime_profile();
+        assert_eq!(profile.snv, authority);
+        assert_eq!(profile.model, production.model);
+        assert_eq!(profile.reference, production.reference);
+        assert_eq!(profile.mask, production.mask);
+        assert_eq!(profile.scoring, production.scoring);
+        assert_eq!(
+            profile.require_trusted_production(),
+            Err(RuntimeProfileError::Incompatible)
+        );
+
+        let corrupt = copy_bundle(&temp, &sparse, "runtime-profile-corrupt");
+        corrupt_sparse_pair(&corrupt.join("scores.pgi"));
+        assert_eq!(
+            crate::runtime_profile::qualified_sparse_runtime_profile_with_authority(
+                &corrupt, &authority,
+            ),
+            Err(RuntimeProfileError::InvalidFacts)
+        );
+
+        let mut wrong_authority = authority;
+        wrong_authority.bundle_id =
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned();
+        assert_eq!(
+            crate::runtime_profile::qualified_sparse_runtime_profile_with_authority(
+                &sparse,
+                &wrong_authority,
+            ),
+            Err(RuntimeProfileError::Incompatible)
+        );
     }
 
     #[test]

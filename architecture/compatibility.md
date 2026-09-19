@@ -1,5 +1,11 @@
 # Compatibility
 
+## Inactive sparse authority
+
+PangoPup authenticates the checked `snv-grch38-v2` proof and release profile. The qualified descriptor remains inactive. The ordinary release selector, installed runtime admission, discovery, remote sync, and compiled runtime release still select `snv-grch38-v1`.
+
+A preparation proof holds PangoPup version `0.5.0`, declared CPU policy `sequential:1/1`, effective CPU policy `sequential:1/1`, and every model-side profile field fixed. It changes only the SNV descriptor. The existing derivation functions then change `runtime_profile_id`, `scoring_identity`, and `data_set_version`. The prepared sparse profile still fails trusted production admission. This proof covers identity derivation and exact miniature fixed/sparse lookup parity. It makes no active HTTP, command-route, latency, throughput, upgrade, or rollback claim.
+
 ## v0.4.0 response-shape inventory
 
 PangoPup v0.4.0 changes response shapes from v0.3.0:
