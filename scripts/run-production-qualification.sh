@@ -120,6 +120,10 @@ run_clean "$output_dir/model-only-SNV.jsonl" "$pangopup" lookup --model-only \
 
 http_request() {
   local method=$1 path=$2 body=$3 output=$4
+  service_is_running || {
+    printf 'HTTP service exited before a qualification request\n' >&2
+    return 1
+  }
   exec 3<>"/dev/tcp/$http_host/$http_port" || return 1
   printf '%s %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n' \
     "$method" "$path" "$service_address" >&3
@@ -134,17 +138,25 @@ http_request() {
 "$pangopup" serve --listen 127.0.0.1:0 --model-workers 1 --model-threads 1 \
   >"$output_dir/service.stdout" 2>"$output_dir/service.stderr" &
 service_pid=$!
+service_is_running() {
+  local running_pid
+  while IFS= read -r running_pid; do
+    if [[ "$running_pid" == "$service_pid" ]]; then return 0; fi
+  done <<<"$(jobs -pr)"
+  return 1
+}
 stop_service() {
-  kill -TERM "$service_pid" 2>/dev/null || true
+  if service_is_running; then kill -TERM "$service_pid" 2>/dev/null || true; fi
   wait "$service_pid" 2>/dev/null || true
 }
 trap stop_service EXIT
 listening_event=
-for _ in $(seq 1 300); do
+listening_deadline=$((SECONDS + 30))
+while (( SECONDS < listening_deadline )); do
   if IFS= read -r listening_event <"$output_dir/service.stdout"; then
     break
   fi
-  if ! kill -0 "$service_pid" 2>/dev/null; then
+  if ! service_is_running; then
     printf 'HTTP service exited before emitting a listening event\n' >&2
     exit 1
   fi
@@ -185,8 +197,16 @@ PY
 fi
 http_host=${service_address%:*}
 http_port=${service_address##*:}
+service_is_running || {
+  printf 'HTTP service exited after emitting its listening event\n' >&2
+  exit 1
+}
 ready=0
 for _ in $(seq 1 30); do
+  service_is_running || {
+    printf 'HTTP service exited before a qualification request\n' >&2
+    exit 1
+  }
   if http_request GET /livez '' "$output_dir/http-livez.txt" 2>/dev/null \
     && grep -Fq 'HTTP/1.1 200' "$output_dir/http-livez.txt"; then
     ready=1

@@ -18,12 +18,22 @@ rm -rf "$root"
 # leaves the build directory half removed. The mode goes back however this
 # harness ends, so the line above recovers only a run that was killed outright.
 # tests/build-directory-residue.sh holds both halves.
+background_job_is_running() {
+  local wanted=$1 running_pid
+  while IFS= read -r running_pid; do
+    if [[ "$running_pid" == "$wanted" ]]; then return 0; fi
+  done <<<"$(jobs -pr)"
+  return 1
+}
 occupier_pid=
+observer_pid=
 cleanup() {
-  if [[ -n "$occupier_pid" ]]; then
-    kill -TERM "$occupier_pid" 2>/dev/null || true
-    wait "$occupier_pid" 2>/dev/null || true
-  fi
+  local pid
+  for pid in "$occupier_pid" "$observer_pid"; do
+    if [[ -z "$pid" ]]; then continue; fi
+    if background_job_is_running "$pid"; then kill -TERM "$pid" 2>/dev/null || true; fi
+    wait "$pid" 2>/dev/null || true
+  done
   chmod -R u+w "$root" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -155,7 +165,7 @@ case "$command" in
       esac
     done
     exec python3 - "$QUALIFICATION_SOURCE" "$listen" <<'PY'
-import http.server, json, os, pathlib, sys
+import errno, http.server, json, os, pathlib, sys
 source = pathlib.Path(sys.argv[1])
 listen = sys.argv[2]
 model = json.loads((source / "tests/fixtures/executable-release/m09.jsonl").read_bytes())
@@ -226,7 +236,15 @@ if path := os.environ.get("QUALIFICATION_LISTEN_LOG"):
 mode = os.environ.get("QUALIFICATION_SERVICE_MODE", "normal")
 if mode == "exit":
     raise SystemExit(17)
-server = http.server.ThreadingHTTPServer((host, int(port)), Handler)
+if mode == "event-then-exit":
+    print(json.dumps({"event":"listening", "address":os.environ["QUALIFICATION_UNRELATED_ADDRESS"]}, separators=(",", ":")), flush=True)
+    raise SystemExit(19)
+try:
+    server = http.server.ThreadingHTTPServer((host, int(port)), Handler)
+except OSError as error:
+    if mode == "occupier" and error.errno == errno.EADDRINUSE:
+        raise SystemExit(18)
+    raise
 address = "%s:%d" % server.server_address[:2]
 if mode == "malformed":
     print('{"event":"listening","address":17}', flush=True)
@@ -234,7 +252,7 @@ elif mode == "non-loopback":
     print(json.dumps({"event":"listening", "address":"0.0.0.0:%d" % server.server_port}, separators=(",", ":")), flush=True)
 elif mode == "zero-port":
     print('{"event":"listening","address":"127.0.0.1:0"}', flush=True)
-elif mode == "normal":
+elif mode in ("normal", "occupier"):
     print(json.dumps({"event":"listening", "address":address}, separators=(",", ":")), flush=True)
 elif mode != "silent":
     raise SystemExit(2)
@@ -304,24 +322,52 @@ export QUALIFICATION_EXPECTED_DATA=$root/data
 export QUALIFICATION_EXPECTED_CACHE=$root/cache
 export QUALIFICATION_EXPECTED_SNV_BUNDLE=$root/data/pangopup/bundles/qualified/bundle
 export QUALIFICATION_LOOKUP_LOG=$root/lookups.log
+QUALIFICATION_SERVICE_MODE=normal \
+QUALIFICATION_HTTP_LOG=$root/observer-http.log \
+  "$root/bin/pangopup" serve --listen 127.0.0.1:0 \
+  >"$root/observer.stdout" 2>"$root/observer.stderr" &
+observer_pid=$!
+for _ in $(seq 1 50); do
+  if [[ -s "$root/observer.stdout" ]]; then break; fi
+  background_job_is_running "$observer_pid" || fail 'the unrelated observer exited before listening'
+  sleep 0.1
+done
+observer_address=$(jq -er 'select(.event == "listening") | .address' "$root/observer.stdout")
+
+occupier_owned=0
+QUALIFICATION_SERVICE_MODE=occupier \
 QUALIFICATION_HTTP_LOG=$root/occupied-http.log \
   "$root/bin/pangopup" serve --listen 127.0.0.1:18080 \
   >"$root/occupier.stdout" 2>"$root/occupier.stderr" &
 occupier_pid=$!
 for _ in $(seq 1 50); do
-  if [[ -s "$root/occupier.stdout" ]]; then break; fi
-  kill -0 "$occupier_pid" 2>/dev/null || fail 'the port-18080 fixture exited before listening'
+  if [[ -s "$root/occupier.stdout" ]]; then
+    occupier_owned=1
+    break
+  fi
+  if ! background_job_is_running "$occupier_pid"; then
+    occupier_status=0
+    wait "$occupier_pid" || occupier_status=$?
+    occupier_pid=
+    (( occupier_status == 18 )) || fail "the port-18080 fixture failed with status $occupier_status"
+    break
+  fi
   sleep 0.1
 done
-require_text "$root/occupier.stdout" '"event":"listening","address":"127.0.0.1:18080"'
+if (( occupier_owned )); then
+  require_text "$root/occupier.stdout" '"event":"listening","address":"127.0.0.1:18080"'
+fi
 
+QUALIFICATION_SERVICE_MODE=normal \
 QUALIFICATION_HTTP_LOG=$root/candidate-http.log \
 QUALIFICATION_LISTEN_LOG=$root/candidate-listen.log \
 QUALIFICATION_SERVICE_PID_FILE=$root/candidate.pid \
   "$repo/scripts/run-production-qualification.sh" \
   "$root/bin/pangopup" "$repo" "$root/data" "$root/cache" "$root/output"
 require_line "$root/candidate-listen.log" '127.0.0.1:0'
-[[ ! -s "$root/occupied-http.log" ]] || fail 'qualification sent a request to the unrelated service on port 18080'
+if (( occupier_owned )) && [[ -s "$root/occupied-http.log" ]]; then
+  fail 'qualification sent a request to the unrelated service on port 18080'
+fi
 equal 'the number of requests sent to the candidate service' 6 "$(wc -l < "$root/candidate-http.log" | tr -d ' ')"
 if kill -0 "$(<"$root/candidate.pid")" 2>/dev/null; then
   fail 'candidate service survived successful runner cleanup'
@@ -359,6 +405,7 @@ expect_service_start_failure() {
     QUALIFICATION_SERVICE_PID_FILE=$pid_file \
     QUALIFICATION_HTTP_LOG=$request_log \
     QUALIFICATION_LISTEN_LOG=$case_root/listen.log \
+    QUALIFICATION_UNRELATED_ADDRESS=$observer_address \
     QUALIFICATION_EXPECTED_HOME=$output/home \
     QUALIFICATION_LOOKUP_LOG=$case_root/lookups.log \
     "$repo/scripts/run-production-qualification.sh" \
@@ -384,6 +431,9 @@ expect_service_start_failure() {
 
 expect_service_start_failure early-exit exit \
   'HTTP service exited before emitting a listening event'
+expect_service_start_failure valid-event-then-exit event-then-exit \
+  'HTTP service exited after emitting its listening event'
+[[ ! -s "$root/observer-http.log" ]] || fail 'qualification contacted the unrelated observer'
 expect_service_start_failure malformed-event malformed \
   'HTTP service emitted an invalid listening event'
 expect_service_start_failure non-loopback-event non-loopback \
