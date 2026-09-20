@@ -92,6 +92,12 @@ unquote_word() {
             return 1
             ;;
     esac
+    case "$word" in
+        *\"*|*\'*)
+            printf 'unsupported joined quoting: %s\n' "$1" >&2
+            return 1
+            ;;
+    esac
     printf '%s\n' "$word"
 }
 
@@ -148,6 +154,7 @@ validate_path_token() {
     local value=$1 label=$2
     case "$value" in
         *'*'*|*'?'*|*'['*) printf 'wildcard %s: %s\n' "$label" "$value" >&2; return 1 ;;
+        *\\*) printf 'unsupported shell escape in %s: %s\n' "$label" "$value" >&2; return 1 ;;
         *'`'*) printf 'unsafe shell syntax in %s: backticks\n' "$label" >&2; return 1 ;;
         *';'*|*'|'*|*'&'*|*'<'*|*'>'*) printf 'unsafe shell syntax in %s: %s\n' "$label" "$value" >&2; return 1 ;;
     esac
@@ -459,6 +466,18 @@ plant() {
             closed-make-expansion)
                 printf '\trm -rf target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="$(CURDIR)cache/ort" cargo build --locked\n' ;;
+            escaped-cache-path)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/crates/\\../target/ort-cache" cargo build --locked\n' ;;
+            escaped-removal-path)
+                printf '\trm -rf target/\\../.ort-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/.ort-cache/ort" cargo build --locked\n' ;;
+            joined-cache-quoting)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/tar""get/ort-cache" cargo build --locked\n' ;;
+            joined-removal-quoting)
+                printf '\trm -rf "target/.""./.ort-cache"\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/.ort-cache/ort" cargo build --locked\n' ;;
             removal-dot)
                 printf '\trm -rf ./target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="$(CURDIR)/target/spec-cache/ort" cargo build --locked\n' ;;
@@ -608,6 +627,16 @@ expect_acceptance 'the rule refused a cache whose parent segment resolves outsid
 plant "$work/closed-make-expansion" closed-make-expansion
 expect_acceptance 'the rule rejected a closed CURDIR Make expansion followed by a literal path segment' \
     "$work/closed-make-expansion"
+
+for shape in escaped-cache-path escaped-removal-path; do
+    plant "$work/$shape" "$shape"
+    expect_safe_refusal 'unsupported shell escape' "$work/$shape"
+done
+
+for shape in joined-cache-quoting joined-removal-quoting; do
+    plant "$work/$shape" "$shape"
+    expect_safe_refusal 'unsupported joined quoting' "$work/$shape"
+done
 
 # Clearing `XDG_CACHE_HOME` sends the resolution to `$HOME`, which the recipe
 # moved into the directory it removes. A rule that read only the variable it
