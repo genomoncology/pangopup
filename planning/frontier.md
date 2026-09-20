@@ -82,8 +82,8 @@ cross-format miniature proves filtered and unfiltered answers, provenance,
 bounded open, and touched-record corruption. Exhaustive certification now
 admits either format and checks the sparse size ceiling before mapping or
 hashing. Unfiltered production performance and whole-genome throughput remain
-unmeasured. Activation still requires the retained runtime-v2 run,
-release-specific cache, upgrade, and rollback evidence, and the production
+unmeasured. The retained runtime-v2 run and release-specific cache, upgrade,
+and rollback evidence are complete. Activation still requires the production
 authority switch. The active profile moves only after every gate passes.
 Fixed-v1 remains the shipped, readable rollback format.
 Sparse release tooling now authenticates the complete immutable v1 corpus authority, records distinct candidate and assembler provenance, and produces deterministic bundle, transport, proof, and profile bytes. Two independent retained complete runs reproduced the v2 local publication set and passed exhaustive certification, isolated installation, and the checked lookup workload. No v2 authority is active or published.
@@ -96,8 +96,10 @@ members byte for byte while changing only the sparse-bound inner profile and
 outer transport manifest. One executable semantic gate proves 1,000 direct
 requests, seven command groups, real fixed/sparse HTTP routing, every boundary
 miss, exact permitted identity changes, and transactional rejection behavior.
-It adds no unmeasured throughput threshold. Retained preparation, cache upgrade,
-rollback, publication, and activation remain next.
+It adds no unmeasured throughput threshold. Retained preparation, the real
+v0.4.1 cache upgrade, model-cache reuse across the SNV format switch, and
+fixed-v1 rollback passed independent evidence review. Publication and
+activation remain next.
 The checked repository side now has a read-only workflow token, full-SHA action
 references, digest-authenticated maintenance tools, and an advisory, license,
 bans, and source policy in `make lint`. The policy preserves the
