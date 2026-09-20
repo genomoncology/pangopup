@@ -13,8 +13,8 @@ Repository checks decide cache isolation from the exact environment variable and
 
 - Add an inside-out fixture that accepts an exact `PANGOPUP_MODEL_CACHE` removal and rejects removals of longer names such as `PANGOPUP_MODEL_CACHEX`, `PANGOPUP_MODEL_CACHE2`, and `PANGOPUP_MODEL_CACHE-OLD`.
 - Require the complete parsed shell word to equal the variable name. Apply that rule to every live cache-isolation checker, including `model-cache-limit-inheritance.sh`; a regex boundary that accepts a `-OLD` suffix does not satisfy the ticket.
-- Resolve supported absolute and relative paths lexically against the known repository root before comparing cache locations with removed directories. Fixtures cover `.` and `..` in both operands and prove both inside and outside classifications.
-- Preserve the current supported relative `ORT_CACHE_DIR` form. Reject unsafe syntax or a path that cannot be resolved lexically with a named message. Do not access the path or require it to exist.
+- Normalize absolute paths produced after the check's supported Make-variable expansion before comparing cache locations with removed directories. Fixtures cover `.` and `..` in both operands and prove both inside and outside classifications.
+- Preserve the current supported relative `ORT_CACHE_DIR` form as an explicit unclassified exception. Cargo resolves it from the external dependency package root, which this repository check does not know. Do not pretend that the repository root is its base. Reject unsafe absolute syntax or an absolute path that cannot be normalized lexically with a named message. Do not access the path or require it to exist.
 - Preserve current accepted recipes. Keep the checks portable across the supported macOS and Linux shells.
 - Archive drafts 0107 and 0108. Update the durable record and frontier. `make lint`, `make test`, and `make spec` pass.
 
