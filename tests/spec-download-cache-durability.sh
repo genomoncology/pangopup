@@ -47,6 +47,7 @@ repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # scan that quietly stops matching it would otherwise hold over an empty set
 # and report that as a pass.
 anchor=spec
+system_name=$(uname -s)
 
 fail() { printf 'spec download cache durability: %s\n' "$*" >&2; exit 1; }
 
@@ -207,7 +208,7 @@ validate_assignment_value() {
 # against root $1. Only `rm` with a recursive flag removes a directory, and
 # every operand after the flags is one.
 removed_directories() {
-    local root=$1 line word operand normalized seen_recursive
+    local root=$1 line word raw_operand operand normalized seen_recursive
     local words=()
     while IFS= read -r line; do
         case "$line" in
@@ -229,6 +230,7 @@ removed_directories() {
                     ;;
             esac
             [[ "$seen_recursive" == yes ]] || continue
+            raw_operand=$word
             operand=$(unquote_word "$word") || return 1
             case "$operand" in
                 *'*'*|*'?'*|*'['*)
@@ -237,7 +239,7 @@ removed_directories() {
                     ;;
             esac
             validate_path_token "$operand" 'removal operand' || return 1
-            operand=$(expand_path "$operand" "$root" "$root/.caller-home" 'removal operand') || return 1
+            operand=$(expand_path "$raw_operand" "$root" "$root/.caller-home" 'removal operand') || return 1
             case "$operand" in /*) ;; *) operand="$root/$operand" ;; esac
             normalized=$(normalize_absolute "$operand") || return 1
             printf '%s\n' "$normalized"
@@ -290,6 +292,7 @@ resolve_cache_path() {
             --unset=*)
                 operand=${word#--unset=}
                 validate_assignment_value "$operand" 'env --unset operand' || return 1
+                operand=$(unquote_word "$operand") || return 1
                 case "$operand" in
                     ORT_CACHE_DIR) ort_set=no; ort='' ;;
                     XDG_CACHE_HOME) xdg_set=no; xdg='' ;;
@@ -336,7 +339,7 @@ resolve_cache_path() {
     else
         home=''
     fi
-    if [[ "$(uname -s)" == Darwin ]]; then
+    if [[ "$system_name" == Darwin ]]; then
         normalize_absolute "$home/Library/Caches/ort.pyke.io"
         return
     fi
@@ -494,6 +497,18 @@ plant() {
             single-quoted-relative-path)
                 printf '\trm -rf target/spec-cache\n'
                 printf "\tORT_CACHE_DIR='\$\$HOME/.ort-cache' cargo build --locked\n" ;;
+            single-quoted-home-removal)
+                printf "\trm -rf '\$(CURDIR)/\$\$HOME/../.ort-cache'\n"
+                printf '\tORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked\n' ;;
+            single-quoted-pwd-removal)
+                printf "\trm -rf '\$(CURDIR)/\$\$PWD/../.ort-cache'\n"
+                printf '\tORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked\n' ;;
+            unset-xdg-single-quoted)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv --unset='\''XDG_CACHE_HOME'\'' HOME="$(CURDIR)/target/spec-cache" cargo build --locked\n' ;;
+            unset-xdg-double-quoted)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv --unset="XDG_CACHE_HOME" HOME="$(CURDIR)/target/spec-cache" cargo build --locked\n' ;;
             removal-dot)
                 printf '\trm -rf ./target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="$(CURDIR)/target/spec-cache/ort" cargo build --locked\n' ;;
@@ -600,6 +615,13 @@ expect_acceptance() {
     makefile_holds "$tree/Makefile" "$tree" Makefile >/dev/null || fail "$why"
 }
 
+expect_linux_refusal() {
+    local wanted=$1 tree=$2 saved_system_name=$system_name
+    system_name=Linux
+    expect_refusal "$wanted" "$tree"
+    system_name=$saved_system_name
+}
+
 expect_safe_refusal() {
     local wanted=$1 tree=$2 output status
     set +e
@@ -657,6 +679,16 @@ done
 for shape in single-quoted-home-path single-quoted-relative-path; do
     plant "$work/$shape" "$shape"
     expect_safe_refusal 'single-quoted shell variable' "$work/$shape"
+done
+
+for shape in single-quoted-home-removal single-quoted-pwd-removal; do
+    plant "$work/$shape" "$shape"
+    expect_safe_refusal 'single-quoted shell variable' "$work/$shape"
+done
+
+for shape in unset-xdg-single-quoted unset-xdg-double-quoted; do
+    plant "$work/$shape" "$shape"
+    expect_linux_refusal 'fetches that library again' "$work/$shape"
 done
 
 # Clearing `XDG_CACHE_HOME` sends the resolution to `$HOME`, which the recipe
