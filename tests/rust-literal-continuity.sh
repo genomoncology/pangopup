@@ -54,6 +54,18 @@ mkdir -p "$fixture/crates/other/src" "$fixture/crates/pangopup-build/src"
 } >"$fixture/crates/other/src/bad.rs"
 
 {
+    printf 'const BAD: &str = "vertical tab follows \\\n'
+    printf '\v\n'
+    printf 'text";\n'
+} >"$fixture/crates/other/src/vertical-tab.rs"
+
+{
+    printf 'const BAD: &str = "form feed follows \\\n'
+    printf '\f\n'
+    printf 'text";\n'
+} >"$fixture/crates/other/src/form-feed.rs"
+
+{
     printf 'const SQL: &str = "SELECT key\n'
     printf '                        FROM entries";\n'
     printf 'const NEIGHBOR: &str = "this defect remains\n'
@@ -75,8 +87,8 @@ fixture_sources=()
 while IFS= read -r source; do fixture_sources+=("$source"); done < <(
     find "$fixture/crates" -type f -name '*.rs' | sort
 )
-(( ${#fixture_sources[@]} == 4 )) \
-    || fail "planted 4 red fixture sources and found ${#fixture_sources[@]}"
+(( ${#fixture_sources[@]} == 6 )) \
+    || fail "planted 6 red fixture sources and found ${#fixture_sources[@]}"
 
 if fixture_findings=$(scan "$fixture" "$fixture_exemptions" "${fixture_sources[@]}" 2>&1); then
     fail 'the scanner accepted the red embedded-wrap fixtures'
@@ -87,6 +99,8 @@ for expected in \
     'crates/other/src/bad.rs:5: ordinary string contains three or more spaces between word characters' \
     'crates/other/src/bad.rs:6: ordinary string contains an unescaped physical newline' \
     'crates/other/src/exempt-and-bad.rs:3: ordinary string contains an unescaped physical newline' \
+    'crates/other/src/form-feed.rs:1: ordinary string contains an unescaped physical newline' \
+    'crates/other/src/vertical-tab.rs:1: ordinary string contains an unescaped physical newline' \
     'crates/other/src/borrowed.rs:1: ordinary string contains three or more spaces between word characters'; do
     grep -Fq -- "$expected" <<<"$fixture_findings" \
         || fail "the red fixture did not produce '$expected': $fixture_findings"
@@ -147,13 +161,16 @@ mkdir -p "$positive/crates/other/src"
 awk 'BEGIN { for (i = 1; i <= 25000; i++) printf "const LINE_%d: &str = \"checked linear fixture %d\";\n", i, i }' \
     >"$positive/crates/other/src/long.rs"
 
-awk 'BEGIN {
-    printf "const MANY: &[&str] = &["
-    for (i = 1; i <= 2000; i++) {
-        printf "\"ordinary-%d\",r#\"raw-%d\"# ,", i, i
-    }
-    print "];"
-}' >"$positive/crates/other/src/long-single-line.rs"
+scale_pairs=(500 1000 2000)
+for pair_count in "${scale_pairs[@]}"; do
+    awk -v pairs="$pair_count" 'BEGIN {
+        printf "const MANY: &[&str] = &["
+        for (i = 1; i <= pairs; i++) {
+            printf "\"ordinary-%d\",r#\"raw-%d\"# ,", i, i
+        }
+        print "];"
+    }' >"$positive/crates/other/src/long-single-line-$pair_count.rs"
+done
 
 positive_sources=()
 while IFS= read -r source; do positive_sources+=("$source"); done < <(
@@ -170,20 +187,34 @@ rustc --edition 2024 --crate-type lib --emit metadata -A warnings \
     -o "$work/unicode.rmeta" "$positive/crates/other/src/unicode.rs"
 
 work_report="$work/single-line-work.tsv"
-single_line_findings=$(scan_accounted "$positive" "$empty_exemptions" "$work_report" \
-    "$positive/crates/other/src/long-single-line.rs" 2>&1) \
-    || fail "the scanner refused the long single-line fixture: $single_line_findings"
-[[ -z "$single_line_findings" ]] \
-    || fail "the long single-line fixture produced findings: $single_line_findings"
-[[ "$(wc -l <"$positive/crates/other/src/long-single-line.rs" | tr -d '[:space:]')" == 1 ]] \
-    || fail 'the long single-line work fixture no longer occupies exactly one physical line'
-read -r single_line_bytes single_line_work <"$work_report"
-[[ "$single_line_bytes" =~ ^[1-9][0-9]*$ && "$single_line_work" =~ ^[1-9][0-9]*$ ]] \
-    || fail "the scanner wrote malformed work accounting: $(cat "$work_report")"
-[[ "$single_line_bytes" == "$(wc -c <"$positive/crates/other/src/long-single-line.rs" | tr -d '[:space:]')" ]] \
-    || fail 'the scanner byte accounting does not equal the long single-line fixture size'
-(( single_line_work <= single_line_bytes * 12 )) \
-    || fail "the long single-line scan used $single_line_work work units for $single_line_bytes bytes"
+previous_bytes=0
+previous_work=0
+scaling_summary=''
+for pair_count in "${scale_pairs[@]}"; do
+    single_line="$positive/crates/other/src/long-single-line-$pair_count.rs"
+    single_line_findings=$(scan_accounted "$positive" "$empty_exemptions" "$work_report" \
+        "$single_line" 2>&1) \
+        || fail "the scanner refused the $pair_count-pair single-line fixture: $single_line_findings"
+    [[ -z "$single_line_findings" ]] \
+        || fail "the $pair_count-pair single-line fixture produced findings: $single_line_findings"
+    [[ "$(wc -l <"$single_line" | tr -d '[:space:]')" == 1 ]] \
+        || fail "the $pair_count-pair work fixture no longer occupies exactly one physical line"
+    read -r single_line_bytes single_line_work <"$work_report"
+    [[ "$single_line_bytes" =~ ^[1-9][0-9]*$ && "$single_line_work" =~ ^[1-9][0-9]*$ ]] \
+        || fail "the scanner wrote malformed work accounting: $(cat "$work_report")"
+    [[ "$single_line_bytes" == "$(wc -c <"$single_line" | tr -d '[:space:]')" ]] \
+        || fail "the scanner byte accounting does not equal the $pair_count-pair fixture size"
+    (( single_line_work <= single_line_bytes * 12 )) \
+        || fail "the $pair_count-pair scan used $single_line_work work units for $single_line_bytes bytes"
+    if (( previous_bytes > 0 )); then
+        (( single_line_work * previous_bytes * 10 <= previous_work * single_line_bytes * 11 )) \
+            || fail "work per byte grew by more than 10 percent from $previous_bytes to $single_line_bytes bytes"
+    fi
+    if [[ -n "$scaling_summary" ]]; then scaling_summary="$scaling_summary, "; fi
+    scaling_summary="${scaling_summary}${pair_count} pairs ${single_line_bytes}/${single_line_work} bytes/work"
+    previous_bytes=$single_line_bytes
+    previous_work=$single_line_work
+done
 
 # --- 2. malformed tokens and stale exemptions fail closed ------------------
 malformed="$work/malformed"
@@ -191,6 +222,9 @@ mkdir -p "$malformed/crates/other/src"
 printf 'const BAD: &str = "never closes;\n' >"$malformed/crates/other/src/string.rs"
 printf 'const BAD: &str = r###"never closes;\n' >"$malformed/crates/other/src/raw.rs"
 printf 'const BAD: char = '\''\\\n' >"$malformed/crates/other/src/character.rs"
+printf 'const BAD: char = '\''!;\n' >"$malformed/crates/other/src/punctuation-character.rs"
+printf 'const BAD: char = '\'' ;\n' >"$malformed/crates/other/src/space-character.rs"
+printf 'const BAD: u8 = b'\''!;\n' >"$malformed/crates/other/src/punctuation-byte.rs"
 printf 'fn bad() { /* never closes\n' >"$malformed/crates/other/src/comment.rs"
 awk 'BEGIN {
     printf "const BAD: &str = r"
@@ -208,12 +242,32 @@ fi
 for expected in \
     'crates/other/src/character.rs:1: unsupported or unterminated Rust source: character literal does not close on its physical line' \
     'crates/other/src/comment.rs:1: unsupported or unterminated Rust source: nested block comment reaches end of file' \
+    'crates/other/src/punctuation-byte.rs:1: unsupported or unterminated Rust source: character literal does not close on its physical line' \
+    'crates/other/src/punctuation-character.rs:1: unsupported or unterminated Rust source: character literal does not close on its physical line' \
     "crates/other/src/raw-hash-limit.rs:1: unsupported or unterminated Rust source: raw string delimiter exceeds Rust's 255-hash limit" \
     'crates/other/src/raw.rs:1: unsupported or unterminated Rust source: raw string literal reaches end of file' \
+    'crates/other/src/space-character.rs:1: unsupported or unterminated Rust source: character literal does not close on its physical line' \
     'crates/other/src/string.rs:1: unsupported or unterminated Rust source: ordinary string literal reaches end of file'; do
     grep -Fq -- "$expected" <<<"$malformed_findings" \
         || fail "the malformed fixture did not produce '$expected': $malformed_findings"
 done
+
+rustc_rejects() {
+    local source=$1
+    local code=$2
+    local name=$3
+    local stderr_file="$work/$name.stderr"
+    if rustc --edition 2024 --crate-type lib --emit metadata -A warnings \
+        -o "$work/$name.rmeta" "$source" 2>"$stderr_file"; then
+        fail "rustc accepted the malformed $name fixture"
+    fi
+    grep -Fq "error[$code]" "$stderr_file" \
+        || fail "rustc did not report $code for the malformed $name fixture: $(cat "$stderr_file")"
+}
+
+rustc_rejects "$malformed/crates/other/src/punctuation-character.rs" E0762 punctuation-character
+rustc_rejects "$malformed/crates/other/src/space-character.rs" E0762 space-character
+rustc_rejects "$malformed/crates/other/src/punctuation-byte.rs" E0763 punctuation-byte
 
 stale_exemptions="$work/stale-exemptions.tsv"
 printf 'removed\tmultiline\tcrates/other/src/tokens.rs\t99\tconst REMOVED: &str = "gone\n' \
@@ -242,5 +296,5 @@ fi
 
 long_bytes=$(wc -c <"$positive/crates/other/src/long.rs" | tr -d '[:space:]')
 exemption_count=$(awk -F '\t' '!/^[[:space:]]*(#|$)/ { count++ } END { print count + 0 }' "$exemptions")
-printf 'rust literal continuity: %s Rust source(s), no accidental wrap; %s-byte line corpus; 4,000-literal single line used %s work units for %s bytes; %s exact exemption(s) used\n' \
-    "${#sources[@]}" "$long_bytes" "$single_line_work" "$single_line_bytes" "$exemption_count"
+printf 'rust literal continuity: %s Rust source(s), no accidental wrap; %s-byte line corpus; single-line scaling: %s; %s exact exemption(s) used\n' \
+    "${#sources[@]}" "$long_bytes" "$scaling_summary" "$exemption_count"
