@@ -94,10 +94,11 @@ drops_by_option() {
                 *) continue ;;
             esac
         fi
-        operand=${operand#\"}
-        operand=${operand%\"}
-        operand=${operand#\'}
-        operand=${operand%\'}
+        case "$operand" in
+            \"*\") operand=${operand#\"}; operand=${operand%\"} ;;
+            \'*\') operand=${operand#\'}; operand=${operand%\'} ;;
+            *\"*|*\'*) return 1 ;;
+        esac
         [[ "$operand" == "$wanted" ]] && return 0
     done
     return 1
@@ -281,11 +282,12 @@ plant_makefile() {
             longer-only)
                 printf '\tenv -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
                     PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
-            extended-x|extended-2|extended-old)
+            extended-x|extended-2|extended-old|extended-quoted)
                 case "$shape" in
                     extended-x) extended=PANGOPUP_MODEL_CACHEX ;;
                     extended-2) extended=PANGOPUP_MODEL_CACHE2 ;;
                     extended-old) extended=PANGOPUP_MODEL_CACHE-OLD ;;
+                    extended-quoted) extended='"PANGOPUP_MODEL_CACHE -OLD"' ;;
                 esac
                 printf '\tenv -u %s -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
                     "$extended" PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
@@ -410,7 +412,7 @@ expect_refusal 'without pinning CARGO_HOME' makefile_holds "$fixtures/unpinned/M
 plant_makefile "$fixtures/longer-only" longer-only
 expect_refusal 'with PANGOPUP_MODEL_CACHE inherited' makefile_holds "$fixtures/longer-only/Makefile" Makefile
 
-for shape in extended-x extended-2 extended-old; do
+for shape in extended-x extended-2 extended-old extended-quoted; do
     plant_makefile "$fixtures/$shape" "$shape"
     expect_refusal 'with PANGOPUP_MODEL_CACHE inherited' makefile_holds "$fixtures/$shape/Makefile" Makefile
 done

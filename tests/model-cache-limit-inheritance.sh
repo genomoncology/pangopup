@@ -62,10 +62,11 @@ drops_by_option() {
                 *) continue ;;
             esac
         fi
-        operand=${operand#\"}
-        operand=${operand%\"}
-        operand=${operand#\'}
-        operand=${operand%\'}
+        case "$operand" in
+            \"*\") operand=${operand#\"}; operand=${operand%\"} ;;
+            \'*\') operand=${operand#\'}; operand=${operand%\'} ;;
+            *\"*|*\'*) return 1 ;;
+        esac
         [[ "$operand" == "$wanted" ]] && return 0
     done
     return 1
@@ -117,6 +118,10 @@ for suffix in X 2 -OLD; do
     expect_no_match drops_by_option "env -u PANGOPUP_MODEL_CACHE$suffix true" PANGOPUP_MODEL_CACHE \
         "the option matcher reads PANGOPUP_MODEL_CACHE$suffix as the complete PANGOPUP_MODEL_CACHE operand"
 done
+expect_no_match drops_by_option 'env -u "PANGOPUP_MODEL_CACHE -OLD" true' PANGOPUP_MODEL_CACHE \
+    'the option matcher drops part of one quoted operand and reads it as the complete PANGOPUP_MODEL_CACHE operand'
+expect_match drops_by_option 'env -u "PANGOPUP_MODEL_CACHE" true' PANGOPUP_MODEL_CACHE \
+    'the option matcher rejects an exact quoted PANGOPUP_MODEL_CACHE operand'
 
 only_long_list='for name in ["PANGOPUP_MODEL_CACHE_MAX_ENTRIES"]'
 only_short_list='for name in ["PANGOPUP_MODEL_CACHE"]'

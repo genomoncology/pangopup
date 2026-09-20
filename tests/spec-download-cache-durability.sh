@@ -159,6 +159,12 @@ expand_path() {
     value=$(unquote_word "$raw") || return 1
     line_syntax_is_static "$value" || return 1
     validate_path_token "$value" "$label" || return 1
+    case "$value" in
+        *'$$HOME'[A-Za-z0-9_]*|*'$$PWD'[A-Za-z0-9_]*|*'$(CURDIR)'[A-Za-z0-9_]*)
+            printf 'unknown variable in %s: %s\n' "$label" "$raw" >&2
+            return 1
+            ;;
+    esac
     value=${value//\$\(CURDIR\)/$root}
     value=${value//\$\$PWD/$root}
     value=${value//\$\$HOME/$caller_home}
@@ -166,6 +172,18 @@ expand_path() {
         *'$'*) printf 'unknown variable in %s: %s\n' "$label" "$raw" >&2; return 1 ;;
     esac
     printf '%s\n' "$value"
+}
+
+validate_assignment_value() {
+    local raw=$1 name=$2 value
+    value=$(unquote_word "$raw") || return 1
+    line_syntax_is_static "$value" || return 1
+    case "$value" in
+        *';'*|*'|'*|*'&'*|*'<'*|*'>'*)
+            printf 'unsafe shell syntax in %s assignment\n' "$name" >&2
+            return 1
+            ;;
+    esac
 }
 
 # The directories the recipe on standard input removes, one per line, resolved
@@ -263,6 +281,7 @@ resolve_cache_path() {
             [A-Za-z_]*=*)
                 name=${word%%=*}
                 value=${word#*=}
+                validate_assignment_value "$value" "$name" || return 1
                 case "$name" in
                     ORT_CACHE_DIR) ort_set=yes; ort=$value ;;
                     XDG_CACHE_HOME) xdg_set=yes; xdg=$value ;;
@@ -501,6 +520,15 @@ plant() {
             unknown-variable)
                 printf '\trm -rf target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="$${UNKNOWN_CACHE}/ort" cargo build --locked\n' ;;
+            longer-home-variable)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$$HOME_CACHE/ort" cargo build --locked\n' ;;
+            longer-pwd-variable)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$$PWD_OTHER/ort" cargo build --locked\n' ;;
+            unsafe-other-assignment)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tOTHER="$$(>$(CURDIR)/sentinel)" ORT_CACHE_DIR="$(CURDIR)/.ort-cache" cargo build --locked\n' ;;
             nonnormal-absolute)
                 printf '\trm -rf target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="/../../ort-cache" cargo build --locked\n' ;;
@@ -659,6 +687,14 @@ expect_safe_refusal 'wildcard removal operand' "$work/wildcard-removal"
 
 plant "$work/unknown-variable" unknown-variable
 expect_safe_refusal 'unknown variable' "$work/unknown-variable"
+
+for shape in longer-home-variable longer-pwd-variable; do
+    plant "$work/$shape" "$shape"
+    expect_safe_refusal 'unknown variable' "$work/$shape"
+done
+
+plant "$work/unsafe-other-assignment" unsafe-other-assignment
+expect_safe_refusal 'unsafe shell syntax' "$work/unsafe-other-assignment"
 
 plant "$work/nonnormal-absolute" nonnormal-absolute
 expect_safe_refusal 'cannot normalize absolute path' "$work/nonnormal-absolute"
