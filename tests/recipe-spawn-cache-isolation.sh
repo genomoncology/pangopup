@@ -45,11 +45,6 @@ recipe_run="$run|PATH[^#]*target/(debug|release)"
 # environment reaching into a run that is supposed to stand on its own -- so
 # both are held here.
 #
-# `PANGOPUP_MODEL_CACHE_MAX_ENTRIES` contains `PANGOPUP_MODEL_CACHE`, so the
-# match below asks for a character other than `_` after each name. That is what
-# separates these two, and it is not a word boundary: a name extending one of
-# them by a letter or a digit still answers for the shorter one, measured in
-# sdlc/tickets/drafts/0107.
 named_locations=(PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES)
 
 fail() { printf 'recipe spawn cache isolation: %s\n' "$*" >&2; exit 1; }
@@ -79,6 +74,33 @@ owned_location() {
         */target/?*) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+# Text $1 drops $2 through one complete `env` option operand. Punctuation may
+# belong to a longer environment name, so a regex boundary is not sufficient.
+drops_by_option() {
+    local text=$1 wanted=$2 word operand expect_operand=no
+    local words=()
+    read -r -a words <<<"$text"
+    for word in "${words[@]}"; do
+        if [[ "$expect_operand" == yes ]]; then
+            operand=$word
+            expect_operand=no
+        else
+            case "$word" in
+                -u) expect_operand=yes; continue ;;
+                -u=*) operand=${word#-u=} ;;
+                --unset=*) operand=${word#--unset=} ;;
+                *) continue ;;
+            esac
+        fi
+        operand=${operand#\"}
+        operand=${operand%\"}
+        operand=${operand#\'}
+        operand=${operand%\'}
+        [[ "$operand" == "$wanted" ]] && return 0
+    done
+    return 1
 }
 
 # --- the three rules --------------------------------------------------------
@@ -119,7 +141,10 @@ makefile_holds() {
             refused=1
         done
         for name in "${named_locations[@]}"; do
-            grep -qE -- "-u[[:space:]=]+$name([^_]|\$)|(^|[[:space:]])$name=\"?\\\$\\(CURDIR\\)/target/" <<<"$text" && continue
+            if drops_by_option "$text" "$name" \
+                || grep -qE -- "(^|[[:space:]])$name=\"?\\\$\\(CURDIR\\)/target/" <<<"$text"; then
+                continue
+            fi
             printf 'this recipe reaches the built executable with %s inherited, so the operator who exported it decides where that run keeps its model cache or how much of it the run may keep: %s:%s\n' \
                 "$name" "$relative" "$number" >&2
             refused=1
@@ -256,6 +281,14 @@ plant_makefile() {
             longer-only)
                 printf '\tenv -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
                     PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
+            extended-x|extended-2|extended-old)
+                case "$shape" in
+                    extended-x) extended=PANGOPUP_MODEL_CACHEX ;;
+                    extended-2) extended=PANGOPUP_MODEL_CACHE2 ;;
+                    extended-old) extended=PANGOPUP_MODEL_CACHE-OLD ;;
+                esac
+                printf '\tenv -u %s -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
+                    "$extended" PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
             limit-inherited)
                 printf '\tenv -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
                     PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR debug ;;
@@ -376,6 +409,11 @@ expect_refusal 'without pinning CARGO_HOME' makefile_holds "$fixtures/unpinned/M
 # refused for the shorter.
 plant_makefile "$fixtures/longer-only" longer-only
 expect_refusal 'with PANGOPUP_MODEL_CACHE inherited' makefile_holds "$fixtures/longer-only/Makefile" Makefile
+
+for shape in extended-x extended-2 extended-old; do
+    plant_makefile "$fixtures/$shape" "$shape"
+    expect_refusal 'with PANGOPUP_MODEL_CACHE inherited' makefile_holds "$fixtures/$shape/Makefile" Makefile
+done
 
 # And the other direction: dropping the three older names leaves the run
 # whatever limit the operator exported.

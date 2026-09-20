@@ -43,11 +43,32 @@ fail() { printf 'model cache limit inheritance: %s\n' "$*" >&2; exit 1; }
 
 # --- the two matchers -------------------------------------------------------
 
-# Text $1 drops $2 by option: `env -u NAME`, long or short. The trailing class
-# is what keeps `-u PANGOPUP_MODEL_CACHE_MAX_ENTRIES` from reading as a drop of
-# `PANGOPUP_MODEL_CACHE`.
+# Text $1 drops $2 by option: `env -u NAME`, `env -u=NAME`, or
+# `env --unset=NAME`. Compare the complete operand. Punctuation may belong to
+# a longer environment name even when the product does not use that name.
 drops_by_option() {
-    grep -qE -- "(-u[[:space:]=]+|--unset=)$2([^A-Za-z0-9_]|\$)" <<<"$1"
+    local text=$1 wanted=$2 word operand expect_operand=no
+    local words=()
+    read -r -a words <<<"$text"
+    for word in "${words[@]}"; do
+        if [[ "$expect_operand" == yes ]]; then
+            operand=$word
+            expect_operand=no
+        else
+            case "$word" in
+                -u) expect_operand=yes; continue ;;
+                -u=*) operand=${word#-u=} ;;
+                --unset=*) operand=${word#--unset=} ;;
+                *) continue ;;
+            esac
+        fi
+        operand=${operand#\"}
+        operand=${operand%\"}
+        operand=${operand#\'}
+        operand=${operand%\'}
+        [[ "$operand" == "$wanted" ]] && return 0
+    done
+    return 1
 }
 
 # Text $1 carries $2 as a quoted name in a list, the way both the Rust helper
@@ -91,6 +112,11 @@ expect_match drops_by_option "$both_options" PANGOPUP_MODEL_CACHE \
     'the option matcher misses PANGOPUP_MODEL_CACHE in a route that drops both names'
 expect_match drops_by_option "$both_options" "$limit" \
     'the option matcher misses the entry limit in a route that drops both names'
+
+for suffix in X 2 -OLD; do
+    expect_no_match drops_by_option "env -u PANGOPUP_MODEL_CACHE$suffix true" PANGOPUP_MODEL_CACHE \
+        "the option matcher reads PANGOPUP_MODEL_CACHE$suffix as the complete PANGOPUP_MODEL_CACHE operand"
+done
 
 only_long_list='for name in ["PANGOPUP_MODEL_CACHE_MAX_ENTRIES"]'
 only_short_list='for name in ["PANGOPUP_MODEL_CACHE"]'
