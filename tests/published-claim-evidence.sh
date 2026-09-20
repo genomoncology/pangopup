@@ -56,16 +56,45 @@ fail() { printf 'published claim evidence: %s\n' "$*" >&2; exit 1; }
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-# The `## <heading>` section of a Markdown file, up to the next `## ` heading,
-# read as one flat run of words. The published prose is hand-wrapped, so every
-# comparison below reads it unwrapped: a reflow is a copy edit and must not
-# fail anything here.
-section() {
+# The `## <heading>` section of a Markdown file, up to the next `## ` heading.
+section_raw() {
     awk -v want="$2" '
         $0 == want { on = 1; next }
         on && /^## / { exit }
         on { print }
-    ' "$1" | tr '\n' ' ' | tr -s ' '
+    ' "$1"
+}
+
+# Read that section as one flat run of words. The published prose is
+# hand-wrapped, so a reflow remains a copy edit.
+section() { section_raw "$@" | tr '\n' ' ' | tr -s ' '; }
+
+# Read one flattened Markdown paragraph per line. Calculations that share a
+# paragraph stay together, while a later paragraph cannot lend them a missing
+# term or divisor.
+section_paragraphs() {
+    section_raw "$@" | awk '
+        /^[[:space:]]*$/ {
+            if (paragraph != "") print paragraph
+            paragraph = ""
+            next
+        }
+        {
+            line = $0
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+            paragraph = paragraph (paragraph == "" ? "" : " ") line
+        }
+        END { if (paragraph != "") print paragraph }
+    '
+}
+
+# Remove or retain fenced code without depending on prose line wrapping.
+section_without_fences() {
+    section_raw "$@" | awk '/^```/ { fenced = !fenced; next } !fenced'
+}
+
+section_fences() {
+    section_raw "$@" | awk '/^```/ { fenced = !fenced; next } fenced'
 }
 
 # The whole of a Markdown file, read the same way.
@@ -97,6 +126,16 @@ displayed() {
         *.*) printf '%s\n' "$1" ;;
         *) grouped "$1" ;;
     esac
+}
+
+fixed_count() {
+    local matches
+    matches=$(grep -oF -- "$2" <<<"$1" || true)
+    if [[ -z "$matches" ]]; then
+        printf '0\n'
+    else
+        wc -l <<<"$matches" | tr -d ' '
+    fi
 }
 
 # =============================================================================
@@ -729,8 +768,10 @@ named_total() {
 
 check_entropy_derivation() {
     local root=$1 artifact=$1/$entropy_artifact_relative analyzer=$1/$entropy_analyzer_relative
-    local text source rows loci record_entropy ref_entropy locus_entropy
-    local separate_total joint_total
+    local raw text paragraphs prose code source rows loci record_entropy ref_entropy locus_entropy
+    local separate_total joint_total separate_claim separate_affirmative joint_claim joint_affirmative
+    local precision_candidates precision_affirmative entropy_precision whole_byte_precision
+    local separate_prose joint_prose separate_code joint_code figure
 
     [[ -f "$root/$index_relative" ]] || {
         printf 'no %s to carry the published entropy totals\n' "$index_relative" >&2
@@ -746,12 +787,16 @@ check_entropy_derivation() {
         return 1
     }
 
-    text=$(section "$root/$index_relative" "$entropy_section")
+    raw=$(section_raw "$root/$index_relative" "$entropy_section")
+    text=$(tr '\n' ' ' <<<"$raw" | tr -s ' ')
     [[ -n "${text// /}" ]] || {
         printf '%s has no `%s` section, so this check read no entropy claim\n' \
             "$index_relative" "$entropy_section" >&2
         return 1
     }
+    paragraphs=$(section_paragraphs "$root/$index_relative" "$entropy_section")
+    prose=$(section_without_fences "$root/$index_relative" "$entropy_section" | tr '\n' ' ' | tr -s ' ')
+    code=$(section_fences "$root/$index_relative" "$entropy_section" | tr '\n' ' ' | tr -s ' ')
     source=$(flatten "$analyzer")
 
     rows=$(table_cell "$artifact" 'SNV rows')
@@ -796,40 +841,119 @@ check_entropy_derivation() {
             return 1
         }
     done
+
+    separate_prose=$(fixed_count "$prose" "$(grouped "$separate_total")")
+    joint_prose=$(fixed_count "$prose" "$(grouped "$joint_total")")
+    separate_code=$(fixed_count "$code" "$(grouped "$separate_total")")
+    joint_code=$(fixed_count "$code" "$(grouped "$joint_total")")
+    if (( separate_prose != 1 || separate_code != 0 )); then
+        printf '%s does not publish the retained separate total once in prose and nowhere in the joint-total code block\n' \
+            "$entropy_section" >&2
+        return 1
+    fi
+    if (( joint_prose != 1 || joint_code != 1 )); then
+        printf '%s does not publish the retained joint total once in prose and once in the code block\n' \
+            "$entropy_section" >&2
+        return 1
+    fi
+    while IFS= read -r figure; do
+        [[ -n "$figure" ]] || continue
+        if (( figure != separate_total && figure != joint_total )); then
+            printf '%s publishes unexpected byte total %s alongside the retained totals\n' \
+                "$entropy_section" "$(grouped "$figure")" >&2
+            return 1
+        fi
+    done <<<"$(byte_figures "$text")"
+
     grep -Fq "$entropy_artifact_relative" <<<"$text" || {
         printf '%s does not cite %s as the source of its retained entropy inputs and totals\n' \
             "$entropy_section" "$entropy_artifact_relative" >&2
         return 1
     }
-    grep -Eqi 'both[^.]{0,120}(unrounded[^.]{0,80}f64|f64[^.]{0,80}unrounded)' <<<"$text" || {
+
+    precision_candidates=$(printf '%s' "$text" | sentences \
+        | grep -Ei 'both (retained )?(calculations?|totals)' \
+        | grep -Ei 'unrounded' | grep -Ei 'f64' || true)
+    [[ -n "$precision_candidates" ]] || {
         printf '%s does not say both exact byte totals use unrounded f64 entropy values\n' \
             "$entropy_section" >&2
         return 1
     }
-    grep -Eqi 'six decimal (places|digits)' <<<"$text" || {
+    precision_affirmative=$(affirmative_only "$precision_candidates" \
+        'both (retained )?(calculations?|totals)' '(unrounded.*f64|f64.*unrounded)' || true)
+    [[ -n "$precision_affirmative" ]] || {
+        printf '%s states the unrounded f64 precision only to deny it\n' \
+            "$entropy_section" >&2
+        return 1
+    }
+
+    entropy_precision=$(printf '%s' "$text" | sentences | grep -Ei 'entropy' \
+        | grep -Ei 'six decimal (places|digits)' || true)
+    [[ -n "$entropy_precision" ]] \
+        && [[ -n "$(affirmative_only "$entropy_precision" 'entropy' 'six decimal (places|digits)' || true)" ]] || {
         printf '%s does not say the displayed entropy values are rounded to six decimal places\n' \
             "$entropy_section" >&2
         return 1
     }
-    grep -Eqi '(nearest|rounded to (a )?) whole byte' <<<"$text" || {
+    whole_byte_precision=$(printf '%s' "$text" | sentences | grep -Ei 'whole byte' || true)
+    [[ -n "$whole_byte_precision" ]] \
+        && [[ -n "$(affirmative_only "$whole_byte_precision" 'byte totals?' 'whole byte' || true)" ]] || {
         printf '%s does not say the displayed byte totals are rounded to whole bytes\n' \
             "$entropy_section" >&2
         return 1
     }
-    grep -Eqi '(one|single) pooled[^.]{0,80}(complete[- ]record|record) entropy' <<<"$text" \
-        && grep -Eqi '(all|every)[^.]*(SNV )?rows' <<<"$text" || {
+
+    separate_claim=$(printf '%s\n' "$paragraphs" | grep -Ei '(one|single) pooled' \
+        | grep -Ei '(complete[- ]record|record) entropy' || true)
+    [[ -n "$separate_claim" ]] \
+        && grep -Fq "$(displayed "$record_entropy")" <<<"$separate_claim" \
+        && grep -Fq "$(grouped "$rows")" <<<"$separate_claim" \
+        && grep -Eqi '(all|every).*(SNV )?rows' <<<"$separate_claim" || {
         printf '%s does not say the separate-stream total uses one pooled complete-record entropy across all SNV rows\n' \
             "$entropy_section" >&2
         return 1
     }
-    grep -Eqi 'reference entropy' <<<"$text" \
-        && grep -Eqi '(sum|add|plus).*(divid.*(by )?eight|/ ?8)' <<<"$text" || {
-        printf '%s does not state that the separate-stream calculation adds reference entropy across loci and divides the sum by eight\n' \
+    grep -Eqi 'reference entropy' <<<"$separate_claim" \
+        && grep -Fq "$(displayed "$ref_entropy")" <<<"$separate_claim" \
+        && grep -Fq "$(grouped "$loci")" <<<"$separate_claim" \
+        && grep -Eqi '(sum|add|plus)' <<<"$separate_claim" || {
+        printf '%s does not bind the pooled record and reference entropy terms to one separate-stream calculation\n' \
             "$entropy_section" >&2
         return 1
     }
-    grep -Eqi '(joint[- ]locus|complete reference \+ three-alternate locus).*(times|multipl).*(locus|loci).*(divid.*(by )?eight|/ ?8)' <<<"$text" || {
+    grep -Eqi '(divid.*(by )?eight|/ ?8)' <<<"$separate_claim" || {
+        printf '%s does not bind division by eight to the separate-stream calculation\n' \
+            "$entropy_section" >&2
+        return 1
+    }
+    separate_affirmative=$(affirmative_only "$separate_claim" \
+        '(one|single) pooled.*(complete[- ]record|record) entropy' \
+        '(divid.*(by )?eight|/ ?8)' || true)
+    [[ -n "$separate_affirmative" ]] || {
+        printf '%s states the separate-stream terms only to deny one of them\n' \
+            "$entropy_section" >&2
+        return 1
+    }
+
+    joint_claim=$(printf '%s\n' "$paragraphs" | grep -Ei 'joint[- ]locus' \
+        | grep -Ei '(times|multipl)' || true)
+    [[ -n "$joint_claim" ]] \
+        && grep -Fq "$(displayed "$locus_entropy")" <<<"$joint_claim" \
+        && grep -Fq "$(grouped "$loci")" <<<"$joint_claim" \
+        && grep -Eqi '(divid.*(by )?eight|/ ?8)' <<<"$joint_claim" || {
         printf '%s does not state that the joint total is joint-locus entropy times loci divided by eight\n' \
+            "$entropy_section" >&2
+        return 1
+    }
+    joint_affirmative=$(affirmative_only "$joint_claim" 'joint[- ]locus' \
+        '(divid.*(by )?eight|/ ?8)' || true)
+    [[ -n "$joint_affirmative" ]] || {
+        printf '%s states the joint-locus calculation only to deny it\n' \
+            "$entropy_section" >&2
+        return 1
+    }
+    grep -Eqi '(displayed|rounded|six[- ]decimal)' <<<"$joint_claim" && {
+        printf '%s presents the joint-locus multiplication as using a displayed or rounded entropy value\n' \
             "$entropy_section" >&2
         return 1
     }
@@ -959,14 +1083,23 @@ ARTIFACT
 The retained analyzer reports 1.848462 bits for one pooled complete-record
 entropy across all 3,000,000 SNV rows and a reference entropy of 1.980969 bits
 across 1,000,000 loci. It adds those two products and divides the sum by eight,
-which gives 999,999 bytes. Its joint-locus calculation multiplies the 5.995913-bit
+which gives 999,999 bytes.
+
+Its joint-locus calculation multiplies the 5.995913-bit
 complete reference + three-alternate locus entropy by 1,000,000 loci and
-divides by eight, which gives 749,999 bytes. The analyzer calculates both
+divides by eight, which gives 749,999 bytes.
+
+The analyzer calculates both
 totals from unrounded `f64` entropy values before it rounds entropy for display
 to six decimal places and each total to the nearest whole byte. The displayed
 values therefore do not reproduce the exact totals. The retained inputs and
 results are in
 [`planning/artifacts/2026-07-20-full-dataset-entropy.md`](planning/artifacts/2026-07-20-full-dataset-entropy.md).
+
+```text
+5.995913 bits per locus
+749,999 bytes total
+```
 
 ## Selected fixed-width v1
 
@@ -1247,21 +1380,33 @@ check_index_size "$index_edited" >/dev/null \
 expect_refusal check_entropy_derivation "$(mutate en-rounded-input swap "$index_relative" \
     'unrounded `f64` entropy values' 'displayed six-decimal entropy values')" \
     'does not say both exact byte totals use unrounded f64 entropy values'
+expect_refusal check_entropy_derivation "$(mutate en-negated-precision swap "$index_relative" \
+    'The analyzer calculates both totals from unrounded `f64` entropy values' \
+    'The analyzer says both totals do not use unrounded `f64` entropy values')" \
+    'states the unrounded f64 precision only to deny it'
+expect_refusal check_entropy_derivation "$(mutate en-joint-rounded-input swap "$index_relative" \
+    'Its joint-locus calculation multiplies the 5.995913-bit complete' \
+    'Its joint-locus calculation multiplies the displayed rounded 5.995913-bit complete')" \
+    'presents the joint-locus multiplication as using a displayed or rounded entropy value'
 expect_refusal check_entropy_derivation "$(mutate en-three-alt-streams swap "$index_relative" \
     'one pooled complete-record entropy across all 3,000,000 SNV rows' \
     'three distinct alternate-record entropies across all 3,000,000 SNV rows')" \
     'does not say the separate-stream total uses one pooled complete-record entropy'
 expect_refusal check_entropy_derivation "$(mutate en-no-reference-product swap "$index_relative" \
     'It adds those two products and divides the sum by eight' \
-    'It uses only the record product and divides it by eight')" \
-    'does not state that the separate-stream calculation adds reference entropy'
+    'It adds the record product, omits the reference product, and divides the sum by eight')" \
+    'states the separate-stream terms only to deny one of them'
+expect_refusal check_entropy_derivation "$(mutate en-wrong-separate-divisor swap "$index_relative" \
+    'It adds those two products and divides the sum by eight' \
+    'It adds those two products and divides the sum by sixteen')" \
+    'does not bind division by eight to the separate-stream calculation'
 expect_refusal check_entropy_derivation "$(mutate en-no-joint-divisor swap "$index_relative" \
     'complete reference + three-alternate locus entropy by 1,000,000 loci and divides by eight' \
     'complete reference + three-alternate locus entropy by 1,000,000 loci')" \
     'does not state that the joint total is joint-locus entropy times loci divided by eight'
 expect_refusal check_entropy_derivation "$(mutate en-joint-total-drift swap "$index_relative" \
     '749,999 bytes' '749,998 bytes')" \
-    'does not publish retained entropy input or result 749,999'
+    'does not publish the retained joint total once in prose and once in the code block'
 expect_refusal check_entropy_derivation "$(mutate en-separate-total-drift swap "$index_relative" \
     '999,999 bytes' '999,998 bytes')" \
     'does not publish retained entropy input or result 999,999'
