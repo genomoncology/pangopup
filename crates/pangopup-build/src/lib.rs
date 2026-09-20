@@ -11,6 +11,8 @@ mod reference_builder;
 mod reference_certification;
 pub mod runtime_profile;
 pub mod runtime_release;
+#[cfg(feature = "runtime-v2-qualification")]
+pub mod runtime_v2_qualification;
 mod snv;
 mod source_fingerprint;
 mod sparse_candidate;

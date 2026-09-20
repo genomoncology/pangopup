@@ -850,6 +850,22 @@ mod tests {
     }
 
     #[test]
+    fn checked_sparse_authority_rejects_a_valid_nonauthority_bundle() {
+        let temp = Temp::new();
+        let sparse = write_bundle(
+            &temp,
+            "checked-authority-substitution",
+            SPARSE_INDEX_FORMAT,
+            SPARSE_MEDIA_TYPE,
+            &miniature(),
+        );
+        assert_eq!(
+            crate::qualified_sparse_runtime_profile(&sparse),
+            Err(crate::RuntimeProfileError::Incompatible)
+        );
+    }
+
+    #[test]
     fn sparse_certification_rejects_payload_digest_count_and_size_failures() {
         let temp = Temp::new();
         let genes = miniature();

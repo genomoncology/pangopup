@@ -10,6 +10,7 @@ build = "build.rs"
 [features]
 test-read-audit = []
 test-fixtures = []
+runtime-v2-qualification = []
 
 [dependencies]
 libc = "0.2.188"

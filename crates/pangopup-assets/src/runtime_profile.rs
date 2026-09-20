@@ -198,9 +198,16 @@ pub fn production_runtime_profile() -> RuntimeProfile {
 pub fn qualified_sparse_runtime_profile(
     path: &Path,
 ) -> Result<RuntimeProfile, RuntimeProfileError> {
+    let qualified = qualified_runtime_v2_authority()?;
+    qualified_sparse_runtime_profile_against(path, &qualified.snv)
+}
+
+pub(crate) fn qualified_runtime_v2_authority() -> Result<RuntimeProfile, RuntimeProfileError> {
     let qualified =
         crate::release::qualified_v2_profile().map_err(|_| RuntimeProfileError::InvalidFacts)?;
-    qualified_sparse_runtime_profile_against(path, &qualified.snv)
+    let mut profile = production_runtime_profile();
+    profile.snv = qualified.snv.clone();
+    Ok(profile)
 }
 
 #[cfg(test)]
@@ -620,7 +627,8 @@ mod tests {
         let qualified = crate::release::qualified_v2_profile().expect("qualified authority");
         let mut expected = fixed.clone();
         expected.snv = qualified.snv;
-        let sparse = expected;
+        let sparse = qualified_runtime_v2_authority().expect("runtime v2 authority");
+        assert_eq!(sparse, expected);
         assert_eq!(sparse.model, fixed.model);
         assert_eq!(sparse.reference, fixed.reference);
         assert_eq!(sparse.mask, fixed.mask);
