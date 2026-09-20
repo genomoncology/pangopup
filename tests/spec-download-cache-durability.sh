@@ -216,16 +216,21 @@ validate_unset_operand() {
     esac
 }
 
-validate_env_prefix_word() {
-    local raw=$1 value
+validate_env_command_or_option() {
+    local raw=$1
     case "$raw" in
-        \"*\"|\'*\') ;;
-        *) return 0 ;;
+        *\"*|*\'*|*\\*)
+            printf 'unsupported quoted or escaped env command or option: %s\n' "$raw" >&2
+            return 1
+            ;;
     esac
-    value=$(unquote_word "$raw") || return 1
-    case "$value" in
-        -u|--unset=*|[A-Za-z_]*=*)
-            printf 'unsupported whole-word quoted env prefix: %s\n' "$raw" >&2
+}
+
+validate_assignment_name() {
+    local name=$1
+    case "$name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*)
+            printf 'unsupported env assignment name: %s\n' "$name" >&2
             return 1
             ;;
     esac
@@ -295,7 +300,7 @@ cache_deciding_lines() {
 # Return 2 for the supported relative ORT_CACHE_DIR exception.
 resolve_cache_path() {
     local line=$1 root=$2 caller_cache="$root/.caller-cache" caller_home="$root/.caller-home"
-    local word name value operand expect_unset=no
+    local word name value operand expect_unset=no saw_env=no word_index=0
     local ort_set=no ort='' xdg_set=yes xdg="$caller_cache" home_set=yes home="$caller_home"
     local expanded
     local words=()
@@ -312,12 +317,24 @@ resolve_cache_path() {
             esac
             continue
         fi
-        validate_env_prefix_word "$word" || return 1
         case "$word" in
-            env) continue ;;
+            env)
+                validate_env_command_or_option "$word" || return 1
+                (( word_index == 0 )) || break
+                saw_env=yes
+                word_index=$((word_index + 1))
+                continue
+                ;;
             eval) printf 'unsafe shell syntax: eval\n' >&2; return 1 ;;
-            -u) expect_unset=yes; continue ;;
+            -u)
+                validate_env_command_or_option "$word" || return 1
+                [[ "$saw_env" == yes ]] || break
+                expect_unset=yes
+                word_index=$((word_index + 1))
+                continue
+                ;;
             --unset=*)
+                [[ "$saw_env" == yes ]] || break
                 operand=${word#--unset=}
                 validate_unset_operand "$operand" || return 1
                 operand=$(unquote_word "$operand") || return 1
@@ -326,10 +343,12 @@ resolve_cache_path() {
                     XDG_CACHE_HOME) xdg_set=no; xdg='' ;;
                     HOME) home_set=no; home='' ;;
                 esac
+                word_index=$((word_index + 1))
                 continue
                 ;;
-            [A-Za-z_]*=*)
+            *=*)
                 name=${word%%=*}
+                validate_assignment_name "$name" || return 1
                 value=${word#*=}
                 validate_assignment_value "$value" "$name" || return 1
                 case "$name" in
@@ -337,9 +356,16 @@ resolve_cache_path() {
                     XDG_CACHE_HOME) xdg_set=yes; xdg=$value ;;
                     HOME) home_set=yes; home=$value ;;
                 esac
+                word_index=$((word_index + 1))
                 continue
                 ;;
-            *) break ;;
+            *)
+                validate_env_command_or_option "$word" || return 1
+                case "$word" in
+                    -*) [[ "$saw_env" == no ]] || { printf 'unsupported env option: %s\n' "$word" >&2; return 1; } ;;
+                esac
+                break
+                ;;
         esac
     done
     [[ "$expect_unset" == no ]] || {
@@ -564,6 +590,21 @@ plant() {
             quoted-assignment-word)
                 printf '\trm -rf target/ort-cache\n'
                 printf '\tenv "ORT_CACHE_DIR=$(CURDIR)/target/ort-cache" cargo build --locked\n' ;;
+            quoted-env-command)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\t"env" ORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked\n' ;;
+            joined-env-command)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\te"nv" ORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked\n' ;;
+            joined-short-option)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv "-"u XDG_CACHE_HOME ORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked\n' ;;
+            quoted-assignment-name)
+                printf '\trm -rf target/ort-cache\n'
+                printf '\tenv ORT_CACHE_"DIR"="$(CURDIR)/target/ort-cache" cargo build --locked\n' ;;
+            escaped-assignment-name)
+                printf '\trm -rf target/ort-cache\n'
+                printf '\t%s\n' 'env ORT_CACHE_\DIR="$(CURDIR)/target/ort-cache" cargo build --locked' ;;
             removal-dot)
                 printf '\trm -rf ./target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="$(CURDIR)/target/spec-cache/ort" cargo build --locked\n' ;;
@@ -762,9 +803,21 @@ for form in short long; do
     expect_linux_safe_refusal 'wildcard unset operand' "$work/unset-wildcard-$form"
 done
 
-for shape in quoted-short-option-word quoted-long-option-word quoted-assignment-word; do
+plant "$work/quoted-short-option-word" quoted-short-option-word
+expect_linux_safe_refusal 'quoted or escaped env command or option' "$work/quoted-short-option-word"
+for shape in quoted-long-option-word quoted-assignment-word; do
     plant "$work/$shape" "$shape"
-    expect_linux_safe_refusal 'whole-word quoted env prefix' "$work/$shape"
+    expect_linux_safe_refusal 'env assignment name' "$work/$shape"
+done
+
+for shape in quoted-env-command joined-env-command joined-short-option; do
+    plant "$work/$shape" "$shape"
+    expect_linux_safe_refusal 'quoted or escaped env command or option' "$work/$shape"
+done
+
+for shape in quoted-assignment-name escaped-assignment-name; do
+    plant "$work/$shape" "$shape"
+    expect_linux_safe_refusal 'env assignment name' "$work/$shape"
 done
 
 # Clearing `XDG_CACHE_HOME` sends the resolution to `$HOME`, which the recipe
