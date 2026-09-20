@@ -24,7 +24,16 @@ scan() {
     local root=$1
     local allowed=$2
     shift 2
-    awk -v root="$root" -v exemptions="$allowed" -f "$scanner" "$@"
+    LC_ALL=C awk -v root="$root" -v exemptions="$allowed" -f "$scanner" "$@"
+}
+
+scan_accounted() {
+    local root=$1
+    local allowed=$2
+    local report=$3
+    shift 3
+    LC_ALL=C awk -v root="$root" -v exemptions="$allowed" -v work_report="$report" \
+        -f "$scanner" "$@"
 }
 
 empty_exemptions="$work/empty-exemptions.tsv"
@@ -118,8 +127,33 @@ mkdir -p "$positive/crates/other/src"
     printf '    data"###;\n'
 } >"$positive/crates/other/src/tokens.rs"
 
+{
+    printf 'const CRLF: &str = "continued across CRLF \\\r\n'
+    printf '    text";\r\n'
+    printf 'const BLANKS: &str = "continued across blank lines \\\n'
+    printf '    \n'
+    printf '\t\n'
+    printf '    text";\n'
+    printf 'const BYTE_BLANKS: &[u8] = b"continued byte text \\\n'
+    printf ' \t \n'
+    printf '    bytes";\n'
+} >"$positive/crates/other/src/continuations.rs"
+
+{
+    printf "const CHAR: char = 'é';\n"
+    printf "fn unicode_lifetime<'é>(value: &'é str) -> &'é str { value }\n"
+} >"$positive/crates/other/src/unicode.rs"
+
 awk 'BEGIN { for (i = 1; i <= 25000; i++) printf "const LINE_%d: &str = \"checked linear fixture %d\";\n", i, i }' \
     >"$positive/crates/other/src/long.rs"
+
+awk 'BEGIN {
+    printf "const MANY: &[&str] = &["
+    for (i = 1; i <= 2000; i++) {
+        printf "\"ordinary-%d\",r#\"raw-%d\"# ,", i, i
+    }
+    print "];"
+}' >"$positive/crates/other/src/long-single-line.rs"
 
 positive_sources=()
 while IFS= read -r source; do positive_sources+=("$source"); done < <(
@@ -130,6 +164,27 @@ positive_findings=$(scan "$positive" "$empty_exemptions" "${positive_sources[@]}
 [[ -z "$positive_findings" ]] \
     || fail "the positive fixture produced findings: $positive_findings"
 
+rustc --edition 2024 --crate-type lib --emit metadata -A warnings \
+    -o "$work/continuations.rmeta" "$positive/crates/other/src/continuations.rs"
+rustc --edition 2024 --crate-type lib --emit metadata -A warnings \
+    -o "$work/unicode.rmeta" "$positive/crates/other/src/unicode.rs"
+
+work_report="$work/single-line-work.tsv"
+single_line_findings=$(scan_accounted "$positive" "$empty_exemptions" "$work_report" \
+    "$positive/crates/other/src/long-single-line.rs" 2>&1) \
+    || fail "the scanner refused the long single-line fixture: $single_line_findings"
+[[ -z "$single_line_findings" ]] \
+    || fail "the long single-line fixture produced findings: $single_line_findings"
+[[ "$(wc -l <"$positive/crates/other/src/long-single-line.rs" | tr -d '[:space:]')" == 1 ]] \
+    || fail 'the long single-line work fixture no longer occupies exactly one physical line'
+read -r single_line_bytes single_line_work <"$work_report"
+[[ "$single_line_bytes" =~ ^[1-9][0-9]*$ && "$single_line_work" =~ ^[1-9][0-9]*$ ]] \
+    || fail "the scanner wrote malformed work accounting: $(cat "$work_report")"
+[[ "$single_line_bytes" == "$(wc -c <"$positive/crates/other/src/long-single-line.rs" | tr -d '[:space:]')" ]] \
+    || fail 'the scanner byte accounting does not equal the long single-line fixture size'
+(( single_line_work <= single_line_bytes * 12 )) \
+    || fail "the long single-line scan used $single_line_work work units for $single_line_bytes bytes"
+
 # --- 2. malformed tokens and stale exemptions fail closed ------------------
 malformed="$work/malformed"
 mkdir -p "$malformed/crates/other/src"
@@ -137,6 +192,11 @@ printf 'const BAD: &str = "never closes;\n' >"$malformed/crates/other/src/string
 printf 'const BAD: &str = r###"never closes;\n' >"$malformed/crates/other/src/raw.rs"
 printf 'const BAD: char = '\''\\\n' >"$malformed/crates/other/src/character.rs"
 printf 'fn bad() { /* never closes\n' >"$malformed/crates/other/src/comment.rs"
+awk 'BEGIN {
+    printf "const BAD: &str = r"
+    for (i = 1; i <= 256; i++) printf "#"
+    print "\"unsupported\";"
+}' >"$malformed/crates/other/src/raw-hash-limit.rs"
 
 malformed_sources=()
 while IFS= read -r source; do malformed_sources+=("$source"); done < <(
@@ -148,6 +208,7 @@ fi
 for expected in \
     'crates/other/src/character.rs:1: unsupported or unterminated Rust source: character literal does not close on its physical line' \
     'crates/other/src/comment.rs:1: unsupported or unterminated Rust source: nested block comment reaches end of file' \
+    "crates/other/src/raw-hash-limit.rs:1: unsupported or unterminated Rust source: raw string delimiter exceeds Rust's 255-hash limit" \
     'crates/other/src/raw.rs:1: unsupported or unterminated Rust source: raw string literal reaches end of file' \
     'crates/other/src/string.rs:1: unsupported or unterminated Rust source: ordinary string literal reaches end of file'; do
     grep -Fq -- "$expected" <<<"$malformed_findings" \
@@ -181,5 +242,5 @@ fi
 
 long_bytes=$(wc -c <"$positive/crates/other/src/long.rs" | tr -d '[:space:]')
 exemption_count=$(awk -F '\t' '!/^[[:space:]]*(#|$)/ { count++ } END { print count + 0 }' "$exemptions")
-printf 'rust literal continuity: %s Rust source(s), no accidental wrap; %s-byte linear fixture; %s exact exemption(s) used\n' \
-    "${#sources[@]}" "$long_bytes" "$exemption_count"
+printf 'rust literal continuity: %s Rust source(s), no accidental wrap; %s-byte line corpus; 4,000-literal single line used %s work units for %s bytes; %s exact exemption(s) used\n' \
+    "${#sources[@]}" "$long_bytes" "$single_line_work" "$single_line_bytes" "$exemption_count"

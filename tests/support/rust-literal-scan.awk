@@ -2,11 +2,6 @@
 # cover only tokens that can hide or introduce a string boundary: comments,
 # character literals, ordinary strings, and raw strings.
 
-function trim_start(value) {
-    sub(/^[[:space:]]*/, "", value)
-    return value
-}
-
 function repeat(character, count,    value, index_) {
     value = ""
     for (index_ = 0; index_ < count; index_++) value = value character
@@ -20,9 +15,9 @@ function relative_path(filename,    prefix, path) {
     return path
 }
 
-function report(kind, line_number, detail,    key) {
-    key = kind SUBSEP source_path SUBSEP start_line SUBSEP literal_opening
-    if (key in exempt_name) {
+function report(kind, line_number, detail, opening,    key) {
+    key = kind SUBSEP source_path SUBSEP start_line
+    if ((key in exempt_name) && opening == exempt_opening[key]) {
         exempt_used[key] = 1
         return
     }
@@ -39,30 +34,54 @@ function report_error(line_number, detail) {
 function check_collapsed(segment, line_number) {
     if (segment ~ /[[:alnum:]_]   +[[:alnum:]_]/) {
         report("collapsed", line_number,
-            "ordinary string contains three or more spaces between word characters")
+            "ordinary string contains three or more spaces between word characters",
+            literal_opening == "" ? line_opening : literal_opening)
     }
 }
 
-function probable_character(line, position,    next_character) {
-    next_character = substr(line, position + 1, 1)
-    if (next_character == "\\") return 1
-    if (next_character !~ /[[:alnum:]_]/) return 1
-    return substr(line, position + 2, 1) == "'"
+function continuation_byte(character) {
+    return character ~ /^[\200-\277]$/
 }
 
-function character_end(line, position,    cursor, character) {
-    cursor = position + 1
-    while (cursor <= length(line)) {
-        character = substr(line, cursor, 1)
-        if (character == "\\") {
-            cursor += 2
-        } else if (character == "'") {
-            return cursor
-        } else {
-            cursor++
-        }
-    }
+# The harness runs Awk in the C locale. Positions are therefore bytes on both
+# macOS and Linux. Return the byte width of one well-shaped UTF-8 scalar.
+function utf8_width(line, position,    first, second, third, fourth) {
+    first = substr(line, position, 1)
+    second = substr(line, position + 1, 1)
+    third = substr(line, position + 2, 1)
+    fourth = substr(line, position + 3, 1)
+    if (first ~ /^[\001-\177]$/) return 1
+    if (first ~ /^[\302-\337]$/ && continuation_byte(second)) return 2
+    if (first ~ /^[\340-\357]$/ && continuation_byte(second) && \
+        continuation_byte(third)) return 3
+    if (first ~ /^[\360-\364]$/ && continuation_byte(second) && \
+        continuation_byte(third) && continuation_byte(fourth)) return 4
     return 0
+}
+
+# Return a closing quote position, zero for an unterminated escaped character,
+# or -1 when the apostrophe begins a lifetime or label instead of a character.
+function character_end(line, position,    cursor, character, width) {
+    if (substr(line, position + 1, 1) == "\\") {
+        cursor = position + 1
+        while (cursor <= length(line)) {
+            character = substr(line, cursor, 1)
+            if (character == "\\") {
+                cursor += 2
+            } else if (character == "'") {
+                return cursor
+            } else {
+                cursor++
+            }
+        }
+        return 0
+    }
+
+    width = utf8_width(line, position + 1)
+    if (width > 0 && substr(line, position + 1 + width, 1) == "'") {
+        return position + 1 + width
+    }
+    return -1
 }
 
 # Set raw_length and raw_hashes when POSITION begins r"...", r#"..."#,
@@ -87,6 +106,7 @@ function raw_start(line, position,    cursor, previous, prefix) {
         cursor++
     }
     if (substr(line, cursor, 1) != "\"") return 0
+    if (raw_hashes > 255) return -1
     raw_length = cursor - position + 1
     return 1
 }
@@ -98,6 +118,7 @@ function begin_source(filename) {
     start_line = 0
     literal_opening = ""
     multiline_reported = 0
+    continuation_whitespace = 0
 }
 
 function finish_source() {
@@ -124,7 +145,7 @@ BEGIN {
             findings++
             continue
         }
-        key = field[2] SUBSEP field[3] SUBSEP field[4] SUBSEP field[5]
+        key = field[2] SUBSEP field[3] SUBSEP field[4]
         if ((key in exempt_name) || (field[1] in exempt_id)) {
             printf "%s:%d: duplicate Rust literal exemption\n", exemptions, exemption_line
             findings++
@@ -147,11 +168,32 @@ FNR == 1 {
 
 {
     line = $0
+    source_bytes += length($0) + 1
+    sub(/\r$/, "", line)
+    line_opening = line
+    work_units += length(line_opening)
+    sub(/^[[:space:]]*/, "", line_opening)
     cursor = 1
     continued = 0
-    if (state == "string") segment_start = 1
+    if (state == "string") {
+        segment_start = 1
+        if (continuation_whitespace) {
+            while (cursor <= length(line) && \
+                substr(line, cursor, 1) ~ /^[[:space:]]$/) {
+                cursor++
+                work_units++
+            }
+            segment_start = cursor
+            if (cursor > length(line)) {
+                continued = 1
+            } else {
+                continuation_whitespace = 0
+            }
+        }
+    }
 
     while (cursor <= length(line)) {
+        work_units++
         character = substr(line, cursor, 1)
         pair = substr(line, cursor, 2)
 
@@ -170,13 +212,16 @@ FNR == 1 {
         }
 
         if (state == "raw") {
-            remainder = substr(line, cursor)
-            close_at = index(remainder, raw_closer)
-            if (close_at == 0) {
-                cursor = length(line) + 1
+            if (character == "\"") {
+                work_units += raw_closer_length
+                if (substr(line, cursor, raw_closer_length) == raw_closer) {
+                    cursor += raw_closer_length
+                    state = "normal"
+                } else {
+                    cursor++
+                }
             } else {
-                cursor += close_at + length(raw_closer) - 1
-                state = "normal"
+                cursor++
             }
             continue
         }
@@ -185,7 +230,9 @@ FNR == 1 {
             if (character == "\\") {
                 if (cursor == length(line)) {
                     check_collapsed(substr(line, segment_start), FNR)
+                    if (literal_opening == "") literal_opening = line_opening
                     continued = 1
+                    continuation_whitespace = 1
                     cursor++
                 } else {
                     cursor += 2
@@ -193,6 +240,7 @@ FNR == 1 {
             } else if (character == "\"") {
                 check_collapsed(substr(line, segment_start, cursor - segment_start), FNR)
                 state = "normal"
+                continuation_whitespace = 0
                 cursor++
             } else {
                 cursor++
@@ -209,11 +257,16 @@ FNR == 1 {
             continue
         }
 
-        if (raw_start(line, cursor)) {
+        raw_result = raw_start(line, cursor)
+        if (raw_result < 0) {
+            report_error(FNR, "raw string delimiter exceeds Rust's 255-hash limit")
+            break
+        }
+        if (raw_result > 0) {
             state = "raw"
             start_line = FNR
-            literal_opening = trim_start(line)
             raw_closer = "\"" repeat("#", raw_hashes)
+            raw_closer_length = length(raw_closer)
             cursor += raw_length
             continue
         }
@@ -222,7 +275,7 @@ FNR == 1 {
             substr(line, cursor + 1, 1) == "\"") {
             state = "string"
             start_line = FNR
-            literal_opening = trim_start(line)
+            literal_opening = ""
             multiline_reported = 0
             segment_start = cursor + 2
             cursor += 2
@@ -232,20 +285,24 @@ FNR == 1 {
         if (character == "\"") {
             state = "string"
             start_line = FNR
-            literal_opening = trim_start(line)
+            literal_opening = ""
             multiline_reported = 0
             segment_start = cursor + 1
             cursor++
             continue
         }
 
-        if (character == "'" && probable_character(line, cursor)) {
+        if (character == "'") {
             end_at = character_end(line, cursor)
             if (end_at == 0) {
                 report_error(FNR, "character literal does not close on its physical line")
                 break
             }
-            cursor = end_at + 1
+            if (end_at > 0) {
+                cursor = end_at + 1
+            } else {
+                cursor++
+            }
             continue
         }
 
@@ -255,8 +312,10 @@ FNR == 1 {
     if (state == "string" && !continued) {
         check_collapsed(substr(line, segment_start), FNR)
         if (!multiline_reported) {
+            if (literal_opening == "") literal_opening = line_opening
             report("multiline", start_line,
-                "ordinary string contains an unescaped physical newline")
+                "ordinary string contains an unescaped physical newline",
+                literal_opening)
             multiline_reported = 1
         }
     }
@@ -271,6 +330,10 @@ END {
                 exempt_path[key], exempt_source_line[key], exempt_opening[key]
             findings++
         }
+    }
+    if (work_report != "") {
+        printf "%d\t%d\n", source_bytes, work_units > work_report
+        close(work_report)
     }
     if (findings > 0) exit 1
 }
