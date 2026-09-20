@@ -138,6 +138,10 @@ fixed_count() {
     fi
 }
 
+line_count() {
+    awk 'NF { count += 1 } END { print count + 0 }' <<<"$1"
+}
+
 # =============================================================================
 # 1. the stored version rides on the score item
 # =============================================================================
@@ -770,7 +774,7 @@ check_entropy_derivation() {
     local root=$1 artifact=$1/$entropy_artifact_relative analyzer=$1/$entropy_analyzer_relative
     local raw text paragraphs prose code source rows loci record_entropy ref_entropy locus_entropy
     local separate_total joint_total separate_claim separate_affirmative joint_claim joint_affirmative
-    local precision_candidates precision_affirmative entropy_precision whole_byte_precision
+    local both_precision precision_candidates precision_affirmative entropy_precision whole_byte_precision
     local separate_prose joint_prose separate_code joint_code figure
 
     [[ -f "$root/$index_relative" ]] || {
@@ -871,21 +875,30 @@ check_entropy_derivation() {
         return 1
     }
 
-    precision_candidates=$(printf '%s' "$text" | sentences \
+    both_precision=$(printf '%s' "$text" | sentences \
         | grep -Ei 'both (retained )?(calculations?|totals)' \
         | grep -Ei 'unrounded' | grep -Ei 'f64' || true)
-    [[ -n "$precision_candidates" ]] || {
+    [[ -n "$both_precision" ]] || {
         printf '%s does not say both exact byte totals use unrounded f64 entropy values\n' \
             "$entropy_section" >&2
         return 1
     }
+    precision_candidates=$(printf '%s' "$text" | sentences \
+        | grep -Ei '(both (retained )?(calculations?|totals)|separate[- ]stream calculation|joint[- ]locus calculation)' \
+        | grep -Ei 'unrounded' | grep -Ei '(f64|entropy)' || true)
     precision_affirmative=$(affirmative_only "$precision_candidates" \
-        'both (retained )?(calculations?|totals)' '(unrounded.*f64|f64.*unrounded)' || true)
+        '(both (retained )?(calculations?|totals)|separate[- ]stream calculation|joint[- ]locus calculation)' \
+        '(unrounded.*(f64|entropy)|(f64|entropy).*unrounded)' || true)
     [[ -n "$precision_affirmative" ]] || {
         printf '%s states the unrounded f64 precision only to deny it\n' \
             "$entropy_section" >&2
         return 1
     }
+    if (( $(line_count "$precision_affirmative") != $(line_count "$precision_candidates") )); then
+        printf '%s also denies that both calculations use unrounded f64 entropy values\n' \
+            "$entropy_section" >&2
+        return 1
+    fi
 
     entropy_precision=$(printf '%s' "$text" | sentences | grep -Ei 'entropy' \
         | grep -Ei 'six decimal (places|digits)' || true)
@@ -934,6 +947,17 @@ check_entropy_derivation() {
             "$entropy_section" >&2
         return 1
     }
+    grep -Eqi '(^|[^[:alnum:]_])(displayed|rounded)([^[:alnum:]_]|$)|six[- ]decimal' \
+        <<<"$separate_claim" && {
+        printf '%s presents the separate-stream calculation as using a displayed or rounded entropy value\n' \
+            "$entropy_section" >&2
+        return 1
+    }
+    grep -Fq "$(grouped "$separate_total")" <<<"$separate_claim" || {
+        printf '%s does not bind each retained byte result to its own calculation paragraph\n' \
+            "$entropy_section" >&2
+        return 1
+    }
 
     joint_claim=$(printf '%s\n' "$paragraphs" | grep -Ei 'joint[- ]locus' \
         | grep -Ei '(times|multipl)' || true)
@@ -952,8 +976,14 @@ check_entropy_derivation() {
             "$entropy_section" >&2
         return 1
     }
-    grep -Eqi '(displayed|rounded|six[- ]decimal)' <<<"$joint_claim" && {
+    grep -Eqi '(^|[^[:alnum:]_])(displayed|rounded)([^[:alnum:]_]|$)|six[- ]decimal' \
+        <<<"$joint_claim" && {
         printf '%s presents the joint-locus multiplication as using a displayed or rounded entropy value\n' \
+            "$entropy_section" >&2
+        return 1
+    }
+    grep -Fq "$(grouped "$joint_total")" <<<"$joint_claim" || {
+        printf '%s does not bind each retained byte result to its own calculation paragraph\n' \
             "$entropy_section" >&2
         return 1
     }
@@ -986,6 +1016,13 @@ open(path, "w", encoding="utf-8").write(replaced)
 PY
 
 swap() { python3 "$work/swap.py" "$@"; }
+
+swap_prose_entropy_totals() {
+    local target=$1 placeholder='123,456,789 bytes'
+    swap "$target" 'which gives 999,999 bytes' "which gives $placeholder"
+    swap "$target" 'which gives 749,999 bytes' 'which gives 999,999 bytes'
+    swap "$target" "which gives $placeholder" 'which gives 749,999 bytes'
+}
 
 # A fixture repository in the state all four checks exist to require.
 plant() {
@@ -1087,7 +1124,8 @@ which gives 999,999 bytes.
 
 Its joint-locus calculation multiplies the 5.995913-bit
 complete reference + three-alternate locus entropy by 1,000,000 loci and
-divides by eight, which gives 749,999 bytes.
+divides by eight, which gives 749,999 bytes. The joint-locus calculation uses
+unrounded entropy.
 
 The analyzer calculates both
 totals from unrounded `f64` entropy values before it rounds entropy for display
@@ -1383,11 +1421,19 @@ expect_refusal check_entropy_derivation "$(mutate en-rounded-input swap "$index_
 expect_refusal check_entropy_derivation "$(mutate en-negated-precision swap "$index_relative" \
     'The analyzer calculates both totals from unrounded `f64` entropy values' \
     'The analyzer says both totals do not use unrounded `f64` entropy values')" \
-    'states the unrounded f64 precision only to deny it'
+    'also denies that both calculations use unrounded f64 entropy values'
 expect_refusal check_entropy_derivation "$(mutate en-joint-rounded-input swap "$index_relative" \
     'Its joint-locus calculation multiplies the 5.995913-bit complete' \
     'Its joint-locus calculation multiplies the displayed rounded 5.995913-bit complete')" \
     'presents the joint-locus multiplication as using a displayed or rounded entropy value'
+expect_refusal check_entropy_derivation "$(mutate en-separate-rounded-input swap "$index_relative" \
+    'reports 1.848462 bits for one pooled complete-record' \
+    'reports the displayed rounded 1.848462 bits for one pooled complete-record')" \
+    'presents the separate-stream calculation as using a displayed or rounded entropy value'
+expect_refusal check_entropy_derivation "$(mutate en-contradictory-precision swap "$index_relative" \
+    'The analyzer calculates both totals from unrounded `f64` entropy values' \
+    'The analyzer calculates both totals from unrounded `f64` entropy values. Both calculations do not use unrounded `f64` entropy values')" \
+    'also denies that both calculations use unrounded f64 entropy values'
 expect_refusal check_entropy_derivation "$(mutate en-three-alt-streams swap "$index_relative" \
     'one pooled complete-record entropy across all 3,000,000 SNV rows' \
     'three distinct alternate-record entropies across all 3,000,000 SNV rows')" \
@@ -1407,6 +1453,8 @@ expect_refusal check_entropy_derivation "$(mutate en-no-joint-divisor swap "$ind
 expect_refusal check_entropy_derivation "$(mutate en-joint-total-drift swap "$index_relative" \
     '749,999 bytes' '749,998 bytes')" \
     'does not publish the retained joint total once in prose and once in the code block'
+expect_refusal check_entropy_derivation "$(mutate en-swapped-prose-totals swap_prose_entropy_totals "$index_relative")" \
+    'does not bind each retained byte result to its own calculation paragraph'
 expect_refusal check_entropy_derivation "$(mutate en-separate-total-drift swap "$index_relative" \
     '999,999 bytes' '999,998 bytes')" \
     'does not publish retained entropy input or result 999,999'
