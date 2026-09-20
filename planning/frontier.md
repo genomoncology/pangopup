@@ -122,6 +122,8 @@ Ticket 0142 makes cache-isolation checks compare complete environment operands a
 
 Ticket 0143 extends Rust literal continuity lint across physical lines. The byte-stable bounded scanner splits each physical line once and distinguishes ordinary, byte, C, character, raw, comment, Unicode lifetime, and label forms. It rejects an unescaped physical newline in an ordinary literal while preserving CRLF and multi-line Rust continuation whitespace plus exact named legacy and SQL exemptions. It retains vertical tab and form feed after a continuation. A stale exemption fails. Work accounting over three increasing single-line fixtures enforces a fixed linear bound and stable work per byte. Draft 0103 is archived with the passing implementation.
 
+Ticket 0144 makes both published entropy byte totals traceable to the retained analyzer. The documentation now states the pooled record-plus-reference and joint-locus calculations, the unrounded `f64` calculation precision, and the six-decimal entropy and whole-byte display precision. The claim check examines every relevant precision statement, uses token-bound displayed and rounded checks, binds each formula and result within one paragraph, inventories prose and code-block totals, and rejects rounded-input arithmetic, contradictions, alternate-specific stream substitution, swapped or drifted totals, missing terms, and lost source attribution while accepting paragraph reflow. Draft 0104 is archived.
+
 ## Asset readiness — preserve, package, then publish
 
 The large source work is not a rebuild queue:
