@@ -216,6 +216,21 @@ validate_unset_operand() {
     esac
 }
 
+validate_env_prefix_word() {
+    local raw=$1 value
+    case "$raw" in
+        \"*\"|\'*\') ;;
+        *) return 0 ;;
+    esac
+    value=$(unquote_word "$raw") || return 1
+    case "$value" in
+        -u|--unset=*|[A-Za-z_]*=*)
+            printf 'unsupported whole-word quoted env prefix: %s\n' "$raw" >&2
+            return 1
+            ;;
+    esac
+}
+
 # The directories the recipe on standard input removes, one per line, resolved
 # against root $1. Only `rm` with a recursive flag removes a directory, and
 # every operand after the flags is one.
@@ -297,6 +312,7 @@ resolve_cache_path() {
             esac
             continue
         fi
+        validate_env_prefix_word "$word" || return 1
         case "$word" in
             env) continue ;;
             eval) printf 'unsafe shell syntax: eval\n' >&2; return 1 ;;
@@ -539,6 +555,15 @@ plant() {
             unset-wildcard-long)
                 printf '\trm -rf target/spec-cache\n'
                 printf '\tenv --unset="XDG_CACHE_HOME*" ORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked\n' ;;
+            quoted-short-option-word)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv "-u" XDG_CACHE_HOME HOME="$(CURDIR)/target/spec-cache" cargo build --locked\n' ;;
+            quoted-long-option-word)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv "--unset=XDG_CACHE_HOME" HOME="$(CURDIR)/target/spec-cache" cargo build --locked\n' ;;
+            quoted-assignment-word)
+                printf '\trm -rf target/ort-cache\n'
+                printf '\tenv "ORT_CACHE_DIR=$(CURDIR)/target/ort-cache" cargo build --locked\n' ;;
             removal-dot)
                 printf '\trm -rf ./target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="$(CURDIR)/target/spec-cache/ort" cargo build --locked\n' ;;
@@ -735,6 +760,11 @@ for form in short long; do
     expect_linux_safe_refusal 'unsupported shell escape in unset operand' "$work/unset-escape-$form"
     plant "$work/unset-wildcard-$form" "unset-wildcard-$form"
     expect_linux_safe_refusal 'wildcard unset operand' "$work/unset-wildcard-$form"
+done
+
+for shape in quoted-short-option-word quoted-long-option-word quoted-assignment-word; do
+    plant "$work/$shape" "$shape"
+    expect_linux_safe_refusal 'whole-word quoted env prefix' "$work/$shape"
 done
 
 # Clearing `XDG_CACHE_HOME` sends the resolution to `$HOME`, which the recipe
