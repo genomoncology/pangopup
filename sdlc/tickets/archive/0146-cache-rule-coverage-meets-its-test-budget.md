@@ -5,6 +5,10 @@ deps: []
 ---
 # Cache rule coverage meets its test budget
 
+## Decision
+
+Closed without implementation on 2026-09-20. Ian does not consider about twelve seconds in a repository test suite worth optimization. The measurement is accurate, the checks pass, and product runtime is unaffected.
+
 ## Outcome
 
 The cache-rule mutation checks keep their original combined two-second warm-run budget without weakening the failures they prove.
@@ -23,4 +27,4 @@ On 2026-09-19 after ticket 0141, one warm local run measured `recipe-cache-rule-
 
 ## Boundary
 
-Change repository checks and their fixtures only. Do not reduce coverage, raise the budget, alter product behavior, or depend on machine-specific commands.
+Do not change code or tests for this ticket. Reconsider only if the checks become unreliable or materially impede ordinary development.

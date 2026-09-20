@@ -12,14 +12,12 @@ The published statement about transition and transversion coverage follows from 
 ## Done, observably
 
 - Parse every submitted SNV in the committed set and count transitions and transversions from its reference and alternate bases.
-- Refuse malformed, equal-base, or non-SNV records with a named diagnostic rather than silently classifying them.
-- Compare the observed class counts with the retained artifact and the public coverage wording. A mutation that introduces a transition must fail until the stated coverage changes.
-- Run the class-count check from `make lint`, as the outcome promises. Keep the existing portable qualification coverage under `make test` without duplicating the corpus scan inside one gate.
-- The transition mutation must update both the submitted record and the matching raw-record variant key. It must reach the class-count assertion instead of failing an earlier set-membership check.
+- Refuse a malformed, equal-base, or non-SNV corpus row with a substitution-class diagnostic.
+- Compare the counts with the existing retained artifact and public wording. One fixture changes a matching submitted and raw-record variant into a transition and reaches this assertion instead of an earlier set-membership failure.
+- Run the existing route-corpus check from `make lint`. Do not add a second corpus scanner.
 - Preserve the current 2,615-transversion, zero-transition result and its four directed substitution counts.
-- Keep the check deterministic and linear in the small committed set.
 - Archive draft 0105. Update the durable record and frontier. `make lint`, `make test`, and `make spec` pass.
 
 ## Boundary
 
-Change the committed-corpus check, its fixtures, and supporting documentation only. Do not run the model, change the corpus selection rule, or broaden the scientific claim.
+Change the existing committed-corpus check, one focused mutation fixture, and the matching count wording only. Do not create a new parser, run the model, change the corpus, or broaden the claim.
