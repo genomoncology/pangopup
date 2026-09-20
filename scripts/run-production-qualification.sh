@@ -135,6 +135,7 @@ http_request() {
   exec 3>&- 3<&-
 }
 
+: >"$output_dir/service.stdout"
 "$pangopup" serve --listen 127.0.0.1:0 --model-workers 1 --model-threads 1 \
   >"$output_dir/service.stdout" 2>"$output_dir/service.stderr" &
 service_pid=$!
