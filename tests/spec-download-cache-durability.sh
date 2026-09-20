@@ -163,6 +163,16 @@ validate_path_token() {
 # Expand only values whose base this check knows. The shell never sees them.
 expand_path() {
     local raw=$1 root=$2 caller_home=$3 label=$4 value
+    case "$raw" in
+        \'*\')
+            case "$raw" in
+                *'$$HOME'*|*'$$PWD'*)
+                    printf 'unsupported single-quoted shell variable in %s: %s\n' "$label" "$raw" >&2
+                    return 1
+                    ;;
+            esac
+            ;;
+    esac
     value=$(unquote_word "$raw") || return 1
     line_syntax_is_static "$value" || return 1
     validate_path_token "$value" "$label" || return 1
@@ -478,6 +488,12 @@ plant() {
             joined-removal-quoting)
                 printf '\trm -rf "target/.""./.ort-cache"\n'
                 printf '\tORT_CACHE_DIR="$(CURDIR)/.ort-cache/ort" cargo build --locked\n' ;;
+            single-quoted-home-path)
+                printf '\trm -rf target/ort-cache\n'
+                printf "\tORT_CACHE_DIR='\$(CURDIR)/\$\$HOME/../target/ort-cache' cargo build --locked\n" ;;
+            single-quoted-relative-path)
+                printf '\trm -rf target/spec-cache\n'
+                printf "\tORT_CACHE_DIR='\$\$HOME/.ort-cache' cargo build --locked\n" ;;
             removal-dot)
                 printf '\trm -rf ./target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="$(CURDIR)/target/spec-cache/ort" cargo build --locked\n' ;;
@@ -636,6 +652,11 @@ done
 for shape in joined-cache-quoting joined-removal-quoting; do
     plant "$work/$shape" "$shape"
     expect_safe_refusal 'unsupported joined quoting' "$work/$shape"
+done
+
+for shape in single-quoted-home-path single-quoted-relative-path; do
+    plant "$work/$shape" "$shape"
+    expect_safe_refusal 'single-quoted shell variable' "$work/$shape"
 done
 
 # Clearing `XDG_CACHE_HOME` sends the resolution to `$HOME`, which the recipe
