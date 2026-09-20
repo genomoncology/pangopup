@@ -55,6 +55,8 @@ pub use release::{
 };
 #[cfg(any(test, feature = "test-read-audit"))]
 pub use release::{ReleasePreparationContract, prepare_release_with_contract};
+#[cfg(feature = "runtime-v2-qualification")]
+pub use runtime_install::open_qualified_runtime_v2_profile;
 pub use runtime_install::{
     InstalledModelInput, InstalledRuntimeProfile, RuntimeInstallOutcome, RuntimeLocalStatus,
     install_runtime_profile, open_installed_runtime_profile,
@@ -83,6 +85,11 @@ pub use runtime_release::{
 pub use runtime_transport::{
     PackRuntimeTransportOutcome, UnpackRuntimeTransportOutcome, VerifyRuntimeTransportOutcome,
     pack_runtime_transport, unpack_runtime_transport, verify_runtime_transport,
+};
+#[cfg(feature = "runtime-v2-qualification")]
+pub use runtime_transport::{
+    install_qualified_runtime_v2_transport, verify_production_runtime_transport,
+    verify_qualified_runtime_v2_transport,
 };
 pub use snv::{
     BundleCertification, CertifiedBundle, CertifiedBundleSummary, MAX_FIXED11_BYTES,

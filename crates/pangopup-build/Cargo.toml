@@ -6,6 +6,15 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+runtime-v2-qualification = ["pangopup-assets/runtime-v2-qualification"]
+
+[[bin]]
+name = "pangopup-runtime-v2-qualify"
+path = "src/bin/pangopup-runtime-v2-qualify.rs"
+required-features = ["runtime-v2-qualification"]
+
 [dependencies]
 flate2 = "1.1.5"
 pangopup-assets = { path = "../pangopup-assets" }

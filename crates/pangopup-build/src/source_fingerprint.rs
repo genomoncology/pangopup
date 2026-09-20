@@ -278,11 +278,11 @@ mod tests {
     };
 
     const EXPECTED_SNV_SHA256: &str =
-        "94e3ddecba01cd72e0b3553d53b323b8daa35c0a0a3d93cd35c73ad0ccfc90db";
+        "7e3c23058526103a2a9f3161670e6f4a634c39fa0ed6b3aefb4c904db1c5e8df";
     const EXPECTED_REFERENCE_SHA256: &str =
         "9d19e7cc7dda6d6b7475c80cdb60f2601b2c7ff0ce2ab9274b5d8f078cc5b8cd";
     const EXPECTED_SPARSE_ASSEMBLER_SHA256: &str =
-        "f0647d987ca9cf0ef2c0928c070c12eeab1f4a8ae4851a863595880c325a5549";
+        "75b5bca6436d67982bd123075bd98f5fcb1fe15495454d0b84ba423655c3a434";
     static RESOLVER_SERIAL: AtomicU64 = AtomicU64::new(0);
     static MANIFEST_MODEL: OnceLock<ManifestModel> = OnceLock::new();
 

@@ -713,6 +713,19 @@ pub fn open_installed_runtime_profile(
     )
 }
 
+/// Admit the checked sparse-v2 runtime from an isolated qualification root.
+/// Ordinary service admission remains pinned to production v1.
+#[doc(hidden)]
+#[cfg(feature = "runtime-v2-qualification")]
+pub fn open_qualified_runtime_v2_profile(
+    data_root: &Path,
+    expected_snv_bundle_id: &str,
+) -> Result<InstalledRuntimeProfile, AssetError> {
+    let trusted =
+        crate::runtime_profile::qualified_runtime_v2_authority().map_err(profile_parse_error)?;
+    open_installed_runtime_profile_with(data_root, Some(expected_snv_bundle_id), &trusted)
+}
+
 #[cfg(feature = "test-fixtures")]
 pub fn open_test_runtime_profile(
     data_root: &Path,
@@ -2433,6 +2446,27 @@ mod tests {
         )
         .expect("install miniature runtime");
         (snv, profile)
+    }
+
+    #[cfg(feature = "runtime-v2-qualification")]
+    #[test]
+    fn checked_runtime_v2_admission_rejects_installed_miniature_and_wrong_snv() {
+        let temp = TempDir::new().expect("temp");
+        let root = temp.path().join("data");
+        let (snv, miniature) = install_mini_runtime(&root);
+        open_installed_runtime_profile_with(&root, Some(&snv.bundle_id), &miniature)
+            .expect("miniature admission control");
+        assert_eq!(
+            open_installed_runtime_profile_with(
+                &root,
+                Some("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                &miniature,
+            )
+            .expect_err("wrong expected SNV")
+            .kind(),
+            AssetErrorKind::TransportIncompatible
+        );
+        assert!(open_qualified_runtime_v2_profile(&root, &snv.bundle_id).is_err());
     }
 
     #[test]

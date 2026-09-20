@@ -357,6 +357,62 @@ pub fn verify_runtime_transport(
 ) -> Result<VerifyRuntimeTransportOutcome, AssetError> {
     let transport = open_transport_directory(transport)?;
     let opened = open_transport_held(&transport)?;
+    verify_opened_transport(&transport, &opened)
+}
+
+/// Verify the exact compiled production-v1 runtime transport.
+///
+/// This maintainer boundary is intentionally narrower than ordinary
+/// structural transport verification. It does not install or activate data.
+#[doc(hidden)]
+#[cfg(feature = "runtime-v2-qualification")]
+pub fn verify_production_runtime_transport(
+    transport: &Path,
+) -> Result<VerifyRuntimeTransportOutcome, AssetError> {
+    let transport = open_transport_directory(transport)?;
+    let opened = open_transport_held(&transport)?;
+    require_production_manifest(&opened.bytes)?;
+    require_production_profile(&opened)?;
+    verify_opened_transport(&transport, &opened)
+}
+
+/// Verify the exact checked sparse-v2 profile with the unchanged production
+/// model, reference, and mask transport members.
+///
+/// This function is available only to the separately enabled retained-data
+/// qualification tool. It does not change ordinary runtime admission.
+#[doc(hidden)]
+#[cfg(feature = "runtime-v2-qualification")]
+pub fn verify_qualified_runtime_v2_transport(
+    transport: &Path,
+) -> Result<VerifyRuntimeTransportOutcome, AssetError> {
+    let transport = open_transport_directory(transport)?;
+    let opened = open_transport_held(&transport)?;
+    require_qualified_v2_transport(&opened)?;
+    verify_opened_transport(&transport, &opened)
+}
+
+/// Install an already prepared checked sparse-v2 transport into an isolated
+/// data root whose active SNV bundle has the same checked sparse identity.
+///
+/// Ordinary installation remains pinned to production v1. This boundary is
+/// compiled only for retained qualification.
+#[doc(hidden)]
+#[cfg(feature = "runtime-v2-qualification")]
+pub fn install_qualified_runtime_v2_transport(
+    transport: &Path,
+    data_root: &Path,
+) -> Result<super::RuntimeInstallOutcome, AssetError> {
+    let transport = open_transport_directory(transport)?;
+    let opened = open_transport_held(&transport)?;
+    require_qualified_v2_transport(&opened)?;
+    install_opened_runtime_transport(&transport, opened, data_root, false)
+}
+
+fn verify_opened_transport(
+    transport: &super::local::Dir,
+    opened: &OpenedTransport,
+) -> Result<VerifyRuntimeTransportOutcome, AssetError> {
     let mut compressed_bytes = 0;
     for member in &opened.manifest.members {
         match member.encoding {
@@ -366,7 +422,7 @@ pub fn verify_runtime_transport(
                 }
             }
             Encoding::Zstd => {
-                verify_held_frame(&transport, member, None)?;
+                verify_held_frame(transport, member, None)?;
                 compressed_bytes += member.stored_bytes;
             }
         }
@@ -375,9 +431,51 @@ pub fn verify_runtime_transport(
         status: "ok",
         command: "runtime-transport.verify",
         transport_id: sha256(&opened.bytes),
-        runtime_profile_id: opened.manifest.runtime_profile_id,
+        runtime_profile_id: opened.manifest.runtime_profile_id.clone(),
         compressed_bytes,
     })
+}
+
+#[cfg(feature = "runtime-v2-qualification")]
+fn require_production_profile(opened: &OpenedTransport) -> Result<(), AssetError> {
+    let profile_bytes = opened
+        .raw_members
+        .get("runtime-profile.json")
+        .ok_or_else(|| invalid_manifest("runtime profile member is missing"))?;
+    let profile = super::parse_runtime_profile(profile_bytes).map_err(profile_error)?;
+    profile.require_trusted_production().map_err(profile_error)
+}
+
+#[cfg(feature = "runtime-v2-qualification")]
+fn require_qualified_v2_transport(opened: &OpenedTransport) -> Result<(), AssetError> {
+    let expected_profile =
+        super::runtime_profile::qualified_runtime_v2_authority().map_err(profile_error)?;
+    let expected_profile_bytes =
+        super::canonical_runtime_profile_bytes(&expected_profile).map_err(profile_error)?;
+    let observed_profile_bytes = opened
+        .raw_members
+        .get("runtime-profile.json")
+        .ok_or_else(|| invalid_manifest("runtime profile member is missing"))?;
+    if observed_profile_bytes != &expected_profile_bytes {
+        return Err(invalid_manifest(
+            "runtime v2 profile does not match checked qualification authority",
+        ));
+    }
+    let expected_profile_id = super::runtime_profile_id(&expected_profile_bytes)
+        .map_err(profile_error)?
+        .to_string();
+    let production = parse_runtime_transport_manifest_for_release(
+        super::runtime_release::production_runtime_transport_manifest()?,
+    )?;
+    if opened.manifest.runtime_profile_id != expected_profile_id
+        || opened.manifest.members.len() != production.members.len()
+        || opened.manifest.members[1..] != production.members[1..]
+    {
+        return Err(invalid_manifest(
+            "runtime v2 transport changes checked profile or model-side members",
+        ));
+    }
+    Ok(())
 }
 
 pub fn unpack_runtime_transport(
@@ -579,6 +677,15 @@ fn install_cached_runtime_transport_held(
     require_production: bool,
 ) -> Result<super::RuntimeInstallOutcome, AssetError> {
     let opened = open_transport_held(transport)?;
+    install_opened_runtime_transport(transport, opened, data_root, require_production)
+}
+
+fn install_opened_runtime_transport(
+    transport: &super::local::Dir,
+    opened: OpenedTransport,
+    data_root: &Path,
+    require_production: bool,
+) -> Result<super::RuntimeInstallOutcome, AssetError> {
     if require_production {
         require_production_manifest(&opened.bytes)?;
     }
@@ -1362,6 +1469,91 @@ mod tests {
                 mask: "mask-NOTICE".to_owned(),
             },
             members: EXPECTED.into_iter().map(test_member).collect(),
+        }
+    }
+
+    #[cfg(feature = "runtime-v2-qualification")]
+    fn checked_v2_opened() -> OpenedTransport {
+        let profile = super::super::runtime_profile::qualified_runtime_v2_authority()
+            .expect("checked runtime v2 profile");
+        let profile_bytes = crate::canonical_runtime_profile_bytes(&profile).expect("profile");
+        let profile_id = crate::runtime_profile_id(&profile_bytes)
+            .expect("profile id")
+            .to_string();
+        let mut manifest = parse_runtime_transport_manifest_for_release(
+            super::super::runtime_release::production_runtime_transport_manifest()
+                .expect("production manifest"),
+        )
+        .expect("production manifest parse");
+        manifest.runtime_profile_id = profile_id.clone();
+        manifest.members[0].stored_bytes = profile_bytes.len() as u64;
+        manifest.members[0].uncompressed_bytes = profile_bytes.len() as u64;
+        manifest.members[0].stored_sha256 = profile_id.clone();
+        manifest.members[0].uncompressed_sha256 = profile_id;
+        OpenedTransport {
+            bytes: serde_jcs::to_vec(&manifest).expect("manifest bytes"),
+            manifest,
+            raw_members: BTreeMap::from([("runtime-profile.json".to_owned(), profile_bytes)]),
+        }
+    }
+
+    #[cfg(feature = "runtime-v2-qualification")]
+    #[test]
+    fn checked_runtime_authorities_reject_every_substituted_descriptor() {
+        let exact = checked_v2_opened();
+        require_qualified_v2_transport(&exact).expect("checked descriptor combination");
+
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+        assert!(
+            verify_production_runtime_transport(&fixtures.join("runtime-transport-mini")).is_err(),
+            "a valid miniature is not the compiled production transport"
+        );
+        assert!(
+            verify_qualified_runtime_v2_transport(&fixtures.join("runtime-transport-mini"))
+                .is_err(),
+            "a valid miniature is not the checked v2 transport"
+        );
+        let destination = TempDir::new().expect("destination parent");
+        let data = destination.path().join("data");
+        assert!(
+            install_qualified_runtime_v2_transport(&fixtures.join("runtime-transport-mini"), &data)
+                .is_err(),
+            "qualification installation must reject before touching its destination"
+        );
+        assert!(!data.exists());
+
+        let mut profile = exact;
+        let mut substituted_profile =
+            super::super::runtime_profile::qualified_runtime_v2_authority()
+                .expect("checked profile");
+        substituted_profile.snv.bundle_id = format!("sha256:{}", "a".repeat(64));
+        let substituted_bytes =
+            crate::canonical_runtime_profile_bytes(&substituted_profile).expect("substitution");
+        let substituted_id = crate::runtime_profile_id(&substituted_bytes)
+            .expect("substituted id")
+            .to_string();
+        profile.manifest.runtime_profile_id = substituted_id.clone();
+        profile.manifest.members[0].stored_bytes = substituted_bytes.len() as u64;
+        profile.manifest.members[0].uncompressed_bytes = substituted_bytes.len() as u64;
+        profile.manifest.members[0].stored_sha256 = substituted_id.clone();
+        profile.manifest.members[0].uncompressed_sha256 = substituted_id;
+        profile
+            .raw_members
+            .insert("runtime-profile.json".to_owned(), substituted_bytes);
+        assert!(require_qualified_v2_transport(&profile).is_err());
+
+        let mut profile_id = checked_v2_opened();
+        profile_id.manifest.runtime_profile_id = format!("sha256:{}", "a".repeat(64));
+        assert!(require_qualified_v2_transport(&profile_id).is_err());
+
+        for index in 1..EXPECTED.len() {
+            let mut member = checked_v2_opened();
+            member.manifest.members[index].stored_sha256 = format!("sha256:{}", "a".repeat(64));
+            assert!(
+                require_qualified_v2_transport(&member).is_err(),
+                "{}",
+                member.manifest.members[index].name
+            );
         }
     }
 

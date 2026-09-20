@@ -10,6 +10,9 @@ cd "$REPO"
 # still visible. Nothing can change the source between this build and the
 # executions below, so the later Cargo calls only select and run these files.
 cargo test --locked -q -p pangopup-build --test runtime_release --no-run
+cargo test --locked -q -p pangopup-build --features runtime-v2-qualification --lib --no-run
+cargo test --locked -q -p pangopup-build --features runtime-v2-qualification --test runtime_v2_qualification_runner --no-run
+cargo test --locked -q -p pangopup-assets --features runtime-v2-qualification --lib --no-run
 cargo test --locked -q -p pangopup-cli --test snv_regression --no-run
 cargo test --locked -q -p pangopup-index --test bundle_formats --no-run
 cargo test --locked -q -p pangopup-cli --test model_routing --no-run
@@ -104,7 +107,38 @@ run_bin_exact() {
 	fi
 }
 
+run_lib_exact() {
+	package=$1
+	feature=$2
+	name=$3
+	list=$("$CARGO_BIN" test --locked -q -p "$package" --features "$feature" --lib -- --list)
+	selected=$(printf '%s\n' "$list" | awk -F ': ' -v name="$name" '$1 == name { count++ } END { print count + 0 }')
+	if ! require_one_selection "$selected"; then
+		echo "runtime-v2 qualification selected $selected tests for $name" >&2
+		exit 1
+	fi
+	output=$("$CARGO_BIN" test --locked -q -p "$package" --features "$feature" --lib "$name" -- --exact 2>&1) || {
+		printf '%s\n' "$output" >&2
+		exit 1
+	}
+	printf '%s\n' "$output"
+	if ! require_one_execution "$output"; then
+		echo "runtime-v2 qualification did not execute exactly one passing test for $name" >&2
+		exit 1
+	fi
+}
+
 run_exact pangopup-build runtime_release '' runtime_v2_preparation_changes_only_two_transport_members_and_is_deterministic
+run_lib_exact pangopup-assets runtime-v2-qualification snv::tests::checked_sparse_authority_rejects_a_valid_nonauthority_bundle
+run_lib_exact pangopup-assets runtime-v2-qualification runtime_transport::tests::checked_runtime_authorities_reject_every_substituted_descriptor
+run_lib_exact pangopup-assets runtime-v2-qualification runtime_install::tests::checked_runtime_v2_admission_rejects_installed_miniature_and_wrong_snv
+run_lib_exact pangopup-build runtime-v2-qualification runtime_v2_qualification::tests::runner_publishes_only_the_verified_two_member_change
+run_lib_exact pangopup-build runtime-v2-qualification runtime_v2_qualification::tests::post_verification_candidate_replacement_and_member_mutation_never_publish
+run_lib_exact pangopup-build runtime-v2-qualification runtime_v2_qualification::tests::verification_path_swap_and_restore_changes_captured_directory_metadata
+run_lib_exact pangopup-build runtime-v2-qualification runtime_v2_qualification::tests::publication_conflict_preserves_the_other_output_and_cleans_scratch
+run_lib_exact pangopup-build runtime-v2-qualification runtime_v2_qualification::tests::publication_rechecks_directory_and_members_after_no_replace_rename
+run_lib_exact pangopup-build runtime-v2-qualification runtime_v2_qualification::tests::cleanup_failure_and_replaced_scratch_report_retained_invocation_directory
+run_exact pangopup-build runtime_v2_qualification_runner runtime-v2-qualification qualification_runner_is_separate_and_requires_closed_explicit_inputs
 run_exact pangopup-cli snv_regression '' all_one_thousand_direct_tsv_expectations_pass_one_real_provider
 run_exact pangopup-cli snv_regression '' seven_cli_batches_match_the_direct_oracle_subsets
 run_exact pangopup-cli snv_regression '' runtime_v2_cross_format_gate_counts_real_provider_and_command_cases
