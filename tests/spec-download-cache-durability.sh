@@ -160,7 +160,7 @@ expand_path() {
     line_syntax_is_static "$value" || return 1
     validate_path_token "$value" "$label" || return 1
     case "$value" in
-        *'$$HOME'[A-Za-z0-9_]*|*'$$PWD'[A-Za-z0-9_]*|*'$(CURDIR)'[A-Za-z0-9_]*)
+        *'$$HOME'[A-Za-z0-9_]*|*'$$PWD'[A-Za-z0-9_]*)
             printf 'unknown variable in %s: %s\n' "$label" "$raw" >&2
             return 1
             ;;
@@ -256,6 +256,7 @@ resolve_cache_path() {
     read -r -a words <<<"$line"
     for word in "${words[@]}"; do
         if [[ "$expect_unset" == yes ]]; then
+            validate_assignment_value "$word" 'env -u operand' || return 1
             operand=$(unquote_word "$word") || return 1
             expect_unset=no
             case "$operand" in
@@ -271,6 +272,7 @@ resolve_cache_path() {
             -u) expect_unset=yes; continue ;;
             --unset=*)
                 operand=${word#--unset=}
+                validate_assignment_value "$operand" 'env --unset operand' || return 1
                 case "$operand" in
                     ORT_CACHE_DIR) ort_set=no; ort='' ;;
                     XDG_CACHE_HOME) xdg_set=no; xdg='' ;;
@@ -454,6 +456,9 @@ plant() {
             cache-parent)
                 printf '\trm -rf target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="$(CURDIR)/target/../.ort-cache" cargo build --locked\n' ;;
+            closed-make-expansion)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)cache/ort" cargo build --locked\n' ;;
             removal-dot)
                 printf '\trm -rf ./target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="$(CURDIR)/target/spec-cache/ort" cargo build --locked\n' ;;
@@ -529,6 +534,9 @@ plant() {
             unsafe-other-assignment)
                 printf '\trm -rf target/spec-cache\n'
                 printf '\tOTHER="$$(>$(CURDIR)/sentinel)" ORT_CACHE_DIR="$(CURDIR)/.ort-cache" cargo build --locked\n' ;;
+            unsafe-unset-operand)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv -u "$$(>$(CURDIR)/sentinel)" ORT_CACHE_DIR="$(CURDIR)/.ort-cache" cargo build --locked\n' ;;
             nonnormal-absolute)
                 printf '\trm -rf target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="/../../ort-cache" cargo build --locked\n' ;;
@@ -596,6 +604,10 @@ done
 plant "$work/cache-parent" cache-parent
 expect_acceptance 'the rule refused a cache whose parent segment resolves outside the removed build directory' \
     "$work/cache-parent"
+
+plant "$work/closed-make-expansion" closed-make-expansion
+expect_acceptance 'the rule rejected a closed CURDIR Make expansion followed by a literal path segment' \
+    "$work/closed-make-expansion"
 
 # Clearing `XDG_CACHE_HOME` sends the resolution to `$HOME`, which the recipe
 # moved into the directory it removes. A rule that read only the variable it
@@ -695,6 +707,9 @@ done
 
 plant "$work/unsafe-other-assignment" unsafe-other-assignment
 expect_safe_refusal 'unsafe shell syntax' "$work/unsafe-other-assignment"
+
+plant "$work/unsafe-unset-operand" unsafe-unset-operand
+expect_safe_refusal 'unsafe shell syntax' "$work/unsafe-unset-operand"
 
 plant "$work/nonnormal-absolute" nonnormal-absolute
 expect_safe_refusal 'cannot normalize absolute path' "$work/nonnormal-absolute"

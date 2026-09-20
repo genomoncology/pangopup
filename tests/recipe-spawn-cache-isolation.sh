@@ -76,13 +76,59 @@ owned_location() {
     esac
 }
 
+# Split shell words without evaluating them. Quote context is retained while
+# splitting, then removed from the completed word. Unsupported open quotes or
+# trailing escapes refuse the match.
+split_shell_words() {
+    local text=$1 character quote='' word='' started=no escaped=no index
+    shell_words=()
+    for ((index = 0; index < ${#text}; index++)); do
+        character=${text:index:1}
+        if [[ "$escaped" == yes ]]; then
+            word=$word$character
+            started=yes
+            escaped=no
+            continue
+        fi
+        case "$quote" in
+            "'")
+                if [[ "$character" == "'" ]]; then quote=''; else word=$word$character; fi
+                ;;
+            '"')
+                if [[ "$character" == '"' ]]; then
+                    quote=''
+                elif [[ "$character" == \\ ]]; then
+                    escaped=yes
+                else
+                    word=$word$character
+                fi
+                ;;
+            '')
+                case "$character" in
+                    "'"|'"') quote=$character; started=yes ;;
+                    \\) escaped=yes; started=yes ;;
+                    ' '|$'\t')
+                        if [[ "$started" == yes ]]; then
+                            shell_words[${#shell_words[@]}]=$word
+                            word=''
+                            started=no
+                        fi
+                        ;;
+                    *) word=$word$character; started=yes ;;
+                esac
+                ;;
+        esac
+    done
+    [[ -z "$quote" && "$escaped" == no ]] || return 1
+    if [[ "$started" == yes ]]; then shell_words[${#shell_words[@]}]=$word; fi
+}
+
 # Text $1 drops $2 through one complete `env` option operand. Punctuation may
 # belong to a longer environment name, so a regex boundary is not sufficient.
 drops_by_option() {
     local text=$1 wanted=$2 word operand expect_operand=no
-    local words=()
-    read -r -a words <<<"$text"
-    for word in "${words[@]}"; do
+    split_shell_words "$text" || return 1
+    for word in "${shell_words[@]}"; do
         if [[ "$expect_operand" == yes ]]; then
             operand=$word
             expect_operand=no
@@ -94,11 +140,6 @@ drops_by_option() {
                 *) continue ;;
             esac
         fi
-        case "$operand" in
-            \"*\") operand=${operand#\"}; operand=${operand%\"} ;;
-            \'*\') operand=${operand#\'}; operand=${operand%\'} ;;
-            *\"*|*\'*) return 1 ;;
-        esac
         [[ "$operand" == "$wanted" ]] && return 0
     done
     return 1
@@ -291,6 +332,9 @@ plant_makefile() {
                 esac
                 printf '\tenv -u %s -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
                     "$extended" PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
+            quoted-note)
+                printf '\tenv NOTE="text -u PANGOPUP_MODEL_CACHE text" -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
+                    PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
             limit-inherited)
                 printf '\tenv -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
                     PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR debug ;;
@@ -412,7 +456,7 @@ expect_refusal 'without pinning CARGO_HOME' makefile_holds "$fixtures/unpinned/M
 plant_makefile "$fixtures/longer-only" longer-only
 expect_refusal 'with PANGOPUP_MODEL_CACHE inherited' makefile_holds "$fixtures/longer-only/Makefile" Makefile
 
-for shape in extended-x extended-2 extended-old extended-quoted; do
+for shape in extended-x extended-2 extended-old extended-quoted quoted-note; do
     plant_makefile "$fixtures/$shape" "$shape"
     expect_refusal 'with PANGOPUP_MODEL_CACHE inherited' makefile_holds "$fixtures/$shape/Makefile" Makefile
 done
