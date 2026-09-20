@@ -45,11 +45,6 @@ recipe_run="$run|PATH[^#]*target/(debug|release)"
 # environment reaching into a run that is supposed to stand on its own -- so
 # both are held here.
 #
-# `PANGOPUP_MODEL_CACHE_MAX_ENTRIES` contains `PANGOPUP_MODEL_CACHE`, so the
-# match below asks for a character other than `_` after each name. That is what
-# separates these two, and it is not a word boundary: a name extending one of
-# them by a letter or a digit still answers for the shorter one, measured in
-# sdlc/tickets/drafts/0107.
 named_locations=(PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES)
 
 fail() { printf 'recipe spawn cache isolation: %s\n' "$*" >&2; exit 1; }
@@ -79,6 +74,85 @@ owned_location() {
         */target/?*) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+# Split shell words without evaluating them. Quote context is retained while
+# splitting, then removed from the completed word. Unsupported open quotes or
+# trailing escapes refuse the match.
+split_shell_words() {
+    local text=$1 character next quote='' word='' started=no escaped=no index
+    shell_words=()
+    for ((index = 0; index < ${#text}; index++)); do
+        character=${text:index:1}
+        if [[ "$escaped" == yes ]]; then
+            word=$word$character
+            started=yes
+            escaped=no
+            continue
+        fi
+        case "$quote" in
+            "'")
+                if [[ "$character" == "'" ]]; then quote=''; else word=$word$character; fi
+                ;;
+            '"')
+                if [[ "$character" == '"' ]]; then
+                    quote=''
+                elif [[ "$character" == \\ ]]; then
+                    next=${text:index+1:1}
+                    case "$next" in
+                        '$'|'`'|'"'|\\|$'\n') escaped=yes ;;
+                        *) word=$word$character ;;
+                    esac
+                else
+                    word=$word$character
+                fi
+                ;;
+            '')
+                case "$character" in
+                    "'"|'"') quote=$character; started=yes ;;
+                    \\) escaped=yes; started=yes ;;
+                    '#')
+                        if [[ "$started" == no ]]; then break; else word=$word$character; fi
+                        ;;
+                    ' '|$'\t')
+                        if [[ "$started" == yes ]]; then
+                            shell_words[${#shell_words[@]}]=$word
+                            word=''
+                            started=no
+                        fi
+                        ;;
+                    *) word=$word$character; started=yes ;;
+                esac
+                ;;
+        esac
+    done
+    [[ -z "$quote" && "$escaped" == no ]] || return 1
+    if [[ "$started" == yes ]]; then shell_words[${#shell_words[@]}]=$word; fi
+}
+
+# Text $1 drops $2 through one complete `env` option operand. Punctuation may
+# belong to a longer environment name, so a regex boundary is not sufficient.
+drops_by_option() {
+    local text=$1 wanted=$2 word operand expect_operand=no assignments=no word_index
+    split_shell_words "$text" || return 1
+    (( ${#shell_words[@]} > 0 )) && [[ "${shell_words[0]}" == env ]] || return 1
+    for ((word_index = 1; word_index < ${#shell_words[@]}; word_index++)); do
+        word=${shell_words[word_index]}
+        if [[ "$expect_operand" == yes ]]; then
+            operand=$word
+            expect_operand=no
+        else
+            case "$word" in
+                -u) [[ "$assignments" == no ]] || break; expect_operand=yes; continue ;;
+                -u=*) [[ "$assignments" == no ]] || break; operand=${word#-u=} ;;
+                --unset=*) [[ "$assignments" == no ]] || break; operand=${word#--unset=} ;;
+                [A-Za-z_]*=*) assignments=yes; continue ;;
+                *) break ;;
+            esac
+        fi
+        [[ "$operand" == "$wanted" ]] && return 0
+    done
+    return 1
 }
 
 # --- the three rules --------------------------------------------------------
@@ -119,7 +193,10 @@ makefile_holds() {
             refused=1
         done
         for name in "${named_locations[@]}"; do
-            grep -qE -- "-u[[:space:]=]+$name([^_]|\$)|(^|[[:space:]])$name=\"?\\\$\\(CURDIR\\)/target/" <<<"$text" && continue
+            if drops_by_option "$text" "$name" \
+                || grep -qE -- "(^|[[:space:]])$name=\"?\\\$\\(CURDIR\\)/target/" <<<"$text"; then
+                continue
+            fi
             printf 'this recipe reaches the built executable with %s inherited, so the operator who exported it decides where that run keeps its model cache or how much of it the run may keep: %s:%s\n' \
                 "$name" "$relative" "$number" >&2
             refused=1
@@ -256,6 +333,27 @@ plant_makefile() {
             longer-only)
                 printf '\tenv -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
                     PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
+            extended-x|extended-2|extended-old|extended-quoted)
+                case "$shape" in
+                    extended-x) extended=PANGOPUP_MODEL_CACHEX ;;
+                    extended-2) extended=PANGOPUP_MODEL_CACHE2 ;;
+                    extended-old) extended=PANGOPUP_MODEL_CACHE-OLD ;;
+                    extended-quoted) extended='"PANGOPUP_MODEL_CACHE -OLD"' ;;
+                esac
+                printf '\tenv -u %s -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
+                    "$extended" PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
+            quoted-note)
+                printf '\tenv -u %s -u %s -u %s NOTE="text -u PANGOPUP_MODEL_CACHE text" CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
+                    PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
+            escaped-name)
+                printf '\tenv -u "PANGOPUP_MODEL\\_CACHE" -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
+                    PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
+            comment-name)
+                printf '\tenv -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/ # -u PANGOPUP_MODEL_CACHE\n' \
+                    PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
+            command-argument)
+                printf '\tenv -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch -u PANGOPUP_MODEL_CACHE test spec/\n' \
+                    PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
             limit-inherited)
                 printf '\tenv -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
                     PANGOPUP_MODEL_CACHE PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR debug ;;
@@ -376,6 +474,11 @@ expect_refusal 'without pinning CARGO_HOME' makefile_holds "$fixtures/unpinned/M
 # refused for the shorter.
 plant_makefile "$fixtures/longer-only" longer-only
 expect_refusal 'with PANGOPUP_MODEL_CACHE inherited' makefile_holds "$fixtures/longer-only/Makefile" Makefile
+
+for shape in extended-x extended-2 extended-old extended-quoted quoted-note escaped-name comment-name command-argument; do
+    plant_makefile "$fixtures/$shape" "$shape"
+    expect_refusal 'with PANGOPUP_MODEL_CACHE inherited' makefile_holds "$fixtures/$shape/Makefile" Makefile
+done
 
 # And the other direction: dropping the three older names leaves the run
 # whatever limit the operator exported.

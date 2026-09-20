@@ -47,29 +47,12 @@ repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # scan that quietly stops matching it would otherwise hold over an empty set
 # and report that as a pass.
 anchor=spec
+system_name=$(uname -s)
 
 fail() { printf 'spec download cache durability: %s\n' "$*" >&2; exit 1; }
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-
-# The ONNX Runtime library cache one environment resolves. Run under the
-# recipe's own environment prefix, so what it prints is what the build script
-# would compute.
-probe="$work/resolve-ort-cache.sh"
-{
-    printf '#!/usr/bin/env bash\n'
-    printf 'set -euo pipefail\n'
-    printf 'if [[ -n "${ORT_CACHE_DIR-}" ]]; then\n'
-    printf '    printf %%s "$ORT_CACHE_DIR"\n'
-    printf 'elif [[ "$(uname -s)" == Darwin ]]; then\n'
-    printf '    printf %%s "${HOME-}/Library/Caches/ort.pyke.io"\n'
-    printf 'elif [[ "${XDG_CACHE_HOME-}" == /* ]]; then\n'
-    printf '    printf %%s "$XDG_CACHE_HOME"\n'
-    printf 'else\n'
-    printf '    printf %%s "${HOME-}/.cache/ort.pyke.io"\n'
-    printf 'fi\n'
-} >"$probe"
 
 # --- reading a recipe -------------------------------------------------------
 
@@ -81,11 +64,11 @@ targets() {
         || true
 }
 
-# The command lines of target $2 in makefile $1, with make's own expansions
-# applied for a tree rooted at $3: `$(CURDIR)` becomes that root and `$$`
-# becomes the single `$` the shell receives. Whole-line comments are dropped.
+# The command lines of target $2 in makefile $1. Keep them unexpanded: each
+# supported assignment and operand is admitted before bounded Make-variable
+# expansion, and no recipe text is evaluated by a shell.
 recipe_lines() {
-    local makefile=$1 target=$2 root=$3
+    local makefile=$1 target=$2
     awk -v target="$target" '
         index($0, target ":") == 1 { inside = 1; next }
         inside && /^\t/ {
@@ -97,22 +80,177 @@ recipe_lines() {
         }
         inside && /^[[:space:]]*$/ { next }
         inside { exit }
-    ' "$makefile" \
-        | sed -e "s|\\\$(CURDIR)|$root|g" -e 's|\$\$|$|g'
+    ' "$makefile"
+}
+
+unquote_word() {
+    local word=$1
+    case "$word" in
+        \"*\") word=${word#\"}; word=${word%\"} ;;
+        \'*\') word=${word#\'}; word=${word%\'} ;;
+        *\"*|*\'*)
+            printf 'unsupported quoted path syntax: %s\n' "$1" >&2
+            return 1
+            ;;
+    esac
+    case "$word" in
+        *\"*|*\'*)
+            printf 'unsupported joined quoting: %s\n' "$1" >&2
+            return 1
+            ;;
+    esac
+    printf '%s\n' "$word"
+}
+
+# Refuse shell constructs before token splitting or expansion. `$(CURDIR)` is
+# the one admitted Make expansion. Everything else that can execute or
+# reinterpret recipe text is outside this bounded checker.
+line_syntax_is_static() {
+    local line=$1 without_curdir
+    without_curdir=${line//\$\(CURDIR\)/}
+    case "$without_curdir" in
+        *'$('*) printf 'unsafe shell syntax: command substitution\n' >&2; return 1 ;;
+        *'`'*) printf 'unsafe shell syntax: backticks\n' >&2; return 1 ;;
+        *'<('*|*'>('*) printf 'unsafe shell syntax: process substitution\n' >&2; return 1 ;;
+    esac
+    if [[ "$line" =~ (^|[[:space:]])eval([[:space:]]|$) ]]; then
+        printf 'unsafe shell syntax: eval\n' >&2
+        return 1
+    fi
+}
+
+# Normalize a path without reading the filesystem. A leading double slash has
+# implementation-defined meaning on POSIX, and a parent cannot climb above the
+# absolute root.
+normalize_absolute() {
+    local path=$1 part count normalized='' old_ifs=$IFS
+    local parts=() stack=()
+    case "$path" in
+        //*) printf 'unsafe absolute path syntax: %s\n' "$path" >&2; return 1 ;;
+        /*) ;;
+        *) printf 'path is not absolute: %s\n' "$path" >&2; return 1 ;;
+    esac
+    IFS=/ read -r -a parts <<<"$path"
+    IFS=$old_ifs
+    for part in "${parts[@]}"; do
+        case "$part" in
+            ''|.) ;;
+            ..)
+                count=${#stack[@]}
+                if (( count == 0 )); then
+                    printf 'cannot normalize absolute path above root: %s\n' "$path" >&2
+                    return 1
+                fi
+                unset 'stack[count-1]'
+                ;;
+            *) stack[${#stack[@]}]=$part ;;
+        esac
+    done
+    for part in "${stack[@]}"; do normalized="$normalized/$part"; done
+    [[ -n "$normalized" ]] || normalized=/
+    printf '%s\n' "$normalized"
+}
+
+validate_path_token() {
+    local value=$1 label=$2
+    case "$value" in
+        *'*'*|*'?'*|*'['*) printf 'wildcard %s: %s\n' "$label" "$value" >&2; return 1 ;;
+        *\\*) printf 'unsupported shell escape in %s: %s\n' "$label" "$value" >&2; return 1 ;;
+        *'`'*) printf 'unsafe shell syntax in %s: backticks\n' "$label" >&2; return 1 ;;
+        *';'*|*'|'*|*'&'*|*'<'*|*'>'*) printf 'unsafe shell syntax in %s: %s\n' "$label" "$value" >&2; return 1 ;;
+    esac
+}
+
+# Expand only values whose base this check knows. The shell never sees them.
+expand_path() {
+    local raw=$1 root=$2 caller_home=$3 label=$4 value
+    case "$raw" in
+        \'*\')
+            case "$raw" in
+                *'$$HOME'*|*'$$PWD'*)
+                    printf 'unsupported single-quoted shell variable in %s: %s\n' "$label" "$raw" >&2
+                    return 1
+                    ;;
+            esac
+            ;;
+    esac
+    value=$(unquote_word "$raw") || return 1
+    line_syntax_is_static "$value" || return 1
+    validate_path_token "$value" "$label" || return 1
+    case "$value" in
+        *'$$HOME'[A-Za-z0-9_]*|*'$$PWD'[A-Za-z0-9_]*)
+            printf 'unknown variable in %s: %s\n' "$label" "$raw" >&2
+            return 1
+            ;;
+    esac
+    value=${value//\$\(CURDIR\)/$root}
+    value=${value//\$\$PWD/$root}
+    value=${value//\$\$HOME/$caller_home}
+    case "$value" in
+        *'$'*) printf 'unknown variable in %s: %s\n' "$label" "$raw" >&2; return 1 ;;
+    esac
+    printf '%s\n' "$value"
+}
+
+validate_assignment_value() {
+    local raw=$1 name=$2 value
+    value=$(unquote_word "$raw") || return 1
+    line_syntax_is_static "$value" || return 1
+    case "$value" in
+        *';'*|*'|'*|*'&'*|*'<'*|*'>'*)
+            printf 'unsafe shell syntax in %s assignment\n' "$name" >&2
+            return 1
+            ;;
+    esac
+}
+
+validate_unset_operand() {
+    local raw=$1 value
+    value=$(unquote_word "$raw") || return 1
+    line_syntax_is_static "$value" || return 1
+    case "$value" in
+        *'$'*) printf 'unsupported variable in unset operand: %s\n' "$raw" >&2; return 1 ;;
+        *\\*) printf 'unsupported shell escape in unset operand: %s\n' "$raw" >&2; return 1 ;;
+        *'*'*|*'?'*|*'['*) printf 'wildcard unset operand: %s\n' "$raw" >&2; return 1 ;;
+        *';'*|*'|'*|*'&'*|*'<'*|*'>'*) printf 'unsafe shell syntax in unset operand: %s\n' "$raw" >&2; return 1 ;;
+    esac
+}
+
+validate_env_command_or_option() {
+    local raw=$1
+    case "$raw" in
+        *\"*|*\'*|*\\*)
+            printf 'unsupported quoted or escaped env command or option: %s\n' "$raw" >&2
+            return 1
+            ;;
+    esac
+}
+
+validate_assignment_name() {
+    local name=$1
+    case "$name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*)
+            printf 'unsupported env assignment name: %s\n' "$name" >&2
+            return 1
+            ;;
+    esac
 }
 
 # The directories the recipe on standard input removes, one per line, resolved
 # against root $1. Only `rm` with a recursive flag removes a directory, and
 # every operand after the flags is one.
 removed_directories() {
-    local root=$1 line word
+    local root=$1 line word raw_operand operand normalized seen_recursive
+    local words=()
     while IFS= read -r line; do
         case "$line" in
             rm\ *|rm) ;;
             *) continue ;;
         esac
-        local seen_recursive=no
-        for word in $line; do
+        line_syntax_is_static "$line" || return 1
+        read -r -a words <<<"$line"
+        seen_recursive=no
+        for word in "${words[@]}"; do
             case "$word" in
                 rm) continue ;;
                 --) continue ;;
@@ -124,12 +262,19 @@ removed_directories() {
                     ;;
             esac
             [[ "$seen_recursive" == yes ]] || continue
-            word=${word%\"}
-            word=${word#\"}
-            case "$word" in
-                /*) printf '%s\n' "$word" ;;
-                *) printf '%s/%s\n' "$root" "$word" ;;
+            raw_operand=$word
+            operand=$(unquote_word "$word") || return 1
+            case "$operand" in
+                *'*'*|*'?'*|*'['*)
+                    printf 'wildcard removal operand: %s\n' "$operand" >&2
+                    return 1
+                    ;;
             esac
+            validate_path_token "$operand" 'removal operand' || return 1
+            operand=$(expand_path "$raw_operand" "$root" "$root/.caller-home" 'removal operand') || return 1
+            case "$operand" in /*) ;; *) operand="$root/$operand" ;; esac
+            normalized=$(normalize_absolute "$operand") || return 1
+            printf '%s\n' "$normalized"
         done
     done
 }
@@ -151,30 +296,117 @@ cache_deciding_lines() {
     done
 }
 
-# The leading environment prefix of command line $1: the `env` word, its
-# `-u NAME` options and the `NAME=value` assignments that stand before the
-# command. The command itself is dropped, so nothing this file evaluates can
-# run anything the recipe runs. A line with no prefix answers empty, which is
-# how a bare `cargo build` is read as resolving this cache from whatever
-# environment the operator started make in.
-environment_prefix() {
-    local line=$1 word prefix='' expect_name=no
-    for word in $line; do
-        if [[ "$expect_name" == yes ]]; then
-            expect_name=no
-            prefix="$prefix $word"
+# Resolve one cache-deciding line from its admitted static environment prefix.
+# Return 2 for the supported relative ORT_CACHE_DIR exception.
+resolve_cache_path() {
+    local line=$1 root=$2 caller_cache="$root/.caller-cache" caller_home="$root/.caller-home"
+    local word name value operand expect_unset=no saw_env=no word_index=0
+    local ort_set=no ort='' xdg_set=yes xdg="$caller_cache" home_set=yes home="$caller_home"
+    local expanded
+    local words=()
+    read -r -a words <<<"$line"
+    for word in "${words[@]}"; do
+        if [[ "$expect_unset" == yes ]]; then
+            validate_unset_operand "$word" || return 1
+            operand=$(unquote_word "$word") || return 1
+            expect_unset=no
+            case "$operand" in
+                ORT_CACHE_DIR) ort_set=no; ort='' ;;
+                XDG_CACHE_HOME) xdg_set=no; xdg='' ;;
+                HOME) home_set=no; home='' ;;
+            esac
             continue
         fi
         case "$word" in
-            env) ;;
-            -u) expect_name=yes ;;
-            --unset=*) ;;
-            [A-Za-z_]*=*) ;;
-            *) break ;;
+            env)
+                validate_env_command_or_option "$word" || return 1
+                if (( word_index != 0 )); then
+                    printf 'unsupported nested env prefix\n' >&2
+                    return 1
+                fi
+                saw_env=yes
+                word_index=$((word_index + 1))
+                continue
+                ;;
+            eval) printf 'unsafe shell syntax: eval\n' >&2; return 1 ;;
+            -u)
+                validate_env_command_or_option "$word" || return 1
+                [[ "$saw_env" == yes ]] || break
+                expect_unset=yes
+                word_index=$((word_index + 1))
+                continue
+                ;;
+            --unset=*)
+                [[ "$saw_env" == yes ]] || break
+                operand=${word#--unset=}
+                validate_unset_operand "$operand" || return 1
+                operand=$(unquote_word "$operand") || return 1
+                case "$operand" in
+                    ORT_CACHE_DIR) ort_set=no; ort='' ;;
+                    XDG_CACHE_HOME) xdg_set=no; xdg='' ;;
+                    HOME) home_set=no; home='' ;;
+                esac
+                word_index=$((word_index + 1))
+                continue
+                ;;
+            *=*)
+                name=${word%%=*}
+                validate_assignment_name "$name" || return 1
+                value=${word#*=}
+                validate_assignment_value "$value" "$name" || return 1
+                case "$name" in
+                    ORT_CACHE_DIR) ort_set=yes; ort=$value ;;
+                    XDG_CACHE_HOME) xdg_set=yes; xdg=$value ;;
+                    HOME) home_set=yes; home=$value ;;
+                esac
+                word_index=$((word_index + 1))
+                continue
+                ;;
+            *)
+                validate_env_command_or_option "$word" || return 1
+                case "$word" in
+                    -*) [[ "$saw_env" == no ]] || { printf 'unsupported env option: %s\n' "$word" >&2; return 1; } ;;
+                esac
+                break
+                ;;
         esac
-        prefix="$prefix $word"
     done
-    printf '%s\n' "${prefix# }"
+    [[ "$expect_unset" == no ]] || {
+        printf 'unsafe shell syntax: missing env -u operand\n' >&2
+        return 1
+    }
+
+    if [[ "$ort_set" == yes ]]; then
+        expanded=$(expand_path "$ort" "$root" "$caller_home" ORT_CACHE_DIR) || return 1
+        if [[ -n "$expanded" ]]; then
+            case "$expanded" in
+                /*) normalize_absolute "$expanded" ;;
+                *) return 2 ;;
+            esac
+            return
+        fi
+    fi
+
+    if [[ "$home_set" == yes ]]; then
+        home=$(expand_path "$home" "$root" "$caller_home" HOME) || return 1
+        case "$home" in
+            /*) home=$(normalize_absolute "$home") || return 1 ;;
+            *) printf 'HOME must resolve to an absolute path: %s\n' "$home" >&2; return 1 ;;
+        esac
+    else
+        home=''
+    fi
+    if [[ "$system_name" == Darwin ]]; then
+        normalize_absolute "$home/Library/Caches/ort.pyke.io"
+        return
+    fi
+    if [[ "$xdg_set" == yes ]]; then
+        xdg=$(expand_path "$xdg" "$root" "$caller_home" XDG_CACHE_HOME) || return 1
+        case "$xdg" in
+            /*) normalize_absolute "$xdg"; return ;;
+        esac
+    fi
+    normalize_absolute "$home/.cache/ort.pyke.io"
 }
 
 # Whether path $1 stands inside directory $2, or is that directory.
@@ -186,7 +418,7 @@ inside() {
 # recipes it held on acceptance, the reason on refusal.
 makefile_holds() {
     local makefile=$1 root=$2 relative=$3
-    local target recipe removed line prefix raw resolved directory
+    local target recipe removed line resolved directory resolve_status
     local agreed agreed_line
     local held=0 refused=0
     [[ -f "$makefile" ]] || { printf 'no %s to read\n' "$relative" >&2; return 1; }
@@ -198,9 +430,12 @@ makefile_holds() {
 
     while IFS= read -r target; do
         [[ -n "$target" ]] || continue
-        recipe=$(recipe_lines "$makefile" "$target" "$root")
+        recipe=$(recipe_lines "$makefile" "$target")
         [[ -n "$recipe" ]] || continue
-        removed=$(printf '%s\n' "$recipe" | removed_directories "$root")
+        if ! removed=$(printf '%s\n' "$recipe" | removed_directories "$root"); then
+            refused=1
+            continue
+        fi
         [[ -n "$removed" ]] || continue
         held=$((held + 1))
 
@@ -208,33 +443,17 @@ makefile_holds() {
         agreed_line=
         while IFS= read -r line; do
             [[ -n "$line" ]] || continue
-            prefix=$(environment_prefix "$line")
-            # Run from the tree root, because that is where make runs a recipe
-            # and what a relative answer stands against.
-            # The stand-ins are put into the environment of the shell that
-            # reads the prefix, not written in front of it. A prefix spelled
-            # `env NAME="$HOME/..."` -- which is how every recipe here spells
-            # one -- is a command with arguments, and the shell expands those
-            # arguments before any assignment standing in front of the command
-            # takes effect. Measured on 2026-09-11: with the stand-ins written
-            # in front, `env ORT_CACHE_DIR="$HOME/.cache/ort.pyke.io"` resolved
-            # to the operator's own home directory, so this rule answered with
-            # the reviewer's machine instead of with the recipe.
-            raw=$(cd "$root" && XDG_CACHE_HOME="$root/.caller-cache" HOME="$root/.caller-home" \
-                bash -c "$prefix bash \"\$0\"" "$probe") \
-                || { printf 'could not resolve the downloaded-library cache of the %s recipe in %s\n' "$target" "$relative" >&2; refused=1; continue; }
-            # A relative answer is not inside any directory named here.
-            # `ort-sys` takes `ORT_CACHE_DIR` verbatim with no absolute-path
-            # test, and cargo runs a build script from the dependency's own
-            # package root under `CARGO_HOME` rather than from `$(CURDIR)`, so
-            # a relative value lands beside the crate source and never in a
-            # directory this recipe removes. Measured with a build script that
-            # printed its own working directory.
-            resolved=
-            case "$raw" in
-                /*) resolved=$raw ;;
-            esac
-            [[ -n "$resolved" ]] || continue
+            if resolved=$(resolve_cache_path "$line" "$root"); then
+                :
+            else
+                resolve_status=$?
+                if (( resolve_status == 2 )); then
+                    continue
+                fi
+                printf 'could not resolve the downloaded-library cache of the %s recipe in %s\n' "$target" "$relative" >&2
+                refused=1
+                continue
+            fi
 
             while IFS= read -r directory; do
                 [[ -n "$directory" ]] || continue
@@ -308,6 +527,102 @@ plant() {
             nested)
                 printf '\trm -rf target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="$(CURDIR)/target/spec-cache/ort" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
+            cache-dot)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/./target/spec-cache/ort" cargo build --locked\n' ;;
+            cache-parent)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/target/../.ort-cache" cargo build --locked\n' ;;
+            closed-make-expansion)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)cache/ort" cargo build --locked\n' ;;
+            escaped-cache-path)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/crates/\\../target/ort-cache" cargo build --locked\n' ;;
+            escaped-removal-path)
+                printf '\trm -rf target/\\../.ort-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/.ort-cache/ort" cargo build --locked\n' ;;
+            joined-cache-quoting)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/tar""get/ort-cache" cargo build --locked\n' ;;
+            joined-removal-quoting)
+                printf '\trm -rf "target/.""./.ort-cache"\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/.ort-cache/ort" cargo build --locked\n' ;;
+            single-quoted-home-path)
+                printf '\trm -rf target/ort-cache\n'
+                printf "\tORT_CACHE_DIR='\$(CURDIR)/\$\$HOME/../target/ort-cache' cargo build --locked\n" ;;
+            single-quoted-relative-path)
+                printf '\trm -rf target/spec-cache\n'
+                printf "\tORT_CACHE_DIR='\$\$HOME/.ort-cache' cargo build --locked\n" ;;
+            single-quoted-home-removal)
+                printf "\trm -rf '\$(CURDIR)/\$\$HOME/../.ort-cache'\n"
+                printf '\tORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked\n' ;;
+            single-quoted-pwd-removal)
+                printf "\trm -rf '\$(CURDIR)/\$\$PWD/../.ort-cache'\n"
+                printf '\tORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked\n' ;;
+            unset-xdg-single-quoted)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv --unset='\''XDG_CACHE_HOME'\'' HOME="$(CURDIR)/target/spec-cache" cargo build --locked\n' ;;
+            unset-xdg-double-quoted)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv --unset="XDG_CACHE_HOME" HOME="$(CURDIR)/target/spec-cache" cargo build --locked\n' ;;
+            unset-dynamic-short)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv -u "$$CACHE_TO_UNSET" ORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked\n' ;;
+            unset-dynamic-long)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv --unset="$$CACHE_TO_UNSET" ORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked\n' ;;
+            unset-escape-short)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\t%s\n' 'env -u "XDG_CACHE_HOM\E" ORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked' ;;
+            unset-escape-long)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\t%s\n' 'env --unset="XDG_CACHE_HOM\E" ORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked' ;;
+            unset-wildcard-short)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv -u "XDG_CACHE_HOME*" ORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked\n' ;;
+            unset-wildcard-long)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv --unset="XDG_CACHE_HOME*" ORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked\n' ;;
+            quoted-short-option-word)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv "-u" XDG_CACHE_HOME HOME="$(CURDIR)/target/spec-cache" cargo build --locked\n' ;;
+            quoted-long-option-word)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv "--unset=XDG_CACHE_HOME" HOME="$(CURDIR)/target/spec-cache" cargo build --locked\n' ;;
+            quoted-assignment-word)
+                printf '\trm -rf target/ort-cache\n'
+                printf '\tenv "ORT_CACHE_DIR=$(CURDIR)/target/ort-cache" cargo build --locked\n' ;;
+            quoted-env-command)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\t"env" ORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked\n' ;;
+            joined-env-command)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\te"nv" ORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked\n' ;;
+            joined-short-option)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv "-"u XDG_CACHE_HOME ORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" cargo build --locked\n' ;;
+            quoted-assignment-name)
+                printf '\trm -rf target/ort-cache\n'
+                printf '\tenv ORT_CACHE_"DIR"="$(CURDIR)/target/ort-cache" cargo build --locked\n' ;;
+            escaped-assignment-name)
+                printf '\trm -rf target/ort-cache\n'
+                printf '\t%s\n' 'env ORT_CACHE_\DIR="$(CURDIR)/target/ort-cache" cargo build --locked' ;;
+            later-env-prefix)
+                printf '\trm -rf target/ort-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" env ORT_CACHE_DIR="$(CURDIR)/target/ort-cache" cargo build --locked\n' ;;
+            nested-env-prefix)
+                printf '\trm -rf target/ort-cache\n'
+                printf '\tenv env ORT_CACHE_DIR="$(CURDIR)/target/ort-cache" cargo build --locked\n' ;;
+            removal-dot)
+                printf '\trm -rf ./target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/target/spec-cache/ort" cargo build --locked\n' ;;
+            removal-parent)
+                printf '\trm -rf target/../removed-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/removed-cache/ort" cargo build --locked\n' ;;
+            equal-paths)
+                printf '\trm -rf target/spec-cache/ort\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/target/spec-cache/ort/" cargo build --locked\n' ;;
             home-fallback)
                 printf '\trm -rf target/spec-cache\n'
                 printf '\tXDG_CACHE_HOME= HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
@@ -343,6 +658,46 @@ plant() {
                 printf '\tenv ORT_CACHE_DIR="$(CURDIR)/.ort-cache" cargo build --locked\n'
                 printf '\trm -rf target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="$(CURDIR)/.ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
+            equivalent-lines)
+                printf '\tenv ORT_CACHE_DIR="$(CURDIR)/.ort-cache/" cargo build --locked\n'
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/target/../.ort-cache" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" mustmatch test spec/\n' ;;
+            command-substitution)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$$(>$(CURDIR)/sentinel)" cargo build --locked\n' ;;
+            backticks)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="`>$(CURDIR)/sentinel`" cargo build --locked\n' ;;
+            process-substitution)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="<(>$(CURDIR)/sentinel)" cargo build --locked\n' ;;
+            shell-evaluation)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\teval ORT_CACHE_DIR="$(CURDIR)/.ort-cache" cargo build --locked\n' ;;
+            wildcard-removal)
+                printf '\trm -rf target/*\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/.ort-cache" cargo build --locked\n' ;;
+            unknown-variable)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$${UNKNOWN_CACHE}/ort" cargo build --locked\n' ;;
+            longer-home-variable)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$$HOME_CACHE/ort" cargo build --locked\n' ;;
+            longer-pwd-variable)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="$$PWD_OTHER/ort" cargo build --locked\n' ;;
+            unsafe-other-assignment)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tOTHER="$$(>$(CURDIR)/sentinel)" ORT_CACHE_DIR="$(CURDIR)/.ort-cache" cargo build --locked\n' ;;
+            unsafe-unset-operand)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tenv -u "$$(>$(CURDIR)/sentinel)" ORT_CACHE_DIR="$(CURDIR)/.ort-cache" cargo build --locked\n' ;;
+            nonnormal-absolute)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="/../../ort-cache" cargo build --locked\n' ;;
+            unsafe-absolute)
+                printf '\trm -rf target/spec-cache\n'
+                printf '\tORT_CACHE_DIR="//host/ort-cache" cargo build --locked\n' ;;
         esac
     } >"$tree/Makefile"
 }
@@ -365,6 +720,35 @@ expect_acceptance() {
     makefile_holds "$tree/Makefile" "$tree" Makefile >/dev/null || fail "$why"
 }
 
+expect_linux_refusal() {
+    local wanted=$1 tree=$2 saved_system_name=$system_name
+    system_name=Linux
+    expect_refusal "$wanted" "$tree"
+    system_name=$saved_system_name
+}
+
+expect_linux_safe_refusal() {
+    local wanted=$1 tree=$2 saved_system_name=$system_name
+    system_name=Linux
+    expect_safe_refusal "$wanted" "$tree"
+    system_name=$saved_system_name
+}
+
+expect_safe_refusal() {
+    local wanted=$1 tree=$2 output status
+    set +e
+    output=$(makefile_holds "$tree/Makefile" "$tree" Makefile 2>&1)
+    status=$?
+    set -e
+    (( status != 0 )) || fail "the rule accepted unsafe syntax it must refuse: $wanted"
+    [[ ! -e "$tree/sentinel" ]] \
+        || fail "the rule executed unsafe fixture syntax before refusing it: $wanted"
+    case "$output" in
+        *"$wanted"*) ;;
+        *) fail "the unsafe-syntax refusal does not name $wanted: $output" ;;
+    esac
+}
+
 # A makefile whose recipes remove nothing has nothing to hold, and saying so is
 # the difference between a rule that passed and a rule that read nothing.
 plant "$work/quiet" quiet
@@ -378,6 +762,77 @@ expect_refusal 'fetches that library again' "$work/deleted"
 # stands inside the one the recipe removes.
 plant "$work/nested" nested
 expect_refusal 'fetches that library again' "$work/nested"
+
+# Lexically equivalent dot and parent segments are classified by the location
+# they name, on both the cache and removal operands.
+for shape in cache-dot removal-dot removal-parent equal-paths; do
+    plant "$work/$shape" "$shape"
+    expect_refusal 'fetches that library again' "$work/$shape"
+done
+
+plant "$work/cache-parent" cache-parent
+expect_acceptance 'the rule refused a cache whose parent segment resolves outside the removed build directory' \
+    "$work/cache-parent"
+
+plant "$work/closed-make-expansion" closed-make-expansion
+expect_acceptance 'the rule rejected a closed CURDIR Make expansion followed by a literal path segment' \
+    "$work/closed-make-expansion"
+
+for shape in escaped-cache-path escaped-removal-path; do
+    plant "$work/$shape" "$shape"
+    expect_safe_refusal 'unsupported shell escape' "$work/$shape"
+done
+
+for shape in joined-cache-quoting joined-removal-quoting; do
+    plant "$work/$shape" "$shape"
+    expect_safe_refusal 'unsupported joined quoting' "$work/$shape"
+done
+
+for shape in single-quoted-home-path single-quoted-relative-path; do
+    plant "$work/$shape" "$shape"
+    expect_safe_refusal 'single-quoted shell variable' "$work/$shape"
+done
+
+for shape in single-quoted-home-removal single-quoted-pwd-removal; do
+    plant "$work/$shape" "$shape"
+    expect_safe_refusal 'single-quoted shell variable' "$work/$shape"
+done
+
+for shape in unset-xdg-single-quoted unset-xdg-double-quoted; do
+    plant "$work/$shape" "$shape"
+    expect_linux_refusal 'fetches that library again' "$work/$shape"
+done
+
+for form in short long; do
+    plant "$work/unset-dynamic-$form" "unset-dynamic-$form"
+    expect_linux_safe_refusal 'unsupported variable in unset operand' "$work/unset-dynamic-$form"
+    plant "$work/unset-escape-$form" "unset-escape-$form"
+    expect_linux_safe_refusal 'unsupported shell escape in unset operand' "$work/unset-escape-$form"
+    plant "$work/unset-wildcard-$form" "unset-wildcard-$form"
+    expect_linux_safe_refusal 'wildcard unset operand' "$work/unset-wildcard-$form"
+done
+
+plant "$work/quoted-short-option-word" quoted-short-option-word
+expect_linux_safe_refusal 'quoted or escaped env command or option' "$work/quoted-short-option-word"
+for shape in quoted-long-option-word quoted-assignment-word; do
+    plant "$work/$shape" "$shape"
+    expect_linux_safe_refusal 'env assignment name' "$work/$shape"
+done
+
+for shape in quoted-env-command joined-env-command joined-short-option; do
+    plant "$work/$shape" "$shape"
+    expect_linux_safe_refusal 'quoted or escaped env command or option' "$work/$shape"
+done
+
+for shape in quoted-assignment-name escaped-assignment-name; do
+    plant "$work/$shape" "$shape"
+    expect_linux_safe_refusal 'env assignment name' "$work/$shape"
+done
+
+for shape in later-env-prefix nested-env-prefix; do
+    plant "$work/$shape" "$shape"
+    expect_linux_safe_refusal 'unsupported nested env prefix' "$work/$shape"
+done
 
 # Clearing `XDG_CACHE_HOME` sends the resolution to `$HOME`, which the recipe
 # moved into the directory it removes. A rule that read only the variable it
@@ -451,6 +906,42 @@ plant "$work/joined" joined
 expect_acceptance 'the rule refused a recipe whose every cargo line resolves the same downloaded-library cache, outside every directory it removes' \
     "$work/joined"
 
+# Equivalent spellings, including a trailing separator, still name one cache
+# across separate build lines.
+plant "$work/equivalent-lines" equivalent-lines
+expect_acceptance 'the rule read equivalent normalized cache paths on separate build lines as different locations' \
+    "$work/equivalent-lines"
+
+# Unsupported syntax is refused before any expansion or word iteration. The
+# first three shapes would create `sentinel` if a shell evaluated them.
+for shape in command-substitution backticks process-substitution shell-evaluation; do
+    plant "$work/$shape" "$shape"
+    expect_safe_refusal 'unsafe shell syntax' "$work/$shape"
+done
+
+plant "$work/wildcard-removal" wildcard-removal
+expect_safe_refusal 'wildcard removal operand' "$work/wildcard-removal"
+
+plant "$work/unknown-variable" unknown-variable
+expect_safe_refusal 'unknown variable' "$work/unknown-variable"
+
+for shape in longer-home-variable longer-pwd-variable; do
+    plant "$work/$shape" "$shape"
+    expect_safe_refusal 'unknown variable' "$work/$shape"
+done
+
+plant "$work/unsafe-other-assignment" unsafe-other-assignment
+expect_safe_refusal 'unsafe shell syntax' "$work/unsafe-other-assignment"
+
+plant "$work/unsafe-unset-operand" unsafe-unset-operand
+expect_safe_refusal 'unsafe shell syntax' "$work/unsafe-unset-operand"
+
+plant "$work/nonnormal-absolute" nonnormal-absolute
+expect_safe_refusal 'cannot normalize absolute path' "$work/nonnormal-absolute"
+
+plant "$work/unsafe-absolute" unsafe-absolute
+expect_safe_refusal 'unsafe absolute path syntax' "$work/unsafe-absolute"
+
 # --- the real tree ----------------------------------------------------------
 
 held=$(makefile_holds "$repository/Makefile" "$work/real" Makefile) || exit 1
@@ -458,7 +949,7 @@ held=$(makefile_holds "$repository/Makefile" "$work/real" Makefile) || exit 1
 # Read against a tree of this file's own rather than against the checkout, so
 # that nothing here resolves a path inside `target/`. The anchor below is what
 # keeps the count honest.
-recipe=$(recipe_lines "$repository/Makefile" "$anchor" "$work/real")
+recipe=$(recipe_lines "$repository/Makefile" "$anchor")
 [[ -n "$recipe" ]] \
     || fail "the Makefile has no $anchor recipe, so this scan is reading the wrong file"
 [[ -n "$(printf '%s\n' "$recipe" | removed_directories "$work/real")" ]] \

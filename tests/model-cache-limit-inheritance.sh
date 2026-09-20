@@ -43,11 +43,84 @@ fail() { printf 'model cache limit inheritance: %s\n' "$*" >&2; exit 1; }
 
 # --- the two matchers -------------------------------------------------------
 
-# Text $1 drops $2 by option: `env -u NAME`, long or short. The trailing class
-# is what keeps `-u PANGOPUP_MODEL_CACHE_MAX_ENTRIES` from reading as a drop of
-# `PANGOPUP_MODEL_CACHE`.
+# Split shell words without evaluating them. Quote context is retained while
+# splitting, then removed from the completed word. Unsupported open quotes or
+# trailing escapes refuse the match.
+split_shell_words() {
+    local text=$1 character next quote='' word='' started=no escaped=no index
+    shell_words=()
+    for ((index = 0; index < ${#text}; index++)); do
+        character=${text:index:1}
+        if [[ "$escaped" == yes ]]; then
+            word=$word$character
+            started=yes
+            escaped=no
+            continue
+        fi
+        case "$quote" in
+            "'")
+                if [[ "$character" == "'" ]]; then quote=''; else word=$word$character; fi
+                ;;
+            '"')
+                if [[ "$character" == '"' ]]; then
+                    quote=''
+                elif [[ "$character" == \\ ]]; then
+                    next=${text:index+1:1}
+                    case "$next" in
+                        '$'|'`'|'"'|\\|$'\n') escaped=yes ;;
+                        *) word=$word$character ;;
+                    esac
+                else
+                    word=$word$character
+                fi
+                ;;
+            '')
+                case "$character" in
+                    "'"|'"') quote=$character; started=yes ;;
+                    \\) escaped=yes; started=yes ;;
+                    '#')
+                        if [[ "$started" == no ]]; then break; else word=$word$character; fi
+                        ;;
+                    ' '|$'\t')
+                        if [[ "$started" == yes ]]; then
+                            shell_words[${#shell_words[@]}]=$word
+                            word=''
+                            started=no
+                        fi
+                        ;;
+                    *) word=$word$character; started=yes ;;
+                esac
+                ;;
+        esac
+    done
+    [[ -z "$quote" && "$escaped" == no ]] || return 1
+    if [[ "$started" == yes ]]; then shell_words[${#shell_words[@]}]=$word; fi
+}
+
+# Text $1 drops $2 by option: `env -u NAME`, `env -u=NAME`, or
+# `env --unset=NAME`. Compare the complete operand. Punctuation may belong to
+# a longer environment name even when the product does not use that name.
 drops_by_option() {
-    grep -qE -- "(-u[[:space:]=]+|--unset=)$2([^A-Za-z0-9_]|\$)" <<<"$1"
+    local text=$1 wanted=$2 word operand expect_operand=no assignments=no word_index
+    split_shell_words "$text" || return 1
+    (( ${#shell_words[@]} > 0 )) && [[ "${shell_words[0]}" == env ]] || return 1
+    for ((word_index = 1; word_index < ${#shell_words[@]}; word_index++)); do
+        word=${shell_words[word_index]}
+        if [[ "$expect_operand" == yes ]]; then
+            operand=$word
+            expect_operand=no
+        else
+            case "$word" in
+                -u) [[ "$assignments" == no ]] || break; expect_operand=yes; continue ;;
+                -u=*) [[ "$assignments" == no ]] || break; operand=${word#-u=} ;;
+                --unset=*) [[ "$assignments" == no ]] || break; operand=${word#--unset=} ;;
+                [A-Za-z_]*=*) assignments=yes; continue ;;
+                *) break ;;
+            esac
+        fi
+        [[ "$operand" == "$wanted" ]] && return 0
+    done
+    return 1
 }
 
 # Text $1 carries $2 as a quoted name in a list, the way both the Rust helper
@@ -91,6 +164,23 @@ expect_match drops_by_option "$both_options" PANGOPUP_MODEL_CACHE \
     'the option matcher misses PANGOPUP_MODEL_CACHE in a route that drops both names'
 expect_match drops_by_option "$both_options" "$limit" \
     'the option matcher misses the entry limit in a route that drops both names'
+
+for suffix in X 2 -OLD; do
+    expect_no_match drops_by_option "env -u PANGOPUP_MODEL_CACHE$suffix true" PANGOPUP_MODEL_CACHE \
+        "the option matcher reads PANGOPUP_MODEL_CACHE$suffix as the complete PANGOPUP_MODEL_CACHE operand"
+done
+expect_no_match drops_by_option 'env -u "PANGOPUP_MODEL_CACHE -OLD" true' PANGOPUP_MODEL_CACHE \
+    'the option matcher drops part of one quoted operand and reads it as the complete PANGOPUP_MODEL_CACHE operand'
+expect_match drops_by_option 'env -u "PANGOPUP_MODEL_CACHE" true' PANGOPUP_MODEL_CACHE \
+    'the option matcher rejects an exact quoted PANGOPUP_MODEL_CACHE operand'
+expect_no_match drops_by_option 'env NOTE="text -u PANGOPUP_MODEL_CACHE text" true' PANGOPUP_MODEL_CACHE \
+    'the option matcher reads text inside a quoted assignment as an env unset option'
+expect_no_match drops_by_option 'env -u "PANGOPUP_MODEL\_CACHE" true' PANGOPUP_MODEL_CACHE \
+    'the option matcher removes a backslash that is literal inside double quotes'
+expect_no_match drops_by_option 'env true # -u PANGOPUP_MODEL_CACHE' PANGOPUP_MODEL_CACHE \
+    'the option matcher reads a comment after the command as an env option'
+expect_no_match drops_by_option 'env true -u PANGOPUP_MODEL_CACHE' PANGOPUP_MODEL_CACHE \
+    'the option matcher reads a command argument as an env option'
 
 only_long_list='for name in ["PANGOPUP_MODEL_CACHE_MAX_ENTRIES"]'
 only_short_list='for name in ["PANGOPUP_MODEL_CACHE"]'
