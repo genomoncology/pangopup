@@ -125,6 +125,7 @@ mkdir -p "$positive/crates/other/src"
     printf 'fn tokens<'"'"'a>(value: &'"'"'a str) {\n'
     printf '    let quote = '\''"'\'';\n'
     printf '    let byte_quote = b'\''"'\'';\n'
+    printf '    let byte_ascii = b'\''a'\'';\n'
     printf '    '\''outer: loop { break '\''outer; }\n'
     printf '    let _ = value;\n'
     printf '}\n'
@@ -225,6 +226,8 @@ printf 'const BAD: char = '\''\\\n' >"$malformed/crates/other/src/character.rs"
 printf 'const BAD: char = '\''!;\n' >"$malformed/crates/other/src/punctuation-character.rs"
 printf 'const BAD: char = '\'' ;\n' >"$malformed/crates/other/src/space-character.rs"
 printf 'const BAD: u8 = b'\''!;\n' >"$malformed/crates/other/src/punctuation-byte.rs"
+printf 'const BAD: u8 = b'\''a;\n' >"$malformed/crates/other/src/ascii-byte.rs"
+printf 'const BAD: u8 = b'\''_;\n' >"$malformed/crates/other/src/underscore-byte.rs"
 printf 'fn bad() { /* never closes\n' >"$malformed/crates/other/src/comment.rs"
 awk 'BEGIN {
     printf "const BAD: &str = r"
@@ -240,6 +243,7 @@ if malformed_findings=$(scan "$malformed" "$empty_exemptions" "${malformed_sourc
     fail 'the scanner accepted unterminated Rust token forms'
 fi
 for expected in \
+    'crates/other/src/ascii-byte.rs:1: unsupported or unterminated Rust source: character literal does not close on its physical line' \
     'crates/other/src/character.rs:1: unsupported or unterminated Rust source: character literal does not close on its physical line' \
     'crates/other/src/comment.rs:1: unsupported or unterminated Rust source: nested block comment reaches end of file' \
     'crates/other/src/punctuation-byte.rs:1: unsupported or unterminated Rust source: character literal does not close on its physical line' \
@@ -247,7 +251,8 @@ for expected in \
     "crates/other/src/raw-hash-limit.rs:1: unsupported or unterminated Rust source: raw string delimiter exceeds Rust's 255-hash limit" \
     'crates/other/src/raw.rs:1: unsupported or unterminated Rust source: raw string literal reaches end of file' \
     'crates/other/src/space-character.rs:1: unsupported or unterminated Rust source: character literal does not close on its physical line' \
-    'crates/other/src/string.rs:1: unsupported or unterminated Rust source: ordinary string literal reaches end of file'; do
+    'crates/other/src/string.rs:1: unsupported or unterminated Rust source: ordinary string literal reaches end of file' \
+    'crates/other/src/underscore-byte.rs:1: unsupported or unterminated Rust source: character literal does not close on its physical line'; do
     grep -Fq -- "$expected" <<<"$malformed_findings" \
         || fail "the malformed fixture did not produce '$expected': $malformed_findings"
 done
@@ -268,6 +273,8 @@ rustc_rejects() {
 rustc_rejects "$malformed/crates/other/src/punctuation-character.rs" E0762 punctuation-character
 rustc_rejects "$malformed/crates/other/src/space-character.rs" E0762 space-character
 rustc_rejects "$malformed/crates/other/src/punctuation-byte.rs" E0763 punctuation-byte
+rustc_rejects "$malformed/crates/other/src/ascii-byte.rs" E0763 ascii-byte
+rustc_rejects "$malformed/crates/other/src/underscore-byte.rs" E0763 underscore-byte
 
 stale_exemptions="$work/stale-exemptions.tsv"
 printf 'removed\tmultiline\tcrates/other/src/tokens.rs\t99\tconst REMOVED: &str = "gone\n' \

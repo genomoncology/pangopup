@@ -93,8 +93,8 @@ function lifetime_start(position,    first, width) {
 }
 
 # Return a closing quote position, zero for an unterminated character form, or
-# -1 only when the apostrophe is followed by a possible lifetime/label start.
-function character_end(position,    cursor, character, width) {
+# -1 only when ALLOW_LIFETIME admits a possible lifetime or label start.
+function character_end(position, allow_lifetime, ascii_only,    cursor, character, width) {
     if (byte[position + 1] == "\\") {
         cursor = position + 1
         while (cursor <= line_length) {
@@ -113,9 +113,10 @@ function character_end(position,    cursor, character, width) {
 
     width = utf8_width(position + 1)
     if (width > 0 && byte[position + 1 + width] == "'") {
+        if (ascii_only && width != 1) return 0
         return position + 1 + width
     }
-    if (lifetime_start(position + 1)) return -1
+    if (allow_lifetime && lifetime_start(position + 1)) return -1
     return 0
 }
 
@@ -340,6 +341,16 @@ FNR == 1 {
             continue
         }
 
+        if (character == "b" && byte[cursor + 1] == "'") {
+            end_at = character_end(cursor + 1, 0, 1)
+            if (end_at == 0) {
+                report_error(FNR, "character literal does not close on its physical line")
+                break
+            }
+            cursor = end_at + 1
+            continue
+        }
+
         if (character == "\"") {
             state = "string"
             start_line = FNR
@@ -352,7 +363,7 @@ FNR == 1 {
         }
 
         if (character == "'") {
-            end_at = character_end(cursor)
+            end_at = character_end(cursor, 1, 0)
             if (end_at == 0) {
                 report_error(FNR, "character literal does not close on its physical line")
                 break
