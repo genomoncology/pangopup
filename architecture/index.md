@@ -52,16 +52,29 @@ offset, loss magnitude, and loss genomic offset. The gain/loss field implies
 the sign. Each of the four values has 101 possibilities and fits in seven bits,
 but the data is far from uniformly distributed.
 
-The empirical zero-order entropy of one complete score record is 1.848462 bits.
-Modeling the reference and three alternate score records as separate symbol
-streams gives 1,285,518,889 bytes. Modeling the complete three-alternate locus
-as one symbol captures their correlation and lowers the result to:
+The retained analyzer reports one pooled complete-record entropy of 1.848462
+bits across all 4,099,255,665 SNV rows and a reference entropy of 1.980969 bits
+across 1,366,418,555 loci. It adds those two products and divides the sum by
+eight. This separate-stream calculation gives 1,285,518,889 bytes. It does not
+calculate three distinct alternate-record entropies.
+
+For the joint-locus model, the analyzer multiplies the 5.995913-bit complete
+reference + three-alternate locus entropy by 1,366,418,555 loci and divides by
+eight. Modeling the locus as one symbol captures the alternate correlation and
+gives 1,024,115,911 bytes (0.954 GiB).
 
 ```text
 5.995913 bits per locus
 1,024,115,911 bytes total
 0.954 GiB total
 ```
+
+Both retained calculations use unrounded `f64` entropy values. The analyzer
+rounds entropy for display to six decimal places and each byte total to the
+nearest whole byte. Multiplying the displayed six-decimal values therefore
+does not reproduce either exact total. The inputs, results, and retained
+analyzer are in
+[`planning/artifacts/2026-07-20-full-dataset-entropy.md`](../planning/artifacts/2026-07-20-full-dataset-entropy.md).
 
 This is the first-principles floor for a memoryless codec over the observed
 locus symbols. It excludes small directories/provenance and real coding tables.

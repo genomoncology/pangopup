@@ -120,6 +120,8 @@ Ticket 0141 gives repository shell lint one bounded command-context scanner and 
 
 Ticket 0142 makes cache-isolation checks compare complete environment operands and normalized lexical paths. The checks reject unsupported shell evaluation before expansion, preserve the relative `ORT_CACHE_DIR` exception, and classify dot segments, parent segments, equal paths, sibling prefixes, and trailing separators consistently on macOS and Linux. Drafts 0107 and 0108 are archived. Draft 0149 records the separate limitation for multiple commands on one Make recipe line.
 
+Ticket 0144 makes both published entropy byte totals traceable to the retained analyzer. The documentation now states the pooled record-plus-reference and joint-locus calculations, the unrounded `f64` calculation precision, and the six-decimal entropy and whole-byte display precision. The claim check rejects rounded-input arithmetic, alternate-specific stream substitution, missing terms, drift in either total, and lost source attribution while accepting paragraph reflow. Draft 0104 is archived.
+
 ## Asset readiness — preserve, package, then publish
 
 The large source work is not a rebuild queue:

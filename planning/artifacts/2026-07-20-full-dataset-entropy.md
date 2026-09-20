@@ -105,9 +105,21 @@ corpus.
 | Complete four-field score record | 1.848462 per SNV |
 | Complete reference + three-alternate locus | 5.995913 per locus |
 
-The separate reference/record model totals 1,285,518,889 bytes. The more useful
-joint-locus model captures cross-alternate correlation and totals
-1,024,115,911 bytes (0.954 GiB, 7.446% of source gzip).
+The analyzer calculates the separate reference/record model as one pooled
+complete-record entropy across all 4,099,255,665 SNV rows plus reference
+entropy across 1,366,418,555 loci, with the sum divided by eight. It does not
+calculate three distinct alternate-record entropies. The separate
+reference/record model totals 1,285,518,889 bytes.
+
+The joint-locus model multiplies complete reference + three-alternate locus
+entropy by 1,366,418,555 loci and divides by eight. It captures cross-alternate
+correlation. The joint-locus model totals 1,024,115,911 bytes (0.954 GiB,
+7.446% of source gzip).
+
+Both calculations use the unrounded `f64` entropy values produced from the
+merged histograms. The analyzer displays entropy to six decimal places and
+byte totals to the nearest whole byte. Arithmetic over the displayed entropy
+values alone therefore differs from the retained whole-byte results.
 
 This is a memoryless empirical floor, not an absolute bound. It omits small
 directories and coding tables. Spatial/run context may reduce it; block indexes

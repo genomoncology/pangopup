@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Three published claims, each joined here to the thing in the repository that
+# Four published claims, each joined here to the thing in the repository that
 # makes it true. None of them was read by any gate, so each could go stale
 # without a build noticing -- which is how two of them went stale.
 #
@@ -23,6 +23,13 @@ set -euo pipefail
 #      `architecture/index.md` states the complete corpus at eleven bytes per
 #      locus; the retained build artifact measured a smaller payload. The two
 #      reconcile exactly, and the document says nothing about the difference.
+#
+#   4. The entropy section puts exact whole-byte totals beside entropy values
+#      rounded to six decimal places. The retained analyzer calculates with
+#      unrounded f64 values. Its separate-stream total uses one pooled record
+#      entropy over every SNV row plus reference entropy over every locus, not
+#      three alternate-specific entropies. Without those facts, neither exact
+#      byte total follows from the displayed inputs.
 #
 # Each check has the same shape: find the fact in the evidence the repository
 # already keeps, then require the published sentence to agree with it. What is
@@ -83,6 +90,14 @@ grouped() {
 
 # 12,345 -> 12345.
 ungrouped() { printf '%s' "$1" | tr -d ','; }
+
+# Group whole counts for prose while leaving decimal measurements unchanged.
+displayed() {
+    case "$1" in
+        *.*) printf '%s\n' "$1" ;;
+        *) grouped "$1" ;;
+    esac
+}
 
 # =============================================================================
 # 1. the stored version rides on the score item
@@ -681,6 +696,149 @@ check_index_size() {
 }
 
 # =============================================================================
+# 4. the entropy totals name the retained calculation and display precision
+# =============================================================================
+
+entropy_section='## Entropy result'
+entropy_artifact_relative='planning/artifacts/2026-07-20-full-dataset-entropy.md'
+entropy_analyzer_relative='planning/artifacts/2026-07-20-entropy-analyzer/src/main.rs'
+
+decimal_table_cell() {
+    awk -v want="$2" -F'|' '
+        {
+            label = $2
+            gsub(/`/, "", label)
+            gsub(/^[ \t]+|[ \t]+$/, "", label)
+            if (label != want) next
+            value = $3
+            gsub(/^[ \t]+|[ \t]+$/, "", value)
+            if (value ~ /^[0-9]+\.[0-9]+/) {
+                sub(/[^0-9.].*$/, "", value)
+                print value
+                exit
+            }
+        }
+    ' "$1"
+}
+
+named_total() {
+    flatten "$1" | grep -Eio "$2[^.]*[0-9][0-9,]+ bytes" \
+        | awk 'NR == 1 { first = $0 } END { if (NR) print first }' \
+        | grep -oE '[0-9][0-9,]+ bytes$' | grep -oE '^[0-9][0-9,]+' | tr -d ','
+}
+
+check_entropy_derivation() {
+    local root=$1 artifact=$1/$entropy_artifact_relative analyzer=$1/$entropy_analyzer_relative
+    local text source rows loci record_entropy ref_entropy locus_entropy
+    local separate_total joint_total
+
+    [[ -f "$root/$index_relative" ]] || {
+        printf 'no %s to carry the published entropy totals\n' "$index_relative" >&2
+        return 1
+    }
+    [[ -f "$artifact" ]] || {
+        printf 'no %s to identify the retained entropy measurement\n' "$entropy_artifact_relative" >&2
+        return 1
+    }
+    [[ -f "$analyzer" ]] || {
+        printf 'no %s to show how the retained totals were calculated and displayed\n' \
+            "$entropy_analyzer_relative" >&2
+        return 1
+    }
+
+    text=$(section "$root/$index_relative" "$entropy_section")
+    [[ -n "${text// /}" ]] || {
+        printf '%s has no `%s` section, so this check read no entropy claim\n' \
+            "$index_relative" "$entropy_section" >&2
+        return 1
+    }
+    source=$(flatten "$analyzer")
+
+    rows=$(table_cell "$artifact" 'SNV rows')
+    loci=$(table_cell "$artifact" 'Three-alternate loci')
+    record_entropy=$(decimal_table_cell "$artifact" 'Complete four-field score record')
+    ref_entropy=$(decimal_table_cell "$artifact" 'Reference base')
+    locus_entropy=$(decimal_table_cell "$artifact" 'Complete reference + three-alternate locus')
+    separate_total=$(named_total "$artifact" 'separate reference/record model totals')
+    joint_total=$(named_total "$artifact" 'joint-locus model[^.]*totals')
+
+    [[ "$rows" =~ ^[0-9]+$ && "$loci" =~ ^[0-9]+$ \
+        && "$record_entropy" =~ ^[0-9]+\.[0-9]+$ \
+        && "$ref_entropy" =~ ^[0-9]+\.[0-9]+$ \
+        && "$locus_entropy" =~ ^[0-9]+\.[0-9]+$ \
+        && "$separate_total" =~ ^[0-9]+$ && "$joint_total" =~ ^[0-9]+$ ]] || {
+        printf '%s no longer carries the row count, locus count, three displayed entropies, and two named byte totals this claim reconciles\n' \
+            "$entropy_artifact_relative" >&2
+        return 1
+    }
+
+    grep -Eq 'record_entropy \* stats\.rows as f64 \+ ref_entropy \* stats\.loci as f64\) / 8\.0' <<<"$source" \
+        && grep -Fq 'locus_entropy * stats.loci as f64 / 8.0' <<<"$source" || {
+        printf '%s no longer carries the two retained calculations the documents describe\n' \
+            "$entropy_analyzer_relative" >&2
+        return 1
+    }
+    grep -Fq '{record_entropy:.6}' <<<"$source" \
+        && grep -Fq '{ref_entropy:.6}' <<<"$source" \
+        && grep -Fq '{locus_entropy:.6}' <<<"$source" \
+        && grep -Fq 'zero_order_record_plus_ref:{zero_order_bytes:.0}' <<<"$source" \
+        && grep -Fq 'locus_zero_order_bytes={:.0}' <<<"$source" || {
+        printf '%s no longer displays entropy to six decimals and byte totals to whole bytes\n' \
+            "$entropy_analyzer_relative" >&2
+        return 1
+    }
+
+    for value in "$rows" "$loci" "$record_entropy" "$ref_entropy" "$locus_entropy" \
+        "$separate_total" "$joint_total"; do
+        grep -Eq "(^|[^0-9,])$(displayed "$value")([^0-9]|$)" <<<"$text" || {
+            printf '%s does not publish retained entropy input or result %s, so its byte totals cannot be traced to the retained report\n' \
+                "$entropy_section" "$(displayed "$value")" >&2
+            return 1
+        }
+    done
+    grep -Fq "$entropy_artifact_relative" <<<"$text" || {
+        printf '%s does not cite %s as the source of its retained entropy inputs and totals\n' \
+            "$entropy_section" "$entropy_artifact_relative" >&2
+        return 1
+    }
+    grep -Eqi 'both[^.]{0,120}(unrounded[^.]{0,80}f64|f64[^.]{0,80}unrounded)' <<<"$text" || {
+        printf '%s does not say both exact byte totals use unrounded f64 entropy values\n' \
+            "$entropy_section" >&2
+        return 1
+    }
+    grep -Eqi 'six decimal (places|digits)' <<<"$text" || {
+        printf '%s does not say the displayed entropy values are rounded to six decimal places\n' \
+            "$entropy_section" >&2
+        return 1
+    }
+    grep -Eqi '(nearest|rounded to (a )?) whole byte' <<<"$text" || {
+        printf '%s does not say the displayed byte totals are rounded to whole bytes\n' \
+            "$entropy_section" >&2
+        return 1
+    }
+    grep -Eqi '(one|single) pooled[^.]{0,80}(complete[- ]record|record) entropy' <<<"$text" \
+        && grep -Eqi '(all|every)[^.]*(SNV )?rows' <<<"$text" || {
+        printf '%s does not say the separate-stream total uses one pooled complete-record entropy across all SNV rows\n' \
+            "$entropy_section" >&2
+        return 1
+    }
+    grep -Eqi 'reference entropy' <<<"$text" \
+        && grep -Eqi '(sum|add|plus).*(divid.*(by )?eight|/ ?8)' <<<"$text" || {
+        printf '%s does not state that the separate-stream calculation adds reference entropy across loci and divides the sum by eight\n' \
+            "$entropy_section" >&2
+        return 1
+    }
+    grep -Eqi '(joint[- ]locus|complete reference \+ three-alternate locus).*(times|multipl).*(locus|loci).*(divid.*(by )?eight|/ ?8)' <<<"$text" || {
+        printf '%s does not state that the joint total is joint-locus entropy times loci divided by eight\n' \
+            "$entropy_section" >&2
+        return 1
+    }
+
+    printf '%s and %s bytes trace to unrounded retained calculations; six-decimal entropy and whole-byte display precision are explicit\n' \
+        "$(grouped "$separate_total")" "$(grouped "$joint_total")"
+}
+
+# =============================================================================
 # the checks refuse what they exist to refuse
 # =============================================================================
 #
@@ -705,10 +863,11 @@ PY
 
 swap() { python3 "$work/swap.py" "$@"; }
 
-# A fixture repository in the state all three checks exist to require.
+# A fixture repository in the state all four checks exist to require.
 plant() {
     local tree=$1
     mkdir -p "$tree/architecture" "$tree/planning/artifacts" \
+        "$tree/planning/artifacts/2026-07-20-entropy-analyzer/src" \
         "$tree/tests/fixtures/pangolin-compat-v1" "$tree/crates/pangopup-build/tests"
 
     cat >"$tree/$inventory_relative" <<'COMPAT'
@@ -795,6 +954,20 @@ ARTIFACT
     cat >"$tree/$index_relative" <<'INDEX'
 # Precomputed SNV Index
 
+## Entropy result
+
+The retained analyzer reports 1.848462 bits for one pooled complete-record
+entropy across all 3,000,000 SNV rows and a reference entropy of 1.980969 bits
+across 1,000,000 loci. It adds those two products and divides the sum by eight,
+which gives 999,999 bytes. Its joint-locus calculation multiplies the 5.995913-bit
+complete reference + three-alternate locus entropy by 1,000,000 loci and
+divides by eight, which gives 749,999 bytes. The analyzer calculates both
+totals from unrounded `f64` entropy values before it rounds entropy for display
+to six decimal places and each total to the nearest whole byte. The displayed
+values therefore do not reproduce the exact totals. The retained inputs and
+results are in
+[`planning/artifacts/2026-07-20-full-dataset-entropy.md`](planning/artifacts/2026-07-20-full-dataset-entropy.md).
+
 ## Selected fixed-width v1
 
 Three 28-bit score records plus a three-bit reference fit in 87 bits, or 11
@@ -807,6 +980,33 @@ exception section rather than in the fixed-width payload.
 
 Nothing here.
 INDEX
+
+    cat >"$tree/$entropy_artifact_relative" <<'ENTROPY'
+# Complete entropy
+
+| Measure | Result |
+|---|---:|
+| SNV rows | 3,000,000 |
+| Three-alternate loci | 1,000,000 |
+
+| Symbol/model | Bits per symbol |
+|---|---:|
+| Reference base | 1.980969 per locus |
+| Complete four-field score record | 1.848462 per SNV |
+| Complete reference + three-alternate locus | 5.995913 per locus |
+
+The separate reference/record model totals 999,999 bytes. The joint-locus
+model captures cross-alternate correlation and totals 749,999 bytes.
+ENTROPY
+
+    cat >"$tree/$entropy_analyzer_relative" <<'ANALYZER'
+let zero_order_bytes =
+    (record_entropy * stats.rows as f64 + ref_entropy * stats.loci as f64) / 8.0;
+println!("entropy_bits=ref:{ref_entropy:.6} full_record:{record_entropy:.6}");
+println!("locus_entropy_bits={locus_entropy:.6} locus_zero_order_bytes={:.0}",
+    locus_entropy * stats.loci as f64 / 8.0);
+println!("zero_order_record_plus_ref:{zero_order_bytes:.0}");
+ANALYZER
 }
 
 # A fixture repository with one thing changed. A mutation that changes no byte
@@ -857,7 +1057,7 @@ fixture_sed() {
 
 clean="$work/clean"
 plant "$clean"
-for check in check_stored_version check_same_strand check_index_size; do
+for check in check_stored_version check_same_strand check_index_size check_entropy_derivation; do
     "$check" "$clean" >/dev/null \
         || fail "$check refused the state it exists to require, so it can never go green"
 done
@@ -1043,12 +1243,51 @@ index_edited=$(mutate ix-copy-edited swap "$index_relative" \
 check_index_size "$index_edited" >/dev/null \
     || fail 'the index-size check refused a rewritten sentence that still states the claim, so it pins a form of words rather than the claim'
 
+# --- 4. the entropy derivation ---------------------------------------------
+expect_refusal check_entropy_derivation "$(mutate en-rounded-input swap "$index_relative" \
+    'unrounded `f64` entropy values' 'displayed six-decimal entropy values')" \
+    'does not say both exact byte totals use unrounded f64 entropy values'
+expect_refusal check_entropy_derivation "$(mutate en-three-alt-streams swap "$index_relative" \
+    'one pooled complete-record entropy across all 3,000,000 SNV rows' \
+    'three distinct alternate-record entropies across all 3,000,000 SNV rows')" \
+    'does not say the separate-stream total uses one pooled complete-record entropy'
+expect_refusal check_entropy_derivation "$(mutate en-no-reference-product swap "$index_relative" \
+    'It adds those two products and divides the sum by eight' \
+    'It uses only the record product and divides it by eight')" \
+    'does not state that the separate-stream calculation adds reference entropy'
+expect_refusal check_entropy_derivation "$(mutate en-no-joint-divisor swap "$index_relative" \
+    'complete reference + three-alternate locus entropy by 1,000,000 loci and divides by eight' \
+    'complete reference + three-alternate locus entropy by 1,000,000 loci')" \
+    'does not state that the joint total is joint-locus entropy times loci divided by eight'
+expect_refusal check_entropy_derivation "$(mutate en-joint-total-drift swap "$index_relative" \
+    '749,999 bytes' '749,998 bytes')" \
+    'does not publish retained entropy input or result 749,999'
+expect_refusal check_entropy_derivation "$(mutate en-separate-total-drift swap "$index_relative" \
+    '999,999 bytes' '999,998 bytes')" \
+    'does not publish retained entropy input or result 999,999'
+expect_refusal check_entropy_derivation "$(mutate en-no-six-decimals swap "$index_relative" \
+    'six decimal places' 'five decimal places')" \
+    'does not say the displayed entropy values are rounded to six decimal places'
+expect_refusal check_entropy_derivation "$(mutate en-no-whole-bytes swap "$index_relative" \
+    'nearest whole byte' 'nearest tenth of a byte')" \
+    'does not say the displayed byte totals are rounded to whole bytes'
+expect_refusal check_entropy_derivation "$(mutate en-no-source swap "$index_relative" \
+    '[`planning/artifacts/2026-07-20-full-dataset-entropy.md`](planning/artifacts/2026-07-20-full-dataset-entropy.md)' \
+    '[another report](planning/artifacts/another-report.md)')" \
+    'does not cite planning/artifacts/2026-07-20-full-dataset-entropy.md'
+
+entropy_reflowed=$(mutate en-reflow swap "$index_relative" \
+    'The analyzer calculates both totals from unrounded `f64` entropy values before it rounds entropy for display to six decimal places and each total to the nearest whole byte.' \
+    $'The analyzer calculates both totals from unrounded `f64` entropy values\nbefore it rounds entropy for display to six decimal places and each total to\nthe nearest whole byte.')
+check_entropy_derivation "$entropy_reflowed" >/dev/null \
+    || fail 'the entropy check refused a paragraph reflow that changed no claim'
+
 # =============================================================================
 # the real repository
 # =============================================================================
 
 status=0
-for check in check_stored_version check_same_strand check_index_size; do
+for check in check_stored_version check_same_strand check_index_size check_entropy_derivation; do
     if result=$("$check" "$repository" 2>&1); then
         printf 'published claim evidence: %s\n' "$result"
     else
