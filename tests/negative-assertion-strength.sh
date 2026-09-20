@@ -64,106 +64,42 @@ fail() { printf 'negative assertion strength: %s\n' "$*" >&2; exit 1; }
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-# --- 1. every shell gate, scanned ------------------------------------------
+# --- 1. every tracked shell program, scanned -------------------------------
 #
-# The scan reads `tests/`, `scripts/` and `install.sh`, which is every shell
-# file this repository ships. It reports how many files and statements it read,
-# and refuses a count of zero, because a scan that matched nothing would
-# otherwise pass by finding nothing.
-
-scan='
-FNR == 1 { file_count++ }
-{
-    statement = $0
-    sub(/^[[:space:]]*/, "", statement)
-    if (statement == "" || statement ~ /^#/) { next }
-    statements++
-    if (statement !~ /^![[:space:]]/) { next }
-    negations++
-    code = $0
-    gsub(/\047[^\047]*\047/, "", code)
-    gsub(/"[^"]*"/, "", code)
-    if (index(code, "||") > 0) { next }
-    printf "%s:%d: %s\n", FILENAME, FNR, statement > "/dev/stderr"
-    bare++
-}
-END { printf "%d %d %d %d\n", file_count, statements, negations, bare }
-'
-
-shell_files=()
-while IFS= read -r path; do shell_files+=("$path"); done < <(
-    find "$repository/tests" "$repository/scripts" -type f -name '*.sh' | sort
-    printf '%s\n' "$repository/install.sh"
+# tests/support/shell_scan.py owns the shared tracked-file discovery and
+# bounded lexical grammar. The repository mode fails on an unsafe negation or
+# syntax it cannot classify. The coverage harness holds each supported shape.
+scanner="$repository/tests/support/shell_scan.py"
+[[ -f "$scanner" ]] || fail "no $scanner"
+if ! scan_report=$(python3 "$scanner" negative "$repository" 2>"$work/bare"); then
+    fail "the shared scanner refused the repository: $(tr '\n' ' ' <"$work/bare")"
+fi
+read -r scanned statements negations bare unsupported < <(
+    python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["files"], d["commands"], d["negations"], d["unsafe"], d["unsupported"])' <<<"$scan_report"
 )
+[[ "$scanned" -gt 0 && "$statements" -gt 0 ]] \
+    || fail 'the shared scanner read no shell files or command contexts'
+[[ "$bare" == 0 && "$unsupported" == 0 ]] \
+    || fail 'the shared scanner reported a failure without returning nonzero'
 
-# `</dev/null` matters: awk with no file operands reads standard input, so a
-# scan that found no file would block for ever instead of refusing.
-scan_files() { awk "$scan" "$@" </dev/null 2>"$work/bare"; }
-
-read -r scanned statements negations bare < <(scan_files "${shell_files[@]}")
-
-[[ "$scanned" -gt 0 ]] \
-    || fail 'the scan found no shell files, so it proved nothing'
-[[ "$statements" -gt 0 ]] \
-    || fail 'the scan read no statements, so it proved nothing'
-
-# Named rather than discovered, because these two are the gates the guarantee is
-# about. Another file adopting the shape is caught by the scan; either of these
-# two leaving the scan is the drift this file exists to stop.
+discovered="$work/discovered"
+python3 "$scanner" discover "$repository" >"$discovered"
 for name in "${harnesses[@]}"; do
-    harness="$repository/tests/$name"
-    [[ -f "$harness" ]] || fail "tests/$name is gone, so this scan is checking the wrong files"
-    grep -Fqx "$harness" < <(printf '%s\n' "${shell_files[@]}") \
-        || fail "tests/$name is not among the files the scan reads"
+    grep -Fqx "tests/$name" "$discovered" \
+        || fail "tests/$name is not among the tracked shell programs the shared scanner reads"
 done
 
-if [[ "$bare" != 0 ]]; then
-    fail "$bare negative assertion(s) are led by a bare '!' and carry on when they find what they forbid; write each as refuse_text <file> <text> <description>, or as ! cmd || fail ...: $(tr '\n' ' ' <"$work/bare")"
-fi
-
-# --- 2. the scan tells the two shapes apart --------------------------------
+# --- 2. the scanner tells the command contexts apart ----------------------
 #
-# Proved against fixtures, so these cases stay readable and do not depend on
-# what the gates happen to say today. The accepted half matters as much as the
-# refused half: a scan that refuses `! cmd || fail` would make the repair
-# impossible to write.
-# Written with printf rather than a heredoc on purpose. The scan reads every
-# shell file in the repository, this one included, and it has no exemption for
-# heredoc bodies -- an exemption there would let the shape come back inside one.
+# The generic fixture and mutation matrix live in shell-scanner-coverage.sh.
+# Keep one local negative control here so this owning gate cannot be replaced
+# with a command that always reports green.
 refused="$work/refused.sh"
-printf '%s\n' \
-    '#!/usr/bin/env bash' \
-    'set -euo pipefail' \
-    "! grep -Fq 'forbidden' file" \
-    '! cmp -s one two' \
-    "! grep -Eq 'left||right' file" \
-    >"$refused"
-
-accepted="$work/accepted.sh"
-printf '%s\n' \
-    '#!/usr/bin/env bash' \
-    'set -euo pipefail' \
-    "! grep -Fq 'forbidden' file || fail 'found the forbidden thing'" \
-    "! grep -Fq 'forbidden' file || return 1" \
-    "if ! grep -Fq 'forbidden' file; then exit 1; fi" \
-    "while ! grep -Fq 'ready' file; do sleep 1; done" \
-    '[[ "$a" != "$b" ]]' \
-    '[[ ! -e "$path" ]]' \
-    "# ! grep -Fq 'forbidden' file" \
-    "awk '!hit { next } END { if (!hit) { exit 3 } }' file" \
-    >"$accepted"
-
-read -r _ _ fixture_negations fixture_bare < <(scan_files "$refused")
-[[ "$fixture_bare" == 3 ]] \
-    || fail "the scan found $fixture_bare of the 3 bare negations in its own fixture, so it cannot see the shape it exists to refuse"
-[[ "$(grep -Fc 'left||right' "$work/bare")" == 1 ]] \
-    || fail 'the scan read a `||` standing inside a quoted pattern as an exit the statement consumes, so a bare negation carrying one is exempted'
-
-read -r _ _ accepted_negations accepted_bare < <(scan_files "$accepted")
-[[ "$accepted_bare" == 0 ]] \
-    || fail "the scan refused a legitimate shape: $(tr '\n' ' ' <"$work/bare")"
-[[ "$accepted_negations" -ge 2 ]] \
-    || fail "the scan saw $accepted_negations negations in a fixture holding two consumed negations, so it is not reading the shape it claims to exempt"
+printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail' 'true && ! grep -Fq forbidden file' >"$refused"
+fixture=$(python3 "$scanner" file "$refused")
+fixture_bare=$(python3 -c 'import json,sys; print(len(json.load(sys.stdin)["unsafe_negations"]))' <<<"$fixture")
+[[ "$fixture_bare" == 1 ]] \
+    || fail "the shared scanner found $fixture_bare of one final negation after &&"
 
 # --- 3. the mechanism ------------------------------------------------------
 [[ -f "$support" ]] \

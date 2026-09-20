@@ -28,3 +28,9 @@ All current gates pass. `negative-assertion-strength.sh` only recognizes a leadi
 ## Boundary
 
 Do not change product behavior, release assets, runtime qualification, score precision, biological claims, or public APIs. Do not add a general shell interpreter or a network dependency. PangoPup changes harden repository gates only; the required canonical health correction remains owned and reviewed by `repos/sdlc`.
+
+## Resolved dependency
+
+SDLC ticket 0249 repaired the `git ls-remote | awk '... { print $1; exit }'` pipeline and landed on SDLC main commit `eea22bf014865252511a9a4bb9e4917ae9657017`. PangoPup adopted the five lifecycle scripts and `provenance.json` byte for byte. The manifest records source provenance commit `f17578cb4e24d824c4663e524537fd77d1bc4ffe`.
+
+Implementation evidence remains under review in `sdlc/records/0141-shell-lint-scanners-cover-real-command-context.md`.

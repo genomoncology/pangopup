@@ -1,0 +1,30 @@
+{
+  "canonicalCommit": "f17578cb4e24d824c4663e524537fd77d1bc4ffe",
+  "scripts": [
+    {
+      "name": "tasks",
+      "sha256": "e8e862034c0c3b46e3a6e937a026d82d83d3e2809bbfe45d1dce1ce5d26e5545",
+      "executable": true
+    },
+    {
+      "name": "before",
+      "sha256": "296dd7c9bdac5b722c1ec5aa95930836f2b0f9af24c5e1d8e9e620807f8a5f11",
+      "executable": true
+    },
+    {
+      "name": "success",
+      "sha256": "5fc164f482b048bd795900de9c22753fab9cb83d1e7b802da326aa7a69b26c88",
+      "executable": true
+    },
+    {
+      "name": "failure",
+      "sha256": "a2be0f6f787d3610468e248727c78358e20f6408a631d180d99fc24df8a23d28",
+      "executable": true
+    },
+    {
+      "name": "health",
+      "sha256": "47fc5e82d1a0840ff3a94bc5c6c3e7a90c77bdcc127ce217bd2ca508f0c01567",
+      "executable": true
+    }
+  ]
+}

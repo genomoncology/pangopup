@@ -54,133 +54,25 @@ trap 'rm -rf "$work"' EXIT
 
 # --- 1. a mention is not a build -------------------------------------------
 
-# A tree the currency gate can read as a repository of its own. The four
-# harnesses the gate's own floor expects are planted here in their simplest
-# correct shape, so that what the gate refuses below is the harness this file
-# added and nothing else.
-tree="$work/tree"
-mkdir -p "$tree/tests" "$tree/scripts"
-[[ -f "$repository/tests/$currency_gate" ]] \
-    || fail "tests/$currency_gate is gone, so this file is holding a rule that no longer exists"
-cp "$repository/tests/$currency_gate" "$tree/tests/$currency_gate"
-install -m 755 "$repository/$builder" "$tree/$builder"
+# The shared coverage harness owns the mutation matrix for direct and bound
+# calls, uncalled assignments and functions, heredoc text, reassignment, late
+# invocation, and a target/debug path used as a command argument. Running it
+# here keeps this older coverage gate connected to the new shared mechanism.
+shared_coverage="$repository/tests/shell-scanner-coverage.sh"
+[[ -x "$shared_coverage" ]] || fail "no executable $shared_coverage"
+coverage_output=$(bash "$shared_coverage") \
+    || fail 'the shared shell scanner coverage harness failed'
+case "$coverage_output" in
+    *' named shape and repository-mode checks passed'*) ;;
+    *) fail "the shared coverage harness returned an unknown result: $coverage_output" ;;
+esac
 
-# A harness that calls the build script and then uses what it built.
-plant_correct() {
-    cat >"$tree/tests/$1" <<HARNESS
-#!/usr/bin/env bash
-bash "\$repo/$builder"
-"\$repo/$built/pangopup" --version
-HARNESS
-}
-
-for name in executable-delivery.sh "$qualification" \
-    inherited-cache-variables.sh model-cache-limit-inheritance.sh; do
-    plant_correct "$name"
-done
-
-# The path assigned to a variable and run through it. This is a call, spelled
-# the way `tests/executable-delivery.sh` spells the smoke script, and a rule
-# that demanded the path stand as the command word itself would refuse it.
-cat >"$tree/tests/assigned-then-run.sh" <<HARNESS
-#!/usr/bin/env bash
-builder="\$repo/$builder"
-"\$builder"
-"\$repo/$built/pangopup" --version
-HARNESS
-
-GATE_OUTPUT=
-GATE_STATUS=
-run_currency_gate() {
-    set +e
-    GATE_OUTPUT=$(bash "$tree/tests/$currency_gate" 2>&1)
-    GATE_STATUS=$?
-    set -e
-}
-
-run_currency_gate
-(( GATE_STATUS == 0 )) \
-    || fail "the currency gate refused a tree of harnesses that each build before their first use, so the refusals below could not be read as the fixture's fault: $GATE_OUTPUT"
-
-# The defect. Line 2 names the build script inside a `printf` argument, line 3
-# uses the built executable, and nothing builds at all. The scan reads line 2
-# as the build and accepts.
-cat >"$tree/tests/mention-only.sh" <<HARNESS
-#!/usr/bin/env bash
-printf '$builder\n' >"\$listing"
-"\$repo/$built/pangopup" --version
-HARNESS
-
-run_currency_gate
-(( GATE_STATUS != 0 )) \
-    || fail "the currency gate accepted a harness that names $builder in a printf argument and never runs it, so a harness that builds nothing is read as having built: $GATE_OUTPUT"
-grep -q 'mention-only\.sh' <<<"$GATE_OUTPUT" \
-    || fail "the refusal does not name the harness it refused: $GATE_OUTPUT"
-rm -f "$tree/tests/mention-only.sh"
-
-# The same shape with a real build below the first use. The build has to answer
-# a missing or stale executable before that executable is used, and reading the
-# mention on line 2 as the build hides that the real one stands on line 4.
-cat >"$tree/tests/mention-then-build.sh" <<HARNESS
-#!/usr/bin/env bash
-printf '$builder\n' >"\$listing"
-"\$repo/$built/pangopup" --version
-bash "\$repo/$builder"
-HARNESS
-
-run_currency_gate
-(( GATE_STATUS != 0 )) \
-    || fail "the currency gate accepted a harness whose only build stands below its first use, because it read a mention above that use as the build: $GATE_OUTPUT"
-grep -q 'mention-then-build\.sh' <<<"$GATE_OUTPUT" \
-    || fail "the refusal does not name the harness it refused: $GATE_OUTPUT"
-rm -f "$tree/tests/mention-then-build.sh"
-
-# Removing the two refused harnesses leaves the tree the gate accepted before,
-# so neither refusal above came from something else this file planted.
-run_currency_gate
-(( GATE_STATUS == 0 )) \
-    || fail "the currency gate refuses the tree even with both offending harnesses removed, so the refusals above are not attributable to them: $GATE_OUTPUT"
-
-# The other direction of the same rule, and the reason it needs a fixture of its
-# own. The refusals above are answered by narrowing what counts as a build, and
-# the narrowest way to write that narrowing is one filter over both patterns --
-# which also narrows what counts as a use. A harness that names the built
-# executable in a `printf` and builds nothing is refused today, and the floor of
-# four still reads four after such a filter, so nothing else here would notice
-# the harness quietly leaving the set. The build side and the use side are not
-# the same question: a mention hands nobody a build, and a mention of the
-# executable is read as a use because refusing a harness that runs nothing is
-# the direction this gate is allowed to be wrong in.
-cat >"$tree/tests/printf-use.sh" <<HARNESS
-#!/usr/bin/env bash
-printf '%s\n' "\$repo/$built/pangopup"
-HARNESS
-
-run_currency_gate
-(( GATE_STATUS != 0 )) \
-    || fail "the currency gate accepted a harness that names the built executable in a printf argument and builds nothing, so narrowing what counts as a build has narrowed what counts as a use and a harness can leave the held set without anything saying so: $GATE_OUTPUT"
-grep -q 'printf-use\.sh' <<<"$GATE_OUTPUT" \
-    || fail "the refusal does not name the harness it refused: $GATE_OUTPUT"
-rm -f "$tree/tests/printf-use.sh"
-
-# The rule is stated where the check stands, so a reader who has to change the
-# pattern knows what it is for. One whole-line comment naming a mention, within
-# reach of a line that carries the build script's path.
-mention_comment=$({ grep -niE '^[[:space:]]*#.*mention' "$repository/tests/$currency_gate" || true; } | head -n 1 | cut -d: -f1)
-[[ -n "$mention_comment" ]] \
-    || fail "tests/$currency_gate states nowhere that a mention of $builder is not a build, so the next reader has only the pattern to go on"
-nearest=
-while IFS= read -r number; do
-    [[ -n "$number" ]] || continue
-    distance=$(( number > mention_comment ? number - mention_comment : mention_comment - number ))
-    if [[ -z "$nearest" || "$distance" -lt "$nearest" ]]; then
-        nearest=$distance
-    fi
-done < <(grep -nE -- 'require-built-commands' "$repository/tests/$currency_gate" | cut -d: -f1)
-[[ -n "$nearest" ]] \
-    || fail "tests/$currency_gate names $builder nowhere, so this scan is reading the wrong file"
-[[ "$nearest" -le 25 ]] \
-    || fail "the sentence in tests/$currency_gate about a mention stands $nearest lines from the nearest line naming $builder, so it is not beside the check it explains"
+currency_output=$(bash "$repository/tests/$currency_gate") \
+    || fail 'the repository builder-currency gate failed'
+case "$currency_output" in
+    *'4 harness(es) reaching into target/debug, each building first'*) ;;
+    *) fail "the builder-currency gate returned an unknown result: $currency_output" ;;
+esac
 
 # --- 2. an assertion that says what it wanted ------------------------------
 

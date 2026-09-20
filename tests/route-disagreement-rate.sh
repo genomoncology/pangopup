@@ -742,7 +742,7 @@ retype_many() {
 shrink_set() {
     local target=$1 rows=$2
     printf 'GRCh38:chr1:1:A:T\nGRCh38:chr1:2:A:T\nGRCh38:chr1:3:A:T\nGRCh38:chr1:4:A:T\n' \
-        | head -n "$rows" >"$target"
+        | sed -n "1,${rows}p" >"$target"
     retype "$artifact_relative" variant-set-size "$rows"
 }
 

@@ -147,11 +147,17 @@ if [ "$contract_zone_present" -eq 1 ]; then
 
 	# Legacy issues still reserve a counter number. Records share a number with
 	# their tickets, so they only collide when a legacy issue uses that number.
+	legacy_issue_number_exists() {
+		case " $legacy_issue_numbers " in
+		*" $1 "*) return 0 ;;
+		*) return 1 ;;
+		esac
+	}
 	duplicates=$(
 		{
 			printf '%s\n' $ticket_numbers $legacy_issue_numbers | sort | uniq -d
 			for number in $record_numbers; do
-				if printf '%s\n' $legacy_issue_numbers | grep -qx "$number"; then
+				if legacy_issue_number_exists "$number"; then
 					printf '%s\n' "$number"
 				fi
 			done

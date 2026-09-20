@@ -41,13 +41,15 @@ fail() { printf 'model cache layout history: %s\n' "$*" >&2; exit 1; }
 # cannot be read, which is a refusal rather than a pass: a renamed constant
 # must not turn this gate into a scan that examines nothing.
 layout_stamp() {
-    sed -nE 's/^const USER_VERSION: i32 = ([0-9]+);$/\1/p' "$1" | head -1
+    sed -nE 's/^const USER_VERSION: i32 = ([0-9]+);$/\1/p' "$1" \
+        | awk 'NR == 1 { first = $0 } END { if (NR) print first }'
 }
 
 # The layouts a source says earlier releases wrote, one per line.
 named_layouts() {
     sed -nE 's/^const EARLIER_USER_VERSIONS: \[i32; [0-9]+\] = \[(.*)\];$/\1/p' "$1" \
-        | head -1 | tr -d '[:space:]' | tr ',' '\n' | grep -E '^[0-9]+$' || true
+        | awk 'NR == 1 { first = $0 } END { if (NR) print first }' \
+        | tr -d '[:space:]' | tr ',' '\n' | grep -E '^[0-9]+$' || true
 }
 
 # The on-disk shape a source creates: the initialization batch, from the

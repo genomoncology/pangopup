@@ -72,7 +72,8 @@ trap 'rm -rf "$work"' EXIT
 # is written in, so a key that is renamed or moved is not found, and a version
 # that is not found is refused by name below rather than skipped.
 manifest_version() {
-    sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' "$1" | head -1
+    sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' "$1" \
+        | awk 'NR == 1 { first = $0 } END { if (NR) print first }'
 }
 
 # Every `## <version> - <when>` heading of the changelog, in the order they

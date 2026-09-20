@@ -173,10 +173,10 @@ states_item_carries_version() {
     affirmative=$(affirmative_only "$candidates" 'score items?' 'data_set_version' || true)
     [[ -n "$affirmative" ]] || {
         printf '%s names a score item and `data_set_version` in the same sentence only to deny it: %s\n' \
-            "$relative" "$(printf '%s\n' "$candidates" | head -n 1)" >&2
+            "$relative" "$(awk 'NR == 1 { first = $0 } END { if (NR) print first }' <<<"$candidates")" >&2
         return 1
     }
-    printf '%s\n' "$affirmative" | head -n 1
+    awk 'NR == 1 { first = $0 } END { if (NR) print first }' <<<"$affirmative"
 }
 
 check_stored_version() {
@@ -448,7 +448,7 @@ check_same_strand() {
     affirmative=$(affirmative_only "$candidates" 'same[- ]strand' '(score|gain|loss)' || true)
     [[ -n "$affirmative" ]] || {
         printf '%s names the dependence only to deny it: %s\n' \
-            "$contract_relative" "$(printf '%s\n' "$candidates" | head -n 1)" >&2
+            "$contract_relative" "$(awk 'NR == 1 { first = $0 } END { if (NR) print first }' <<<"$candidates")" >&2
         return 1
     }
 
@@ -538,7 +538,9 @@ byte_figures() {
 
 # The `<grouped number>-byte <label>` figure in a run of text.
 labelled_byte_figure() {
-    grep -oE "[0-9][0-9,]*-byte $2" <<<"$1" | head -n 1 | grep -oE '^[0-9][0-9,]*' | tr -d ','
+    grep -oE "[0-9][0-9,]*-byte $2" <<<"$1" \
+        | awk 'NR == 1 { first = $0 } END { if (NR) print first }' \
+        | grep -oE '^[0-9][0-9,]*' | tr -d ','
 }
 
 # Words the language has for saying a figure is arithmetic rather than a
@@ -586,7 +588,9 @@ check_index_size() {
         return 1
     }
 
-    width=$(grep -oE '[0-9]+ bytes per locus' <<<"$text" | head -n 1 | grep -oE '^[0-9]+')
+    width=$(grep -oE '[0-9]+ bytes per locus' <<<"$text" \
+        | awk 'NR == 1 { first = $0 } END { if (NR) print first }' \
+        | grep -oE '^[0-9]+')
     [[ "$width" =~ ^[0-9]+$ ]] && (( width > 0 )) || {
         printf '%s does not state how many bytes the format spends per locus, so its corpus size cannot be checked against anything\n' \
             "$index_section" >&2

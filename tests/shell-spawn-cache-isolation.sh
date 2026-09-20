@@ -160,7 +160,8 @@ code_lines() {
 
 # The first such line, or empty.
 first_line() {
-    code_lines "$1" "$2" | head -n 1
+    code_lines "$1" "$2" \
+        | awk 'NR == 1 { first = $0 } END { if (NR) print first }'
 }
 
 # Refuse the tree rooted at $1. Prints its counts on acceptance, its reason on

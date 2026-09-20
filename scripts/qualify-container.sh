@@ -132,7 +132,7 @@ expect_equal title Pangopup "$(docker image inspect --format '{{index .Config.La
 expect_equal source https://github.com/genomoncology/pangopup "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' "$image")"
 expect_equal license GPL-3.0-only "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.licenses"}}' "$image")"
 expect_equal revision "$(git -C "$source_tree" rev-parse HEAD)" "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")"
-expect_equal version "$(sed -nE 's/^version = "([^"]+)"$/\1/p' "$source_tree/Cargo.toml" | head -1)" "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")"
+expect_equal version "$(sed -nE 's/^version = "([^"]+)"$/\1/p' "$source_tree/Cargo.toml" | awk 'NR == 1 { first = $0 } END { if (NR) print first }')" "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")"
 environment=$(docker image inspect --format '{{json .Config.Env}}' "$image")
 grep -Fq 'PANGOPUP_DATA_DIR=/var/lib/pangopup' <<<"$environment"
 grep -Fq 'PANGOPUP_CACHE_DIR=/var/cache/pangopup' <<<"$environment"
@@ -172,7 +172,7 @@ docker volume create "$cache_volume" >/dev/null
 docker volume create "$empty_volume" >/dev/null
 
 stage=empty-volume-smoke
-expected_version=$(sed -nE 's/^version = "([^"]+)"$/\1/p' "$source_tree/Cargo.toml" | head -1)
+expected_version=$(sed -nE 's/^version = "([^"]+)"$/\1/p' "$source_tree/Cargo.toml" | awk 'NR == 1 { first = $0 } END { if (NR) print first }')
 # Each command's own status still has to hold, so its output is read into a
 # variable rather than piped: a pipeline into `grep -q` reports 141 instead of
 # the match whenever grep closes the pipe while the command is still writing.

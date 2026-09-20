@@ -114,6 +114,8 @@ has no configured repository secrets or open secret alerts. The repository
 security issue is closed and no organization authority is required for asset
 publication.
 
+Ticket 0141 gives repository shell lint one bounded command-context scanner and repairs all 16 prior early-reader sites. The complete canonical lifecycle set from SDLC source provenance commit `f17578cb4e24d824c4663e524537fd77d1bc4ffe` is adopted byte for byte. Independent review accepted the scanner after adversarial quote, heredoc, function-flow, nesting, and work-bound corrections. Drafts 0098, 0110, 0114, and 0115 are archived with the accepted implementation.
+
 ## Asset readiness — preserve, package, then publish
 
 The large source work is not a rebuild queue:

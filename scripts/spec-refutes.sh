@@ -96,7 +96,7 @@ absent() {
     found=$(rg ${flags[@]+"${flags[@]}"} -- "$pattern" "${haystack_args[@]}" 2>&1)
     status=$?
     case $status in
-        0) refuse "'$pattern' is present in $where, and this line refutes it: $(printf '%s' "$found" | head -3)" ;;
+        0) refuse "'$pattern' is present in $where, and this line refutes it: $(sed -n '1,3p' <<<"$found")" ;;
         1) return 0 ;;
         *) refuse "ripgrep could not search $where for '$pattern': $found" ;;
     esac
