@@ -83,3 +83,5 @@ unchanged while qualification runs. A candidate failure leaves fixed-v1 active
 and does not weaken any gate. The 3 GiB and ten-times limits may be changed
 before candidate measurements begin. A change after results are observed
 requires a new decision.
+
+The executable pre-activation semantic gate is `tests/runtime-v2-qualification.sh`. It fails unless the focused suites select their named tests, which prevents a zero-test filter from passing. The cross-format suite opens real fixed-v1 and sparse-v2 providers, counts the 1,000-request fixture and seven nonempty groups, validates each observed bundle identity before replacing it for comparison, and otherwise compares command bytes exactly. Reachable miniature runtime and HTTP tests remain separate from fabricated serializer-shape tests. The gate adds no throughput threshold.

@@ -26,6 +26,7 @@ pub(crate) enum Leaf {
     RuntimeTransportVerify,
     RuntimeTransportUnpack,
     RuntimeReleasePrepare,
+    RuntimeReleasePrepareV2,
     ExecutableReleasePrepare,
     NamingBuild,
     NamingInspect,
@@ -36,7 +37,7 @@ pub(crate) enum Leaf {
 
 impl Leaf {
     #[cfg(test)]
-    const ALL: [Self; 30] = [
+    const ALL: [Self; 31] = [
         Self::Inspect,
         Self::PrototypeRoundtrip,
         Self::PrototypeOpen,
@@ -61,6 +62,7 @@ impl Leaf {
         Self::RuntimeTransportVerify,
         Self::RuntimeTransportUnpack,
         Self::RuntimeReleasePrepare,
+        Self::RuntimeReleasePrepareV2,
         Self::ExecutableReleasePrepare,
         Self::NamingBuild,
         Self::NamingInspect,
@@ -247,6 +249,13 @@ const ENTRIES: &[Entry] = &[
         action: "prepare",
         synopsis: "runtime-release prepare --transport <DIR> --target-commit <40_LOWERCASE_HEX> --output <ABSENT_DIR>",
         summary: "Prepare the exact authenticated model-side runtime release upload set.",
+    },
+    Entry {
+        leaf: Leaf::RuntimeReleasePrepareV2,
+        namespace: Some("runtime-release"),
+        action: "prepare-v2",
+        synopsis: "runtime-release prepare-v2 --transport <DIR> --tooling-commit <40_LOWERCASE_HEX> --release-target-commit <40_LOWERCASE_HEX> --output <ABSENT_DIR>",
+        summary: "Prepare the inactive sparse-bound runtime v2 release upload set.",
     },
     Entry {
         leaf: Leaf::ExecutableReleasePrepare,

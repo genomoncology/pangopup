@@ -17,6 +17,24 @@ pangopup-build runtime-transport pack \
   --output ../target/spec/runtime-release/mini >/dev/null
 ```
 
+The inactive v2 command is separate. It requires the commit compiled into a clean preparation tool and an independently supplied release target. It does not change the ordinary v1 selector, sync, installation, or admission paths.
+
+```bash
+pangopup-build runtime-release prepare-v2 --help \
+  | mustmatch like "Usage: pangopup-build runtime-release prepare-v2 --transport <DIR> --tooling-commit <40_LOWERCASE_HEX> --release-target-commit <40_LOWERCASE_HEX> --output <ABSENT_DIR>"
+```
+
+```bash run id=runtime-release-v2-flags exit=2 stream=stderr
+pangopup-build runtime-release prepare-v2 \
+  --transport /secret/not-opened \
+  --tooling-commit 0123456789abcdef0123456789abcdef01234567 \
+  --release-target-commit 1111111111111111111111111111111111111111
+```
+
+```text expect=runtime-release-v2-flags exact
+{"status":"error","code":"CLI_USAGE","message":"runtime-release prepare-v2 requires --transport, --tooling-commit, --release-target-commit, and --output exactly once","details":null}
+```
+
 The exact flag grammar is resolved before any referenced path is opened.
 
 ```bash run id=runtime-release-flags exit=2 stream=stderr

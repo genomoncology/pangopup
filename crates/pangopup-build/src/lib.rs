@@ -10,6 +10,7 @@ pub mod reference;
 mod reference_builder;
 mod reference_certification;
 pub mod runtime_profile;
+pub mod runtime_release;
 mod snv;
 mod source_fingerprint;
 mod sparse_candidate;

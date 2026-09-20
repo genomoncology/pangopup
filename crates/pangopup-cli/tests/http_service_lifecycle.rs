@@ -8,11 +8,17 @@ use std::{fs, os::unix::fs::PermissionsExt};
 #[cfg(feature = "service-test-fixtures")]
 mod installed_success {
     use pangopup_assets::{
-        MaskProfile, ModelProfile, ReferenceProfile, RuntimeProfile, ScoringProfile, SnvProfile,
-        canonical_runtime_profile_bytes, inspect_snv_bundle, install_test_runtime_profile,
-        install_transport,
+        ActiveScoringIdentityPreimage, MaskProfile, ModelProfile, ReferenceProfile, RuntimeProfile,
+        ScoringDataSetVersionPreimage, ScoringProfile, SnvProfile, canonical_runtime_profile_bytes,
+        inspect_snv_bundle, install_test_runtime_profile, install_transport, runtime_profile_id,
     };
-    use pangopup_index::reference_admission::inspect_reference_admission;
+    use pangopup_index::{
+        BundleManifest, BundleOpen, InputLocus, SparseProvenanceManifest, bundle_id,
+        canonical_manifest_bytes,
+        reference_admission::inspect_reference_admission,
+        sparse_writer::{SPARSE_INDEX_FORMAT, SparseIndexWriter},
+    };
+    use pangopup_model::{CpuExecutionMode, CpuPolicy, IntraOpThreads};
     use serde_json::Value;
     use sha2::{Digest, Sha256};
     use std::{
@@ -20,6 +26,7 @@ mod installed_success {
         fs,
         io::{BufRead, BufReader, Read, Write},
         net::TcpStream,
+        num::NonZeroUsize,
         os::unix::fs::{MetadataExt, PermissionsExt},
         path::{Path, PathBuf},
         process::Stdio,
@@ -53,12 +60,27 @@ mod installed_success {
         mask: &Path,
         distance: u64,
     ) -> (RuntimeProfile, PathBuf) {
+        install_variant_with_snv(
+            root,
+            scratch,
+            mask,
+            distance,
+            &fixture("snv-regression/bundle"),
+        )
+    }
+
+    fn install_variant_with_snv(
+        root: &Path,
+        scratch: &Path,
+        mask: &Path,
+        distance: u64,
+        snv_bundle: &Path,
+    ) -> (RuntimeProfile, PathBuf) {
         fs::set_permissions(scratch, fs::Permissions::from_mode(0o700)).expect("private");
-        let snv_bundle = fixture("snv-regression/bundle");
         let transport = scratch.join("transport");
-        pangopup_assets::pack_bundle(&snv_bundle, &transport).expect("pack SNV");
+        pangopup_assets::pack_bundle(snv_bundle, &transport).expect("pack SNV");
         install_transport(&transport, root).expect("install SNV");
-        let snv = inspect_snv_bundle(&snv_bundle).expect("inspect SNV");
+        let snv = inspect_snv_bundle(snv_bundle).expect("inspect SNV");
         let model = fixture("pangolin-model-kernel-mini/bundle");
         let model_manifest = fs::read(model.join("manifest.json")).expect("model manifest");
         let model_json: Value = serde_json::from_slice(&model_manifest).expect("model JSON");
@@ -270,6 +292,464 @@ mod installed_success {
             .position(|window| window == b"\r\n\r\n")
             .expect("HTTP separator");
         &response[split + 4..]
+    }
+
+    #[test]
+    fn runtime_v2_reachable_service_routing_differs_only_by_derived_identities() {
+        let temp = tempfile::tempdir().expect("temp");
+        let sparse_bundle = build_sparse_bundle(temp.path());
+        let fixed_scratch = temp.path().join("fixed-scratch");
+        let sparse_scratch = temp.path().join("sparse-scratch");
+        fs::create_dir(&fixed_scratch).expect("fixed scratch");
+        fs::create_dir(&sparse_scratch).expect("sparse scratch");
+        let fixed_data = temp.path().join("fixed-data");
+        let sparse_data = temp.path().join("sparse-data");
+        let (fixed_profile, fixed_profile_path) = install_variant_with_snv(
+            &fixed_data,
+            &fixed_scratch,
+            &fixture("route-mask/domains.pgm"),
+            50,
+            &fixture("snv-regression/bundle"),
+        );
+        let (sparse_profile, sparse_profile_path) = install_variant_with_snv(
+            &sparse_data,
+            &sparse_scratch,
+            &fixture("route-mask/domains.pgm"),
+            50,
+            &sparse_bundle,
+        );
+        let (mut fixed_child, fixed_address) = start(&fixed_data, &fixed_profile_path);
+        let (mut sparse_child, sparse_address) = start(&sparse_data, &sparse_profile_path);
+        let body =
+            r#"{"variants":["GRCh38:chr12:6801301:G:A","GRCh38:chr10:1:A:C","not-a-variant"]}"#;
+        let fixed_score = request(&fixed_address, "POST", "/v1/score", body);
+        let sparse_score = request(&sparse_address, "POST", "/v1/score", body);
+        let fixed_status = request(&fixed_address, "GET", "/v1/status", "");
+        let sparse_status = request(&sparse_address, "GET", "/v1/status", "");
+        for response in [&fixed_score, &sparse_score, &fixed_status, &sparse_status] {
+            assert!(response.starts_with(b"HTTP/1.1 200 OK\r\n"));
+        }
+        let mut fixed = serde_json::json!({
+            "status": serde_json::from_slice::<Value>(response_body(&fixed_status)).expect("fixed status JSON"),
+            "score": serde_json::from_slice::<Value>(response_body(&fixed_score)).expect("fixed score JSON"),
+        });
+        let mut sparse = serde_json::json!({
+            "status": serde_json::from_slice::<Value>(response_body(&sparse_status)).expect("sparse status JSON"),
+            "score": serde_json::from_slice::<Value>(response_body(&sparse_score)).expect("sparse score JSON"),
+        });
+        assert_eq!(fixed["score"]["results"][0]["status"], "found");
+        assert_eq!(
+            fixed["score"]["results"][1]["error"]["code"],
+            "MODEL_REJECTED"
+        );
+        assert_eq!(
+            fixed["score"]["results"][2]["error"]["code"],
+            "INVALID_VARIANT"
+        );
+        assert_eq!(
+            fixed["score"]["results"][0]["records"][0]["gene_names"]["symbol"],
+            "CD4"
+        );
+
+        let edge_bodies = [
+            r#"{"variants":["GRCh38:chr17:7686072:G:T"]}"#,
+            r#"{"variants":["GRCh38:chr17:7686072:G:T"],"gene":"ENSG00000141510"}"#,
+            r#"{"variants":["GRCh38:chr10:114306066:A:C"]}"#,
+            r#"{"variants":["GRCh38:chr1:5051:A:C"]}"#,
+            r#"{"variants":["GRCh38:chr1:5051:A:C"],"gene":"ENSG00000000002"}"#,
+            r#"{"variants":["GRCh38:chr17:7686072:G:T","GRCh38:chr1:5051:A:C","GRCh38:chr10:1:A:C","not-a-variant"],"gene":"ENSG00000141510"}"#,
+        ];
+        for (index, edge_body) in edge_bodies.iter().enumerate() {
+            let fixed_response = request(&fixed_address, "POST", "/v1/score", edge_body);
+            let sparse_response = request(&sparse_address, "POST", "/v1/score", edge_body);
+            assert!(fixed_response.starts_with(b"HTTP/1.1 200 OK\r\n"));
+            assert!(sparse_response.starts_with(b"HTTP/1.1 200 OK\r\n"));
+            let fixed_value: Value =
+                serde_json::from_slice(response_body(&fixed_response)).expect("fixed edge JSON");
+            let sparse_value: Value =
+                serde_json::from_slice(response_body(&sparse_response)).expect("sparse edge JSON");
+            match index {
+                0 => {
+                    assert_eq!(fixed_value["results"][0]["status"], "found");
+                    assert_eq!(
+                        fixed_value["results"][0]["records"]
+                            .as_array()
+                            .expect("overlap records")
+                            .len(),
+                        2
+                    );
+                }
+                1 => {
+                    assert_eq!(fixed_value["results"][0]["status"], "found");
+                    assert_eq!(
+                        fixed_value["results"][0]["records"]
+                            .as_array()
+                            .expect("filtered overlap records")
+                            .len(),
+                        1
+                    );
+                    assert_eq!(
+                        fixed_value["results"][0]["records"][0]["stable_gene"],
+                        "ENSG00000141510"
+                    );
+                }
+                2 => {
+                    assert_eq!(
+                        fixed_value["results"][0]["status"],
+                        "ambiguous_source_reference"
+                    );
+                    assert_eq!(
+                        fixed_value["results"][0]["source_reference_ambiguities"][0],
+                        serde_json::json!({
+                            "gene": "ENSG00000169129",
+                            "gene_names": {
+                                "symbol": "AFAP1L2",
+                                "source": "hgnc",
+                                "hgnc_id": "HGNC:25901",
+                                "ncbi_gene_id": 84632,
+                                "prev_symbols": ["KIAA1914"],
+                                "alias_symbols": ["FLJ14564", "Em:AC005383.4", "XB130"]
+                            },
+                            "source_ref": "N",
+                            "published_alts": ["C", "G", "T"],
+                            "omitted_alt": "A"
+                        })
+                    );
+                }
+                3 => {
+                    assert_eq!(fixed_value["results"][0]["status"], "found");
+                    assert_eq!(fixed_value["results"][0]["provenance"]["kind"], "model");
+                }
+                4 => {
+                    assert_eq!(fixed_value["results"][0]["status"], "not_found");
+                    assert!(
+                        fixed_value["results"][0]["records"]
+                            .as_array()
+                            .is_some_and(Vec::is_empty)
+                    );
+                    assert_eq!(fixed_value["results"][0]["provenance"]["kind"], "model");
+                }
+                5 => {
+                    assert_eq!(fixed_value["results"].as_array().expect("results").len(), 4);
+                    assert_eq!(fixed_value["results"][0]["status"], "found");
+                    assert_eq!(fixed_value["results"][1]["status"], "not_found");
+                    assert_eq!(fixed_value["results"][2]["status"], "rejected");
+                    assert_eq!(fixed_value["results"][2]["error"]["code"], "MODEL_REJECTED");
+                    assert_eq!(
+                        fixed_value["results"][2]["reason"],
+                        "reference_context_unavailable"
+                    );
+                    assert_eq!(fixed_value["results"][3]["status"], "rejected");
+                    assert_eq!(
+                        fixed_value["results"][3]["error"]["code"],
+                        "INVALID_VARIANT"
+                    );
+                    assert_eq!(fixed_value["results"][3]["reason"], "malformed_variant");
+                }
+                _ => unreachable!(),
+            }
+            let fixed_edge = normalize_present_identity_bytes(
+                response_body(&fixed_response),
+                &derived_identities(&fixed_profile),
+            )
+            .expect("fixed edge identities");
+            let sparse_edge = normalize_present_identity_bytes(
+                response_body(&sparse_response),
+                &derived_identities(&sparse_profile),
+            )
+            .expect("sparse edge identities");
+            assert_eq!(fixed_edge, sparse_edge, "edge route {index}");
+            assert_eq!(
+                fixed_value["results"][0]["input"],
+                sparse_value["results"][0]["input"]
+            );
+        }
+
+        for variant in [
+            "GRCh38:chr10:1:A:C",
+            "GRCh38:chr10:1:A:G",
+            "GRCh38:chr12:1:A:C",
+            "GRCh38:chr12:1:A:G",
+            "GRCh38:chr13:1:A:C",
+            "GRCh38:chr17:1:A:C",
+        ] {
+            let miss_body = format!(r#"{{"variants":["{variant}"]}}"#);
+            let fixed_response = request(&fixed_address, "POST", "/v1/score", &miss_body);
+            let sparse_response = request(&sparse_address, "POST", "/v1/score", &miss_body);
+            assert!(fixed_response.starts_with(b"HTTP/1.1 200 OK\r\n"));
+            assert!(sparse_response.starts_with(b"HTTP/1.1 200 OK\r\n"));
+            let fixed_value: Value =
+                serde_json::from_slice(response_body(&fixed_response)).expect("fixed miss JSON");
+            assert_eq!(fixed_value["results"][0]["input"], variant);
+            assert_eq!(fixed_value["results"][0]["status"], "rejected");
+            assert_eq!(fixed_value["results"][0]["error"]["code"], "MODEL_REJECTED");
+            assert_eq!(
+                fixed_value["results"][0]["reason"],
+                "reference_context_unavailable"
+            );
+            assert_eq!(
+                normalize_present_identity_bytes(
+                    response_body(&fixed_response),
+                    &derived_identities(&fixed_profile),
+                )
+                .expect("fixed miss identities"),
+                normalize_present_identity_bytes(
+                    response_body(&sparse_response),
+                    &derived_identities(&sparse_profile),
+                )
+                .expect("sparse miss identities"),
+                "independent discovered miss {variant}"
+            );
+
+            let run_discovered = |data: &Path, profile: &Path| {
+                support::pangopup()
+                    .env("PANGOPUP_SERVICE_TEST_PROFILE", profile)
+                    .args([
+                        "lookup",
+                        "--data-dir",
+                        data.to_str().expect("data path"),
+                        "--variant",
+                        variant,
+                    ])
+                    .output()
+                    .expect("discovered lookup")
+            };
+            let fixed_discovered = run_discovered(&fixed_data, &fixed_profile_path);
+            let sparse_discovered = run_discovered(&sparse_data, &sparse_profile_path);
+            assert_eq!(fixed_discovered.status.code(), Some(2));
+            assert_eq!(sparse_discovered.status.code(), Some(2));
+            assert!(fixed_discovered.stdout.is_empty());
+            assert!(sparse_discovered.stdout.is_empty());
+            assert_eq!(
+                fixed_discovered.stderr,
+                b"{\"status\":\"error\",\"code\":\"MODEL_REJECTED\",\"message\":\"insufficient GRCh38 reference context\",\"details\":null}\n"
+            );
+            assert_eq!(fixed_discovered.stderr, sparse_discovered.stderr);
+        }
+
+        let fixed_identities = derived_identities(&fixed_profile);
+        let sparse_identities = derived_identities(&sparse_profile);
+        let fixed_wire = [
+            response_body(&fixed_status),
+            b"\n",
+            response_body(&fixed_score),
+        ]
+        .concat();
+        let sparse_wire = [
+            response_body(&sparse_status),
+            b"\n",
+            response_body(&sparse_score),
+        ]
+        .concat();
+        assert_eq!(
+            normalize_identity_bytes(&fixed_wire, &fixed_identities)
+                .expect("fixed wire identities"),
+            normalize_identity_bytes(&sparse_wire, &sparse_identities)
+                .expect("sparse wire identities"),
+            "exact HTTP bodies and key order after five validated identities"
+        );
+        let mut incorrect = sparse.clone();
+        incorrect["score"]["results"][0]["scoring_identity"] = serde_json::json!(
+            "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        );
+        assert!(
+            normalize_identities(&mut incorrect, &sparse_identities).is_err(),
+            "an incorrect allowed identity is not normalized"
+        );
+        normalize_identities(&mut fixed, &fixed_identities).expect("fixed identities");
+        normalize_identities(&mut sparse, &sparse_identities).expect("sparse identities");
+        assert_eq!(fixed, sparse, "service body and key order projection");
+
+        let mut unauthorized = sparse.clone();
+        unauthorized["score"]["results"][0]["records"][0]["stable_gene"] =
+            serde_json::json!("ENSG00000000000");
+        assert_ne!(fixed, unauthorized, "unauthorized field change");
+
+        assert_eq!(
+            unsafe { libc::kill(fixed_child.id() as i32, libc::SIGTERM) },
+            0
+        );
+        assert_eq!(
+            unsafe { libc::kill(sparse_child.id() as i32, libc::SIGTERM) },
+            0
+        );
+        support::assert_shutdown_succeeded(&mut fixed_child, "fixed service exit");
+        support::assert_shutdown_succeeded(&mut sparse_child, "sparse service exit");
+    }
+
+    fn derived_identities(profile: &RuntimeProfile) -> Vec<(&'static str, String)> {
+        let bytes = canonical_runtime_profile_bytes(profile).expect("profile bytes");
+        let profile_id = runtime_profile_id(&bytes).expect("profile id");
+        let software_version = support::software_version();
+        let policy = CpuPolicy::new(
+            CpuExecutionMode::Sequential,
+            IntraOpThreads::Fixed(NonZeroUsize::MIN),
+            NonZeroUsize::MIN,
+        )
+        .expect("CPU policy");
+        let data_set_version =
+            ScoringDataSetVersionPreimage::new(&software_version, &profile_id).version();
+        vec![
+            ("snv_bundle_id", profile.snv.bundle_id.clone()),
+            ("bundle_id", profile.snv.bundle_id.clone()),
+            ("runtime_profile_id", profile_id.to_string()),
+            ("data_set_version", data_set_version.as_str().to_owned()),
+            (
+                "scoring_identity",
+                ActiveScoringIdentityPreimage::new(&software_version, &profile_id, policy)
+                    .identity()
+                    .to_string(),
+            ),
+        ]
+    }
+
+    fn normalize_identities(
+        value: &mut Value,
+        identities: &[(&'static str, String)],
+    ) -> Result<(), &'static str> {
+        let mut counts = vec![0_usize; identities.len()];
+        let mut invalid = false;
+        fn visit(
+            value: &mut Value,
+            identities: &[(&'static str, String)],
+            counts: &mut [usize],
+            invalid: &mut bool,
+        ) {
+            match value {
+                Value::Object(object) => {
+                    for (key, value) in object {
+                        if let Some((index, (_, expected))) = identities
+                            .iter()
+                            .enumerate()
+                            .find(|(_, (field, _))| key == field)
+                        {
+                            if value.as_str() == Some(expected) {
+                                *value = Value::String(format!("<validated-{key}>"));
+                                counts[index] += 1;
+                            } else {
+                                *invalid = true;
+                            }
+                        } else {
+                            visit(value, identities, counts, invalid);
+                        }
+                    }
+                }
+                Value::Array(values) => {
+                    for value in values {
+                        visit(value, identities, counts, invalid);
+                    }
+                }
+                _ => {}
+            }
+        }
+        visit(value, identities, &mut counts, &mut invalid);
+        (!invalid && counts.into_iter().all(|count| count > 0))
+            .then_some(())
+            .ok_or("missing or incorrect allowed identity")
+    }
+
+    fn normalize_identity_bytes(
+        value: &[u8],
+        identities: &[(&'static str, String)],
+    ) -> Result<Vec<u8>, &'static str> {
+        let mut value = String::from_utf8(value.to_vec()).map_err(|_| "non-UTF-8 body")?;
+        for (field, expected) in identities {
+            let needle = format!("\"{field}\":\"{expected}\"");
+            if !value.contains(&needle) {
+                return Err("missing or incorrect allowed identity");
+            }
+            value = value.replace(&needle, &format!("\"{field}\":\"<validated-{field}>\""));
+        }
+        Ok(value.into_bytes())
+    }
+
+    fn normalize_present_identity_bytes(
+        value: &[u8],
+        identities: &[(&'static str, String)],
+    ) -> Result<Vec<u8>, &'static str> {
+        let mut value = String::from_utf8(value.to_vec()).map_err(|_| "non-UTF-8 body")?;
+        let mut count = 0_usize;
+        for (field, expected) in identities {
+            let field_needle = format!("\"{field}\":");
+            let field_count = value.matches(&field_needle).count();
+            if field_count == 0 {
+                continue;
+            }
+            let exact = format!("\"{field}\":\"{expected}\"");
+            if value.matches(&exact).count() != field_count {
+                return Err("incorrect allowed identity");
+            }
+            value = value.replace(&exact, &format!("\"{field}\":\"<validated-{field}>\""));
+            count += field_count;
+        }
+        (count > 0)
+            .then_some(value.into_bytes())
+            .ok_or("no allowed identity")
+    }
+
+    fn build_sparse_bundle(root: &Path) -> PathBuf {
+        let fixed_path = fixture("snv-regression/bundle");
+        let fixed = BundleOpen::open(&fixed_path).expect("fixed traversal source");
+        let mut genes: Vec<Vec<InputLocus>> = Vec::new();
+        fixed
+            .visit_all_bounded(10_000, 1024 * 1024, |locus| {
+                let gene = match locus {
+                    InputLocus::Ordinary(value) => value.gene,
+                    InputLocus::Ambiguous(value) => value.gene,
+                };
+                let new_gene = genes
+                    .last()
+                    .and_then(|items| items.first())
+                    .is_none_or(|first| match first {
+                        InputLocus::Ordinary(value) => value.gene != gene,
+                        InputLocus::Ambiguous(value) => value.gene != gene,
+                    });
+                if new_gene {
+                    genes.push(Vec::new());
+                }
+                genes.last_mut().expect("gene group").push(locus);
+                Ok::<_, std::convert::Infallible>(())
+            })
+            .expect("fixed traversal");
+        let mut writer =
+            SparseIndexWriter::create(&root.join("service-sparse.scratch")).expect("writer");
+        for gene in &genes {
+            writer.push_gene(gene).expect("gene");
+        }
+        let scores = root.join("service-scores.pgi");
+        writer.finish(&scores).expect("finish");
+        let bundle = root.join("service-sparse-bundle");
+        fs::create_dir(&bundle).expect("bundle");
+        fs::copy(fixed_path.join("NOTICE"), bundle.join("NOTICE")).expect("notice");
+        fs::rename(&scores, bundle.join("scores.pgi")).expect("scores");
+        let mut manifest: BundleManifest = serde_json::from_slice(
+            &fs::read(fixed_path.join("manifest.json")).expect("fixed manifest"),
+        )
+        .expect("fixed manifest JSON");
+        manifest.index_format = SPARSE_INDEX_FORMAT.to_owned();
+        manifest.sparse_provenance = Some(SparseProvenanceManifest {
+            corpus_authority_bundle_id: fixed.bundle_id().to_owned(),
+            corpus_authority_builder: manifest.builder.clone(),
+            candidate_commit: "2222222222222222222222222222222222222222".to_owned(),
+        });
+        let score_bytes = fs::read(bundle.join("scores.pgi")).expect("sparse scores");
+        let member = manifest
+            .members
+            .iter_mut()
+            .find(|member| member.path == "scores.pgi")
+            .expect("score member");
+        member.size = score_bytes.len() as u64;
+        member.sha256 = format!("sha256:{:x}", Sha256::digest(&score_bytes));
+        member.media_type = "application/vnd.pangopup.sparse-direct".to_owned();
+        let manifest = canonical_manifest_bytes(&manifest).expect("canonical sparse manifest");
+        fs::write(bundle.join("manifest.json"), &manifest).expect("write sparse manifest");
+        assert_eq!(
+            bundle_id(&manifest),
+            BundleOpen::open(&bundle)
+                .expect("open generated sparse bundle")
+                .bundle_id()
+        );
+        bundle
     }
 
     #[test]

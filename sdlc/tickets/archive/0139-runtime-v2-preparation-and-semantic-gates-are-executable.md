@@ -30,3 +30,5 @@ PangoPup authenticates the inactive v2 SNV authority and can derive an inner spa
 ## Boundary
 
 Do not build the retained outer runtime-v2 bytes, publish assets, switch compiled authorities or URLs, install or activate v2 outside test roots, change output, delete v1, rerun the 2 GB sparse construction, invent an unmeasured throughput gate, or tag 0.5. The next ticket runs exact pushed tooling against retained assets, qualifies upgrade and rollback, then switches production authority only if every gate passes.
+
+Completion evidence lives in `sdlc/records/0139-runtime-v2-preparation-and-semantic-gates-are-executable.md`.

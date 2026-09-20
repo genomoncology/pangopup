@@ -33,3 +33,7 @@ members, including stored and reconstructed identities. The outer authority
 pins the inner file's exact byte hash. The shipped runtime-sync library reads
 these compiled bytes; it never discovers a latest release or downloads either
 authority from an untrusted location.
+
+`pangopup-build runtime-release prepare-v2` is the bounded inactive outer-release preparer for the qualified sparse authority. It derives the exact sparse-bound inner profile, requires all eight model/reference/mask transport members to remain byte-identical to v1, and permits only that profile and the enclosing transport manifest to change. The preparer records the original converter commit, the clean compiled tooling commit, and the independently supplied release target in separate fields. Its `SOURCE-SUPPLEMENT.json` names the three previously verified preferred-source members by role, size, digest, and source commit. It contains no URL verification claim. The command prepares local bytes only. Production selection, sync, admission, installation, publication, and activation remain v1-only.
+
+Before activation, run `tests/runtime-v2-qualification.sh` against the exact pushed tooling and retained assets. The gate counts 1,000 requests and seven nonempty command groups, exercises real fixed and sparse providers, then coordinates reachable model/service routing and separately labeled serializer shapes. A later ticket must also qualify upgrade and rollback before changing compiled authorities.

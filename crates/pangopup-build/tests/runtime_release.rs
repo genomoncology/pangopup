@@ -1,9 +1,11 @@
 use pangopup_assets::{
     MaskProfile, ModelProfile, ReferenceProfile, RuntimeProfile, RuntimeReleaseExpectedMember,
-    RuntimeReleaseFaultPoint, RuntimeReleasePreparationContract, ScoringProfile, SnvProfile,
+    RuntimeReleaseFaultPoint, RuntimeReleasePreparationContract,
+    RuntimeV2ReleasePreparationContract, ScoringProfile, SnvProfile,
     canonical_runtime_profile_bytes, pack_runtime_transport,
     parse_runtime_release_profile_with_contract, prepare_runtime_release,
-    prepare_runtime_release_with_contract, runtime_profile_id, set_runtime_release_fault,
+    prepare_runtime_release_with_contract, prepare_runtime_v2_release,
+    prepare_runtime_v2_release_with_contract, runtime_profile_id, set_runtime_release_fault,
     verify_runtime_transport,
 };
 use pangopup_core::ReferenceProvider;
@@ -104,6 +106,15 @@ fn with_profile_contract<T>(
 }
 
 fn pack_fixture(root: &Path, name: &str) -> PackedFixture {
+    pack_fixture_with_snv(root, name, '1', '2')
+}
+
+fn pack_fixture_with_snv(
+    root: &Path,
+    name: &str,
+    bundle_digit: char,
+    member_digit: char,
+) -> PackedFixture {
     let fixtures = fixtures();
     let model_path = fixtures.join("pangolin-model-kernel-mini/bundle");
     let reference_path = fixtures.join("reference-route-test/bundle");
@@ -115,10 +126,10 @@ fn pack_fixture(root: &Path, name: &str) -> PackedFixture {
     let profile = RuntimeProfile {
         schema: "pangopup.runtime-profile.v1".to_owned(),
         snv: SnvProfile {
-            bundle_id: format!("sha256:{}", "1".repeat(64)),
+            bundle_id: format!("sha256:{}", bundle_digit.to_string().repeat(64)),
             format: "miniature.snv.v1".to_owned(),
             member_bytes: 15_000_000_000,
-            member_sha256: format!("sha256:{}", "2".repeat(64)),
+            member_sha256: format!("sha256:{}", member_digit.to_string().repeat(64)),
         },
         model: ModelProfile {
             bundle_id: model.bundle_id.to_string(),
@@ -191,6 +202,149 @@ fn pack_fixture(root: &Path, name: &str) -> PackedFixture {
         runtime_profile_id: profile_id,
         members,
     }
+}
+
+#[test]
+fn runtime_v2_preparation_changes_only_two_transport_members_and_is_deterministic() {
+    let temp = tempdir().expect("temp");
+    let v1 = pack_fixture_with_snv(temp.path(), "v1-transport", '1', '2');
+    let v2 = pack_fixture_with_snv(temp.path(), "v2-transport", '3', '4');
+    assert_ne!(v1.runtime_profile_id, v2.runtime_profile_id);
+    assert_ne!(v1.transport_id, v2.transport_id);
+    assert_eq!(v1.members.len(), 10);
+    assert_eq!(v2.members.len(), 10);
+    for (before, after) in v1.members[2..].iter().zip(&v2.members[2..]) {
+        assert_eq!(before.name, after.name);
+        assert_eq!(before.role, after.role);
+        assert_eq!(before.size, after.size);
+        assert_eq!(before.sha256, after.sha256);
+        assert_eq!(
+            fs::read(v1.transport.join(&before.name)).expect("v1 member"),
+            fs::read(v2.transport.join(&after.name)).expect("v2 member"),
+            "{}",
+            before.name
+        );
+    }
+
+    let members: Vec<_> = v2
+        .members
+        .iter()
+        .map(|member| RuntimeReleaseExpectedMember {
+            name: &member.name,
+            role: &member.role,
+            size: member.size,
+            sha256: &member.sha256,
+        })
+        .collect();
+    let authority = RuntimeV2ReleasePreparationContract {
+        snv_bundle_id: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        transport_id: &v2.transport_id,
+        runtime_profile_id: &v2.runtime_profile_id,
+        members: &members,
+    };
+    let tooling = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let target = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let first = temp.path().join("v2-first");
+    let second = temp.path().join("v2-second");
+    let crossed = temp.path().join("v2-crossed");
+    assert!(
+        prepare_runtime_v2_release_with_contract(
+            &v1.transport,
+            tooling,
+            target,
+            &crossed,
+            authority,
+        )
+        .is_err(),
+        "v2 authority must reject the v1 transport"
+    );
+    assert!(!crossed.exists());
+    for output in [&first, &second] {
+        let outcome = prepare_runtime_v2_release_with_contract(
+            &v2.transport,
+            tooling,
+            target,
+            output,
+            authority,
+        )
+        .expect("prepare v2");
+        assert_eq!(outcome.tag, "runtime-grch38-v2");
+        assert_eq!(outcome.command, "runtime-release.prepare-v2");
+        assert_eq!(outcome.upload_asset_count, 13);
+    }
+    assert_eq!(inventory(&first), inventory(&second));
+    assert_eq!(inventory(&first).len(), 14);
+    for name in inventory(&first) {
+        assert_eq!(
+            fs::read(first.join(&name)).expect("first"),
+            fs::read(second.join(&name)).expect("second"),
+            "{name}"
+        );
+    }
+
+    let profile: serde_json::Value = serde_json::from_slice(
+        &fs::read(first.join("runtime-release-profile.json")).expect("profile"),
+    )
+    .expect("profile JSON");
+    assert!(
+        pangopup_assets::parse_runtime_release_profile(
+            &fs::read(first.join("runtime-release-profile.json")).expect("profile")
+        )
+        .is_err(),
+        "the closed v1 parser rejects v2"
+    );
+    assert_eq!(profile["schema"], "pangopup.runtime-release-profile.v2");
+    assert_eq!(profile["profile"], "runtime-grch38-v2");
+    assert_eq!(profile["release"]["target_commit"], target);
+    assert_eq!(profile["tool"]["implementation_commit"], tooling);
+    assert_eq!(
+        profile["model_source"]["converter_commit"],
+        "e6d8497aaf1e3db521360ad969252a2ec6fd14e4"
+    );
+    let production_v1: serde_json::Value = serde_json::from_slice(
+        &fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../release-profiles/runtime-release-profile.json"),
+        )
+        .expect("checked v1 release profile"),
+    )
+    .expect("checked v1 release profile JSON");
+    assert_eq!(
+        profile["model_source"], production_v1["model_source"],
+        "v2 preserves the complete v1 model-source contract"
+    );
+    assert_eq!(profile["runtime"]["snv_bundle_id"], authority.snv_bundle_id);
+    assert!(
+        profile["transport"]["members"]
+            .as_array()
+            .expect("transport members")
+            .iter()
+            .all(|member| member["url"]
+                .as_str()
+                .is_some_and(|url| url.contains("/runtime-grch38-v2/"))),
+        "all member URLs name the v2 release"
+    );
+
+    let supplement_bytes =
+        fs::read(first.join("SOURCE-SUPPLEMENT.json")).expect("source supplement");
+    let supplement: serde_json::Value =
+        serde_json::from_slice(&supplement_bytes).expect("supplement JSON");
+    assert_eq!(
+        supplement["verified_inventory"]
+            .as_array()
+            .expect("verified inventory")
+            .len(),
+        3
+    );
+    assert_eq!(supplement.get("url"), None);
+    assert!(
+        !String::from_utf8(supplement_bytes)
+            .expect("UTF-8 supplement")
+            .contains("http")
+    );
+    let sums = fs::read_to_string(first.join("SHA256SUMS")).expect("sums");
+    assert_eq!(sums.lines().count(), 12);
+    assert!(sums.ends_with("  SOURCE-SUPPLEMENT.json\n"));
 }
 
 fn prepare_fixture(root: &Path, name: &str) -> PathBuf {
@@ -440,6 +594,44 @@ fn fifo_replacement_between_path_admission_and_readable_open_is_rejected() {
             .contains("runtime transport member changed while it was opened")
     );
     assert!(!output.exists());
+}
+
+#[test]
+fn preliminary_v2_manifest_read_is_bounded_and_holds_the_admitted_file() {
+    let temp = tempdir().expect("temp");
+    let tooling = "1111111111111111111111111111111111111111";
+    let target = "2222222222222222222222222222222222222222";
+
+    let oversized = temp.path().join("oversized");
+    fs::create_dir(&oversized).expect("oversized dir");
+    fs::write(
+        oversized.join("runtime-transport.json"),
+        vec![b'x'; 1024 * 1024 + 1],
+    )
+    .expect("oversized manifest");
+    let oversized_output = temp.path().join("oversized-output");
+    let error = prepare_runtime_v2_release(&oversized, tooling, target, &oversized_output)
+        .expect_err("oversized preliminary manifest");
+    assert!(error.to_string().contains("exceeds its size bound"));
+    assert!(!oversized_output.exists());
+
+    for (index, point) in [
+        RuntimeReleaseFaultPoint::PathAdmissionFifoReplacement,
+        RuntimeReleaseFaultPoint::PreliminaryManifestReplacement,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let transport = temp.path().join(format!("replacement-{index}"));
+        fs::create_dir(&transport).expect("replacement dir");
+        fs::write(transport.join("runtime-transport.json"), b"{}\n").expect("manifest");
+        let output = temp.path().join(format!("replacement-output-{index}"));
+        set_runtime_release_fault(point);
+        let error = prepare_runtime_v2_release(&transport, tooling, target, &output)
+            .expect_err("preliminary replacement");
+        assert!(error.to_string().contains("changed"), "{point:?}: {error}");
+        assert!(!output.exists());
+    }
 }
 
 #[test]

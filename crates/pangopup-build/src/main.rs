@@ -16,6 +16,7 @@ use pangopup_build::{
     prepare_benchmark_corpus, prepare_sparse_release, prototype_open, prototype_roundtrip,
     reference::{build_reference_bundle, inspect_reference_bundle, reference_window},
     runtime_profile::prepare_runtime_profile,
+    runtime_release::prepare_runtime_v2_release_from_clean_build,
     verify_bundle,
 };
 use pangopup_model::ModelRepresentation;
@@ -139,6 +140,7 @@ fn dispatch(leaf: Leaf, arguments: &[std::ffi::OsString]) -> ExitCode {
         | Leaf::RuntimeTransportVerify
         | Leaf::RuntimeTransportUnpack => runtime_transport_command(leaf, arguments),
         Leaf::RuntimeReleasePrepare => runtime_release_command(arguments),
+        Leaf::RuntimeReleasePrepareV2 => runtime_v2_release_command(arguments),
         Leaf::ExecutableReleasePrepare => executable_release_command(arguments),
         Leaf::NamingBuild => naming_build_command(arguments),
         Leaf::NamingInspect => naming_inspect_command(arguments),
@@ -321,6 +323,37 @@ fn runtime_release_command(arguments: &[std::ffi::OsString]) -> ExitCode {
     ) {
         Ok(outcome) => json_success(&outcome),
         Err(error) => json_failure(&CommandError::new(error.kind().code(), error.to_string())),
+    }
+}
+
+fn runtime_v2_release_command(arguments: &[std::ffi::OsString]) -> ExitCode {
+    let Ok(values) = parse_exact_flags(
+        arguments,
+        &[
+            "--transport",
+            "--tooling-commit",
+            "--release-target-commit",
+            "--output",
+        ],
+    ) else {
+        return json_usage(
+            "runtime-release prepare-v2 requires --transport, --tooling-commit, --release-target-commit, and --output exactly once",
+        );
+    };
+    let Some(tooling_commit) = values[1].to_str() else {
+        return json_usage("--tooling-commit must be UTF-8");
+    };
+    let Some(release_target_commit) = values[2].to_str() else {
+        return json_usage("--release-target-commit must be UTF-8");
+    };
+    match prepare_runtime_v2_release_from_clean_build(
+        Path::new(values[0]),
+        tooling_commit,
+        release_target_commit,
+        Path::new(values[3]),
+    ) {
+        Ok(outcome) => json_success(&outcome),
+        Err(error) => json_failure(&error),
     }
 }
 

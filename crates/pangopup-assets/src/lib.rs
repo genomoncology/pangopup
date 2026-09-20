@@ -69,13 +69,15 @@ pub use runtime_profile::{
     production_runtime_profile, qualified_sparse_runtime_profile, runtime_profile_id,
 };
 pub use runtime_release::{
-    PrepareRuntimeReleaseOutcome, RuntimeReleaseProfile, parse_runtime_release_profile,
-    prepare_runtime_release,
+    PrepareRuntimeReleaseOutcome, RuntimeReleaseProfile, RuntimeReleaseTool,
+    RuntimeSourceSupplement, RuntimeSourceSupplementMember, parse_runtime_release_profile,
+    prepare_runtime_release, prepare_runtime_v2_release,
 };
 #[cfg(any(test, feature = "test-read-audit"))]
 pub use runtime_release::{
     RuntimeReleaseExpectedMember, RuntimeReleaseFaultPoint, RuntimeReleasePreparationContract,
-    parse_runtime_release_profile_with_contract, prepare_runtime_release_with_contract,
+    RuntimeV2ReleasePreparationContract, parse_runtime_release_profile_with_contract,
+    prepare_runtime_release_with_contract, prepare_runtime_v2_release_with_contract,
     set_runtime_release_fault,
 };
 pub use runtime_transport::{

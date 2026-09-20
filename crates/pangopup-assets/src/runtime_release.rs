@@ -35,6 +35,7 @@ pub enum RuntimeReleaseFaultPoint {
     ParentSync,
     SourceReplacement,
     VerifiedSourceReplacement,
+    PreliminaryManifestReplacement,
     PathAdmissionFifoReplacement,
 }
 
@@ -62,9 +63,13 @@ fn fail_at(point: RuntimeReleaseFaultPoint) -> bool {
 }
 
 const SCHEMA: &str = "pangopup.runtime-release-profile.v1";
+const V2_SCHEMA: &str = "pangopup.runtime-release-profile.v2";
 const REPOSITORY: &str = "genomoncology/pangopup";
 const TAG: &str = "runtime-grch38-v1";
 const TITLE: &str = "Pangopup GRCh38 Pangolin runtime v1";
+const V2_TAG: &str = "runtime-grch38-v2";
+const V2_TITLE: &str = "Pangopup GRCh38 Pangolin runtime v2";
+const MODEL_CONVERTER_COMMIT: &str = "e6d8497aaf1e3db521360ad969252a2ec6fd14e4";
 const TRANSPORT_ID: &str =
     "sha256:415860610ccc060ff3ed5678b450650265330d43f7e73bc533c4ff0125e300a3";
 const PROFILE_ID: &str = "sha256:0efc5b7d9e966935775f9b19ef33eae75cb304cc5d5ba3f1d700ccddc6ddbd8c";
@@ -153,6 +158,33 @@ pub struct RuntimeReleaseProfile {
     pub runtime: RuntimeReleaseTuple,
     pub model_source: ModelSource,
     pub transport: RuntimeReleaseTransport,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<RuntimeReleaseTool>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeReleaseTool {
+    pub implementation_commit: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeSourceSupplement {
+    pub schema: String,
+    pub release_tag: String,
+    pub verification: String,
+    pub verified_inventory: Vec<RuntimeSourceSupplementMember>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeSourceSupplementMember {
+    pub asset_name: String,
+    pub role: String,
+    pub size: u64,
+    pub sha256: String,
+    pub source_commit: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -257,11 +289,66 @@ pub struct RuntimeReleaseExpectedMember<'a> {
     pub sha256: &'a str,
 }
 
+#[doc(hidden)]
+#[derive(Clone, Copy)]
+#[cfg(any(test, feature = "test-read-audit"))]
+pub struct RuntimeV2ReleasePreparationContract<'a> {
+    pub snv_bundle_id: &'a str,
+    pub transport_id: &'a str,
+    pub runtime_profile_id: &'a str,
+    pub members: &'a [RuntimeReleaseExpectedMember<'a>],
+}
+
 #[derive(Clone, Copy)]
 struct Contract<'a> {
+    schema: &'static str,
+    tag: &'static str,
+    title: &'static str,
+    command: &'static str,
+    snv_bundle_id: &'a str,
+    converter_commit: &'a str,
+    tooling_commit: Option<&'a str>,
+    source_supplement: bool,
     transport_id: &'a str,
     runtime_profile_id: &'a str,
     members: &'a [ExpectedMember<'a>],
+}
+
+fn v1_contract() -> Contract<'static> {
+    Contract {
+        schema: SCHEMA,
+        tag: TAG,
+        title: TITLE,
+        command: "runtime-release.prepare",
+        snv_bundle_id: SNV_ID,
+        converter_commit: "",
+        tooling_commit: None,
+        source_supplement: false,
+        transport_id: TRANSPORT_ID,
+        runtime_profile_id: PROFILE_ID,
+        members: &PRODUCTION_MEMBERS,
+    }
+}
+
+#[cfg(any(test, feature = "test-read-audit"))]
+fn v1_contract_with_transport<'a>(
+    transport_id: &'a str,
+    runtime_profile_id: &'a str,
+    members: &'a [ExpectedMember<'a>],
+) -> Contract<'a> {
+    Contract {
+        schema: SCHEMA,
+        tag: TAG,
+        title: TITLE,
+        command: "runtime-release.prepare",
+        snv_bundle_id: SNV_ID,
+        converter_commit: "",
+        tooling_commit: None,
+        source_supplement: false,
+        transport_id,
+        runtime_profile_id,
+        members,
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -273,14 +360,7 @@ struct ExpectedMember<'a> {
 }
 
 pub fn parse_runtime_release_profile(bytes: &[u8]) -> Result<RuntimeReleaseProfile, AssetError> {
-    parse_profile_with_contract(
-        bytes,
-        Contract {
-            transport_id: TRANSPORT_ID,
-            runtime_profile_id: PROFILE_ID,
-            members: &PRODUCTION_MEMBERS,
-        },
-    )
+    parse_profile_with_contract(bytes, v1_contract())
 }
 
 pub(crate) fn production_runtime_release_profile()
@@ -349,11 +429,7 @@ pub fn parse_runtime_release_profile_with_contract(
         .collect();
     parse_profile_with_contract(
         bytes,
-        Contract {
-            transport_id: contract.transport_id,
-            runtime_profile_id: contract.runtime_profile_id,
-            members: &members,
-        },
+        v1_contract_with_transport(contract.transport_id, contract.runtime_profile_id, &members),
     )
 }
 
@@ -381,14 +457,154 @@ pub fn prepare_runtime_release(
     target_commit: &str,
     output: &Path,
 ) -> Result<PrepareRuntimeReleaseOutcome, AssetError> {
+    prepare_with_contract(transport, target_commit, output, v1_contract())
+}
+
+/// Prepare the inactive sparse-bound outer runtime authority.
+///
+/// The caller supplies the clean compiled tooling commit separately from the
+/// independently chosen release target. This function performs no publication
+/// or activation.
+pub fn prepare_runtime_v2_release(
+    transport: &Path,
+    tooling_commit: &str,
+    release_target_commit: &str,
+    output: &Path,
+) -> Result<PrepareRuntimeReleaseOutcome, AssetError> {
+    if !valid_commit(tooling_commit) {
+        return Err(release_invalid(
+            "tooling commit must be exactly 40 lowercase hexadecimal characters",
+        ));
+    }
+    let qualified = crate::release::qualified_v2_profile()?;
+    let mut runtime_profile = super::production_runtime_profile();
+    runtime_profile.snv = qualified.snv.clone();
+    let runtime_profile_bytes = super::canonical_runtime_profile_bytes(&runtime_profile)
+        .map_err(|error| release_invalid(error.to_string()))?;
+    let runtime_profile_id = super::runtime_profile_id(&runtime_profile_bytes)
+        .map_err(|error| release_invalid(error.to_string()))?
+        .to_string();
+    let manifest_bytes = read_preliminary_transport_manifest(transport)?;
+    let manifest = parse_runtime_transport_manifest_for_release(&manifest_bytes)?;
+    if manifest.runtime_profile_id != runtime_profile_id || manifest.members.len() != 9 {
+        return Err(release_invalid(
+            "runtime v2 transport does not bind the qualified runtime profile",
+        ));
+    }
+    let v1_manifest = parse_runtime_transport_manifest_for_release(PRODUCTION_TRANSPORT_MANIFEST)?;
+    let profile_member = &manifest.members[0];
+    if profile_member.name != "runtime-profile.json"
+        || profile_member.role != "runtime-profile"
+        || profile_member.encoding != Encoding::Raw
+        || profile_member.stored_bytes != runtime_profile_bytes.len() as u64
+        || profile_member.stored_sha256 != runtime_profile_id
+        || profile_member.uncompressed_bytes != runtime_profile_bytes.len() as u64
+        || profile_member.uncompressed_sha256 != runtime_profile_id
+        || manifest.members[1..] != v1_manifest.members[1..]
+    {
+        return Err(release_invalid(
+            "runtime v2 transport changes a model-side member",
+        ));
+    }
+    let transport_id = sha256(&manifest_bytes);
+    let mut members = Vec::with_capacity(10);
+    members.push(ExpectedMember {
+        name: "runtime-transport.json",
+        role: "runtime-transport-manifest",
+        size: manifest_bytes.len() as u64,
+        sha256: &transport_id,
+    });
+    for member in &manifest.members {
+        members.push(ExpectedMember {
+            name: &member.name,
+            role: &member.role,
+            size: member.stored_bytes,
+            sha256: &member.stored_sha256,
+        });
+    }
     prepare_with_contract(
         transport,
-        target_commit,
+        release_target_commit,
         output,
         Contract {
-            transport_id: TRANSPORT_ID,
-            runtime_profile_id: PROFILE_ID,
-            members: &PRODUCTION_MEMBERS,
+            schema: V2_SCHEMA,
+            tag: V2_TAG,
+            title: V2_TITLE,
+            command: "runtime-release.prepare-v2",
+            snv_bundle_id: &qualified.snv.bundle_id,
+            converter_commit: MODEL_CONVERTER_COMMIT,
+            tooling_commit: Some(tooling_commit),
+            source_supplement: true,
+            transport_id: &transport_id,
+            runtime_profile_id: &runtime_profile_id,
+            members: &members,
+        },
+    )
+}
+
+fn read_preliminary_transport_manifest(transport: &Path) -> Result<Vec<u8>, AssetError> {
+    const CAP: u64 = 1024 * 1024;
+    let source = SourceDirectory::open(transport)?;
+    let (mut file, metadata) = source.open_member("runtime-transport.json")?;
+    if metadata.len() > CAP {
+        return Err(release_invalid(
+            "runtime transport manifest exceeds its size bound",
+        ));
+    }
+    #[cfg(any(test, feature = "test-read-audit"))]
+    if fail_at(RuntimeReleaseFaultPoint::PreliminaryManifestReplacement) {
+        replace_source_member_for_test(&source, "runtime-transport.json")?;
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    Read::by_ref(&mut file)
+        .take(CAP + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| input_io("read runtime transport manifest", error))?;
+    if bytes.len() as u64 != metadata.len() {
+        return Err(release_invalid(
+            "runtime transport manifest changed while read",
+        ));
+    }
+    source.validate_member("runtime-transport.json", &file, &metadata)?;
+    source.require_same_path(transport)?;
+    Ok(bytes)
+}
+
+#[doc(hidden)]
+#[cfg(any(test, feature = "test-read-audit"))]
+pub fn prepare_runtime_v2_release_with_contract(
+    transport: &Path,
+    tooling_commit: &str,
+    release_target_commit: &str,
+    output: &Path,
+    contract: RuntimeV2ReleasePreparationContract<'_>,
+) -> Result<PrepareRuntimeReleaseOutcome, AssetError> {
+    let members: Vec<_> = contract
+        .members
+        .iter()
+        .map(|member| ExpectedMember {
+            name: member.name,
+            role: member.role,
+            size: member.size,
+            sha256: member.sha256,
+        })
+        .collect();
+    prepare_with_contract(
+        transport,
+        release_target_commit,
+        output,
+        Contract {
+            schema: V2_SCHEMA,
+            tag: V2_TAG,
+            title: V2_TITLE,
+            command: "runtime-release.prepare-v2",
+            snv_bundle_id: contract.snv_bundle_id,
+            converter_commit: MODEL_CONVERTER_COMMIT,
+            tooling_commit: Some(tooling_commit),
+            source_supplement: true,
+            transport_id: contract.transport_id,
+            runtime_profile_id: contract.runtime_profile_id,
+            members: &members,
         },
     )
 }
@@ -415,11 +631,7 @@ pub fn prepare_runtime_release_with_contract(
         transport,
         target_commit,
         output,
-        Contract {
-            transport_id: contract.transport_id,
-            runtime_profile_id: contract.runtime_profile_id,
-            members: &members,
-        },
+        v1_contract_with_transport(contract.transport_id, contract.runtime_profile_id, &members),
     )
 }
 
@@ -486,13 +698,14 @@ fn prepare_with_contract(
                 size: member.size,
                 sha256: member.sha256.clone(),
                 url: format!(
-                    "https://github.com/{REPOSITORY}/releases/download/{TAG}/{}",
-                    member.name
+                    "https://github.com/{REPOSITORY}/releases/download/{}/{}",
+                    contract.tag, member.name
                 ),
             })
             .collect();
         let profile = production_profile(
             target_commit,
+            contract,
             contract.runtime_profile_id,
             contract.transport_id,
             members,
@@ -502,11 +715,18 @@ fn prepare_with_contract(
         parse_profile_with_contract(&profile_bytes, contract)?;
         let profile_hash = sha256(&profile_bytes);
         write_private(&stage.join("runtime-release-profile.json"), &profile_bytes)?;
-        let sums = sha256sums(&copied, &profile_hash);
+        let source_supplement = contract
+            .source_supplement
+            .then(source_supplement_bytes)
+            .transpose()?;
+        if let Some(bytes) = &source_supplement {
+            write_private(&stage.join("SOURCE-SUPPLEMENT.json"), bytes)?;
+        }
+        let sums = sha256sums(&copied, &profile_hash, source_supplement.as_deref());
         write_private(&stage.join("SHA256SUMS"), sums.as_bytes())?;
         write_private(
             &stage.join("RELEASE-NOTES.md"),
-            release_notes(&profile).as_bytes(),
+            release_notes(&profile, contract).as_bytes(),
         )?;
 
         for entry in fs::read_dir(&stage).map_err(|error| output_io("list staging", error))? {
@@ -542,12 +762,12 @@ fn prepare_with_contract(
         publish_read_only_stage(&stage, output, &mut guard)?;
         Ok(PrepareRuntimeReleaseOutcome {
             status: "ok",
-            command: "runtime-release.prepare",
-            tag: TAG,
+            command: contract.command,
+            tag: contract.tag,
             target_commit: target_commit.to_owned(),
             transport_id: inspection.transport_id,
             runtime_profile_id: inspection.runtime_profile_id,
-            upload_asset_count: 12,
+            upload_asset_count: if contract.source_supplement { 13 } else { 12 },
         })
     })();
     finish_staged(result, &mut guard)
@@ -555,37 +775,49 @@ fn prepare_with_contract(
 
 fn production_profile(
     target_commit: &str,
+    contract: Contract<'_>,
     runtime_profile_id: &str,
     transport_id: &str,
     members: Vec<RuntimeReleaseMember>,
 ) -> RuntimeReleaseProfile {
+    let converter_commit = if contract.converter_commit.is_empty() {
+        target_commit
+    } else {
+        contract.converter_commit
+    };
     RuntimeReleaseProfile {
-        schema: SCHEMA.to_owned(),
-        profile: TAG.to_owned(),
+        schema: contract.schema.to_owned(),
+        profile: contract.tag.to_owned(),
         repository: REPOSITORY.to_owned(),
         release: RuntimeRelease {
-            tag: TAG.to_owned(),
-            title: TITLE.to_owned(),
+            tag: contract.tag.to_owned(),
+            title: contract.title.to_owned(),
             target_commit: target_commit.to_owned(),
-            page_url: format!("https://github.com/{REPOSITORY}/releases/tag/{TAG}"),
+            page_url: format!(
+                "https://github.com/{REPOSITORY}/releases/tag/{}",
+                contract.tag
+            ),
         },
         runtime: RuntimeReleaseTuple {
             profile_id: runtime_profile_id.to_owned(),
-            snv_bundle_id: SNV_ID.to_owned(),
+            snv_bundle_id: contract.snv_bundle_id.to_owned(),
             model_bundle_id: MODEL_ID.to_owned(),
             reference_bundle_id: REFERENCE_ID.to_owned(),
             mask_sha256: MASK_ID.to_owned(),
         },
-        model_source: model_source(target_commit),
+        model_source: model_source(converter_commit),
         transport: RuntimeReleaseTransport {
             schema: "pangopup.runtime-transport.v1".to_owned(),
             transport_id: transport_id.to_owned(),
             members,
         },
+        tool: contract.tooling_commit.map(|commit| RuntimeReleaseTool {
+            implementation_commit: commit.to_owned(),
+        }),
     }
 }
 
-fn model_source(target_commit: &str) -> ModelSource {
+fn model_source(converter_commit: &str) -> ModelSource {
     const DATA: [(&str, u64, &str); 12] = [
         (
             "final.1.0.3.v2",
@@ -675,7 +907,7 @@ fn model_source(target_commit: &str) -> ModelSource {
             })
             .collect(),
         converter_repository: format!("https://github.com/{REPOSITORY}"),
-        converter_commit: target_commit.to_owned(),
+        converter_commit: converter_commit.to_owned(),
         converter_paths: vec![
             "tools/pangolin-model".to_owned(),
             "crates/pangopup-build".to_owned(),
@@ -687,25 +919,39 @@ fn validate_profile(
     profile: &RuntimeReleaseProfile,
     contract: Contract<'_>,
 ) -> Result<(), AssetError> {
-    if profile.schema != SCHEMA
-        || profile.profile != TAG
+    let converter_commit = if contract.converter_commit.is_empty() {
+        profile.release.target_commit.as_str()
+    } else {
+        contract.converter_commit
+    };
+    if profile.schema != contract.schema
+        || profile.profile != contract.tag
         || profile.repository != REPOSITORY
-        || profile.release.tag != TAG
-        || profile.release.title != TITLE
+        || profile.release.tag != contract.tag
+        || profile.release.title != contract.title
         || !valid_commit(&profile.release.target_commit)
-        || profile.release.page_url != format!("https://github.com/{REPOSITORY}/releases/tag/{TAG}")
+        || profile.release.page_url
+            != format!(
+                "https://github.com/{REPOSITORY}/releases/tag/{}",
+                contract.tag
+            )
         || profile.transport.schema != "pangopup.runtime-transport.v1"
         || profile.transport.transport_id != contract.transport_id
         || profile.transport.members.len() != contract.members.len()
         || contract.members.len() != 10
         || contract.members[0].sha256 != contract.transport_id
         || profile.runtime.profile_id != contract.runtime_profile_id
-        || profile.runtime.snv_bundle_id != SNV_ID
+        || profile.runtime.snv_bundle_id != contract.snv_bundle_id
         || profile.runtime.model_bundle_id != MODEL_ID
         || profile.runtime.reference_bundle_id != REFERENCE_ID
         || profile.runtime.mask_sha256 != MASK_ID
-        || profile.model_source.converter_commit != profile.release.target_commit
-        || profile.model_source != model_source(&profile.release.target_commit)
+        || profile.model_source.converter_commit != converter_commit
+        || profile.model_source != model_source(converter_commit)
+        || profile
+            .tool
+            .as_ref()
+            .map(|tool| tool.implementation_commit.as_str())
+            != contract.tooling_commit
     {
         return Err(release_invalid("runtime release profile facts are invalid"));
     }
@@ -722,8 +968,8 @@ fn validate_profile(
             || !valid_sha(&member.sha256)
             || member.url
                 != format!(
-                    "https://github.com/{REPOSITORY}/releases/download/{TAG}/{}",
-                    member.asset_name
+                    "https://github.com/{REPOSITORY}/releases/download/{}/{}",
+                    contract.tag, member.asset_name
                 )
         {
             return Err(release_invalid("runtime release member is invalid"));
@@ -1180,12 +1426,20 @@ fn open_at_create(dir: RawFd, name: &str, flags: i32, mode: u32) -> io::Result<F
     file_from_fd(descriptor)
 }
 
-fn sha256sums(members: &[(&str, &str)], profile_hash: &str) -> String {
+fn sha256sums(
+    members: &[(&str, &str)],
+    profile_hash: &str,
+    source_supplement: Option<&[u8]>,
+) -> String {
     let mut output = String::new();
-    for (name, identity) in members.iter().copied().chain(std::iter::once((
-        "runtime-release-profile.json",
-        profile_hash,
-    ))) {
+    let mut entries = members.to_vec();
+    entries.push(("runtime-release-profile.json", profile_hash));
+    let supplement_identity;
+    if let Some(bytes) = source_supplement {
+        supplement_identity = sha256(bytes);
+        entries.push(("SOURCE-SUPPLEMENT.json", &supplement_identity));
+    }
+    for (name, identity) in entries {
         output.push_str(
             identity
                 .strip_prefix("sha256:")
@@ -1198,19 +1452,73 @@ fn sha256sums(members: &[(&str, &str)], profile_hash: &str) -> String {
     output
 }
 
-fn release_notes(profile: &RuntimeReleaseProfile) -> String {
+fn source_supplement_bytes() -> Result<Vec<u8>, AssetError> {
+    let supplement = RuntimeSourceSupplement {
+        schema: "pangopup.runtime-source-supplement.v1".to_owned(),
+        release_tag: V2_TAG.to_owned(),
+        verification: "retained-bytes-and-reconstructed-git-archives-v1".to_owned(),
+        verified_inventory: vec![
+            RuntimeSourceSupplementMember {
+                asset_name: "pangolin-5cf94b8-source.tar.zst".to_owned(),
+                role: "upstream-preferred-source".to_owned(),
+                size: 166_859_188,
+                sha256: "sha256:c9b457e8cc527dea27f9e491f0ae68278886c6f9b1a07cb16c3b8dd7309f3174"
+                    .to_owned(),
+                source_commit: UPSTREAM_COMMIT.to_owned(),
+            },
+            RuntimeSourceSupplementMember {
+                asset_name: "pangopup-e6d8497-source.tar.zst".to_owned(),
+                role: "converter-preferred-source".to_owned(),
+                size: 865_435,
+                sha256: "sha256:a7a93f7f0f8b10d5f257a131253030ef85f2cad21f26d152d6ee5db42274c645"
+                    .to_owned(),
+                source_commit: MODEL_CONVERTER_COMMIT.to_owned(),
+            },
+            RuntimeSourceSupplementMember {
+                asset_name: "Pangolin-GPL-3.0.txt".to_owned(),
+                role: "upstream-license".to_owned(),
+                size: 35_149,
+                sha256: "sha256:3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+                    .to_owned(),
+                source_commit: UPSTREAM_COMMIT.to_owned(),
+            },
+        ],
+    };
+    serde_jcs::to_vec(&supplement)
+        .map_err(|_| release_invalid("cannot serialize source supplement metadata"))
+}
+
+fn release_notes(profile: &RuntimeReleaseProfile, contract: Contract<'_>) -> String {
+    let converter_commit = if contract.converter_commit.is_empty() {
+        profile.release.target_commit.as_str()
+    } else {
+        contract.converter_commit
+    };
     format!(
-        "# {TITLE}\n\n\
+        "# {}\n\n\
 This release contains the exact compressed Pangolin model, compact RefSeq GRCh38.p14 reference, and GENCODE v38 splice-mask runtime selected by Pangopup.\n\n\
 - Runtime profile: `{}`\n\
 - Model bundle: `{MODEL_ID}`\n\
 - Reference bundle: `{REFERENCE_ID}`\n\
 - Splice mask: `{MASK_ID}`\n\
-- Compatible SNV bundle: `{SNV_ID}` from release `snv-grch38-v1`\n\n\
+- Compatible SNV bundle: `{}` from release `{}`\n\n\
 The included attribution files are `model-NOTICE`, `reference-NOTICE`, and `mask-NOTICE`.\n\n\
 Raw Zenodo data, NCBI FASTA, GENCODE GTF/SQLite files, original checkpoint containers, and qualification fixtures are not included.\n\n\
-Preferred source for modifying the model is the twelve authenticated `.v2` checkpoint containers plus `pangolin/model.py` at upstream Pangolin commit `{UPSTREAM_COMMIT}`. Pangopup's authenticated converter and lockfile are in `tools/pangolin-model` and `crates/pangopup-build` at commit `{}`.\n",
-        profile.runtime.profile_id, profile.release.target_commit
+Preferred source for modifying the model is the twelve authenticated `.v2` checkpoint containers plus `pangolin/model.py` at upstream Pangolin commit `{UPSTREAM_COMMIT}`. Pangopup's authenticated converter and lockfile are in `tools/pangolin-model` and `crates/pangopup-build` at commit `{}`.{}\n",
+        contract.title,
+        profile.runtime.profile_id,
+        contract.snv_bundle_id,
+        if contract.tag == V2_TAG {
+            "snv-grch38-v2"
+        } else {
+            "snv-grch38-v1"
+        },
+        converter_commit,
+        if contract.source_supplement {
+            " The explicit verified preferred-source inventory is in `SOURCE-SUPPLEMENT.json`; URLs alone are not verification."
+        } else {
+            ""
+        }
     )
 }
 
