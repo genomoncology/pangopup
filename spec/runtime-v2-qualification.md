@@ -2,7 +2,7 @@
 
 The bounded gate uses miniature checked fixtures. It does not open retained large assets, publish, install outside temporary roots, activate v2, or define a throughput threshold. The independent oracle projection remains separate from the cross-format comparison because the oracle predates gene names and software version.
 
-The retained-data runner has a separate feature-gated binary. Its closed interface requires explicit absolute input, scratch, and output paths.
+The retained-data runner has a separate feature-gated binary. Its closed interface requires explicit absolute paths. `prepare` requires absent scratch and output directories. `verify`, `install`, and `admit` accept only the checked sparse-v2 authority. They do not widen ordinary verification, installation, discovery, or service admission.
 
 ```bash run id=runtime-v2-runner-help
 cargo run --locked --quiet --package pangopup-build --features runtime-v2-qualification --bin pangopup-runtime-v2-qualify -- --help
@@ -10,6 +10,9 @@ cargo run --locked --quiet --package pangopup-build --features runtime-v2-qualif
 
 ```text expect=runtime-v2-runner-help exact
 Usage: pangopup-runtime-v2-qualify prepare --v1-transport <ABSOLUTE_DIR> --sparse-bundle <ABSOLUTE_DIR> --scratch <ABSENT_ABSOLUTE_DIR> --output <ABSENT_ABSOLUTE_DIR>
+       pangopup-runtime-v2-qualify verify --transport <ABSOLUTE_DIR>
+       pangopup-runtime-v2-qualify install --transport <ABSOLUTE_DIR> --data-dir <ABSOLUTE_DIR>
+       pangopup-runtime-v2-qualify admit --data-dir <ABSOLUTE_DIR> --expected-snv <SHA256_ID>
 ```
 
 ```bash run id=runtime-v2-qualification

@@ -2,7 +2,9 @@
 
 use crate::{CommandError, runtime_profile::prepare_qualified_sparse_runtime_profile};
 use pangopup_assets::{
-    VerifyRuntimeTransportOutcome, pack_runtime_transport, unpack_runtime_transport,
+    VerifyRuntimeTransportOutcome, canonical_runtime_profile_bytes,
+    install_qualified_runtime_v2_transport, open_qualified_runtime_v2_profile,
+    pack_runtime_transport, runtime_profile_id, unpack_runtime_transport,
     verify_production_runtime_transport, verify_qualified_runtime_v2_transport,
 };
 use serde::Serialize;
@@ -19,7 +21,12 @@ use std::{
     process::ExitCode,
 };
 
-const USAGE: &str = "Usage: pangopup-runtime-v2-qualify prepare --v1-transport <ABSOLUTE_DIR> --sparse-bundle <ABSOLUTE_DIR> --scratch <ABSENT_ABSOLUTE_DIR> --output <ABSENT_ABSOLUTE_DIR>";
+const USAGE: &str = concat!(
+    "Usage: pangopup-runtime-v2-qualify prepare --v1-transport <ABSOLUTE_DIR> --sparse-bundle <ABSOLUTE_DIR> --scratch <ABSENT_ABSOLUTE_DIR> --output <ABSENT_ABSOLUTE_DIR>\n",
+    "       pangopup-runtime-v2-qualify verify --transport <ABSOLUTE_DIR>\n",
+    "       pangopup-runtime-v2-qualify install --transport <ABSOLUTE_DIR> --data-dir <ABSOLUTE_DIR>\n",
+    "       pangopup-runtime-v2-qualify admit --data-dir <ABSOLUTE_DIR> --expected-snv <SHA256_ID>",
+);
 const TRANSPORT_MEMBERS: [&str; 10] = [
     "runtime-transport.json",
     "runtime-profile.json",
@@ -43,13 +50,31 @@ pub struct PrepareRuntimeV2QualificationOutcome {
     pub unchanged_model_side_members: u8,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct AdmitRuntimeV2QualificationOutcome {
+    status: &'static str,
+    command: &'static str,
+    runtime_profile_id: String,
+    snv_bundle_id: String,
+    model_bundle_id: String,
+    reference_bundle_id: String,
+    mask_sha256: String,
+}
+
+enum Invocation {
+    Prepare(Inputs),
+    Verify { transport: PathBuf },
+    Install { transport: PathBuf, data: PathBuf },
+    Admit { data: PathBuf, expected_snv: String },
+}
+
 pub fn main(arguments: impl Iterator<Item = OsString>) -> ExitCode {
     let arguments: Vec<_> = arguments.collect();
     if arguments.as_slice() == ["--help"] {
         println!("{USAGE}");
         return ExitCode::SUCCESS;
     }
-    match parse(&arguments).and_then(|inputs| prepare_runtime_v2_transport(&inputs)) {
+    match parse(&arguments).and_then(run) {
         Ok(outcome) => json_success(&outcome),
         Err(error) => json_failure(&error),
     }
@@ -62,10 +87,74 @@ struct Inputs {
     output: PathBuf,
 }
 
-fn parse(arguments: &[OsString]) -> Result<Inputs, CommandError> {
-    if arguments.first().and_then(|value| value.to_str()) != Some("prepare") {
-        return Err(CommandError::new("CLI_USAGE", USAGE));
+fn run(invocation: Invocation) -> Result<impl Serialize, CommandError> {
+    let value = match invocation {
+        Invocation::Prepare(inputs) => serde_json::to_value(prepare_runtime_v2_transport(&inputs)?),
+        Invocation::Verify { transport } => serde_json::to_value(
+            verify_qualified_runtime_v2_transport(&transport).map_err(asset_error)?,
+        ),
+        Invocation::Install { transport, data } => serde_json::to_value(
+            install_qualified_runtime_v2_transport(&transport, &data).map_err(asset_error)?,
+        ),
+        Invocation::Admit { data, expected_snv } => {
+            let installed =
+                open_qualified_runtime_v2_profile(&data, &expected_snv).map_err(asset_error)?;
+            let profile = installed.profile();
+            let bytes = canonical_runtime_profile_bytes(profile)
+                .map_err(|error| CommandError::new("QUALIFICATION_AUTHORITY", error.to_string()))?;
+            let profile_id = runtime_profile_id(&bytes)
+                .map_err(|error| CommandError::new("QUALIFICATION_AUTHORITY", error.to_string()))?;
+            serde_json::to_value(AdmitRuntimeV2QualificationOutcome {
+                status: "ok",
+                command: "runtime-v2-qualification.admit",
+                runtime_profile_id: profile_id.to_string(),
+                snv_bundle_id: profile.snv.bundle_id.clone(),
+                model_bundle_id: profile.model.bundle_id.clone(),
+                reference_bundle_id: profile.reference.bundle_id.clone(),
+                mask_sha256: profile.mask.member_sha256.clone(),
+            })
+        }
     }
+    .map_err(|error| CommandError::new("QUALIFICATION_JSON", error.to_string()))?;
+    Ok(value)
+}
+
+fn parse(arguments: &[OsString]) -> Result<Invocation, CommandError> {
+    match arguments.first().and_then(|value| value.to_str()) {
+        Some("prepare") => parse_prepare(arguments).map(Invocation::Prepare),
+        Some("verify") => {
+            let values = parse_pairs(arguments, &["--transport"])?;
+            let transport = values.into_iter().next().expect("one required value");
+            require_absolute(&transport)?;
+            Ok(Invocation::Verify { transport })
+        }
+        Some("install") => {
+            let values = parse_pairs(arguments, &["--transport", "--data-dir"])?;
+            let mut values = values.into_iter();
+            let transport = values.next().expect("first required value");
+            let data = values.next().expect("second required value");
+            require_absolute(&transport)?;
+            require_absolute(&data)?;
+            Ok(Invocation::Install { transport, data })
+        }
+        Some("admit") => {
+            let values = parse_pairs(arguments, &["--data-dir", "--expected-snv"])?;
+            let mut values = values.into_iter();
+            let data = values.next().expect("first required value");
+            let expected_snv = values
+                .next()
+                .expect("second required value")
+                .into_os_string()
+                .into_string()
+                .map_err(|_| CommandError::new("CLI_USAGE", USAGE))?;
+            require_absolute(&data)?;
+            Ok(Invocation::Admit { data, expected_snv })
+        }
+        _ => Err(CommandError::new("CLI_USAGE", USAGE)),
+    }
+}
+
+fn parse_prepare(arguments: &[OsString]) -> Result<Inputs, CommandError> {
     let mut values: [Option<PathBuf>; 4] = [None, None, None, None];
     let mut index = 1;
     while index < arguments.len() {
@@ -106,6 +195,44 @@ fn parse(arguments: &[OsString]) -> Result<Inputs, CommandError> {
     Ok(inputs)
 }
 
+fn parse_pairs(arguments: &[OsString], flags: &[&str]) -> Result<Vec<PathBuf>, CommandError> {
+    if arguments.len() != 1 + flags.len() * 2 {
+        return Err(CommandError::new("CLI_USAGE", USAGE));
+    }
+    let mut values = vec![None; flags.len()];
+    let mut index = 1;
+    while index < arguments.len() {
+        let Some(flag) = arguments[index].to_str() else {
+            return Err(CommandError::new("CLI_USAGE", USAGE));
+        };
+        let Some(slot) = flags.iter().position(|expected| *expected == flag) else {
+            return Err(CommandError::new("CLI_USAGE", USAGE));
+        };
+        let Some(value) = arguments.get(index + 1) else {
+            return Err(CommandError::new("CLI_USAGE", USAGE));
+        };
+        if values[slot].replace(PathBuf::from(value)).is_some() {
+            return Err(CommandError::new("CLI_USAGE", USAGE));
+        }
+        index += 2;
+    }
+    values
+        .into_iter()
+        .map(|value| value.ok_or_else(|| CommandError::new("CLI_USAGE", USAGE)))
+        .collect()
+}
+
+fn require_absolute(path: &Path) -> Result<(), CommandError> {
+    if path.is_absolute() {
+        Ok(())
+    } else {
+        Err(CommandError::new(
+            "QUALIFICATION_PATH",
+            "qualification paths must be absolute",
+        ))
+    }
+}
+
 fn validate_paths(inputs: &Inputs) -> Result<(), CommandError> {
     for path in [
         &inputs.v1_transport,
@@ -113,12 +240,7 @@ fn validate_paths(inputs: &Inputs) -> Result<(), CommandError> {
         &inputs.scratch,
         &inputs.output,
     ] {
-        if !path.is_absolute() {
-            return Err(CommandError::new(
-                "QUALIFICATION_PATH",
-                "qualification paths must be absolute",
-            ));
-        }
+        require_absolute(path)?;
     }
     if inputs.scratch == inputs.output
         || inputs.scratch.starts_with(&inputs.output)
