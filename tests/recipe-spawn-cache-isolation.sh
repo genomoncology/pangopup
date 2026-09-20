@@ -80,7 +80,7 @@ owned_location() {
 # splitting, then removed from the completed word. Unsupported open quotes or
 # trailing escapes refuse the match.
 split_shell_words() {
-    local text=$1 character quote='' word='' started=no escaped=no index
+    local text=$1 character next quote='' word='' started=no escaped=no index
     shell_words=()
     for ((index = 0; index < ${#text}; index++)); do
         character=${text:index:1}
@@ -98,7 +98,11 @@ split_shell_words() {
                 if [[ "$character" == '"' ]]; then
                     quote=''
                 elif [[ "$character" == \\ ]]; then
-                    escaped=yes
+                    next=${text:index+1:1}
+                    case "$next" in
+                        '$'|'`'|'"'|\\|$'\n') escaped=yes ;;
+                        *) word=$word$character ;;
+                    esac
                 else
                     word=$word$character
                 fi
@@ -107,6 +111,9 @@ split_shell_words() {
                 case "$character" in
                     "'"|'"') quote=$character; started=yes ;;
                     \\) escaped=yes; started=yes ;;
+                    '#')
+                        if [[ "$started" == no ]]; then break; else word=$word$character; fi
+                        ;;
                     ' '|$'\t')
                         if [[ "$started" == yes ]]; then
                             shell_words[${#shell_words[@]}]=$word
@@ -126,18 +133,21 @@ split_shell_words() {
 # Text $1 drops $2 through one complete `env` option operand. Punctuation may
 # belong to a longer environment name, so a regex boundary is not sufficient.
 drops_by_option() {
-    local text=$1 wanted=$2 word operand expect_operand=no
+    local text=$1 wanted=$2 word operand expect_operand=no assignments=no word_index
     split_shell_words "$text" || return 1
-    for word in "${shell_words[@]}"; do
+    (( ${#shell_words[@]} > 0 )) && [[ "${shell_words[0]}" == env ]] || return 1
+    for ((word_index = 1; word_index < ${#shell_words[@]}; word_index++)); do
+        word=${shell_words[word_index]}
         if [[ "$expect_operand" == yes ]]; then
             operand=$word
             expect_operand=no
         else
             case "$word" in
-                -u) expect_operand=yes; continue ;;
-                -u=*) operand=${word#-u=} ;;
-                --unset=*) operand=${word#--unset=} ;;
-                *) continue ;;
+                -u) [[ "$assignments" == no ]] || break; expect_operand=yes; continue ;;
+                -u=*) [[ "$assignments" == no ]] || break; operand=${word#-u=} ;;
+                --unset=*) [[ "$assignments" == no ]] || break; operand=${word#--unset=} ;;
+                [A-Za-z_]*=*) assignments=yes; continue ;;
+                *) break ;;
             esac
         fi
         [[ "$operand" == "$wanted" ]] && return 0
@@ -333,7 +343,16 @@ plant_makefile() {
                 printf '\tenv -u %s -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
                     "$extended" PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
             quoted-note)
-                printf '\tenv NOTE="text -u PANGOPUP_MODEL_CACHE text" -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
+                printf '\tenv -u %s -u %s -u %s NOTE="text -u PANGOPUP_MODEL_CACHE text" CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
+                    PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
+            escaped-name)
+                printf '\tenv -u "PANGOPUP_MODEL\\_CACHE" -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
+                    PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
+            comment-name)
+                printf '\tenv -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/ # -u PANGOPUP_MODEL_CACHE\n' \
+                    PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
+            command-argument)
+                printf '\tenv -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch -u PANGOPUP_MODEL_CACHE test spec/\n' \
                     PANGOPUP_CACHE_DIR PANGOPUP_DATA_DIR PANGOPUP_MODEL_CACHE_MAX_ENTRIES debug ;;
             limit-inherited)
                 printf '\tenv -u %s -u %s -u %s CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" RUSTUP_HOME="$${RUSTUP_HOME:-$$HOME/.rustup}" XDG_CACHE_HOME="$(CURDIR)/target/spec-cache" HOME="$(CURDIR)/target/spec-cache" PATH="$(CURDIR)/target/%s:$$PATH" mustmatch test spec/\n' \
@@ -456,7 +475,7 @@ expect_refusal 'without pinning CARGO_HOME' makefile_holds "$fixtures/unpinned/M
 plant_makefile "$fixtures/longer-only" longer-only
 expect_refusal 'with PANGOPUP_MODEL_CACHE inherited' makefile_holds "$fixtures/longer-only/Makefile" Makefile
 
-for shape in extended-x extended-2 extended-old extended-quoted quoted-note; do
+for shape in extended-x extended-2 extended-old extended-quoted quoted-note escaped-name comment-name command-argument; do
     plant_makefile "$fixtures/$shape" "$shape"
     expect_refusal 'with PANGOPUP_MODEL_CACHE inherited' makefile_holds "$fixtures/$shape/Makefile" Makefile
 done
