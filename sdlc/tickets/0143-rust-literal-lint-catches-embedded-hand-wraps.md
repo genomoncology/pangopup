@@ -11,10 +11,10 @@ The Rust text check catches an accidental physical newline and indentation insid
 
 ## Done, observably
 
-- Add a red fixture for an ordinary string whose runtime value gains a newline and indentation after a hand wrap. The current checker must miss the fixture before the repair.
-- Track ordinary Rust string boundaries across physical lines closely enough to detect the recorded defect. Handle escapes and byte strings needed by the current crate tree. Refuse an unsupported form with a named diagnostic instead of claiming it is clean.
-- Keep deliberate raw and multiline content available through a narrow documented exemption. Existing source remains accepted without broad path exemptions.
-- Keep work linear in checked source bytes and report the number of Rust sources checked.
+- Add a red fixture for an ordinary string whose runtime value gains a newline and indentation after a hand wrap. The current checker must miss the fixture before the repair. Preserve the existing rejection of collapsed indentation inside a single-line literal and add a positive fixture for a valid backslash continuation.
+- Track ordinary Rust string boundaries across physical lines closely enough to detect the recorded defect. Pin escaped quotes and backslashes, ordinary and byte-string continuations, character literals containing `"`, lifetimes, line comments, nested block comments, C strings, and raw and raw-byte strings with differing hash delimiters. Raw-string contents remain data. Unsupported or unterminated forms report path and line.
+- Keep deliberate ordinary multiline content through narrow named exemptions. Preserve the existing `LEGACY_USAGE` exception. Accept the current multiline SQL without file-wide or word-prefix exemptions. A defective literal beside an exemption remains rejected, and a stale exemption fails.
+- Keep work linear in checked source bytes, prove it with a long fixture, report the number of Rust sources checked, and retain Bash 3.2 portability.
 - Archive draft 0103. Update the durable record and frontier. `make lint`, `make test`, and `make spec` pass.
 
 ## Boundary
