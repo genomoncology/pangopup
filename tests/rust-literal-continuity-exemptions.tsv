@@ -1,0 +1,19 @@
+# name	finding	path	line	exact opening source line after indentation
+legacy-usage-alignment	collapsed	crates/pangopup-build/src/main.rs	29	const LEGACY_USAGE: &str = "Usage: pangopup-build inspect <SOURCE_DIR>\n       pangopup-build prototype-roundtrip <SOURCE_DIR> <OUTPUT>\n       pangopup-build prototype-open <ARTIFACT>\n       pangopup-build benchmark-corpus <SOURCE_DIR> <OUTPUT> <SELECTED_MANIFEST>";
+cache-setup-insert	multiline	crates/pangopup-cache/src/lib.rs	189	"INSERT OR IGNORE INTO setup VALUES(
+cache-schema	multiline	crates/pangopup-cache/src/lib.rs	518	"PRAGMA journal_mode=WAL;
+cache-current-setup	multiline	crates/pangopup-cache/src/lib.rs	612	"SELECT
+cache-entry-upsert	multiline	crates/pangopup-cache/src/lib.rs	807	"INSERT INTO entries(
+cache-setup-shape	multiline	crates/pangopup-cache/src/lib.rs	933	"SELECT count(*), min(singleton), max(singleton),
+cache-strict-table-check	multiline	crates/pangopup-cache/src/lib.rs	998	"SELECT strict FROM pragma_table_list
+cache-renumber	multiline	crates/pangopup-cache/src/lib.rs	1060	"CREATE TEMP TABLE renumber(digest TEXT PRIMARY KEY, sequence INTEGER) STRICT;
+cache-oldest-delete	multiline	crates/pangopup-cache/src/lib.rs	1102	"DELETE FROM entries WHERE key_digest IN (
+cache-corrupt-schema-fixture	multiline	crates/pangopup-cache/src/lib.rs	1619	"PRAGMA writable_schema=ON;
+cache-earlier-layout-fixture	multiline	crates/pangopup-cache/src/lib.rs	2526	"PRAGMA application_id={APPLICATION_ID};
+http-cache-value-read-one	multiline	crates/pangopup-cli/tests/http_service_lifecycle.rs	1942	"SELECT value_json FROM entries
+http-cache-value-update	multiline	crates/pangopup-cli/tests/http_service_lifecycle.rs	1964	"UPDATE entries SET value_json=?5
+http-cache-value-read-two	multiline	crates/pangopup-cli/tests/http_service_lifecycle.rs	1989	"SELECT value_json FROM entries
+cli-cache-table-list-one	multiline	crates/pangopup-cli/tests/model_cache_setup.rs	240	"SELECT name FROM sqlite_master
+cli-cache-table-list-two	multiline	crates/pangopup-cli/tests/model_cache_setup.rs	293	"SELECT name FROM sqlite_master
+cli-cache-row-repair	multiline	crates/pangopup-cli/tests/model_cache_setup.rs	325	"UPDATE \"{table}\" SET \"{column}\"={replaced}
+cli-cache-v1-schema	multiline	crates/pangopup-cli/tests/model_cache_setup.rs	669	"PRAGMA journal_mode=WAL;

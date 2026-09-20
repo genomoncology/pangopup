@@ -120,6 +120,8 @@ Ticket 0141 gives repository shell lint one bounded command-context scanner and 
 
 Ticket 0142 makes cache-isolation checks compare complete environment operands and normalized lexical paths. The checks reject unsupported shell evaluation before expansion, preserve the relative `ORT_CACHE_DIR` exception, and classify dot segments, parent segments, equal paths, sibling prefixes, and trailing separators consistently on macOS and Linux. Drafts 0107 and 0108 are archived. Draft 0149 records the separate limitation for multiple commands on one Make recipe line.
 
+Ticket 0143 extends Rust literal continuity lint across physical lines. The byte-stable bounded scanner splits each physical line once and distinguishes ordinary, byte, C, character, raw, comment, Unicode lifetime, and label forms. It rejects an unescaped physical newline in an ordinary literal while preserving CRLF and multi-line Rust continuation whitespace plus exact named legacy and SQL exemptions. It retains vertical tab and form feed after a continuation. A stale exemption fails. Work accounting over three increasing single-line fixtures enforces a fixed linear bound and stable work per byte. Draft 0103 is archived with the passing implementation.
+
 ## Asset readiness — preserve, package, then publish
 
 The large source work is not a rebuild queue:
