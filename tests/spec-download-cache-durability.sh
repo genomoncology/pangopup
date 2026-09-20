@@ -320,7 +320,10 @@ resolve_cache_path() {
         case "$word" in
             env)
                 validate_env_command_or_option "$word" || return 1
-                (( word_index == 0 )) || break
+                if (( word_index != 0 )); then
+                    printf 'unsupported nested env prefix\n' >&2
+                    return 1
+                fi
                 saw_env=yes
                 word_index=$((word_index + 1))
                 continue
@@ -605,6 +608,12 @@ plant() {
             escaped-assignment-name)
                 printf '\trm -rf target/ort-cache\n'
                 printf '\t%s\n' 'env ORT_CACHE_\DIR="$(CURDIR)/target/ort-cache" cargo build --locked' ;;
+            later-env-prefix)
+                printf '\trm -rf target/ort-cache\n'
+                printf '\tORT_CACHE_DIR="$(CURDIR)/durable-ort-cache" env ORT_CACHE_DIR="$(CURDIR)/target/ort-cache" cargo build --locked\n' ;;
+            nested-env-prefix)
+                printf '\trm -rf target/ort-cache\n'
+                printf '\tenv env ORT_CACHE_DIR="$(CURDIR)/target/ort-cache" cargo build --locked\n' ;;
             removal-dot)
                 printf '\trm -rf ./target/spec-cache\n'
                 printf '\tORT_CACHE_DIR="$(CURDIR)/target/spec-cache/ort" cargo build --locked\n' ;;
@@ -818,6 +827,11 @@ done
 for shape in quoted-assignment-name escaped-assignment-name; do
     plant "$work/$shape" "$shape"
     expect_linux_safe_refusal 'env assignment name' "$work/$shape"
+done
+
+for shape in later-env-prefix nested-env-prefix; do
+    plant "$work/$shape" "$shape"
+    expect_linux_safe_refusal 'unsupported nested env prefix' "$work/$shape"
 done
 
 # Clearing `XDG_CACHE_HOME` sends the resolution to `$HOME`, which the recipe
