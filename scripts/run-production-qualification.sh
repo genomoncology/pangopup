@@ -120,8 +120,13 @@ run_clean "$output_dir/model-only-SNV.jsonl" "$pangopup" lookup --model-only \
 
 http_request() {
   local method=$1 path=$2 body=$3 output=$4
-  exec 3<>/dev/tcp/127.0.0.1/18080 || return 1
-  printf '%s %s HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n' "$method" "$path" >&3
+  service_is_running || {
+    printf 'HTTP service exited before a qualification request\n' >&2
+    return 1
+  }
+  exec 3<>"/dev/tcp/$http_host/$http_port" || return 1
+  printf '%s %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n' \
+    "$method" "$path" "$service_address" >&3
   if [[ -n "$body" ]]; then
     printf 'Content-Type: application/json\r\nContent-Length: %s\r\n' "${#body}" >&3
   fi
@@ -130,16 +135,79 @@ http_request() {
   exec 3>&- 3<&-
 }
 
-"$pangopup" serve --listen 127.0.0.1:18080 --model-workers 1 --model-threads 1 \
+: >"$output_dir/service.stdout"
+"$pangopup" serve --listen 127.0.0.1:0 --model-workers 1 --model-threads 1 \
   >"$output_dir/service.stdout" 2>"$output_dir/service.stderr" &
 service_pid=$!
+service_is_running() {
+  local running_pid
+  while IFS= read -r running_pid; do
+    if [[ "$running_pid" == "$service_pid" ]]; then return 0; fi
+  done <<<"$(jobs -pr)"
+  return 1
+}
 stop_service() {
-  kill -TERM "$service_pid" 2>/dev/null || true
+  if service_is_running; then kill -TERM "$service_pid" 2>/dev/null || true; fi
   wait "$service_pid" 2>/dev/null || true
 }
 trap stop_service EXIT
+listening_event=
+listening_deadline=$((SECONDS + 30))
+while (( SECONDS < listening_deadline )); do
+  if IFS= read -r listening_event <"$output_dir/service.stdout"; then
+    break
+  fi
+  if ! service_is_running; then
+    printf 'HTTP service exited before emitting a listening event\n' >&2
+    exit 1
+  fi
+  sleep 0.1
+done
+if [[ -z "$listening_event" ]]; then
+  printf 'HTTP service did not emit a listening event within 30 seconds\n' >&2
+  exit 1
+fi
+if ! service_address=$(python3 - "$listening_event" <<'PY'
+import ipaddress
+import json
+import sys
+
+try:
+    event = json.loads(sys.argv[1])
+    address = event["address"]
+    if event.get("event") != "listening" or not isinstance(address, str):
+        raise ValueError
+    if address.count(":") != 1:
+        raise ValueError
+    host, port_text = address.split(":")
+    if not port_text.isascii() or not port_text.isdigit():
+        raise ValueError
+    host_address = ipaddress.IPv4Address(host)
+    port = int(port_text)
+    if str(host_address) != host or str(port) != port_text:
+        raise ValueError
+    if not host_address.is_loopback or not 1 <= port <= 65535:
+        raise ValueError
+except (AttributeError, KeyError, TypeError, ValueError):
+    raise SystemExit(1)
+sys.stdout.write(address)
+PY
+); then
+  printf 'HTTP service emitted an invalid listening event\n' >&2
+  exit 1
+fi
+http_host=${service_address%:*}
+http_port=${service_address##*:}
+service_is_running || {
+  printf 'HTTP service exited after emitting its listening event\n' >&2
+  exit 1
+}
 ready=0
 for _ in $(seq 1 30); do
+  service_is_running || {
+    printf 'HTTP service exited before a qualification request\n' >&2
+    exit 1
+  }
   if http_request GET /livez '' "$output_dir/http-livez.txt" 2>/dev/null \
     && grep -Fq 'HTTP/1.1 200' "$output_dir/http-livez.txt"; then
     ready=1

@@ -124,6 +124,8 @@ Ticket 0143 extends Rust literal continuity lint across physical lines. The byte
 
 Ticket 0144 makes both published entropy byte totals traceable to the retained analyzer. The documentation now states the pooled record-plus-reference and joint-locus calculations, the unrounded `f64` calculation precision, and the six-decimal entropy and whole-byte display precision. The claim check examines every relevant precision statement, uses token-bound displayed and rounded checks, binds each formula and result within one paragraph, inventories prose and code-block totals, and rejects rounded-input arithmetic, contradictions, alternate-specific stream substitution, swapped or drifted totals, missing terms, and lost source attribution while accepting paragraph reflow. Draft 0104 is archived.
 
+Ticket 0147 makes production qualification own its service endpoint. The runner asks the child for an ephemeral loopback port, validates the existing listening event, requires that its owned child remains active before every connection, and sends requests only to that reported address. Focused fixture cases cover an occupied or externally unavailable port 18080, a valid event buffered by an exited child, request isolation, startup failure, invalid events, bounded waiting, and child cleanup. Draft 0117 is archived.
+
 ## Asset readiness — preserve, package, then publish
 
 The large source work is not a rebuild queue:

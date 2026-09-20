@@ -18,7 +18,25 @@ rm -rf "$root"
 # leaves the build directory half removed. The mode goes back however this
 # harness ends, so the line above recovers only a run that was killed outright.
 # tests/build-directory-residue.sh holds both halves.
-trap 'chmod -R u+w "$root" 2>/dev/null || true' EXIT
+background_job_is_running() {
+  local wanted=$1 running_pid
+  while IFS= read -r running_pid; do
+    if [[ "$running_pid" == "$wanted" ]]; then return 0; fi
+  done <<<"$(jobs -pr)"
+  return 1
+}
+occupier_pid=
+observer_pid=
+cleanup() {
+  local pid
+  for pid in "$occupier_pid" "$observer_pid"; do
+    if [[ -z "$pid" ]]; then continue; fi
+    if background_job_is_running "$pid"; then kill -TERM "$pid" 2>/dev/null || true; fi
+    wait "$pid" 2>/dev/null || true
+  done
+  chmod -R u+w "$root" 2>/dev/null || true
+}
+trap cleanup EXIT
 install -d -m 700 "$root/bin"
 
 cat >"$root/bin/pangopup" <<'SH'
@@ -138,9 +156,18 @@ case "$command" in
     exec "${render[@]}"
     ;;
   serve)
-    exec python3 - "$QUALIFICATION_SOURCE" <<'PY'
-import http.server, json, pathlib, sys
+    listen=127.0.0.1:8080
+    while (( $# )); do
+      case $1 in
+        --listen) listen=$2; shift 2 ;;
+        --model-workers|--model-threads) shift 2 ;;
+        *) exit 2 ;;
+      esac
+    done
+    exec python3 - "$QUALIFICATION_SOURCE" "$listen" <<'PY'
+import errno, http.server, json, os, pathlib, sys
 source = pathlib.Path(sys.argv[1])
+listen = sys.argv[2]
 model = json.loads((source / "tests/fixtures/executable-release/m09.jsonl").read_bytes())
 model_only_snv = json.loads((source / "tests/fixtures/executable-release/model-only-snv.jsonl").read_bytes())
 automatic_snv = json.loads((source / "tests/fixtures/snv-regression/expected/ENSG00000010610.jsonl").read_text().splitlines()[0])
@@ -156,6 +183,10 @@ data_set_version = "sha256:" + "3" * 64
 runtime_profile_id = "sha256:" + "7" * 64
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    def record_request(self):
+        if path := os.environ.get("QUALIFICATION_HTTP_LOG"):
+            with open(path, "a", encoding="utf-8") as stream:
+                stream.write(self.path + "\n")
     def emit(self, value):
         body = json.dumps(value, separators=(",", ":")).encode() + b"\n"
         self.send_response(200)
@@ -164,6 +195,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
     def do_GET(self):
+        self.record_request()
         values = {
             "/livez": {"status":"live"},
             "/readyz": {"status":"ready"},
@@ -171,6 +203,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         }
         self.emit(values[self.path])
     def do_POST(self):
+        self.record_request()
         body = self.rfile.read(int(self.headers["content-length"]))
         request = json.loads(body)
         if request.get("model_only"):
@@ -195,7 +228,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
         result["data_set_version"] = data_set_version
         self.emit({"results":[result]})
     def log_message(self, *_): pass
-http.server.ThreadingHTTPServer(("127.0.0.1", 18080), Handler).serve_forever()
+host, port = listen.rsplit(":", 1)
+if path := os.environ.get("QUALIFICATION_SERVICE_PID_FILE"):
+    pathlib.Path(path).write_text(str(os.getpid()), encoding="utf-8")
+if path := os.environ.get("QUALIFICATION_LISTEN_LOG"):
+    pathlib.Path(path).write_text(listen + "\n", encoding="utf-8")
+mode = os.environ.get("QUALIFICATION_SERVICE_MODE", "normal")
+if mode == "exit":
+    raise SystemExit(17)
+if mode == "event-then-exit":
+    print(json.dumps({"event":"listening", "address":os.environ["QUALIFICATION_UNRELATED_ADDRESS"]}, separators=(",", ":")), flush=True)
+    raise SystemExit(19)
+try:
+    server = http.server.ThreadingHTTPServer((host, int(port)), Handler)
+except OSError as error:
+    if mode == "occupier" and error.errno == errno.EADDRINUSE:
+        raise SystemExit(18)
+    raise
+address = "%s:%d" % server.server_address[:2]
+if mode == "malformed":
+    print('{"event":"listening","address":17}', flush=True)
+elif mode == "non-loopback":
+    print(json.dumps({"event":"listening", "address":"0.0.0.0:%d" % server.server_port}, separators=(",", ":")), flush=True)
+elif mode == "zero-port":
+    print('{"event":"listening","address":"127.0.0.1:0"}', flush=True)
+elif mode in ("normal", "occupier"):
+    print(json.dumps({"event":"listening", "address":address}, separators=(",", ":")), flush=True)
+elif mode != "silent":
+    raise SystemExit(2)
+server.serve_forever()
 PY
     ;;
   *) exit 2 ;;
@@ -261,8 +322,56 @@ export QUALIFICATION_EXPECTED_DATA=$root/data
 export QUALIFICATION_EXPECTED_CACHE=$root/cache
 export QUALIFICATION_EXPECTED_SNV_BUNDLE=$root/data/pangopup/bundles/qualified/bundle
 export QUALIFICATION_LOOKUP_LOG=$root/lookups.log
-"$repo/scripts/run-production-qualification.sh" \
+QUALIFICATION_SERVICE_MODE=normal \
+QUALIFICATION_HTTP_LOG=$root/observer-http.log \
+  "$root/bin/pangopup" serve --listen 127.0.0.1:0 \
+  >"$root/observer.stdout" 2>"$root/observer.stderr" &
+observer_pid=$!
+for _ in $(seq 1 50); do
+  if [[ -s "$root/observer.stdout" ]]; then break; fi
+  background_job_is_running "$observer_pid" || fail 'the unrelated observer exited before listening'
+  sleep 0.1
+done
+observer_address=$(jq -er 'select(.event == "listening") | .address' "$root/observer.stdout")
+
+occupier_owned=0
+QUALIFICATION_SERVICE_MODE=occupier \
+QUALIFICATION_HTTP_LOG=$root/occupied-http.log \
+  "$root/bin/pangopup" serve --listen 127.0.0.1:18080 \
+  >"$root/occupier.stdout" 2>"$root/occupier.stderr" &
+occupier_pid=$!
+for _ in $(seq 1 50); do
+  if [[ -s "$root/occupier.stdout" ]]; then
+    occupier_owned=1
+    break
+  fi
+  if ! background_job_is_running "$occupier_pid"; then
+    occupier_status=0
+    wait "$occupier_pid" || occupier_status=$?
+    occupier_pid=
+    (( occupier_status == 18 )) || fail "the port-18080 fixture failed with status $occupier_status"
+    break
+  fi
+  sleep 0.1
+done
+if (( occupier_owned )); then
+  require_text "$root/occupier.stdout" '"event":"listening","address":"127.0.0.1:18080"'
+fi
+
+QUALIFICATION_SERVICE_MODE=normal \
+QUALIFICATION_HTTP_LOG=$root/candidate-http.log \
+QUALIFICATION_LISTEN_LOG=$root/candidate-listen.log \
+QUALIFICATION_SERVICE_PID_FILE=$root/candidate.pid \
+  "$repo/scripts/run-production-qualification.sh" \
   "$root/bin/pangopup" "$repo" "$root/data" "$root/cache" "$root/output"
+require_line "$root/candidate-listen.log" '127.0.0.1:0'
+if (( occupier_owned )) && [[ -s "$root/occupied-http.log" ]]; then
+  fail 'qualification sent a request to the unrelated service on port 18080'
+fi
+equal 'the number of requests sent to the candidate service' 6 "$(wc -l < "$root/candidate-http.log" | tr -d ' ')"
+if kill -0 "$(<"$root/candidate.pid")" 2>/dev/null; then
+  fail 'candidate service survived successful runner cleanup'
+fi
 # A rejection here means the shipped renderer and the checker disagree about
 # what a scored record carries. The oracles beside the checker are deliberately
 # independent of the renderer and never move, so the checker is the file that
@@ -283,6 +392,56 @@ require_checker_accepts check "$root/output"
 equal 'the number of SNV lookup routes the release recorded' 7 "$(grep -Fc $'snv\t' "$root/lookups.log")"
 equal 'the number of SNV lookups the release ran against the installed bundle' 7 "$(grep -Fxc $'snv\t'"$QUALIFICATION_EXPECTED_SNV_BUNDLE" "$root/lookups.log")"
 equal 'the number of model-only lookups the release ran' 2 "$(grep -Fxc 'model' "$root/lookups.log")"
+
+expect_service_start_failure() {
+  local label=$1 mode=$2 expected=$3
+  local case_root=$root/service-$label
+  local output=$case_root/output
+  local pid_file=$case_root/service.pid
+  local request_log=$case_root/http.log
+  install -d -m 700 "$case_root"
+  SECONDS=0
+  if QUALIFICATION_SERVICE_MODE=$mode \
+    QUALIFICATION_SERVICE_PID_FILE=$pid_file \
+    QUALIFICATION_HTTP_LOG=$request_log \
+    QUALIFICATION_LISTEN_LOG=$case_root/listen.log \
+    QUALIFICATION_UNRELATED_ADDRESS=$observer_address \
+    QUALIFICATION_EXPECTED_HOME=$output/home \
+    QUALIFICATION_LOOKUP_LOG=$case_root/lookups.log \
+    "$repo/scripts/run-production-qualification.sh" \
+      "$root/bin/pangopup" "$repo" "$root/data" "$root/cache" "$output" \
+      --reuse-installed >"$case_root/run.out" 2>"$case_root/run.err"; then
+    fail "runner accepted $label service startup"
+  fi
+  local elapsed=$SECONDS
+  require_line "$case_root/run.err" "$expected"
+  require_line "$case_root/listen.log" '127.0.0.1:0'
+  [[ ! -s "$request_log" ]] || fail "$label service received a qualification request"
+  [[ ! -e "$output/http-livez.txt" ]] || fail "$label startup reached the first HTTP request"
+  [[ -s "$pid_file" ]] || fail "$label fixture did not record its process"
+  local pid
+  pid=$(<"$pid_file")
+  if kill -0 "$pid" 2>/dev/null; then
+    fail "$label service survived runner cleanup"
+  fi
+  if [[ $mode == silent ]] && (( elapsed < 25 || elapsed > 40 )); then
+    fail "silent service wait was not bounded near 30 seconds: $elapsed"
+  fi
+}
+
+expect_service_start_failure early-exit exit \
+  'HTTP service exited before emitting a listening event'
+expect_service_start_failure valid-event-then-exit event-then-exit \
+  'HTTP service exited after emitting its listening event'
+[[ ! -s "$root/observer-http.log" ]] || fail 'qualification contacted the unrelated observer'
+expect_service_start_failure malformed-event malformed \
+  'HTTP service emitted an invalid listening event'
+expect_service_start_failure non-loopback-event non-loopback \
+  'HTTP service emitted an invalid listening event'
+expect_service_start_failure zero-port-event zero-port \
+  'HTTP service emitted an invalid listening event'
+expect_service_start_failure bounded-wait silent \
+  'HTTP service did not emit a listening event within 30 seconds'
 
 # What the checker compared must be what the shipped renderer printed.
 #
