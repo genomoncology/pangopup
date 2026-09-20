@@ -1,188 +1,185 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# A long Rust string literal is wrapped by hand: a `\` ends the line and the
-# next line is indented under the opening quote, so the runtime text reads as
-# one sentence. When the `\` goes missing the wrap collapses -- the indentation
-# survives inside the literal as a run of internal spaces, and the message
-# prints with a gap in the middle of it. It compiles, it asserts the same
-# thing, and it reads wrong the moment anyone sees it. Five assertion messages
-# in `crates/pangopup-cache/src/lib.rs` arrived that way and were repaired
-# under ticket 0075, caught by eye.
-#
-# No gate saw them. `cargo fmt` does not reflow the contents of a literal,
-# clippy has no lint for it, and the dependency policy reads no source text.
-# The pattern is mechanical, so it belongs to a gate rather than to a reader:
-#
-#   three or more spaces standing between two word characters, inside a Rust
-#   source file under crates/.
-#
-# Word characters on both sides is what keeps the rule the width of the thing
-# it covers. Aligned trailing comments, aligned `=>` arms and a doc comment's
-# indented block all put a run of spaces next to punctuation or at the start of
-# a line, and none of them is a collapsed wrap.
-#
-# A whole comment line is read past for the same reason. A collapsed literal
-# never begins a line with `//`, so dropping those lines loses nothing the rule
-# covers, and a comment is where a maintainer aligns a table with spaces on
-# purpose. Measured on 2026-09-11 against this gate: a five-line `//` table
-# copied out of `tests/spec-block-execution.sh` into a crate source passed
-# `cargo fmt --all --check` and was refused here, with a message telling its
-# author to restore a continuation that was never there.
-#
-# One deliberate case in the tree survives it, and it is exempted by name
-# below rather than by shape.
-#
-# What this does not prove: that a wrapped literal reads well, or that a
-# literal written as one long line says the right thing. It catches the one
-# accident that leaves a mechanical trace.
+# Rust permits an ordinary string to cross a physical line. Deleting the
+# trailing backslash from a hand-wrapped message therefore compiles while it
+# adds a newline and indentation to the runtime value. This gate tracks the
+# token boundaries that can hide a quote and refuses that trace. It also keeps
+# the older check for three or more spaces between word characters inside an
+# ordinary string.
 
 repository=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+scanner="$repository/tests/support/rust-literal-scan.awk"
+exemptions="$repository/tests/rust-literal-continuity-exemptions.tsv"
 
 fail() { printf 'rust literal continuity: %s\n' "$*" >&2; exit 1; }
+
+[[ -r "$scanner" ]] || fail "scanner is not readable: $scanner"
+[[ -r "$exemptions" ]] || fail "exemption list is not readable: $exemptions"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-collapsed='[[:alnum:]_] {3,}[[:alnum:]_]'
-
-# The one deliberate run of internal spaces in the crate tree: the usage text
-# `pangopup-build` prints for its legacy actions, whose continuation lines are
-# aligned under the first line's `Usage: `. The alignment is what the operator
-# sees, so it is the text and not an accident of wrapping.
-#
-# The exemption is a path and the opening of a line, both compared as literal
-# text. Neither half exempts on its own. A second collapsed literal anywhere
-# else in that file is refused, and the same declaration copied into another
-# file is refused, and section 1 proves both. A pattern like
-# `LEGACY_USAGE` on its own would exempt every file that declared one.
-exempt_path='crates/pangopup-build/src/main.rs'
-exempt_opening='const LEGACY_USAGE: &str = '
-
-# The collapsed-wrap lines in the files named, as "<path>\t<line>\t<text>",
-# with the one exempted declaration dropped. Paths are relative to $1.
-collapsed_lines() {
+scan() {
     local root=$1
-    shift
-    { grep -nE -- "$collapsed" "$@" || true; } \
-        | awk -F: -v root="$root/" -v path="$exempt_path" -v opening="$exempt_opening" '
-            {
-                file = $1
-                line = $2
-                text = substr($0, length($1) + length($2) + 3)
-                sub("^" root, "", file)
-                stripped = text
-                sub(/^[[:space:]]*/, "", stripped)
-                if (stripped ~ /^\/\//) next
-                if (file == path && index(stripped, opening) == 1) next
-                printf "%s\t%s\t%s\n", file, line, text
-            }
-        '
+    local allowed=$2
+    shift 2
+    awk -v root="$root" -v exemptions="$allowed" -f "$scanner" "$@"
 }
 
-# --- 1. the rule is the width of the thing it covers ------------------------
-#
-# Proved against fixtures before the tree is read, so the reading stays legible
-# and the accepted half is held as firmly as the refused half. A rule that
-# refused an aligned match arm would be unwritable against; one that exempted
-# by shape rather than by name would let the accident back in wherever the
-# shape recurred.
-tree="$work/tree"
-mkdir -p "$tree/$(dirname "$exempt_path")" "$tree/crates/other/src"
+empty_exemptions="$work/empty-exemptions.tsv"
+: >"$empty_exemptions"
 
-# The accident: a continuation line whose `\` went missing.
+# --- 1. exact red and positive fixtures ------------------------------------
+fixture="$work/fixture"
+mkdir -p "$fixture/crates/other/src" "$fixture/crates/pangopup-build/src"
+
 {
-    printf 'fn probe() {\n'
-    printf '    assert!(\n'
-    printf '        ok,\n'
-    printf '        "the recorded setup no longer matches   so the cache was discarded"\n'
-    printf '    );\n'
+    printf 'fn embedded() {\n'
+    printf '    panic!("the recorded setup no longer matches\n'
+    printf '             so the cache was discarded");\n'
     printf '}\n'
-} >"$tree/crates/other/src/collapsed.rs"
+    printf 'const COLLAPSED: &str = "the recorded setup no longer matches   so the cache was discarded";\n'
+    printf 'const BYTE_WRAP: &[u8] = b"the bytes continue\n'
+    printf '                              with indentation";\n'
+} >"$fixture/crates/other/src/bad.rs"
 
-# Shapes that are not the accident, each of which puts a run of spaces
-# somewhere other than between two word characters.
 {
-    printf 'const A: u8 = 1;   // aligned trailing comment\n'
-    printf '/// A doc comment with an indented block:\n'
-    printf '///     indented sample text\n'
-    printf '/// | column      | meaning        |\n'
-    printf '// A comment carrying a table aligned with spaces, the way several\n'
-    printf '// harnesses under tests/ carry one:\n'
-    printf '//\n'
-    printf '//   bash            skipped     bash run   run\n'
-    printf '//   sh              skipped     bash run   run\n'
-    printf 'fn arms(v: u8) -> u8 {\n'
-    printf '    match v {\n'
-    printf '        1   => 2,\n'
-    printf '        _   => 0,\n'
-    printf '    }\n'
-    printf '}\n'
-} >"$tree/crates/other/src/aligned.rs"
+    printf 'const SQL: &str = "SELECT key\n'
+    printf '                        FROM entries";\n'
+    printf 'const NEIGHBOR: &str = "this defect remains\n'
+    printf '                         visible beside the exemption";\n'
+} >"$fixture/crates/other/src/exempt-and-bad.rs"
 
-# The exempted declaration, and beside it the same shape under another name in
-# the same file.
+printf 'const LEGACY_USAGE: &str = "Usage: inspect <DIR>\\n       open <FILE>";\n' \
+    >"$fixture/crates/pangopup-build/src/main.rs"
+printf 'const LEGACY_USAGE: &str = "Usage: inspect <DIR>\\n       open <FILE>";\n' \
+    >"$fixture/crates/other/src/borrowed.rs"
+
+fixture_exemptions="$work/fixture-exemptions.tsv"
 {
-    printf 'const LEGACY_USAGE: &str = "Usage: pangopup-build inspect <DIR>\\n       pangopup-build open <ARTIFACT>";\n'
-    printf 'const OTHER_USAGE: &str = "Usage: pangopup-build inspect <DIR>\\n       pangopup-build open <ARTIFACT>";\n'
-} >"$tree/$exempt_path"
-
-# The exempted declaration copied into a file it does not belong to.
-printf 'const LEGACY_USAGE: &str = "Usage: elsewhere inspect <DIR>\\n       elsewhere open <ARTIFACT>";\n' \
-    >"$tree/crates/other/src/borrowed.rs"
+    printf 'fixture-sql\tmultiline\tcrates/other/src/exempt-and-bad.rs\t1\tconst SQL: &str = "SELECT key\n'
+    printf 'fixture-legacy\tcollapsed\tcrates/pangopup-build/src/main.rs\t1\tconst LEGACY_USAGE: &str = "Usage: inspect <DIR>\\n       open <FILE>";\n'
+} >"$fixture_exemptions"
 
 fixture_sources=()
 while IFS= read -r source; do fixture_sources+=("$source"); done < <(
-    find "$tree" -type f -name '*.rs' | sort
+    find "$fixture/crates" -type f -name '*.rs' | sort
 )
 (( ${#fixture_sources[@]} == 4 )) \
-    || fail "planted 4 fixture sources and found ${#fixture_sources[@]}, so the fixture proof below reads the wrong set"
+    || fail "planted 4 red fixture sources and found ${#fixture_sources[@]}"
 
-fixture_found=$(collapsed_lines "$tree" "${fixture_sources[@]}")
-fixture_paths=$(cut -f1 <<<"$fixture_found" | sort -u)
-
-for expected in \
-    'crates/other/src/collapsed.rs' \
-    'crates/other/src/borrowed.rs' \
-    "$exempt_path"; do
-    grep -Fqx "$expected" <<<"$fixture_paths" \
-        || fail "the scan did not refuse $expected, so it does not see the accident it exists to catch: $fixture_found"
-done
-
-if grep -Fqx 'crates/other/src/aligned.rs' <<<"$fixture_paths"; then
-    fail "the scan refused an aligned comment, match arm or indented doc block, so it forbids more than a collapsed wrap: $fixture_found"
+if fixture_findings=$(scan "$fixture" "$fixture_exemptions" "${fixture_sources[@]}" 2>&1); then
+    fail 'the scanner accepted the red embedded-wrap fixtures'
 fi
 
-# In the exempt file, the exempted declaration is gone from the report and the
-# one beside it is not: the exemption covers the declaration, not the file.
-exempt_hits=$(awk -F'\t' -v path="$exempt_path" '$1 == path' <<<"$fixture_found")
-[[ "$(printf '%s' "$exempt_hits" | grep -c . || true)" == 1 ]] \
-    || fail "the exemption covers more than the one declaration it names: $exempt_hits"
-[[ "$exempt_hits" == *OTHER_USAGE* ]] \
-    || fail "the exemption dropped the wrong line in $exempt_path: $exempt_hits"
+for expected in \
+    'crates/other/src/bad.rs:2: ordinary string contains an unescaped physical newline' \
+    'crates/other/src/bad.rs:5: ordinary string contains three or more spaces between word characters' \
+    'crates/other/src/bad.rs:6: ordinary string contains an unescaped physical newline' \
+    'crates/other/src/exempt-and-bad.rs:3: ordinary string contains an unescaped physical newline' \
+    'crates/other/src/borrowed.rs:1: ordinary string contains three or more spaces between word characters'; do
+    grep -Fq -- "$expected" <<<"$fixture_findings" \
+        || fail "the red fixture did not produce '$expected': $fixture_findings"
+done
 
-# --- 2. the exemption still names something that is there -------------------
-#
-# An exemption for a declaration that has been renamed or removed is an
-# exemption nobody reads, and the next line to match its opening inherits it.
-grep -Fq -- "$exempt_opening" "$repository/$exempt_path" \
-    || fail "the exemption names '$exempt_opening' in $exempt_path and that declaration is no longer there, so the exemption covers whatever matches it next -- remove the exemption or point it at the declaration that replaced it"
+if grep -Fq 'exempt-and-bad.rs:1:' <<<"$fixture_findings"; then
+    fail "the exact SQL exemption did not suppress its named literal: $fixture_findings"
+fi
+if grep -Fq 'pangopup-build/src/main.rs:1:' <<<"$fixture_findings"; then
+    fail "the exact LEGACY_USAGE exemption did not suppress its named literal: $fixture_findings"
+fi
 
-# --- 3. the crate tree carries the accident nowhere else --------------------
+positive="$work/positive"
+mkdir -p "$positive/crates/other/src"
+{
+    printf 'const TEXT: &str = "a deliberate ordinary \\\n'
+    printf '    continuation";\n'
+    printf 'const BYTES: &[u8] = b"a deliberate byte \\\n'
+    printf '    continuation";\n'
+    printf 'const ESCAPES: &str = "an escaped quote: \\" and slash: \\\\";\n'
+    printf 'const C_TEXT: &core::ffi::CStr = c"one-line C text";\n'
+    printf 'fn tokens<'"'"'a>(value: &'"'"'a str) {\n'
+    printf '    let quote = '\''"'\'';\n'
+    printf '    let byte_quote = b'\''"'\'';\n'
+    printf '    '\''outer: loop { break '\''outer; }\n'
+    printf '    let _ = value;\n'
+    printf '}\n'
+    printf '/* outer "ordinary-looking\n'
+    printf '   /* nested b"byte-looking */\n'
+    printf '   still comment " */\n'
+    printf '// "line-comment-looking\n'
+    printf 'const RAW: &str = r##"raw text\n'
+    printf '    with " and "# non-closing data\n'
+    printf '    closes here"##;\n'
+    printf 'const RAW_BYTE: &[u8] = br#"raw bytes\n'
+    printf '    with an ordinary-looking " quote"#;\n'
+    printf 'const RAW_C: &core::ffi::CStr = cr###"raw C\n'
+    printf '    data"###;\n'
+} >"$positive/crates/other/src/tokens.rs"
+
+awk 'BEGIN { for (i = 1; i <= 25000; i++) printf "const LINE_%d: &str = \"checked linear fixture %d\";\n", i, i }' \
+    >"$positive/crates/other/src/long.rs"
+
+positive_sources=()
+while IFS= read -r source; do positive_sources+=("$source"); done < <(
+    find "$positive/crates" -type f -name '*.rs' | sort
+)
+positive_findings=$(scan "$positive" "$empty_exemptions" "${positive_sources[@]}" 2>&1) \
+    || fail "the scanner refused continuations, comments, characters, lifetimes, raw strings, C strings, or the long fixture: $positive_findings"
+[[ -z "$positive_findings" ]] \
+    || fail "the positive fixture produced findings: $positive_findings"
+
+# --- 2. malformed tokens and stale exemptions fail closed ------------------
+malformed="$work/malformed"
+mkdir -p "$malformed/crates/other/src"
+printf 'const BAD: &str = "never closes;\n' >"$malformed/crates/other/src/string.rs"
+printf 'const BAD: &str = r###"never closes;\n' >"$malformed/crates/other/src/raw.rs"
+printf 'const BAD: char = '\''\\\n' >"$malformed/crates/other/src/character.rs"
+printf 'fn bad() { /* never closes\n' >"$malformed/crates/other/src/comment.rs"
+
+malformed_sources=()
+while IFS= read -r source; do malformed_sources+=("$source"); done < <(
+    find "$malformed/crates" -type f -name '*.rs' | sort
+)
+if malformed_findings=$(scan "$malformed" "$empty_exemptions" "${malformed_sources[@]}" 2>&1); then
+    fail 'the scanner accepted unterminated Rust token forms'
+fi
+for expected in \
+    'crates/other/src/character.rs:1: unsupported or unterminated Rust source: character literal does not close on its physical line' \
+    'crates/other/src/comment.rs:1: unsupported or unterminated Rust source: nested block comment reaches end of file' \
+    'crates/other/src/raw.rs:1: unsupported or unterminated Rust source: raw string literal reaches end of file' \
+    'crates/other/src/string.rs:1: unsupported or unterminated Rust source: ordinary string literal reaches end of file'; do
+    grep -Fq -- "$expected" <<<"$malformed_findings" \
+        || fail "the malformed fixture did not produce '$expected': $malformed_findings"
+done
+
+stale_exemptions="$work/stale-exemptions.tsv"
+printf 'removed\tmultiline\tcrates/other/src/tokens.rs\t99\tconst REMOVED: &str = "gone\n' \
+    >"$stale_exemptions"
+if stale_findings=$(scan "$positive" "$stale_exemptions" "${positive_sources[@]}" 2>&1); then
+    fail 'the scanner accepted a stale exemption'
+fi
+grep -Fq "stale Rust literal exemption 'removed'" <<<"$stale_findings" \
+    || fail "the stale exemption did not name itself: $stale_findings"
+
+# --- 3. scan the checked crate tree ----------------------------------------
 sources=()
 while IFS= read -r source; do sources+=("$source"); done < <(
     find "$repository/crates" -type f -name '*.rs' -not -path '*/target/*' | sort
 )
 (( ${#sources[@]} > 0 )) \
-    || fail 'found no Rust source under crates/, so this check inspected nothing'
+    || fail 'found no Rust source under crates/'
 
-found=$(collapsed_lines "$repository" "${sources[@]}")
-if [[ -n "$found" ]]; then
-    printf 'rust literal continuity: these lines carry three or more spaces between two word characters, which is what a hand-wrapped string literal leaves behind when its trailing `\\` goes missing:\n' >&2
-    printf '%s\n' "$found" | awk -F'\t' '{ printf "  %s:%s: %s\n", $1, $2, $3 }' >&2
-    printf 'Restore the continuation, or write the literal on one line.\n' >&2
+if findings=$(scan "$repository" "$exemptions" "${sources[@]}" 2>&1); then
+    [[ -z "$findings" ]] || fail "scanner reported output without failing: $findings"
+else
+    printf 'rust literal continuity: checked source contains accidental or unsupported literals:\n%s\n' \
+        "$findings" >&2
     exit 1
 fi
 
-printf 'rust literal continuity: %s Rust source(s) under crates/, no collapsed wrap, 1 declaration exempted by name\n' \
-    "${#sources[@]}"
+long_bytes=$(wc -c <"$positive/crates/other/src/long.rs" | tr -d '[:space:]')
+exemption_count=$(awk -F '\t' '!/^[[:space:]]*(#|$)/ { count++ } END { print count + 0 }' "$exemptions")
+printf 'rust literal continuity: %s Rust source(s), no accidental wrap; %s-byte linear fixture; %s exact exemption(s) used\n' \
+    "${#sources[@]}" "$long_bytes" "$exemption_count"
