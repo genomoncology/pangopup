@@ -1,7 +1,7 @@
 # Service Boundary
 
 Pangopup ships a foreground HTTP server, signal lifecycle, and thin non-root
-Docker image through one native AMD64/ARM64 GHCR index. The immutable public executable and native container identify application v0.4.1 from one exact source commit without changing scoring assets. It does not yet ship a systemd example or metrics. The CLI interface remains
+Docker image through one native AMD64/ARM64 GHCR index. The immutable public executable and native container identify application v0.5.0 from one exact source commit. It does not yet ship a systemd example or metrics. The CLI interface remains
 `pangopup lookup`; its typed
 lookup-first/model route already returns stable JSON Lines or exact
 tab-separated output from an activated installed profile or complete explicit

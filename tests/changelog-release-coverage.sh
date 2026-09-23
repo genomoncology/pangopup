@@ -17,10 +17,10 @@ set -euo pipefail
 #      repository made for the software is read out of git, and each one has to
 #      have a section carrying its version and the date the tag was made.
 #
-# The version this tree would release is not tagged yet, so its section carries
-# the word `unreleased` where a released section carries a date. That is held in
-# both directions: a section for an untagged version that shows a date is
-# refused, and a section for a tagged version that says `unreleased` is refused.
+# An untagged candidate section carries the word `unreleased` where a released
+# section carries a date. That is held in both directions: a section for an
+# untagged version that shows a date is refused, and a section for a tagged
+# version that says `unreleased` is refused.
 # Without the first half, a changelog could publish a release date for a release
 # nobody made.
 #
@@ -52,13 +52,12 @@ changelog_relative='CHANGELOG.md'
 readme_relative='README.md'
 manifest_relative='Cargo.toml'
 
-# Measured on 2026-09-11: `git tag` carries seven tags, five of them software
-# releases spelled `v<major>.<minor>.<patch>` -- v0.1.0, v0.2.0, v0.3.0, v0.4.0
-# and v0.4.1 -- and two asset releases. The floors are those counts. A clone
+# The public v0.5.0 publication brought six software tags and four scoring
+# asset tags. The floors are those counts. A clone
 # that fetched no tags, or a scan that stopped recognising the shape, reads
 # fewer and is refused rather than passing on what is left.
-release_tag_floor=5
-asset_tag_floor=2
+release_tag_floor=6
+asset_tag_floor=4
 
 # The word a section carries in place of a date when no tag names its version.
 unreleased='unreleased'
@@ -246,7 +245,9 @@ refuses() {
 
 # The version moved and the changelog did not. The refusal names the version it
 # could not find.
-refuses '0.5.1' "$changelog" '0.5.1' "$tags" 'a version with no section'
+IFS=. read -r major minor patch <<<"$version"
+next_version="$major.$minor.$((patch + 1))"
+refuses "$next_version" "$changelog" "$next_version" "$tags" 'a version with no section'
 
 # A tag the changelog does not cover.
 extra="$work/tags-with-an-extra-release"
@@ -266,11 +267,14 @@ mutant="$work/released-section-says-unreleased.md"
 sed -E "s/^## $covered - .*$/## $covered - $unreleased/" "$changelog" >"$mutant"
 refuses "$covered" "$mutant" "$version" "$tags" 'a released section marked unreleased'
 
-# The direction that publishes a date nobody made: the unreleased section
-# carrying one.
+# The direction that publishes a date nobody made: a synthetic next-version
+# candidate whose section incorrectly carries a release date.
+next_candidate="$work/next-candidate.md"
+printf '## %s - %s\n' "$next_version" "$unreleased" >"$next_candidate"
+sed -n '/^## /,$p' "$changelog" >>"$next_candidate"
 mutant="$work/unreleased-section-dated.md"
-sed -E "s/^## $version - $unreleased\$/## $version - 2026-09-11/" "$changelog" >"$mutant"
-refuses "$version" "$mutant" "$version" "$tags" 'an untagged version carrying a release date'
+sed -E "s/^## $next_version - $unreleased\$/## $next_version - 2026-09-11/" "$next_candidate" >"$mutant"
+refuses "$next_version" "$mutant" "$next_version" "$tags" 'an untagged version carrying a release date'
 
 # A section whose date is not the date the tag was made.
 mutant="$work/wrong-date.md"

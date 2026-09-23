@@ -11,11 +11,11 @@ import sys
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-PUBLIC_EXECUTABLE_VERSION = "0.4.1"
-PUBLIC_EXECUTABLE_RELEASE_ID = "383676522"
-PUBLIC_EXECUTABLE_COMMIT = "ba8b62180ecd5750a575944d2070f83ca585f4ed"
-PUBLIC_CONTAINER_VERSION = "0.4.1"
-PUBLIC_CONTAINER_INDEX = "sha256:2177c02fc045136a2ef066dbbfa669f59d56dc15e44765e7b7bfbbc9969a6eb8"
+PUBLIC_EXECUTABLE_VERSION = "0.5.0"
+PUBLIC_EXECUTABLE_RELEASE_ID = "394840043"
+PUBLIC_EXECUTABLE_COMMIT = "f5cae030e1fb04db4769a8d303876fa6b26bb68d"
+PUBLIC_CONTAINER_VERSION = "0.5.0"
+PUBLIC_CONTAINER_INDEX = "sha256:43fbaeaf800beae6e300e7f8b9dcdfcabd234ce3f53a48411cbd7849457b1174"
 CANDIDATE_RELEASE_DATE = "2026-09-23"
 FRONTIER_UPDATED_DATE = "2026-09-23"
 V040_RELEASE_NOTES_SHA256 = "729fa6ed9ddb641501f2abdf5e63cd2fd9861154a46f02967bea7ff408ce4aa9"
@@ -367,9 +367,14 @@ def check_current_public() -> None:
     require_in_section("current-public-executable", "architecture/delivery.md", "## GitHub Releases", f"[`v{PUBLIC_EXECUTABLE_VERSION}`](https://github.com/genomoncology/pangopup/releases/tag/v{PUBLIC_EXECUTABLE_VERSION})")
     require_in_section("current-public-executable", "planning/faq.md", "### How will users install the executable?", f"tagged `v{PUBLIC_EXECUTABLE_VERSION}` script with\n`--version {PUBLIC_EXECUTABLE_VERSION}`")
     require_in_section("current-public-executable", "planning/faq.md", "### How will users install the executable?", f"[`v{PUBLIC_EXECUTABLE_VERSION}`](https://github.com/genomoncology/pangopup/releases/tag/v{PUBLIC_EXECUTABLE_VERSION})")
-    require_in_section("current-public-executable", "planning/faq.md", "### How will users install the executable?", f"The public v{PUBLIC_EXECUTABLE_VERSION} release passed a clean isolated Linux run")
+    require_in_section("current-public-executable", "planning/faq.md", "### How will users install the executable?", f"The public v{PUBLIC_EXECUTABLE_VERSION} release passed a fresh isolated Linux run")
     require_in_section("current-state", "planning/frontier.md", "## Current release state", f"GitHub Latest is immutable executable v{PUBLIC_EXECUTABLE_VERSION} release ID `{PUBLIC_EXECUTABLE_RELEASE_ID}` at commit `{PUBLIC_EXECUTABLE_COMMIT}`.")
     require_in_section("current-state", "planning/frontier.md", "## Current release state", f"GHCR `latest`, `{PUBLIC_CONTAINER_VERSION}`, and `v{PUBLIC_CONTAINER_VERSION}` resolve to native AMD64/ARM64 OCI index `{PUBLIC_CONTAINER_INDEX}` from the same source commit.")
+    require("current-state", "CHANGELOG.md", "released current version", rf"^## {re.escape(PUBLIC_EXECUTABLE_VERSION)} - {re.escape(CANDIDATE_RELEASE_DATE)}$")
+    publication_record = "sdlc/records/0152-publish-and-qualify-pangopup-v0-5-0.md"
+    require_in_section("current-state", publication_record, "# Publish and qualify PangoPup v0.5.0", f"GitHub release [`v{PUBLIC_EXECUTABLE_VERSION}`](https://github.com/genomoncology/pangopup/releases/tag/v{PUBLIC_EXECUTABLE_VERSION}), ID `{PUBLIC_EXECUTABLE_RELEASE_ID}`")
+    require_in_section("current-state", publication_record, "# Publish and qualify PangoPup v0.5.0", f"`{PUBLIC_EXECUTABLE_COMMIT}`")
+    require_in_section("current-state", publication_record, "## Publication inventory", f"`{PUBLIC_CONTAINER_INDEX}`")
     require_in_section("current-state", "planning/artifacts/060-public-v0.4.1.md", "# PangoPup v0.4.1 publication record", "State: **COMPLETE — immutable v0.4.1 executable and native container are public and qualified.**")
     for path in CURRENT_STATE_DOCUMENTS:
         normalized = re.sub(r"\s+", " ", read(path)).lower()

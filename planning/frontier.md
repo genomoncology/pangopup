@@ -4,9 +4,9 @@ Updated: 2026-09-23
 
 ## Current release state
 
-GitHub Latest is immutable executable v0.4.1 release ID `383676522` at commit `ba8b62180ecd5750a575944d2070f83ca585f4ed`. Its six executable files are public and qualified. GHCR `latest`, `0.4.1`, and `v0.4.1` resolve to native AMD64/ARM64 OCI index `sha256:2177c02fc045136a2ef066dbbfa669f59d56dc15e44765e7b7bfbbc9969a6eb8` from the same source commit. Tagged installer, offline functional, code-only uninstall, full uninstall, and public native-container qualification passed. Earlier release and measurement sections remain historical evidence.
+GitHub Latest is immutable executable v0.5.0 release ID `394840043` at commit `f5cae030e1fb04db4769a8d303876fa6b26bb68d`. Its six executable files are public and qualified. GHCR `latest`, `0.5.0`, and `v0.5.0` resolve to native AMD64/ARM64 OCI index `sha256:43fbaeaf800beae6e300e7f8b9dcdfcabd234ce3f53a48411cbd7849457b1174` from the same source commit. Fresh sync, offline reuse, the tagged installer, a real v0.4.1 upgrade, code-only and full uninstall, and public native-container qualification passed. The v0.4.1 container index remains at `sha256:2177c02fc045136a2ef066dbbfa669f59d56dc15e44765e7b7bfbbc9969a6eb8`.
 
-The exact `snv-grch38-v2` and `runtime-grch38-v2` data releases are public and immutable. Fresh anonymous downloads matched all 24 retained assets by size and SHA-256. GitHub Latest remains v0.4.1. This release branch selects the coherent v2 pair; the public v0.4.1 executable still selects fixed-v1. Ticket 0152 owns the v0.5.0 software release. Record 0150 holds the exact publication inventory and verification.
+The exact `snv-grch38-v2` and `runtime-grch38-v2` data releases are public and immutable. Fresh anonymous downloads matched all 24 retained assets by size and SHA-256. The public v0.5.0 executable selects the coherent v2 pair. Record 0150 holds the scoring-asset publication inventory; record 0152 holds the software and container publication evidence.
 
 ## Current boundary
 
@@ -15,7 +15,7 @@ and certification, and typed SNV lookup are established. Pangopup is standalone
 open-source software. Its shipped CLI accepts an explicit GRCh38 SNV and
 optional gene filter and returns all matching source records by default from an
 explicit fixed-v1 or sparse-direct-v1 bundle or the active Linux or macOS
-user-data installation. The release branch selects sparse v2 after complete runtime activation.
+user-data installation. The current release selects sparse v2 after complete runtime activation.
 Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
 established. The first-user README now presents one accessible, release-neutral
@@ -85,7 +85,7 @@ bounded open, and touched-record corruption. Exhaustive certification now
 admits either format and checks the sparse size ceiling before mapping or
 hashing. Unfiltered production performance and whole-genome throughput remain
 unmeasured. The retained runtime-v2 run and release-specific cache, upgrade,
-and rollback evidence are complete. The release branch pins the v2 production
+and rollback evidence are complete. The public release pins the v2 production
 authority. The active profile moves only after the complete v2 tuple validates.
 Fixed-v1 remains a readable explicit rollback format.
 Sparse release tooling authenticates the complete immutable v1 corpus authority, records distinct candidate and assembler provenance, and produces deterministic bundle, transport, proof, and profile bytes. Two independent retained complete runs reproduced the v2 local publication set and passed exhaustive certification, isolated installation, and the checked lookup workload. Fresh anonymous public installation, upgrade, and rollback passed before merging the v2 selector.
@@ -100,8 +100,8 @@ requests, seven command groups, real fixed/sparse HTTP routing, every boundary
 miss, exact permitted identity changes, and transactional rejection behavior.
 It adds no unmeasured throughput threshold. Retained preparation, the real
 v0.4.1 cache upgrade, model-cache reuse across the SNV format switch, and
-fixed-v1 rollback passed independent evidence review. Publication and release-
-branch activation are complete. Software publication remains.
+fixed-v1 rollback passed independent evidence review. V2 asset publication,
+runtime activation, and software publication are complete.
 The checked repository side now has a read-only workflow token, full-SHA action
 references, digest-authenticated maintenance tools, and an advisory, license,
 bans, and source policy in `make lint`. The policy preserves the

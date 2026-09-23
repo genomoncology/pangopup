@@ -26,11 +26,11 @@ try:
     main = namespace["main"]
     checker_globals = main.__globals__
     original_read = checker_globals["read"]
-    required_public_executable_version = "0.4.1"
-    required_public_executable_release_id = "383676522"
-    required_public_executable_commit = "ba8b62180ecd5750a575944d2070f83ca585f4ed"
-    required_public_container_version = "0.4.1"
-    required_public_container_index = "sha256:2177c02fc045136a2ef066dbbfa669f59d56dc15e44765e7b7bfbbc9969a6eb8"
+    required_public_executable_version = "0.5.0"
+    required_public_executable_release_id = "394840043"
+    required_public_executable_commit = "f5cae030e1fb04db4769a8d303876fa6b26bb68d"
+    required_public_container_version = "0.5.0"
+    required_public_container_index = "sha256:43fbaeaf800beae6e300e7f8b9dcdfcabd234ce3f53a48411cbd7849457b1174"
     required_v041_release_notes_sha256 = "a2e481810f3e9095c5a06437fc47b96162c79f6c66147d08b3c0f2711e5e1abe"
     required_frontier_updated_date = "2026-09-23"
     if checker_globals.get("PUBLIC_EXECUTABLE_VERSION") != required_public_executable_version:
@@ -354,7 +354,7 @@ try:
             )
         },
     )
-    current_transition = "The immutable public executable and native container identify application v0.4.1 from one exact source commit"
+    current_transition = "The immutable public executable and native container identify application v0.5.0 from one exact source commit"
     expect_rejected(
         "a stale candidate transition in current service architecture",
         {

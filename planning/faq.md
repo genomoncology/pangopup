@@ -370,28 +370,25 @@ The public Latest installer is:
 curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/main/install.sh | bash
 ```
 
-For the current immutable public release, use the tagged `v0.4.1` script with
-`--version 0.4.1`. The only
+For the current immutable public release, use the tagged `v0.5.0` script with
+`--version 0.5.0`. The only
 platform baseline is Linux x86_64 with GLIBC 2.39 or newer; prerequisites are Bash,
 curl or wget, and sha256sum, shasum, or openssl. It
 installs under `${PANGOPUP_INSTALL_DIR:-$HOME/.local/bin}`, prints PATH guidance
 when needed, and directs the user to `pangopup sync` and `pangopup status`. It
 does not use sudo, edit shell files, or download data automatically. The
 ordinary immutable release is
-[`v0.4.1`](https://github.com/genomoncology/pangopup/releases/tag/v0.4.1);
-immutable v0.4.0, v0.3.0, v0.2.0, and v0.1.0 remain available as prior executable releases. The native AMD64/ARM64 v0.4.1 container is public from the same source commit.
+[`v0.5.0`](https://github.com/genomoncology/pangopup/releases/tag/v0.5.0);
+immutable v0.4.1, v0.4.0, v0.3.0, v0.2.0, and v0.1.0 remain available as prior executable releases. The native AMD64/ARM64 v0.5.0 container is public from the same source commit.
 
-The public v0.4.1 release passed a clean isolated Linux run using the real
-pinned data: offline reuse, combined ready status, all
-1,000 retained SNVs in seven batches, one exact non-SNV model result, and one
-indexed SNV scored automatically from the lookup and explicitly through the
-model. It also exercises focused help, progress/quiet synchronization, the
-foreground HTTP health/status/SNV/model surface, and both uninstall scopes.
-The SNV comparison ignores
-only the installation-specific bundle ID; it still checks every biological
-score and position plus all other provenance. Anonymous public metadata/member
-checks and the tagged installer repeated the non-download qualification as a
-non-root user against already admitted assets.
+The public v0.5.0 release passed a fresh isolated Linux run using the real
+pinned v2 data: 2,002,822,127 downloaded bytes, offline reuse with zero
+downloaded bytes, ready status, 1,000 retained SNV requests in seven groups,
+model and HTTP identity checks, exact two-decimal scores, the tagged installer,
+and both uninstall scopes. Anonymous downloads matched all six release files.
+Native AMD64 and ARM64 pulls passed version and status checks; AMD64 passed
+SNV and model checks. The complete publication and upgrade evidence is in
+the [ticket 0152 record](../sdlc/records/0152-publish-and-qualify-pangopup-v0-5-0.md).
 
 ### How are large artifacts delivered?
 

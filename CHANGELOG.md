@@ -8,7 +8,7 @@ work; this file does not.
 `snv-grch38-v2` and `runtime-grch38-v2` tag the separately versioned scoring
 assets. They are not software releases and have no section here.
 
-## 0.5.0 - unreleased
+## 0.5.0 - 2026-09-23
 
 **Published output gains five fields, and one of them is inserted between two
 existing keys.** A reader that compares whole payloads byte for byte, or that
