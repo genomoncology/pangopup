@@ -38,7 +38,7 @@ fn validate_citation(source: &str) -> Result<(), String> {
         ("title", "PangoPup"),
         ("type", "software"),
         ("version", "0.5.0"),
-        ("date-released", "2026-09-06"),
+        ("date-released", "2026-09-23"),
         ("repository-code", REPOSITORY),
         ("repository-artifact", RELEASE),
         ("license", "GPL-3.0-only"),
@@ -96,6 +96,12 @@ fn citation_validation_rejects_missing_or_drifted_identity() {
         validate_citation(&missing_release)
             .expect_err("missing release must fail")
             .contains("repository-artifact")
+    );
+
+    let wrong_date = source.replace("date-released: 2026-09-23", "date-released: 2099-01-01");
+    assert_eq!(
+        validate_citation(&wrong_date).expect_err("date drift must fail"),
+        "date-released must be \"2026-09-23\", found \"2099-01-01\""
     );
 
     let wrong_author = source.replace("given-names: Ian", "given-names: Pangolin");
