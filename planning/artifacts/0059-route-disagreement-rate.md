@@ -28,8 +28,14 @@ non-zero-records: 381
 non-zero-value-disagreement-percent: 0.52
 denominator-composition: 2,409 of the 2,790 compared records score zero on both sides on both routes, so 86 percent of the value denominator is two routes agreeing that nothing happened, and 381 records carry a non-zero score on at least one route.
 zero-score-treatment: A gene record enters the position comparison only on a side whose score is non-zero on both routes, and every record both routes answered stays in the value comparison, zero scores included.
-substitution-coverage: Every variant in the measured set is a transversion and none of them is a transition, so these figures cover transversions only.
+substitution-coverage: The measured set holds 2,615 transversions and 0 transitions, so these figures cover transversions only.
 substitution-limit: Splice-site sequence is not base-symmetric, so a transition-bearing set could move either figure by an amount nothing measured.
+substitution-transitions: 0
+substitution-transversions: 2615
+substitution-a-c: 760
+substitution-c-g: 541
+substitution-g-t: 532
+substitution-t-a: 782
 position-mechanism: PangoPup finds the extremum of the raw 101-value window array and rounds afterwards, and the published dataset appears to round the array to hundredths first and report the first position attaining the winning hundredth. That reduction is inferred from replaying the rule against PangoPup's own arrays, where it reproduces 16 of the 17 observed position disagreements; the upstream software cannot be read from here.
 position-ordering: PangoPup breaks a tie to the lowest position and the inferred upstream rule does the same, which would put a precomputed position at or before a modeled one for the same call. That ordering held on all 395 comparable sides of the 379 records measured and none broke it, but it rests on an inferred rule over one set of one substitution class and is an observation, not a guarantee to build on.
 evidence-limit: This rate was measured once on one host against the shipped v0.5.0 assets and no gate re-runs it.
@@ -59,9 +65,10 @@ over the same bundle gets the same file.
 **What the rule leaves out.** Tying the alternate base to the reference base
 through one cycle makes every probe a transversion. `A→C`, `C→G`, `G→T` and
 `T→A` each cross the purine/pyrimidine boundary, so the set holds 2,615
-transversions and no transitions, while real variant traffic runs about two
-transitions to every transversion. The set is also narrowed to positions the
-published dataset covers. The 3,549 probed positions that dropped out are the
+transversions and no transitions: A→C 760, C→G 541, G→T 532, and T→A 782. Real
+variant traffic runs about two transitions to every transversion. The set is
+also narrowed to positions the published dataset covers. The 3,549 probed
+positions that dropped out are the
 ones the dataset answers `not_found` at on all four candidates. That
 survivorship is the population the contract statement is about, not a distortion
 of it. The transversion-only shape is a distortion. Splice-site sequence is not

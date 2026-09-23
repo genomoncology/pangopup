@@ -20,12 +20,12 @@ endif
 
 PORTABLE_QUALIFICATION := tests/build-directory-residue.sh tests/built-executable-currency.sh tests/changelog-release-coverage.sh tests/ci-platform-support.sh tests/ci-service-fixture-evidence.sh tests/ci-test-failure-evidence.sh tests/cli-spawn-cache-isolation.sh tests/harness-rule-coverage.sh tests/inherited-cache-variables.sh tests/model-cache-layout-history.sh tests/model-cache-limit-inheritance.sh tests/negative-assertion-strength.sh tests/pipeline-match-integrity.sh tests/published-claim-evidence.sh tests/qualification-runner-cache-isolation.sh tests/readme-budget-exactness.sh tests/recipe-cache-rule-coverage.sh tests/recipe-spawn-cache-isolation.sh tests/release-help-contract.sh tests/repository-sourcing.sh tests/route-disagreement-rate.sh tests/runtime-v2-qualification.sh tests/rust-literal-continuity.sh tests/shell-matching-determinism.sh tests/shell-scanner-coverage.sh tests/shell-spawn-cache-isolation.sh tests/spec-block-execution.sh tests/spec-cargo-filter-evidence.sh tests/spec-download-cache-durability.sh tests/spec-record-pin-completeness.sh tests/spec-refutation-evidence.sh tests/version-consistency-python39.sh tests/workflow-command-anchoring.sh tests/workflow-setting-anchoring.sh
 
-
 lint:          ## static analysis: rustfmt + clippy + dependency policy
 	python3 scripts/check-version-consistency.py
 	cargo fmt --all --check
 	cargo clippy --locked $(WORKSPACE_TESTS) --all-targets -- -D warnings
 	cargo deny check advisories bans licenses sources --warn unmaintained
+	bash tests/route-disagreement-rate.sh
 
 # The spawn helper drops the four inherited cache variables for every child it
 # starts, which is every route that runs the built executable from a test. The
