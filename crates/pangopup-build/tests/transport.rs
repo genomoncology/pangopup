@@ -708,7 +708,7 @@ fn builder_identity_covers_assets_manifest_notice_and_certification_source() {
     let actual = snv_builder_digest(None);
     assert_eq!(
         actual,
-        "sha256:c40e9b931784f92f5b21236259b13979870582388acebf0cf0c3802d458447bb"
+        "sha256:7e3c23058526103a2a9f3161670e6f4a634c39fa0ed6b3aefb4c904db1c5e8df"
     );
     assert_eq!(manifest.builder.source_sha256, actual);
     for causal in [
