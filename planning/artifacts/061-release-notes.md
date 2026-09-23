@@ -10,7 +10,7 @@ Scores still have two decimal places. The published SNV source provides hundredt
 
 Every structured score record and source-reference ambiguity gains `gene_names` where the built-in gene-name index has a name. `stable_gene` remains the grouping key. The command-line score line gains `provenance.software_version`. The HTTP status response gains `data_set_version`, `runtime_profile_id`, and `scoring_semantics`; every HTTP score item gains `data_set_version`. Store the item's `data_set_version` beside a retained HTTP score. `scoring_identity` also includes the effective CPU policy and can change when thread settings change without changing scores.
 
-Readers that ignore unknown JSON fields remain compatible. Readers that reject unknown fields or compare complete payloads must accept the [v0.5.0 response-shape inventory](../../architecture/compatibility.md#v050-response-shape-inventory) before upgrading. The HTTP routes, request shape, command-line commands and flags, installer behavior, and licence do not change.
+Readers that ignore unknown JSON fields remain compatible. Readers that reject unknown fields or compare complete payloads must accept the [v0.5.0 response-shape inventory](https://github.com/genomoncology/pangopup/blob/v0.5.0/architecture/compatibility.md#v050-response-shape-inventory) before upgrading. The HTTP routes, request shape, command-line commands and flags, installer behavior, and licence do not change.
 
 The model cache discards its previous layout once on first use after the upgrade. The request still completes; later model calls refill the cache. No cache migration is required.
 
