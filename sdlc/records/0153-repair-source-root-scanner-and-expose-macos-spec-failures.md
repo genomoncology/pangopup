@@ -1,0 +1,9 @@
+# Repair source root scanning and expose macOS spec failures
+
+At `14bb9e7`, both `source_fingerprint_root_wiring_is_derived_and_artifact_specific` and `source_fingerprint_causal_root_wiring_rebinds_fail_but_unrelated_edits_do_not` failed locally with `pangopup-assets must have one root declaration for module RuntimeProfileError`. The scanner treated every `crate::Name` as a module. The referenced name is a type re-exported from the asset crate root.
+
+The scanner now includes a `crate::Name` in root module selection only when the owning crate root declares `mod Name`. Direct selected source files still require their root declarations, and the checked projection still detects selected module path and re-export changes. All 18 focused source fingerprint tests pass, including a new regression for `RuntimeProfileError` and the existing root-wiring mutation tests. The byte-producing inventories and artifact fingerprints did not change.
+
+The macOS CI job at `14bb9e7` passed lint and test, then failed `make spec`. GitHub's public job API supplies only the failing step and exit status; the full log endpoint returned HTTP 403 with the available login. CI now runs the same spec command through a wrapper that annotates a bounded escaped log tail on failure and returns the original `make` status. A focused fake-command check covers a passing spec and a failing escaped annotation. The exact macOS failing example remains to be identified from the next CI annotation.
+
+Focused checks passed: `cargo test --locked -p pangopup-build --lib source_fingerprint`, package clippy with warnings denied, `bash tests/ci-spec-failure-evidence.sh`, `bash tests/ci-platform-support.sh`, `bash tests/workflow-command-anchoring.sh`, and `git diff --check`. On macOS, `make lint`, `make test`, and `make spec` passed. The spec gate reported 207 passed. Linux CI must confirm its full workspace gate on the pushed commit.

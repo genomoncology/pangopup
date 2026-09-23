@@ -197,4 +197,6 @@ jobs:
           scripts/run-service-fixture-tests.sh
       - run: make lint
       - run: make test
-      - run: make spec
+      - name: Run macOS specs with public failure evidence
+        shell: bash
+        run: scripts/run-macos-spec-with-public-failure.sh
