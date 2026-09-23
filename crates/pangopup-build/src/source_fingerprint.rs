@@ -1287,10 +1287,26 @@ mod tests {
 
     fn selected_root_modules(
         entries: &[Entry<'_>],
+        roots: &BTreeMap<String, RootSource>,
     ) -> Result<BTreeMap<String, BTreeSet<String>>, String> {
         let mut modules = BTreeMap::<String, BTreeSet<String>>::new();
+        let mut declared = BTreeMap::<String, BTreeSet<String>>::new();
         for entry in entries.iter().filter(|entry| entry.path.ends_with(".rs")) {
             let owner = source_owner(entry.path)?;
+            if !declared.contains_key(owner) {
+                let names = roots
+                    .get(owner)
+                    .map(|root| parse_root_items(&root.bytes))
+                    .transpose()?
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|item| match item {
+                        RootItem::Module { name, .. } => Some(name),
+                        _ => None,
+                    })
+                    .collect();
+                declared.insert(owner.to_owned(), names);
+            }
             let source = entry
                 .path
                 .strip_prefix(&format!("crates/{owner}/src/"))
@@ -1306,6 +1322,7 @@ mod tests {
                 if triple[0].identifier() == Some("crate")
                     && triple[1].text == "::"
                     && let Some(module) = triple[2].identifier()
+                    && declared[owner].contains(module)
                 {
                     modules
                         .entry(owner.to_owned())
@@ -1422,7 +1439,7 @@ mod tests {
         roots: &BTreeMap<String, RootSource>,
         workspace: &WorkspaceDependencies,
     ) -> Result<BTreeSet<String>, String> {
-        let required_modules = selected_root_modules(entries)?;
+        let required_modules = selected_root_modules(entries, roots)?;
         let mut requests = workspace_root_requests(entries, workspace)?;
         if entries
             .iter()
@@ -2351,6 +2368,23 @@ mod tests {
                 "source_fingerprint/reference-facade-wiring.v2"
             ))
         );
+    }
+
+    #[test]
+    fn source_fingerprint_root_type_reexport_is_not_a_module() {
+        let snv = SNV_ENTRIES
+            .iter()
+            .find(|entry| entry.path == "crates/pangopup-assets/src/snv.rs")
+            .expect("selected asset source");
+        assert!(
+            std::str::from_utf8(snv.bytes)
+                .expect("asset source UTF-8")
+                .contains("crate::RuntimeProfileError")
+        );
+        let modules = selected_root_modules(SNV_ENTRIES, &actual_root_sources())
+            .expect("selected SNV modules");
+        assert!(modules["pangopup-assets"].contains("input_audit"));
+        assert!(!modules["pangopup-assets"].contains("RuntimeProfileError"));
     }
 
     #[test]

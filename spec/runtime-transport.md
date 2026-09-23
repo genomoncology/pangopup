@@ -95,15 +95,15 @@ printf 'a corrupt, substituted or symlinked member is refused and publishes noth
 A member that is not a regular file is refused by name. A FIFO is the kind that
 used to stop the command rather than be judged: verify opened every member and
 checked what it had opened only afterwards, and an open of a writerless FIFO
-waits. `timeout` bounds the command here so that this block fails rather than
-hangs if that ever comes back.
+waits. The repository's `timeout` helper bounds the command on both supported
+platforms. This block fails rather than hanging if that defect returns.
 
 ```bash run id=runtime-transport-not-regular exit=1 stream=stderr
 rm -rf ../target/spec/runtime-transport/fifo
 cp -R ../target/spec/runtime-transport/first ../target/spec/runtime-transport/fifo
 rm ../target/spec/runtime-transport/fifo/model-NOTICE
 mkfifo ../target/spec/runtime-transport/fifo/model-NOTICE
-timeout -k 5 20 pangopup-build runtime-transport verify --transport ../target/spec/runtime-transport/fifo
+../scripts/timeout -k 5 20 pangopup-build runtime-transport verify --transport ../target/spec/runtime-transport/fifo
 ```
 
 ```text expect=runtime-transport-not-regular exact

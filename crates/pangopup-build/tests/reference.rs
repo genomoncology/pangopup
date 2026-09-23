@@ -159,7 +159,7 @@ fn v2_miniature_preserves_the_independent_current_v1_byte_oracle() {
     const V1_SOURCE: &str =
         "sha256:4bc0e93b83b28e235a7d0f498976bfe1e97b39d13e4f8c940d4c03cfd3d641bf";
     const V2_SOURCE: &str =
-        "sha256:09cd44449b77592e4b9948cc0756e736b01ecf5220b3d5312c52b12b6b6e9c65";
+        "sha256:9d19e7cc7dda6d6b7475c80cdb60f2601b2c7ff0ce2ab9274b5d8f078cc5b8cd";
     let temp = Temp::new("v1-oracle");
     let bundle = build(&temp, "source.fa.gz", "bundle");
 
@@ -259,7 +259,7 @@ fn route_reference_rebuilds_byte_identically_and_covers_the_full_model_context()
             .expect("old manifest JSON");
     assert_eq!(
         current.builder.source_sha256,
-        "sha256:09cd44449b77592e4b9948cc0756e736b01ecf5220b3d5312c52b12b6b6e9c65"
+        "sha256:9d19e7cc7dda6d6b7475c80cdb60f2601b2c7ff0ce2ab9274b5d8f078cc5b8cd"
     );
     historical.builder.source_sha256 = current.builder.source_sha256.clone();
     historical.builder.version = current.builder.version.clone();
