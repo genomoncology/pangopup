@@ -250,8 +250,8 @@ if grep -Fq 'assets runtime install' scripts/qualify-container-production.sh; th
   exit 1
 fi
 grep -Fq 'find "$runtime" -type d -exec chmod 0555 {} +' scripts/qualify-container-production.sh
-grep -Fq -- '--slurpfile expected "$oracle"' scripts/qualify-container-production.sh
-grep -Fq 'all(.[]; .provenance == $expected[0].provenance)' scripts/qualify-container-production.sh
+grep -Fq 'check-container-model-oracle.py' scripts/qualify-container-production.sh
+grep -Fq '"$oracle" "$output" "$version"' scripts/qualify-container-production.sh
 grep -Fq '691874664' scripts/qualify-container-production.sh
 grep -Fq -- '-v "$cache:/var/cache/pangopup"' scripts/qualify-container-production.sh
 if grep -Fq -- '-v "$cache:/cache"' scripts/qualify-container-production.sh; then
