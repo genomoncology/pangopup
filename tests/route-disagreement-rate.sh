@@ -57,7 +57,8 @@ set -euo pipefail
 #      it qualifies. It is a field of the measurement block now, and both
 #      documents carry it word for word where the reader meets the number. The
 #      field has to name both substitution classes: a coverage statement naming
-#      neither states no coverage.
+#      neither states no coverage. The submitted SNVs in the committed set now
+#      supply class and directed counts; the block and wording must agree.
 #   9. The value denominator is broken out. Most of the compared records are
 #      scored zero on both sides by both routes, which is agreement a consumer
 #      gets for free, so the artifact declares how many and publishes a second
@@ -91,7 +92,9 @@ percents=(value-disagreement-percent position-disagreement-percent \
     non-zero-value-disagreement-percent)
 required=(variant-set variant-set-rule variant-set-manifest raw-records \
     "${counts[@]}" "${percents[@]}" denominator-composition zero-score-treatment \
-    substitution-coverage substitution-limit \
+    substitution-coverage substitution-limit substitution-transitions \
+    substitution-transversions substitution-a-c substitution-c-g \
+    substitution-g-t substitution-t-a \
     position-mechanism position-ordering evidence-limit measured)
 
 # A rate needs enough records to be a rate. The ticket's complaint is that one
@@ -206,6 +209,37 @@ derive() {
 # The variant column of the per-record output, and the variants of a manifest.
 raw_variants() { awk -F'\t' 'NR > 1 { print $1 }' "$1" | sort -u; }
 set_variants() { grep -vE '^[[:space:]]*(#|$)' "$1" | awk '{ print $1 }' | sort -u; }
+
+# Classify the submitted literal SNVs, not the rule described in the header.
+# An invalid row must never silently disappear from the denominator.
+substitution_counts() {
+    awk '
+        /^[[:space:]]*(#|$)/ { next }
+        {
+            n = split($0, part, ":")
+            if (n != 5 || part[1] != "GRCh38" ||
+                part[2] !~ /^(chr)?([1-9]|1[0-9]|2[0-2]|X|Y)$/ ||
+                part[3] !~ /^[1-9][0-9]*$/ ||
+                part[4] !~ /^[ACGT]$/ || part[5] !~ /^[ACGT]$/ ||
+                part[4] == part[5]) {
+                printf "substitution-class: row %d is not a submitted SNV: %s\n", NR, $0 > "/dev/stderr"
+                bad = 1
+                exit 2
+            }
+            pair = part[4] part[5]
+            if (pair == "AG" || pair == "GA" || pair == "CT" || pair == "TC") transitions++
+            else transversions++
+            if (pair == "AC") ac++
+            if (pair == "CG") cg++
+            if (pair == "GT") gt++
+            if (pair == "TA") ta++
+        }
+        END {
+            if (!bad)
+                printf "%d %d %d %d %d %d\n", transitions, transversions, ac, cg, gt, ta
+        }
+    ' "$1"
+}
 
 # Refuse the repository rooted at $1. Prints its reason on refusal and its
 # counts on acceptance.
@@ -349,6 +383,36 @@ examine() {
     (( $(measurement "position-compared-records") >= minimum_position_compared )) || {
         printf 'position-compared-records is %s, fewer than the %s a published position rate needs\n' \
             "$(measurement "position-compared-records")" "$minimum_position_compared" >&2
+        return 1
+    }
+
+    local -a observed=()
+    local classification
+    classification=$(substitution_counts "$manifest") || return 1
+    read -r -a observed <<<"$classification"
+    local -a substitution_keys=(substitution-transitions substitution-transversions \
+        substitution-a-c substitution-c-g substitution-g-t substitution-t-a)
+    local index
+    for (( index = 0; index < ${#substitution_keys[@]}; index++ )); do
+        key=${substitution_keys[$index]}
+        [[ $(measurement "$key") =~ ^[0-9]+$ ]] || {
+            printf '%s in %s is not a substitution-class count\n' "$key" "$artifact_relative" >&2
+            return 1
+        }
+        (( observed[index] == $(measurement "$key") )) || {
+            printf 'substitution-class counts: %s has %s %s but %s declares %s\n' \
+                "$(measurement "variant-set-manifest")" "${observed[$index]}" "$key" \
+                "$artifact_relative" "$(measurement "$key")" >&2
+            return 1
+        }
+    done
+    (( observed[0] + observed[1] == rows && observed[1] == observed[2] + observed[3] + observed[4] + observed[5] )) || {
+        printf 'substitution-class counts do not cover every submitted SNV\n' >&2
+        return 1
+    }
+    grep -qF -- "$(grouped "${observed[1]}") transversions" <<<"$(measurement "substitution-coverage")" &&
+        grep -qF -- "$(grouped "${observed[0]}") transitions" <<<"$(measurement "substitution-coverage")" || {
+        printf 'substitution-coverage in %s does not state its substitution-class counts\n' "$artifact_relative" >&2
         return 1
     }
 
@@ -504,7 +568,7 @@ examine() {
             printf '%s states a rate without the date %s it was measured\n' "$relative" "$(measurement "measured")" >&2
             return 1
         }
-        grep -qE -- "$(grouped "$(measurement "variant-set-size")")|$(measurement "variant-set-size")" <<<"$text" || {
+        grep -qE -- "set of ($(grouped "$(measurement "variant-set-size")")|$(measurement "variant-set-size")) variants" <<<"$text" || {
             printf '%s states a rate without the size of the set it was measured over\n' "$relative" >&2
             return 1
         }
@@ -595,8 +659,14 @@ non-zero-records: 400
 non-zero-value-disagreement-percent: 6.00
 denominator-composition: 800 of the 1,200 compared records score zero on both routes, and 400 carry a score.
 zero-score-treatment: A record carrying a zero score on either route is left out of the position comparison and kept in the value comparison.
-substitution-coverage: Every probe in the fixture set is a transversion and none of them is a transition.
+substitution-coverage: The fixture set holds 1,000 transversions and 0 transitions, so these figures cover transversions only.
 substitution-limit: A transition-bearing set could move either figure and nothing measured says by how much.
+substitution-transitions: 0
+substitution-transversions: 1000
+substitution-a-c: 1000
+substitution-c-g: 0
+substitution-g-t: 0
+substitution-t-a: 0
 position-mechanism: The published dataset reports the first position whose score rounds to the reported hundredth, and the model reports the position of its own extremum.
 position-ordering: A precomputed position is never later than a modeled one for the same call.
 evidence-limit: This rate was measured once against the shipped assets and no gate re-runs it.
@@ -616,7 +686,7 @@ ARTIFACT
 
     {
         printf '# a comment\n\n'
-        seq 1 1000 | sed -E 's|^|GRCh38:chr1:|; s|$|:A:T|'
+        seq 1 1000 | sed -E 's|^|GRCh38:chr1:|; s|$|:A:C|'
     } >"$tree/planning/artifacts/fixture-set.tsv"
 
     # The per-record result the block above summarises: 1,200 records over the
@@ -629,7 +699,7 @@ ARTIFACT
         awk 'BEGIN {
             OFS = "\t"
             for (i = 1; i <= 1200; i++) {
-                variant = sprintf("GRCh38:chr1:%d:A:T", (i - 1) % 1000 + 1)
+                variant = sprintf("GRCh38:chr1:%d:A:C", (i - 1) % 1000 + 1)
                 gene = sprintf("ENSG%08d", i)
                 if (i <= 800)                    print variant, gene, "0.00", -50, "0.00", -50, "0.00", -50, "0.00", -50
                 else if (i <= 820)               print variant, gene, "0.10",  -5, "0.00", -50, "0.00", -50, "0.00", -50
@@ -654,8 +724,8 @@ the reported hundredth, and the model reports the position of its own extremum.
 A precomputed position is never later than a modeled one for the same call. 800
 of the 1,200 compared records score zero on both routes, and 400 carry a score. Over the records that carry a score they report a different value
 on 6.00 percent. A record carrying a zero score on either route is left out of the
-position comparison and kept in the value comparison. Every probe in the
-fixture set is a transversion and none of them is a transition. A
+position comparison and kept in the value comparison. The fixture set holds
+1,000 transversions and 0 transitions, so these figures cover transversions only. A
 transition-bearing set could move either figure and nothing measured says by
 how much. This rate was measured
 once against the shipped assets and no gate re-runs it. The measurement is
@@ -674,8 +744,7 @@ COMPAT
 The two routes disagree on the value for 2.00 percent of the compared records
 and on the position for 5.00 percent of the records comparable on position. Over
 the 400 records that carry a score they disagree on the value for 6.00 percent.
-Every probe in the fixture set is a transversion and none of them is a
-transition. A transition-bearing set could move either figure and nothing
+The fixture set holds 1,000 transversions and 0 transitions, so these figures cover transversions only. A transition-bearing set could move either figure and nothing
 measured says by how much. The measurement is
 [the artifact](../planning/artifacts/0059-route-disagreement-rate.md).
 
@@ -736,6 +805,13 @@ retype_many() {
         retype "$target" "$1" "$2"
         shift 2
     done
+}
+
+change_matching_variant() {
+    edit_record 's|GRCh38:chr1:1:A:C|GRCh38:chr1:1:A:G|g' \
+        planning/artifacts/fixture-set.tsv
+    edit_record 's|GRCh38:chr1:1:A:C|GRCh38:chr1:1:A:G|g' \
+        planning/artifacts/fixture-records.tsv
 }
 
 # Shrink the fixture's variant set to a handful, manifest and declaration alike.
@@ -850,6 +926,10 @@ expect_refusal "$(mutate silent-on-zeros swap "$compatibility_relative" \
     'does not carry how zero scores were treated'
 expect_refusal "$(mutate missing-substitution-coverage drop "$artifact_relative" '^substitution-coverage: ')" \
     'carries no substitution-coverage'
+expect_refusal "$(mutate missing-substitution-count drop "$artifact_relative" '^substitution-a-c: ')" \
+    'carries no substitution-a-c'
+expect_refusal "$(mutate drifted-substitution-count retype "$artifact_relative" substitution-a-c 999)" \
+    'substitution-class counts'
 expect_refusal "$(mutate coverage-names-one-class retype "$artifact_relative" \
     substitution-coverage 'Every probe in the fixture set is a transversion.')" \
     'never mentions a transition'
@@ -857,11 +937,11 @@ expect_refusal "$(mutate limit-names-no-class retype "$artifact_relative" \
     substitution-limit 'Another set could move either figure.')" \
     'states no limit on figures measured without one'
 expect_refusal "$(mutate silent-on-substitutions swap "$compatibility_relative" \
-    'Every probe in the fixture set is a transversion and none of them is a transition.' \
+    'The fixture set holds 1,000 transversions and 0 transitions, so these figures cover transversions only.' \
     'The probes were chosen by rule.')" \
     'without saying which substitutions it covers'
 expect_refusal "$(mutate spec-silent-on-substitutions swap "$score_value_relative" \
-    'Every probe in the fixture set is a transversion and none of them is a transition.' \
+    'The fixture set holds 1,000 transversions and 0 transitions, so these figures cover transversions only.' \
     'The probes were chosen by rule.')" \
     'without saying which substitutions it covers'
 expect_refusal "$(mutate silent-on-substitution-limit swap "$compatibility_relative" \
@@ -872,6 +952,17 @@ expect_refusal "$(mutate spec-silent-on-substitution-limit swap "$score_value_re
     'A transition-bearing set could move either figure and nothing measured says by how much.' \
     'The figures are sound.')" \
     'without saying what a set holding the other substitution class could do to it'
+expect_refusal "$(mutate transition-in-set-and-records change_matching_variant)" \
+    'substitution-class counts'
+expect_refusal "$(mutate malformed-substitution edit_record \
+    's|^GRCh38:chr1:1:A:C$|chr1:1:A:C|' planning/artifacts/fixture-set.tsv)" \
+    'substitution-class: row'
+expect_refusal "$(mutate equal-base-substitution edit_record \
+    's|^GRCh38:chr1:1:A:C$|GRCh38:chr1:1:A:A|' planning/artifacts/fixture-set.tsv)" \
+    'substitution-class: row'
+expect_refusal "$(mutate non-snv-substitution edit_record \
+    's|^GRCh38:chr1:1:A:C$|GRCh38:chr1:1:A:CC|' planning/artifacts/fixture-set.tsv)" \
+    'substitution-class: row'
 expect_refusal "$(mutate silent-on-limit swap "$compatibility_relative" \
     'This rate was measured once against the shipped assets and no gate re-runs it.' \
     'The measurement is sound.')" \
@@ -905,10 +996,10 @@ expect_refusal "$(mutate records-contradict-count edit_record '826s/0\.10\t7/0.1
     planning/artifacts/fixture-records.tsv)" \
     'yields 18 of position-disagreements'
 expect_refusal "$(mutate records-sample-the-set edit_record \
-    's|^GRCh38:chr1:[0-9]*:A:T|GRCh38:chr1:1:A:T|' planning/artifacts/fixture-records.tsv)" \
+    's|^GRCh38:chr1:[0-9]*:A:C|GRCh38:chr1:1:A:C|' planning/artifacts/fixture-records.tsv)" \
     'is published over a sample of the set it names'
 expect_refusal "$(mutate records-from-another-set edit_record \
-    '2s|^GRCh38:chr1:1:A:T|GRCh38:chr9:1:A:T|' planning/artifacts/fixture-records.tsv)" \
+    '2s|^GRCh38:chr1:1:A:C|GRCh38:chr9:1:A:C|' planning/artifacts/fixture-records.tsv)" \
     'variant(s) that are not in'
 expect_refusal "$(mutate precomputed-position-later edit_record '827s/0\.10\t-5/0.10\t9/' \
     planning/artifacts/fixture-records.tsv)" \
