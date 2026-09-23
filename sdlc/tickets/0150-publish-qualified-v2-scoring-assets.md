@@ -13,9 +13,10 @@ The exact retained `snv-grch38-v2` and `runtime-grch38-v2` publication sets are 
 
 - Re-authenticate the expected GitHub account and prove both release tags are absent before the first write. Record Ian's 2026-09-20 authorization to publish PangoPup 0.5 and its scoring assets without storing a credential.
 - Re-admit the exact retained release directories from tickets 0137 and 0140. Verify their complete inventories, canonical metadata, target and tooling provenance, sizes, and SHA-256 values against the checked authorities before upload.
-- Create each release as a private draft, upload only its admitted inventory, compare the remote draft byte inventory, then publish once. Never replace, delete, or mutate a public asset.
+- Create each release as a private draft and upload only its admitted inventory. Check both drafts' exact tags, targets, titles, bodies, and uploaded asset digests before publishing either one. Publish each with `make_latest=false` so v0.4.1 remains GitHub Latest. Never replace, delete, or mutate a public asset.
+- Stop on any draft mismatch. Delete only a draft created by this attempt after confirming its release ID, metadata, draft state, and absent tag. Inspect the release ID after an ambiguous publish response before any retry.
 - Confirm each public tag, title, target commit, release body, and asset inventory through a fresh anonymous read. Download every asset anonymously and compare its size and SHA-256 with the retained set.
-- Prove the existing `snv-grch38-v1` and `runtime-grch38-v1` releases remain byte-identical and public.
+- Prove the existing `snv-grch38-v1` and `runtime-grch38-v1` releases remain byte-identical and public. Confirm v0.4.1 remains GitHub Latest.
 - Add a durable publication record containing release identifiers, publication times, exact inventories, checksums, commands, and cleanup. Update the frontier. Repository gates pass from the record commit.
 
 ## Boundary
