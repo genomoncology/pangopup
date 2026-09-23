@@ -47,10 +47,9 @@ set -euo pipefail
 # That no individual is named: a person's name has no shape a scan can
 # recognise, and that one is left to review.
 #
-# That no interpretation is expressed in words outside the set below. The set
-# stops the ordinary way the slip is written down, not every way, and a reading
-# of a score written in plain words reaches the same place unrefused. The
-# boundary is held by review; the set catches the habit.
+# That no clinical interpretation is expressed in words outside the four
+# meanings checked below. The rule covers the README and motivation page. It
+# recognizes direct limitations, but it does not understand arbitrary prose.
 #
 # That this repository states no legal conclusion. What is refused is the
 # conclusion written in the licence's own vocabulary -- the sentence that says
@@ -364,11 +363,6 @@ terms_of_art=(
     'derivative works?' 'works? based on' '\<copyleft\>'
 )
 
-interpretations=(
-    '\<pathogenic(ity)?\>' '\<benign\>' '\<deleterious\>' '\<clinical(ly)?\>'
-    '\<diagnos[a-z]*\>' '\<ACMG\>' 'variant classification' '\<evidence (for|of)\>'
-)
-
 identifiers=(
     '\<ticket [0-9]' '\<ADR [0-9]' 'refs/heads/' '\<origin/'
 )
@@ -385,7 +379,6 @@ check_explanation() {
 
     (( ${#legal_conclusions[@]} > 0 )) || fail 'the legal-conclusion set is empty, so this check refuses nothing'
     (( ${#terms_of_art[@]} > 0 )) || fail 'the term-of-art set is empty, so this check refuses nothing'
-    (( ${#interpretations[@]} > 0 )) || fail 'the interpretation set is empty, so this check refuses nothing'
     (( ${#identifiers[@]} > 0 )) || fail 'the identifier set is empty, so this check refuses nothing'
 
     local flat candidates spans
@@ -456,13 +449,6 @@ check_explanation() {
         return 1
     fi
 
-    hit=$(grep -Eoi -- "$(alternation "${interpretations[@]}")" <<<"$flat" || true)
-    if [[ -n "$hit" ]]; then
-        printf '%s uses %s; this repository states what the software computes and where the number came from, and interpretation is outside what it speaks to\n' \
-            "$motivation_relative" "$(head -n 1 <<<"$hit")" >&2
-        return 1
-    fi
-
     hit=$(grep -Eoi -- "$(alternation "${identifiers[@]}")" <<<"$flat" || true)
     if [[ -n "$hit" ]]; then
         printf '%s names %s, so a consumer of this software is not described generically\n' \
@@ -493,9 +479,40 @@ check_explanation() {
         return 1
     fi
 
-    printf '%s denies being legal advice in every sentence that names it, asserts none of %d legal conclusions, attributes each of %d terms of art it uses, uses none of %d interpretation terms, and carries no identifier of %d named shapes or of a commit\n' \
+    printf '%s denies being legal advice in every sentence that names it, asserts none of %d legal conclusions, attributes each of %d terms of art it uses, and carries no identifier of %d named shapes or of a commit\n' \
         "$motivation_relative" "${#legal_conclusions[@]}" "${#terms_of_art[@]}" \
-        "${#interpretations[@]}" "${#identifiers[@]}"
+        "${#identifiers[@]}"
+}
+
+# These four lexical meanings are checked only on the two pages a new reader
+# encounters. This is a prose guard, not a general clinical-language parser.
+clinical_meanings=(
+    '\<pathogenic(ity)?\>' 'clinical significance|clinically significant'
+    '\<diagnos[a-z]*\>|\<diagnost[a-z]*\>'
+    '(stand.?alone|sole|sufficient) evidence|evidence (on its own|by itself)'
+)
+
+check_clinical_claims() {
+    local tree=$1 page file flat sentence examined=0
+    (( ${#clinical_meanings[@]} == 4 )) || fail 'the clinical meaning set no longer names four meanings'
+    for page in README.md "$motivation_relative"; do
+        file="$tree/$page"
+        [[ -f "$file" ]] || { printf '%s is missing from the clinical claim check\n' "$page" >&2; return 1; }
+        flat=$(flatten "$file")
+        [[ -n "$flat" ]] || { printf '%s is empty in the clinical claim check\n' "$page" >&2; return 1; }
+        examined=$((examined + 1))
+        while IFS= read -r sentence; do
+            if ! grep -Eqi -- "$(alternation "${clinical_meanings[@]}")" <<<"$sentence"; then continue; fi
+            # A direct limitation can name the clinical meaning. A second
+            # affirmative clause does not inherit its negation.
+            if grep -Eqi -- '^((A|The|This|These) )?scores? (alone )?(does not|do not|cannot|can not) (establish|prove|confirm) (a |an |the )?(pathogenicity|clinical significance|diagnosis|stand.?alone evidence)\.?$' <<<"$sentence"; then
+                continue
+            fi
+            printf '%s claims clinical meaning from a score: %s\n' "$page" "$sentence" >&2
+            return 1
+        done < <(sentences <<<"$flat")
+    done
+    printf 'checked %d public pages for four clinical meanings while allowing direct limitations\n' "$examined"
 }
 
 # ===========================================================================
@@ -589,11 +606,13 @@ check_architecture_opening() {
 # the checks refuse what they exist to refuse, and accept what they require
 # ===========================================================================
 
-checks=(check_sources check_explanation check_architecture_opening)
+checks=(check_sources check_explanation check_clinical_claims check_architecture_opening)
 
 plant() {
     local tree=$1
     mkdir -p "$tree/architecture"
+
+    printf '%s\n' '# PangoPup' 'The scores help identify variants that may alter RNA splicing.' >"$tree/README.md"
 
     cat >"$tree/$motivation_relative" <<'WHY'
 # Why this project exists
@@ -671,9 +690,9 @@ mutate() {
     shift
     rm -rf "$tree"
     plant "$tree"
-    before=$( { cat "$tree/$motivation_relative" "$tree/$architecture_relative" 2>/dev/null || true; } | md5sum )
+    before=$( { cat "$tree/README.md" "$tree/$motivation_relative" "$tree/$architecture_relative" 2>/dev/null || true; } | md5sum )
     ( cd "$tree" && "$@" )
-    after=$( { cat "$tree/$motivation_relative" "$tree/$architecture_relative" 2>/dev/null || true; } | md5sum )
+    after=$( { cat "$tree/README.md" "$tree/$motivation_relative" "$tree/$architecture_relative" 2>/dev/null || true; } | md5sum )
     [[ "$before" != "$after" ]] || fail "the mutation for $tree changed nothing, so its case proves nothing"
     printf '%s' "$tree"
 }
@@ -897,11 +916,6 @@ expect_refusal check_explanation "$(mutate exp-legal-conclusion swap "$motivatio
     'A court would find that software calling this one over its HTTP boundary is a separate program with its own licence.')" \
     'says what the law decides rather than what the arrangement is'
 
-expect_refusal check_explanation "$(mutate exp-interpretation swap "$motivation_relative" \
-    'A splice predictor a reader has already heard of cannot be called from software that is sold.' \
-    'A high gain score is evidence for a pathogenic splicing effect.')" \
-    'interpretation is outside what it speaks to'
-
 expect_refusal check_explanation "$(mutate exp-ticket-key swap "$motivation_relative" \
     'A splice predictor a reader has already heard of cannot be called from software that is sold.' \
     'Ticket 0077 asked for this material.')" \
@@ -925,6 +939,31 @@ expect_acceptance check_explanation "$(mutate exp-honest-motivation swap "$motiv
     'A splice predictor a reader has already heard of cannot be called from software that is sold.' \
     'The licence the better-known predictor is offered under is why this repository publishes precomputed scores of its own.')" \
     'a motivation stated without interpreting a score'
+
+# --- clinical claims on the two public pages -------------------------------
+
+for page in 'README.md' "$motivation_relative"; do
+    expect_acceptance check_clinical_claims "$(mutate "clinical-splice-$(printf '%s' "$page" | cksum | cut -d' ' -f1)" \
+        append "$page" 'The scores help identify variants that may alter RNA splicing.')" \
+        "$page may describe the prediction target"
+    expect_acceptance check_clinical_claims "$(mutate "clinical-limitation-$(printf '%s' "$page" | cksum | cut -d' ' -f1)" \
+        append "$page" 'A score alone does not establish a diagnosis.')" \
+        "$page may state a clinical limitation"
+    expect_acceptance check_clinical_claims "$(mutate "clinical-limitation-significance-$(printf '%s' "$page" | cksum | cut -d' ' -f1)" \
+        append "$page" 'Scores cannot establish clinical significance.')" \
+        "$page may state the significance limitation"
+    for claim in \
+        'A score alone establishes a diagnosis.' \
+        'This score proves pathogenicity.' \
+        'The score establishes clinical significance.' \
+        'The score is clinically significant.' \
+        'The score is diagnostic.' \
+        'The score is sufficient evidence on its own.'
+    do
+        expect_refusal check_clinical_claims "$(mutate "clinical-claim-$(printf '%s' "$page:$claim" | cksum | cut -d' ' -f1)" \
+            append "$page" "$claim")" 'claims clinical meaning'
+    done
+done
 
 # --- 3. the architecture opening --------------------------------------------
 
