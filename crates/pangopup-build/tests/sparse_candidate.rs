@@ -1,7 +1,7 @@
 use pangopup_assets::MAX_FIXED11_BYTES;
 use pangopup_build::{SparseCandidateArguments, build_sparse_candidate, verify_bundle};
 use pangopup_index::{
-    BundleManifest, IndexReader, VisitAllError, canonical_manifest_bytes,
+    BundleManifest, IndexReader, SparseProvenanceManifest, VisitAllError, canonical_manifest_bytes,
     sparse_writer::SPARSE_INDEX_FORMAT,
 };
 use sha2::{Digest, Sha256};
@@ -124,6 +124,7 @@ fn miniature_build_is_exact_deterministic_and_bounded() {
 fn sparse_source_is_rejected_without_output_or_scratch() {
     let temp = TempDir::new().expect("temp");
     let fixed = prepare_bundle(&temp);
+    let fixed_bundle_id = verify_bundle(&fixed).expect("fixed bundle").bundle_id;
     let seed = arguments(&temp, &fixed, "seed");
     build_sparse_candidate(&seed).expect("seed sparse candidate");
 
@@ -135,11 +136,17 @@ fn sparse_source_is_rejected_without_output_or_scratch() {
     rewrite_manifest(&sparse, |manifest| {
         let scores = fs::read(sparse.join("scores.pgi")).expect("sparse scores");
         manifest.index_format = SPARSE_INDEX_FORMAT.to_owned();
+        manifest.sparse_provenance = Some(SparseProvenanceManifest {
+            corpus_authority_bundle_id: fixed_bundle_id,
+            corpus_authority_builder: manifest.builder.clone(),
+            candidate_commit: "2222222222222222222222222222222222222222".to_owned(),
+        });
         manifest.members[1].media_type = "application/vnd.pangopup.sparse-direct".to_owned();
         manifest.members[1].size = scores.len() as u64;
         manifest.members[1].sha256 = format!("sha256:{:x}", Sha256::digest(scores));
     });
 
+    verify_bundle(&sparse).expect("valid sparse source bundle");
     let rejected = arguments(&temp, &sparse, "rejected");
     let sidecar = PathBuf::from(format!("{}.exceptions", rejected.scratch.display()));
     let error = build_sparse_candidate(&rejected).expect_err("sparse source format");
