@@ -113,7 +113,7 @@ case "$command" in
           'sync: snv payload fresh attempt 1/4 10/10 bytes (10 downloaded, 0 resumed)' \
           'sync: ready (10 downloaded, 0 resumed)' >&2
       fi
-      printf '%s\n' '{"status":"ready","snv":{"status":"installed"},"runtime":{"status":"installed"},"downloaded_bytes":10,"resumed_bytes":0}'
+      printf '%s\n' '{"status":"ready","snv":{"status":"staged"},"runtime":{"status":"installed"},"downloaded_bytes":10,"resumed_bytes":0}'
     fi
     ;;
   status)
@@ -736,12 +736,24 @@ fi
 require_line "$root/fresh.err" 'qualification directories must be absent'
 
 cp -a "$root/output" "$root/reused-online-output"
-sed -i 's/"installed"/"reused"/g' "$root/reused-online-output/sync-online.json"
+sed -i 's/"staged"/"reused"/' "$root/reused-online-output/sync-online.json"
 if "$repo/scripts/check-production-qualification.py" "$root/reused-online-output" "$repo" >"$root/reused.out" 2>"$root/reused.err"; then
   printf 'checker accepted reused first online sync\n' >&2
   exit 1
 fi
 require_line "$root/reused.err" 'unexpected snv state: sync-online.json'
+
+cp -a "$root/output" "$root/installed-online-output"
+sed -i 's/"staged"/"installed"/' "$root/installed-online-output/sync-online.json"
+require_checker_accepts installed-online-check "$root/installed-online-output"
+
+cp -a "$root/output" "$root/staged-runtime-output"
+sed -i 's/"installed"/"staged"/' "$root/staged-runtime-output/sync-online.json"
+if "$repo/scripts/check-production-qualification.py" "$root/staged-runtime-output" "$repo" >"$root/staged-runtime.out" 2>"$root/staged-runtime.err"; then
+  printf 'checker accepted staged runtime after fresh online sync\n' >&2
+  exit 1
+fi
+require_line "$root/staged-runtime.err" 'unexpected runtime state: sync-online.json'
 
 cp -a "$root/output" "$root/format-output"
 sed -i '1s/,/, /' "$root/format-output/snv-ENSG00000010610.jsonl"

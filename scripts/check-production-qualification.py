@@ -352,13 +352,15 @@ def require_fixture_identities(source: pathlib.Path) -> None:
         fail("model-only SNV oracle identity mismatch")
 
 
-def require_ready(path: pathlib.Path, component_statuses: set[str]) -> None:
+def require_ready(
+    path: pathlib.Path, snv_statuses: set[str], runtime_statuses: set[str]
+) -> None:
     value = read_json(path)
     if not isinstance(value, dict) or value.get("status") != "ready":
         fail(f"qualification state is not ready: {path.name}")
-    for component in ("snv", "runtime"):
+    for component, statuses in (("snv", snv_statuses), ("runtime", runtime_statuses)):
         state = value.get(component)
-        if not isinstance(state, dict) or state.get("status") not in component_statuses:
+        if not isinstance(state, dict) or state.get("status") not in statuses:
             fail(f"unexpected {component} state: {path.name}")
 
 
@@ -498,10 +500,14 @@ def main() -> None:
     version = release_version(source)
 
     reuse_installed = len(sys.argv) == 4
-    require_ready(output / "sync-online.json", {"reused"} if reuse_installed else {"installed"})
-    require_ready(output / "sync-offline.json", {"reused"})
-    require_ready(output / "sync-quiet.json", {"reused"})
-    require_ready(output / "status.json", {"ready"})
+    require_ready(
+        output / "sync-online.json",
+        {"reused"} if reuse_installed else {"installed", "staged"},
+        {"reused"} if reuse_installed else {"installed"},
+    )
+    require_ready(output / "sync-offline.json", {"reused"}, {"reused"})
+    require_ready(output / "sync-quiet.json", {"reused"}, {"reused"})
+    require_ready(output / "status.json", {"ready"}, {"ready"})
     if (output / "sync-offline.json").read_bytes() != (output / "sync-quiet.json").read_bytes():
         fail("quiet sync changed final JSON")
     require_progress(output / "sync-online.progress", output / "sync-online.json", not reuse_installed)
