@@ -6,6 +6,8 @@ Updated: 2026-09-23
 
 GitHub Latest is immutable executable v0.4.1 release ID `383676522` at commit `ba8b62180ecd5750a575944d2070f83ca585f4ed`. Its six executable files are public and qualified. GHCR `latest`, `0.4.1`, and `v0.4.1` resolve to native AMD64/ARM64 OCI index `sha256:2177c02fc045136a2ef066dbbfa669f59d56dc15e44765e7b7bfbbc9969a6eb8` from the same source commit. Tagged installer, offline functional, code-only uninstall, full uninstall, and public native-container qualification passed. Earlier release and measurement sections remain historical evidence.
 
+The exact `snv-grch38-v2` and `runtime-grch38-v2` data releases are public and immutable. Fresh anonymous downloads matched all 24 retained assets by size and SHA-256. GitHub Latest remains v0.4.1. This release branch selects the coherent v2 pair; the public v0.4.1 executable still selects fixed-v1. Ticket 0152 owns the v0.5.0 software release. Record 0150 holds the exact publication inventory and verification.
+
 ## Current boundary
 
 Repository onboarding, source ingestion, format selection, full-corpus build
@@ -86,7 +88,7 @@ unmeasured. The retained runtime-v2 run and release-specific cache, upgrade,
 and rollback evidence are complete. The release branch pins the v2 production
 authority. The active profile moves only after the complete v2 tuple validates.
 Fixed-v1 remains a readable explicit rollback format.
-Sparse release tooling authenticates the complete immutable v1 corpus authority, records distinct candidate and assembler provenance, and produces deterministic bundle, transport, proof, and profile bytes. Two independent retained complete runs reproduced the v2 local publication set and passed exhaustive certification, isolated installation, and the checked lookup workload. Public release verification remains a prerequisite to merging the v2 selector.
+Sparse release tooling authenticates the complete immutable v1 corpus authority, records distinct candidate and assembler provenance, and produces deterministic bundle, transport, proof, and profile bytes. Two independent retained complete runs reproduced the v2 local publication set and passed exhaustive certification, isolated installation, and the checked lookup workload. Fresh anonymous public installation, upgrade, and rollback passed before merging the v2 selector.
 Production code independently authenticates those exact checked v2 proof
 and profile bytes. Ordinary sync and trusted runtime admission select v2;
 installed discovery follows the active runtime profile. V1 remains admitted
@@ -98,8 +100,8 @@ requests, seven command groups, real fixed/sparse HTTP routing, every boundary
 miss, exact permitted identity changes, and transactional rejection behavior.
 It adds no unmeasured throughput threshold. Retained preparation, the real
 v0.4.1 cache upgrade, model-cache reuse across the SNV format switch, and
-fixed-v1 rollback passed independent evidence review. Publication and
-activation remain next.
+fixed-v1 rollback passed independent evidence review. Publication and release-
+branch activation are complete. Software publication remains.
 The checked repository side now has a read-only workflow token, full-SHA action
 references, digest-authenticated maintenance tools, and an advisory, license,
 bans, and source policy in `make lint`. The policy preserves the
@@ -137,7 +139,7 @@ Ticket 0148 guards the README and motivation page against claims that one score 
 The large source work is not a rebuild queue:
 
 - The SNV lookup is complete and public as the immutable eight-asset
-  `snv-grch38-v1` GitHub release. Its installed mmap member is
+  `snv-grch38-v1` and `snv-grch38-v2` GitHub releases. The active v1 mmap member is
   15,033,158,255 bytes; the accepted transport is two payload parts plus the
   reviewed small members.
 - The exact compiled 25-contig GRCh38 sequence index is built and qualified.

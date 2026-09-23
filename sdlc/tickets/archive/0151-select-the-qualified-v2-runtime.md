@@ -5,6 +5,8 @@ deps: ["0150"]
 ---
 # Select the qualified v2 runtime
 
+Closed by `sdlc/records/0151-activate-qualified-v2-runtime.md`.
+
 ## Outcome
 
 Ordinary sync, installation, discovery, and scoring select the published sparse v2 authorities while the immutable v1 formats remain readable for explicit rollback and retained installations.
