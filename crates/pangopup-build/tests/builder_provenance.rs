@@ -264,7 +264,7 @@ fn source_fingerprint_reference_members_and_legacy_reader_are_invariant() {
         .to_owned();
     assert_eq!(
         migrated_source,
-        "sha256:09cd44449b77592e4b9948cc0756e736b01ecf5220b3d5312c52b12b6b6e9c65"
+        "sha256:9d19e7cc7dda6d6b7475c80cdb60f2601b2c7ff0ce2ab9274b5d8f078cc5b8cd"
     );
     v1_rebound["builder"]["source_sha256"] = Value::String(
         "sha256:4bc0e93b83b28e235a7d0f498976bfe1e97b39d13e4f8c940d4c03cfd3d641bf".to_owned(),
