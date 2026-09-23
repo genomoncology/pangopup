@@ -290,7 +290,7 @@ done
 ../scripts/spec-refutes.sh --absent -n -- '\]\(AGENTS\.md' ../README.md
 planning_links=$(rg -o '\]\(planning/[^)]+' ../README.md)
 test "$planning_links" = "$(printf '%s\n' \
-  '](planning/artifacts/004-snv-lookup-performance.md' \
+  '](planning/artifacts/0133-sparse-index-latency.md' \
   '](planning/artifacts/053-current-runtime-resources.md')"
 printf 'internal trivia is absent\n' | mustmatch like 'internal trivia is absent'
 ```
