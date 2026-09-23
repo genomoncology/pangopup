@@ -68,19 +68,46 @@ targets() {
 # supported assignment and operand is admitted before bounded Make-variable
 # expansion, and no recipe text is evaluated by a shell.
 recipe_lines() {
-    local makefile=$1 target=$2
-    awk -v target="$target" '
+    local makefile=$1 target=$2 numbered=${3:-no}
+    awk -v target="$target" -v numbered="$numbered" '
         index($0, target ":") == 1 { inside = 1; next }
         inside && /^\t/ {
             line = substr($0, 2)
             sub(/^[[:space:]]+/, "", line)
             if (line == "" || line ~ /^#/) { next }
-            print line
+            if (numbered == "yes") { print NR "\t" line }
+            else { print line }
             next
         }
         inside && /^[[:space:]]*$/ { next }
         inside { exit }
     ' "$makefile"
+}
+
+# A cache-deciding recipe line must contain one shell command. Scan only the
+# separators the bounded prefix reader cannot interpret, respecting shell
+# quotes and backslash escapes without executing or expanding the recipe.
+line_has_command_separator() {
+    local line=$1 quote='' char index
+    for ((index = 0; index < ${#line}; index++)); do
+        char=${line:index:1}
+        if [[ "$char" == '\' && "$quote" != "'" ]]; then
+            index=$((index + 1))
+            continue
+        fi
+        if [[ "$char" == "'" && "$quote" != '"' ]]; then
+            if [[ "$quote" == "'" ]]; then quote=''; else quote="'"; fi
+            continue
+        fi
+        if [[ "$char" == '"' && "$quote" != "'" ]]; then
+            if [[ "$quote" == '"' ]]; then quote=''; else quote='"'; fi
+            continue
+        fi
+        if [[ -z "$quote" ]]; then
+            case "$char" in ';'|'&'|'|') return 0 ;; esac
+        fi
+    done
+    return 1
 }
 
 unquote_word() {
@@ -287,11 +314,12 @@ removed_directories() {
 # that names a cache location for a command running cargo behind another name,
 # the way `mustmatch test spec/` runs `cargo test` through the spec gates.
 cache_deciding_lines() {
-    local line
-    while IFS= read -r line; do
+    local numbered_line line
+    while IFS= read -r numbered_line; do
+        line=${numbered_line#*$'\t'}
         case "$line" in
             *XDG_CACHE_HOME=*|*ORT_CACHE_DIR=*|cargo|cargo\ *|*\ cargo\ *|*\ cargo)
-                printf '%s\n' "$line" ;;
+                printf '%s\n' "$numbered_line" ;;
         esac
     done
 }
@@ -418,7 +446,7 @@ inside() {
 # recipes it held on acceptance, the reason on refusal.
 makefile_holds() {
     local makefile=$1 root=$2 relative=$3
-    local target recipe removed line resolved directory resolve_status
+    local target recipe removed line line_number resolved directory resolve_status
     local agreed agreed_line
     local held=0 refused=0
     [[ -f "$makefile" ]] || { printf 'no %s to read\n' "$relative" >&2; return 1; }
@@ -441,8 +469,13 @@ makefile_holds() {
 
         agreed=
         agreed_line=
-        while IFS= read -r line; do
+        while IFS=$'\t' read -r line_number line; do
             [[ -n "$line" ]] || continue
+            if line_has_command_separator "$line"; then
+                printf 'unsupported shell command separator in %s:%s\n' "$relative" "$line_number" >&2
+                refused=1
+                continue
+            fi
             if resolved=$(resolve_cache_path "$line" "$root"); then
                 :
             else
@@ -491,7 +524,7 @@ makefile_holds() {
                     "$target" "$relative" "$agreed" "$agreed_line" "$resolved" "$line" >&2
                 refused=1
             fi
-        done < <(printf '%s\n' "$recipe" | cache_deciding_lines)
+        done < <(recipe_lines "$makefile" "$target" yes | cache_deciding_lines)
     done < <(targets "$makefile")
 
     if (( held == 0 )); then
@@ -702,6 +735,17 @@ plant() {
     } >"$tree/Makefile"
 }
 
+# The checker reads this text; no planted recipe is executed.
+plant_separator() {
+    local tree=$1 line=$2
+    mkdir -p "$tree"
+    {
+        printf 'spec:\n'
+        printf '\trm -rf target/spec-cache\n'
+        printf '\t%s\n' "$line"
+    } >"$tree/Makefile"
+}
+
 expect_refusal() {
     local wanted=$1 tree=$2 output status
     set +e
@@ -869,6 +913,24 @@ expect_refusal 'held over nothing' "$work/not-recursive"
 plant "$work/durable" durable
 expect_acceptance 'the rule refused a recipe whose downloaded-library cache stands outside every directory it removes, so it refuses the shape it exists to require' \
     "$work/durable"
+
+separator_index=0
+for separator in ';' '&&' '||' '&' '|'; do
+    separator_index=$((separator_index + 1))
+    plant_separator "$work/command-list-$separator_index" \
+        "true$separator env ORT_CACHE_DIR=\"\$(CURDIR)/target/spec-cache/ort\" cargo build --locked"
+    expect_safe_refusal 'unsupported shell command separator' "$work/command-list-$separator_index"
+    output=$(makefile_holds "$work/command-list-$separator_index/Makefile" "$work/command-list-$separator_index" Makefile 2>&1 || true)
+    [[ "$output" == *'Makefile:3'* ]] \
+        || fail "the separator refusal lacks the path and line: $output"
+done
+
+for argument in '"a;b"' "'a&b'" '"a|b"' 'a\;b' 'a\&b' 'a\|b'; do
+    plant_separator "$work/quoted-separator" \
+        "env ORT_CACHE_DIR=\"\$(CURDIR)/.ort-cache\" cargo build --locked $argument"
+    expect_acceptance 'the rule refused a quoted or escaped separator in an argument' \
+        "$work/quoted-separator"
+done
 
 # The model cache home may still be emptied every run. Only the download cache
 # has to survive, and a rule that refused this recipe would be wider than the
