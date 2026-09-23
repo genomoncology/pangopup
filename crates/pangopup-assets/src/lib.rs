@@ -38,6 +38,8 @@ pub(crate) use input_audit::record_test_input_open;
 #[cfg(any(test, feature = "test-read-audit"))]
 pub use input_audit::{test_reset_input_opens, test_take_input_opens};
 
+#[cfg(feature = "test-fixtures")]
+pub use local::open_test_installed_bundle;
 pub use local::{
     ActiveBundle, DataPathInputs, InstallOutcome, LocalStatus, active_bundle, install_transport,
     local_status, open_active_bundle, resolve_data_root,
@@ -88,7 +90,7 @@ pub use runtime_transport::{
 };
 #[cfg(feature = "runtime-v2-qualification")]
 pub use runtime_transport::{
-    install_qualified_runtime_v2_transport, verify_production_runtime_transport,
+    install_qualified_runtime_v2_transport, verify_fixed_runtime_transport,
     verify_qualified_runtime_v2_transport,
 };
 pub use snv::{

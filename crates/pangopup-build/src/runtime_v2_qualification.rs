@@ -5,7 +5,7 @@ use pangopup_assets::{
     VerifyRuntimeTransportOutcome, canonical_runtime_profile_bytes,
     install_qualified_runtime_v2_transport, open_qualified_runtime_v2_profile,
     pack_runtime_transport, runtime_profile_id, unpack_runtime_transport,
-    verify_production_runtime_transport, verify_qualified_runtime_v2_transport,
+    verify_fixed_runtime_transport, verify_qualified_runtime_v2_transport,
 };
 use serde::Serialize;
 use std::{
@@ -289,7 +289,7 @@ fn prepare_runtime_v2_transport(
 ) -> Result<PrepareRuntimeV2QualificationOutcome, CommandError> {
     prepare_with(
         inputs,
-        |path| verify_production_runtime_transport(path).map_err(asset_error),
+        |path| verify_fixed_runtime_transport(path).map_err(asset_error),
         |sparse, model, reference, mask, output| {
             prepare_qualified_sparse_runtime_profile(sparse, model, reference, mask, output)
         },

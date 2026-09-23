@@ -59,7 +59,7 @@ malformed mixed forms continue through the unchanged operational parsers.
 
 Normal native AMD64 and ARM64 CI builds use miniature lookup/model fixtures.
 Manual production qualification downloads only the ten authenticated
-`runtime-grch38-v1` transport members and runs the complete ordered 14-case
+`runtime-grch38-v2` transport members and runs the complete ordered 14-case
 public-output oracle through the final image. The workflow has read-only
 repository permission and cannot publish an image or release asset. See
 [ADR 0026](decisions/0026-minimal-container-image.md).
@@ -329,7 +329,7 @@ operations.
 
 ## Shipped native installation and pinned remote sync
 
-The binary embeds the canonical `snv-grch38-v1` release profile for one
+The binary embeds the canonical `snv-grch38-v2` release profile for one
 compatible lookup asset set. The shipped full runtime profile separately
 identifies the converted model, compiled GRCh38 sequence index, and mask
 assets; its offline XDG installation and activation path is established.
@@ -346,13 +346,25 @@ pangopup sync [--offline] [--progress | --quiet] [--data-dir <ABSOLUTE_PATH>] [-
 pangopup status [--data-dir <ABSOLUTE_PATH>]
 ```
 
+With an active runtime, `assets install` verifies and retains a different SNV
+bundle but reports `staged`; it does not select that bundle. An explicit v1
+rollback first stages the exact v1 SNV transport if needed, then selects the
+retained v1 runtime profile with its unchanged model-side sources:
+
+```text
+pangopup assets install --transport <V1_SNV_TRANSPORT_DIR> --data-dir <DATA_DIR>
+pangopup assets runtime install --profile <V1_RUNTIME_PROFILE_JSON> --model-bundle <MODEL_BUNDLE_DIR> --reference-bundle <REFERENCE_BUNDLE_DIR> --mask <DOMAINS_PGM> --data-dir <DATA_DIR>
+```
+
+The second command is the rollback commit. `status` then reports the exact v1
+runtime and SNV identities. A staged SNV alone does not change lookup.
+
 It resolves `--data-dir`, `PANGOPUP_DATA_DIR`, `XDG_DATA_HOME/pangopup`, then
 `HOME/.local/share/pangopup`; present invalid values fail rather than falling
 through. One nonblocking root lock serializes installation. A marked private
 stage receives each decompressed byte once while transport and reconstructed
 hashes are checked. Files are synced and published with no-replace rename, a
-canonical receipt binds the immutable directory, and `active.json` is replaced
-atomically. Crash reconciliation removes only same-filesystem, effective-uid
+canonical receipt binds the immutable directory. Combined sync stages the v2 SNV while the active v1 runtime remains readable, then atomically replaces the runtime profile pointer after all four assets validate. Discovery selects the SNV named by that runtime profile. Crash reconciliation removes only same-filesystem, effective-uid
 owned, no-follow marked stages. Published bundles are never overwritten or
 deleted. Combined status opens the existing installation authority read-only
 and takes a nonblocking shared lock while reading both component pointers.

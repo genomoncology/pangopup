@@ -1528,6 +1528,7 @@ mod installed_success {
         let served = &scored["results"][0]["records"][0];
 
         let output = support::pangopup()
+            .env("PANGOPUP_SERVICE_TEST_PROFILE", &profile_path)
             .args([
                 "lookup",
                 "--data-dir",
@@ -1625,6 +1626,7 @@ mod installed_success {
         // No naming asset is installed under this data root. Names come from
         // the build, so a freshly installed runtime already reports them.
         let output = support::pangopup()
+            .env("PANGOPUP_SERVICE_TEST_PROFILE", &profile_path)
             .args([
                 "lookup",
                 "--data-dir",
@@ -2123,6 +2125,16 @@ mod installed_success {
             .expect("read stderr");
         support::assert_shutdown_succeeded(&mut child, "service exit");
         reported
+    }
+
+    #[test]
+    fn the_listening_event_means_sigterm_is_ready() {
+        let temp = tempfile::tempdir().expect("temp");
+        let data = temp.path().join("data");
+        let (_profile, profile_path) = install(&data, temp.path());
+        let (mut child, _) = start(&data, &profile_path);
+        assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+        support::assert_shutdown_succeeded(&mut child, "service exit after listening");
     }
 
     // An operator restarting the service after an upgrade or an asset change

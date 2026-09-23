@@ -14,7 +14,7 @@ pangopup sync --offline --data-dir "$data" --cache-dir "$cache"
 ```
 
 ```text expect=remote-assets-offline-missing contains
-{"status":"error","code":"ASSET_SYNC_INCOMPLETE","message":"asset synchronization did not complete","details":{"snv":{"status":"error","code":"ASSETS_MISSING","message":"profile snv-grch38-v1 is incomplete:
+{"status":"error","code":"ASSET_SYNC_INCOMPLETE","message":"asset synchronization did not complete","details":{"snv":{"status":"error","code":"ASSETS_MISSING","message":"profile snv-grch38-v2 is incomplete:
 ```
 
 Every present cache-path input is validated even when a higher-precedence input

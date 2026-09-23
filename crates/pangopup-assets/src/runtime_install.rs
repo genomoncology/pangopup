@@ -429,7 +429,7 @@ where
 
     let locked = super::local::acquire_shared_install_lock(data_root)?;
     let root = &locked.root;
-    let snv = super::local::inspect_active_snv_locked(root)?;
+    let snv = super::local::inspect_installed_snv_locked(root, &profile.snv.bundle_id)?;
     require_snv(profile, &snv)?;
 
     let runtime_dir = super::local::ensure_private_dir(&root.dir, "runtime", root)?;
@@ -442,7 +442,20 @@ where
     reconcile_staging(&staging_dir, root)?;
     reconcile_staged_active(&runtime_dir, root)?;
 
-    if let Some(status) = validate_ready_held(root, profile)?
+    let selected = match selected_trusted_profile(root) {
+        Ok(selected) => selected,
+        #[cfg(any(test, feature = "test-fixtures"))]
+        Err(_) if profile.require_trusted_production().is_err() => {
+            selected_runtime_profile(root, false)?.unwrap_or_else(|| profile.clone())
+        }
+        Err(error) => return Err(error),
+    };
+    let prior = validate_ready_held(root, &selected)?;
+    if prior.is_some() {
+        let prior_snv = super::local::inspect_installed_snv_locked(root, &selected.snv.bundle_id)?;
+        require_snv(&selected, &prior_snv)?;
+    }
+    if let Some(status) = prior
         && status.profile_id == profile_id
     {
         authenticate_ready_capabilities(
@@ -672,23 +685,23 @@ pub fn runtime_local_status(data_root: &Path) -> Result<RuntimeLocalStatus, Asse
         });
     };
     let installing = super::local::probe_install_lock(&root)?;
-    runtime_local_status_with(
-        &root,
-        data_root,
-        &crate::production_runtime_profile(),
-        installing,
-    )
+    let trusted = selected_trusted_profile(&root)?;
+    runtime_local_status_with(&root, data_root, &trusted, installing)
 }
 
 pub(crate) fn runtime_local_status_locked(
     locked: &super::local::LockedRoot,
 ) -> Result<RuntimeLocalStatus, AssetError> {
-    runtime_local_status_with(
-        &locked.root,
-        &locked.root.path,
-        &crate::production_runtime_profile(),
-        false,
-    )
+    let trusted = selected_trusted_profile(&locked.root)?;
+    runtime_local_status_with(&locked.root, &locked.root.path, &trusted, false)
+}
+
+fn selected_trusted_profile(root: &super::local::Root) -> Result<RuntimeProfile, AssetError> {
+    match active_runtime_snv_bundle_id(root).map_err(|_| profile_corrupt_runtime())? {
+        Some(bundle_id) => trusted_profile_for_snv(&bundle_id),
+        None => Ok(crate::runtime_profile::qualified_runtime_v2_authority()
+            .map_err(profile_parse_error)?),
+    }
 }
 
 #[cfg(test)]
@@ -706,15 +719,11 @@ pub fn open_installed_runtime_profile(
     data_root: &Path,
     expected_snv_bundle_id: &str,
 ) -> Result<InstalledRuntimeProfile, AssetError> {
-    open_installed_runtime_profile_with(
-        data_root,
-        Some(expected_snv_bundle_id),
-        &crate::production_runtime_profile(),
-    )
+    let trusted = trusted_profile_for_snv(expected_snv_bundle_id)?;
+    open_installed_runtime_profile_with(data_root, Some(expected_snv_bundle_id), &trusted)
 }
 
 /// Admit the checked sparse-v2 runtime from an isolated qualification root.
-/// Ordinary service admission remains pinned to production v1.
 #[doc(hidden)]
 #[cfg(feature = "runtime-v2-qualification")]
 pub fn open_qualified_runtime_v2_profile(
@@ -742,7 +751,77 @@ pub fn open_test_runtime_profile(
 pub fn open_installed_runtime_profile_for_model(
     data_root: &Path,
 ) -> Result<InstalledRuntimeProfile, AssetError> {
-    open_installed_runtime_profile_with(data_root, None, &crate::production_runtime_profile())
+    let root = super::local::open_root(data_root, false)
+        .map_err(|_| profile_unsafe_runtime())?
+        .ok_or_else(runtime_missing)?;
+    let snv = active_runtime_snv_bundle_id(&root)?.ok_or_else(runtime_missing)?;
+    let trusted = trusted_profile_for_snv(&snv)?;
+    open_installed_runtime_profile_from_root(&root, None, &trusted)
+}
+
+fn trusted_profile_for_snv(bundle_id: &str) -> Result<RuntimeProfile, AssetError> {
+    let fixed = crate::production_runtime_profile();
+    if bundle_id == fixed.snv.bundle_id {
+        return Ok(fixed);
+    }
+    let sparse =
+        crate::runtime_profile::qualified_runtime_v2_authority().map_err(profile_parse_error)?;
+    if bundle_id == sparse.snv.bundle_id {
+        Ok(sparse)
+    } else {
+        Err(profile_incompatible_runtime())
+    }
+}
+
+pub(crate) fn active_runtime_snv_bundle_id(
+    root: &super::local::Root,
+) -> Result<Option<String>, AssetError> {
+    Ok(selected_runtime_profile(root, !cfg!(test))?.map(|profile| profile.snv.bundle_id))
+}
+
+fn selected_runtime_profile(
+    root: &super::local::Root,
+    require_trust: bool,
+) -> Result<Option<RuntimeProfile>, AssetError> {
+    let Some(runtime) = open_runtime_dir_optional(&root.dir, "runtime", root, DIR_PRIVATE)? else {
+        return Ok(None);
+    };
+    let Some(active_file) = super::local::open_owned_file_optional(
+        &runtime,
+        "active.json",
+        FILE_PRIVATE,
+        root,
+        AssetErrorKind::StagingInvalid,
+    )?
+    else {
+        return Ok(None);
+    };
+    require_held_file(&active_file, FILE_PRIVATE, MAX_JSON, None)?;
+    let active_bytes = read_status_metadata(&active_file, MAX_JSON)?;
+    let active: RuntimeActive = parse_canonical_runtime_bytes(&active_bytes)?;
+    if active.schema != ACTIVE_SCHEMA || !valid_identity(&active.profile_id) {
+        return Err(profile_corrupt_runtime());
+    }
+    let profiles = open_runtime_dir(&runtime, "profiles", root, DIR_PRIVATE)?;
+    let profile_dir =
+        open_runtime_dir(&profiles, suffix(&active.profile_id)?, root, DIR_IMMUTABLE)?;
+    let profile_file = open_runtime_file(&profile_dir, "profile.json", root, FILE_IMMUTABLE)?;
+    require_held_file(&profile_file, FILE_IMMUTABLE, MAX_JSON, None)?;
+    let bytes = read_status_metadata(&profile_file, MAX_JSON)?;
+    if runtime_profile_id(&bytes)
+        .map_err(profile_parse_error)?
+        .as_str()
+        != active.profile_id
+    {
+        return Err(profile_corrupt_runtime());
+    }
+    let profile = parse_runtime_profile(&bytes).map_err(profile_parse_error)?;
+    if require_trust {
+        profile
+            .require_trusted_production()
+            .map_err(profile_parse_error)?;
+    }
+    Ok(Some(profile))
 }
 
 fn open_installed_runtime_profile_with(
@@ -2358,6 +2437,32 @@ mod tests {
         inspection
     }
 
+    fn stage_alternate_mini_snv(root: &Path, scratch: &Path) -> SnvBundleInspection {
+        let source = fixture("snv-regression/bundle");
+        let bundle = scratch.join("alternate-snv");
+        fs::create_dir(&bundle).expect("alternate bundle");
+        fs::copy(source.join("NOTICE"), bundle.join("NOTICE")).expect("copy notice");
+        fs::copy(source.join("scores.pgi"), bundle.join("scores.pgi")).expect("copy scores");
+        let mut manifest: serde_json::Value = serde_json::from_slice(
+            &fs::read(source.join("manifest.json")).expect("fixture manifest"),
+        )
+        .expect("manifest JSON");
+        manifest["builder"]["source_sha256"] =
+            serde_json::Value::String(format!("sha256:{}", "a".repeat(64)));
+        fs::write(
+            bundle.join("manifest.json"),
+            serde_jcs::to_vec(&manifest).expect("alternate manifest"),
+        )
+        .expect("write manifest");
+        let inspected = inspect_snv_bundle(&bundle).expect("alternate inspection");
+        let transport = scratch.join("alternate-transport");
+        crate::pack_bundle_for_test(&bundle, &transport).expect("pack alternate");
+        let installed = crate::install_transport(&transport, root).expect("stage alternate");
+        assert_eq!(installed.status, "staged");
+        assert_eq!(installed.bundle_id, inspected.bundle_id);
+        inspected
+    }
+
     fn miniature_profile(snv: &SnvBundleInspection) -> RuntimeProfile {
         let model_path = fixture("pangolin-model-kernel-mini/bundle");
         let model_manifest = fs::read(model_path.join("manifest.json")).expect("model manifest");
@@ -2925,19 +3030,82 @@ mod tests {
         };
         let installed = install_with_profile(&original_bytes, &original, sources, &root)
             .expect("original install");
-        let mut replacement = original.clone();
-        replacement.scoring.cpu_policy = "sequential:2/1".to_owned();
+        let replacement_snv = stage_alternate_mini_snv(&root, temp.path());
+        assert_eq!(
+            crate::active_bundle(&root)
+                .expect("selected SNV stays fixed")
+                .bundle_id,
+            snv.bundle_id,
+        );
+        let replacement = miniature_profile(&replacement_snv);
         let replacement_bytes =
             canonical_runtime_profile_bytes(&replacement).expect("replacement profile");
         TRANSITION_FAULT.set(Some(TransitionFault::BeforeActiveRename));
-        install_with_profile(&replacement_bytes, &replacement, sources, &root)
+        let failed = install_with_profile(&replacement_bytes, &replacement, sources, &root)
             .expect_err("injected replacement failure");
+        assert_eq!(failed.kind(), AssetErrorKind::OutputIo);
+        assert_eq!(TRANSITION_FAULT.get(), None, "fault must be consumed");
         let RuntimeLocalStatus::Ready { profile_id, .. } =
             miniature_status(&root, &original).expect("original remains ready")
         else {
             panic!("prior profile was not preserved");
         };
         assert_eq!(profile_id, installed.profile_id);
+        assert_eq!(
+            crate::active_bundle(&root)
+                .expect("SNV remains fixed after failure")
+                .bundle_id,
+            snv.bundle_id,
+        );
+        let held = crate::local::open_root(&root, false)
+            .expect("open root")
+            .expect("root exists");
+        assert_eq!(
+            selected_runtime_profile(&held, false)
+                .expect("selected profile")
+                .expect("active profile"),
+            original,
+        );
+        drop(held);
+
+        let upgraded = install_with_profile(&replacement_bytes, &replacement, sources, &root)
+            .expect("retry complete replacement");
+        assert_ne!(upgraded.profile_id, installed.profile_id);
+        assert_eq!(
+            crate::active_bundle(&root)
+                .expect("replacement SNV selected")
+                .bundle_id,
+            replacement_snv.bundle_id,
+        );
+        let held = crate::local::open_root(&root, false)
+            .expect("open root")
+            .expect("root exists");
+        assert_eq!(
+            selected_runtime_profile(&held, false)
+                .expect("selected profile")
+                .expect("active profile"),
+            replacement,
+        );
+        drop(held);
+
+        let rolled_back = install_with_profile(&original_bytes, &original, sources, &root)
+            .expect("explicit rollback");
+        assert_eq!(rolled_back.profile_id, installed.profile_id);
+        assert_eq!(
+            crate::active_bundle(&root)
+                .expect("rollback SNV selected")
+                .bundle_id,
+            snv.bundle_id,
+        );
+        let held = crate::local::open_root(&root, false)
+            .expect("open root")
+            .expect("root exists");
+        assert_eq!(
+            selected_runtime_profile(&held, false)
+                .expect("selected profile")
+                .expect("active profile"),
+            original,
+        );
     }
 
     #[test]

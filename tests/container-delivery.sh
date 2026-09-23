@@ -127,7 +127,7 @@ collision_accept='Accept: application/vnd.oci.image.index.v1+json, application/v
 [[ "$(grep -Fc "$collision_accept" "$publish_workflow")" == 2 ]]
 grep -Fq '.[0].code == "MANIFEST_UNKNOWN"' scripts/require-container-tag-absent.sh
 grep -Fq 'could not prove version tag %s absent: HTTP %s' scripts/require-container-tag-absent.sh
-grep -Fq 'PREVIOUS_INDEX: sha256:5d00753e9b5019e0408fd33ca39371684c1eebb38b3f559e2b4f953ce062bcc0' "$publish_workflow"
+grep -Fq 'PREVIOUS_INDEX: sha256:2177c02fc045136a2ef066dbbfa669f59d56dc15e44765e7b7bfbbc9969a6eb8' "$publish_workflow"
 grep -Fq 'VERSION: 0.5.0' "$publish_workflow"
 grep -Fq 'scripts/require-container-tag-digest.sh latest "$latest_code"' "$publish_workflow"
 grep -Fq '"$RUNNER_TEMP/latest.headers" "$PREVIOUS_INDEX"' "$publish_workflow"
@@ -252,7 +252,7 @@ fi
 grep -Fq 'find "$runtime" -type d -exec chmod 0555 {} +' scripts/qualify-container-production.sh
 grep -Fq -- '--slurpfile expected "$oracle"' scripts/qualify-container-production.sh
 grep -Fq 'all(.[]; .provenance == $expected[0].provenance)' scripts/qualify-container-production.sh
-grep -Fq '691874664' scripts/qualify-container-production.sh
+grep -Fq '691874669' scripts/qualify-container-production.sh
 grep -Fq -- '-v "$cache:/var/cache/pangopup"' scripts/qualify-container-production.sh
 if grep -Fq -- '-v "$cache:/cache"' scripts/qualify-container-production.sh; then
   printf 'production cache must use the image-prepared writable directory\n' >&2

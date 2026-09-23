@@ -6,7 +6,7 @@ Updated: 2026-09-23
 
 GitHub Latest is immutable executable v0.4.1 release ID `383676522` at commit `ba8b62180ecd5750a575944d2070f83ca585f4ed`. Its six executable files are public and qualified. GHCR `latest`, `0.4.1`, and `v0.4.1` resolve to native AMD64/ARM64 OCI index `sha256:2177c02fc045136a2ef066dbbfa669f59d56dc15e44765e7b7bfbbc9969a6eb8` from the same source commit. Tagged installer, offline functional, code-only uninstall, full uninstall, and public native-container qualification passed. Earlier release and measurement sections remain historical evidence.
 
-The exact `snv-grch38-v2` and `runtime-grch38-v2` data releases are public and immutable. Fresh anonymous downloads matched all 24 retained assets by size and SHA-256. GitHub Latest remains v0.4.1. Production still selects the coherent fixed-v1 pair. Ticket 0151 owns v2 activation and ticket 0152 owns the v0.5.0 software release. Record 0150 holds the exact publication inventory and verification.
+The exact `snv-grch38-v2` and `runtime-grch38-v2` data releases are public and immutable. Fresh anonymous downloads matched all 24 retained assets by size and SHA-256. GitHub Latest remains v0.4.1. This release branch selects the coherent v2 pair; the public v0.4.1 executable still selects fixed-v1. Ticket 0152 owns the v0.5.0 software release. Record 0150 holds the exact publication inventory and verification.
 
 ## Current boundary
 
@@ -15,7 +15,7 @@ and certification, and typed SNV lookup are established. Pangopup is standalone
 open-source software. Its shipped CLI accepts an explicit GRCh38 SNV and
 optional gene filter and returns all matching source records by default from an
 explicit fixed-v1 or sparse-direct-v1 bundle or the active Linux or macOS
-user-data installation. The active installation remains fixed-v1.
+user-data installation. The release branch selects sparse v2 after complete runtime activation.
 Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
 established. The first-user README now presents one accessible, release-neutral
@@ -85,14 +85,14 @@ bounded open, and touched-record corruption. Exhaustive certification now
 admits either format and checks the sparse size ceiling before mapping or
 hashing. Unfiltered production performance and whole-genome throughput remain
 unmeasured. The retained runtime-v2 run and release-specific cache, upgrade,
-and rollback evidence are complete. Activation still requires the production
-authority switch. The active profile moves only after every gate passes.
-Fixed-v1 remains the shipped, readable rollback format.
-Sparse release tooling now authenticates the complete immutable v1 corpus authority, records distinct candidate and assembler provenance, and produces deterministic bundle, transport, proof, and profile bytes. Two independent retained complete runs reproduced the v2 local publication set and passed exhaustive certification, isolated installation, and the checked lookup workload. The exact v2 authority is public but not active.
-Production code now independently authenticates those exact checked v2 proof
-and profile bytes and can derive an inactive inner runtime profile after
-exhaustive sparse-bundle certification. The ordinary release selector, sync,
-installed discovery, and trusted runtime admission remain v1-only.
+and rollback evidence are complete. The release branch pins the v2 production
+authority. The active profile moves only after the complete v2 tuple validates.
+Fixed-v1 remains a readable explicit rollback format.
+Sparse release tooling authenticates the complete immutable v1 corpus authority, records distinct candidate and assembler provenance, and produces deterministic bundle, transport, proof, and profile bytes. Two independent retained complete runs reproduced the v2 local publication set and passed exhaustive certification, isolated installation, and the checked lookup workload. Fresh anonymous public installation, upgrade, and rollback passed before merging the v2 selector.
+Production code independently authenticates those exact checked v2 proof
+and profile bytes. Ordinary sync and trusted runtime admission select v2;
+installed discovery follows the active runtime profile. V1 remains admitted
+for explicit rollback.
 Deterministic inactive runtime-v2 preparation now preserves the eight model-side
 members byte for byte while changing only the sparse-bound inner profile and
 outer transport manifest. One executable semantic gate proves 1,000 direct
@@ -100,8 +100,8 @@ requests, seven command groups, real fixed/sparse HTTP routing, every boundary
 miss, exact permitted identity changes, and transactional rejection behavior.
 It adds no unmeasured throughput threshold. Retained preparation, the real
 v0.4.1 cache upgrade, model-cache reuse across the SNV format switch, and
-fixed-v1 rollback passed independent evidence review. Publication is complete.
-Activation remains next.
+fixed-v1 rollback passed independent evidence review. Publication and release-
+branch activation are complete. Software publication remains.
 The checked repository side now has a read-only workflow token, full-SHA action
 references, digest-authenticated maintenance tools, and an advisory, license,
 bans, and source policy in `make lint`. The policy preserves the

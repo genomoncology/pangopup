@@ -2,11 +2,11 @@
 
 Sparse release construction is a separate two-step local command. Its public assembly path trusts only the checked production v1 bundle identity. Candidate commits use exact lowercase Git object syntax but remain construction facts until later retained-data evidence binds their output. Preparation requires its tooling commit to equal the executable's compiled Git commit from a clean checkout. It records the separately supplied release target only as release metadata.
 
-Production code authenticates the exact checked v2 proof and profile through closed bounded parsers and independent byte identities. One internal accessor returns the inactive qualified sparse descriptor. The ordinary production selector, sync, discovery, installed runtime admission, and compiled runtime release remain v1-only. Canonical profile preparation can derive a sparse profile after independent exhaustive certification. The sparse profile still fails production admission. The checked miniature proves exact fixed/sparse lookup parity and identity derivation with the version and CPU policy held fixed. It makes no active HTTP claim.
+Production code authenticates the exact checked v2 proof and profile through closed bounded parsers and independent byte identities. Ordinary sync selects that authority and the matching runtime release. Canonical profile preparation derives a sparse profile after independent exhaustive certification. Exact v1 and v2 profiles pass trusted production admission; crossed identities fail. The checked miniature proves exact fixed/sparse lookup parity and identity derivation with the version and CPU policy held fixed. Retained qualification covers active HTTP routing.
 
 ```bash
 ../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-assets \
-  qualified_sparse_authority_is_exact_closed_and_separate_from_production
+  qualified_sparse_authority_is_exact_closed_and_selected_for_sync
 ../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-assets \
   sparse_v2_parsers_reject_extensions_duplicates_noncanonical_and_crossed_versions
 ../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-assets \
@@ -19,7 +19,7 @@ Production code authenticates the exact checked v2 proof and profile through clo
   sparse_runtime_profile_preparation_certifies_real_members_before_derivation
 ../scripts/spec-cargo-test.sh 1 --locked --quiet --package pangopup-index --test bundle_formats \
   fixed_and_sparse_bundles_have_identical_provider_answers
-printf 'qualified sparse authority remains inactive\n' | mustmatch like 'qualified sparse authority remains inactive'
+printf 'qualified sparse authority is selected by sync\n' | mustmatch like 'qualified sparse authority is selected by sync'
 ```
 
 ```bash

@@ -20,7 +20,9 @@ use pangopup_assets::{
     open_active_bundle, open_installed_runtime_profile, runtime_profile_id,
 };
 #[cfg(feature = "service-test-fixtures")]
-use pangopup_assets::{open_test_runtime_profile, parse_runtime_profile};
+use pangopup_assets::{
+    RuntimeProfile, open_test_installed_bundle, open_test_runtime_profile, parse_runtime_profile,
+};
 use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
 use pangopup_cli::render_result_raw;
 use pangopup_core::{
@@ -764,9 +766,24 @@ fn bounded_integer(
 async fn serve(options: ServeOptions) -> Result<(), Failure> {
     std::panic::set_hook(Box::new(|_| eprintln!("model worker failed")));
     let data = data_root(options.data_dir.clone())?;
+    #[cfg(feature = "service-test-fixtures")]
+    let test_profile = read_service_test_profile()?;
+    #[cfg(feature = "service-test-fixtures")]
+    let (active, bundle) = if let Some(profile) = test_profile.as_ref() {
+        open_test_installed_bundle(&data, &profile.snv.bundle_id)
+    } else {
+        open_active_bundle(&data)
+    }
+    .map_err(|error| map_startup_asset_error(error, super::map_lookup_asset_error))?;
+    #[cfg(not(feature = "service-test-fixtures"))]
     let (active, bundle) = open_active_bundle(&data)
         .map_err(|error| map_startup_asset_error(error, super::map_lookup_asset_error))?;
-    let installed = open_service_runtime(&data, &active.bundle_id)?;
+    let installed = open_service_runtime(
+        &data,
+        &active.bundle_id,
+        #[cfg(feature = "service-test-fixtures")]
+        test_profile.as_ref(),
+    )?;
     let (profile, _, conversion_reference, _) = installed.into_parts();
     let policy = CpuPolicy::new(
         CpuExecutionMode::Sequential,
@@ -845,7 +862,12 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
     }
     let mut backends: Vec<Box<dyn WorkerBackend>> = Vec::with_capacity(options.workers);
     for _ in 0..options.workers {
-        let installed = open_service_runtime(&data, &active.bundle_id)?;
+        let installed = open_service_runtime(
+            &data,
+            &active.bundle_id,
+            #[cfg(feature = "service-test-fixtures")]
+            test_profile.as_ref(),
+        )?;
         let (_, model, reference, mask) = installed.into_parts();
         let mask = mask.open().map_err(|_| Failure::profile_corrupt())?;
         let model = model
@@ -897,6 +919,7 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
         details: None,
     })?;
     let address = address.to_string();
+    let signals = signal_receiver();
     println!(
         "{}",
         serde_json::to_string(&Listening {
@@ -906,7 +929,7 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
         .expect("listening event is serializable")
     );
     axum::serve(listener, app(state.clone()))
-        .with_graceful_shutdown(shutdown(state.dispatcher.clone()))
+        .with_graceful_shutdown(shutdown(state.dispatcher.clone(), signals))
         .await
         .map_err(|_| Failure {
             code: "SERVICE_FAILED",
@@ -933,16 +956,26 @@ fn map_startup_asset_error(
 fn open_service_runtime(
     data: &std::path::Path,
     snv_bundle_id: &str,
+    #[cfg(feature = "service-test-fixtures")] test_profile: Option<&RuntimeProfile>,
 ) -> Result<pangopup_assets::InstalledRuntimeProfile, Failure> {
     #[cfg(feature = "service-test-fixtures")]
-    if let Some(path) = std::env::var_os("PANGOPUP_SERVICE_TEST_PROFILE") {
-        let bytes = std::fs::read(path).map_err(|_| Failure::profile_corrupt())?;
-        let profile = parse_runtime_profile(&bytes).map_err(|_| Failure::profile_corrupt())?;
+    if let Some(profile) = test_profile {
         return open_test_runtime_profile(data, snv_bundle_id, &profile)
             .map_err(|error| map_startup_asset_error(error, super::map_runtime_error));
     }
     open_installed_runtime_profile(data, snv_bundle_id)
         .map_err(|error| map_startup_asset_error(error, super::map_runtime_error))
+}
+
+#[cfg(feature = "service-test-fixtures")]
+fn read_service_test_profile() -> Result<Option<RuntimeProfile>, Failure> {
+    let Some(path) = std::env::var_os("PANGOPUP_SERVICE_TEST_PROFILE") else {
+        return Ok(None);
+    };
+    let bytes = std::fs::read(path).map_err(|_| Failure::profile_corrupt())?;
+    parse_runtime_profile(&bytes)
+        .map(Some)
+        .map_err(|_| Failure::profile_corrupt())
 }
 
 fn open_cache(options: &CacheOptions, setup: &CacheIdentity) -> Result<ModelResultCache, Failure> {
@@ -1815,8 +1848,7 @@ fn json_response(status: StatusCode, value: &impl Serialize) -> Response {
     response
 }
 
-async fn shutdown(dispatcher: Dispatcher) {
-    let mut signals = signal_receiver();
+async fn shutdown(dispatcher: Dispatcher, mut signals: mpsc::UnboundedReceiver<()>) {
     if shutdown_with_signals(&dispatcher, &mut signals).await == ShutdownOutcome::Forced {
         std::process::exit(130);
     }
@@ -1858,8 +1890,12 @@ async fn shutdown_with_signals(
 }
 
 fn signal_receiver() -> mpsc::UnboundedReceiver<()> {
+    let interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .expect("install SIGINT handler");
+    let terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .expect("install SIGTERM handler");
     let (sender, receiver) = mpsc::unbounded_channel();
-    tokio::spawn(signal_pump(sender));
+    tokio::spawn(signal_pump(sender, interrupt, terminate));
     receiver
 }
 
@@ -1874,11 +1910,11 @@ async fn wait_worker_failure(dispatcher: &Dispatcher) {
 }
 
 #[cfg(unix)]
-async fn signal_pump(sender: mpsc::UnboundedSender<()>) {
-    let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
-        .expect("install SIGINT handler");
-    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        .expect("install SIGTERM handler");
+async fn signal_pump(
+    sender: mpsc::UnboundedSender<()>,
+    mut interrupt: tokio::signal::unix::Signal,
+    mut terminate: tokio::signal::unix::Signal,
+) {
     loop {
         tokio::select! {
             _ = interrupt.recv() => {}

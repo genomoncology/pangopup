@@ -96,6 +96,8 @@ model inference. The shipped functional runtime answers GRCh38 SNV queries from
 the Wagner/Neverov precomputed dataset through a fixed 11-byte mmap index and
 typed CLI, plus Linux and macOS local installation, active-bundle discovery, the
 immutable public `snv-grch38-v1` release, and pinned resumable remote sync.
+The current selector uses the retained sparse-v2 authority. Public v2 release
+verification remains required before this selector reaches the public branch.
 The checked `pangopup-compat-v1` oracle now fixes upstream model and
 post-processing behavior. The shipped authenticated CPU kernel now executes
 the twelve raw selected Pangolin channels through one ONNX Runtime session.

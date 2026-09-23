@@ -583,7 +583,7 @@ pub fn sync_assets_observed(
     offline: bool,
     observer: &mut dyn FnMut(SyncEvent),
 ) -> Result<SyncOutcome, AssetError> {
-    let (_, digest, profile) = super::release::production_profile()?;
+    let (digest, profile) = super::release::current_sync_profile()?;
     let client = ReqwestClient::production();
     sync_snv_observed_with(
         data_root,
@@ -597,6 +597,34 @@ pub fn sync_assets_observed(
         },
         &client,
         observer,
+    )
+}
+
+pub(crate) fn sync_assets_staged_observed(
+    data_root: &Path,
+    cache_root: Option<&Path>,
+    offline: bool,
+    observer: &mut dyn FnMut(SyncEvent),
+) -> Result<SyncOutcome, AssetError> {
+    let (digest, profile) = super::release::current_sync_profile()?;
+    observer(SyncEvent::Phase {
+        component: SyncComponent::Snv,
+        phase: SyncPhase::Checking,
+    });
+    sync_with_observer_mode(
+        data_root,
+        cache_root,
+        offline,
+        SyncContract {
+            profile: &profile,
+            profile_digest: digest,
+            allowed_hosts: &["github.com", "release-assets.githubusercontent.com"],
+            require_https: true,
+        },
+        &ReqwestClient::production(),
+        SyncComponent::Snv,
+        observer,
+        false,
     )
 }
 
@@ -651,7 +679,7 @@ pub fn sync_runtime_assets_observed(
             url: member.url.clone(),
         })
         .collect::<Vec<_>>();
-    let (_, _, snv_profile) = super::release::production_profile()?;
+    let (_, snv_profile) = super::release::current_sync_profile()?;
     let contract = SyncContract {
         profile: &snv_profile,
         profile_digest: digest,
@@ -806,6 +834,22 @@ fn sync_with_observer(
     component: SyncComponent,
     observer: &mut dyn FnMut(SyncEvent),
 ) -> Result<SyncOutcome, AssetError> {
+    sync_with_observer_mode(
+        data_root, cache_root, offline, contract, client, component, observer, true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sync_with_observer_mode(
+    data_root: &Path,
+    cache_root: Option<&Path>,
+    offline: bool,
+    contract: SyncContract<'_>,
+    client: &dyn TransportClient,
+    component: SyncComponent,
+    observer: &mut dyn FnMut(SyncEvent),
+    activate: bool,
+) -> Result<SyncOutcome, AssetError> {
     if let Some(outcome) = active_fast_path(data_root, contract.profile)? {
         observer(SyncEvent::Phase {
             component,
@@ -841,7 +885,15 @@ fn sync_with_observer(
             component,
             phase: SyncPhase::Installing,
         });
-        let outcome = install_cached(&cache, &transport, data_root, contract.profile, 0, 0)?;
+        let outcome = install_cached_mode(
+            &cache,
+            &transport,
+            data_root,
+            contract.profile,
+            0,
+            0,
+            activate,
+        )?;
         observer(SyncEvent::Phase {
             component,
             phase: SyncPhase::Ready,
@@ -863,7 +915,15 @@ fn sync_with_observer(
             component,
             phase: SyncPhase::Installing,
         });
-        let outcome = install_cached(&cache, &transport, data_root, contract.profile, 0, 0)?;
+        let outcome = install_cached_mode(
+            &cache,
+            &transport,
+            data_root,
+            contract.profile,
+            0,
+            0,
+            activate,
+        )?;
         observer(SyncEvent::Phase {
             component,
             phase: SyncPhase::Ready,
@@ -897,13 +957,14 @@ fn sync_with_observer(
         component,
         phase: SyncPhase::Installing,
     });
-    let outcome = install_cached(
+    let outcome = install_cached_mode(
         &cache,
         &transport,
         data_root,
         contract.profile,
         downloaded,
         resumed,
+        activate,
     )?;
     observer(SyncEvent::Phase {
         component,
@@ -1156,6 +1217,7 @@ fn active_fast_path(
     }
 }
 
+#[cfg(test)]
 fn install_cached(
     cache: &Cache,
     transport: &PublishedTransport,
@@ -1164,7 +1226,27 @@ fn install_cached(
     downloaded: u64,
     resumed: u64,
 ) -> Result<SyncOutcome, AssetError> {
-    match super::local::install_transport_handle(transport.install_handle()?, data_root) {
+    install_cached_mode(
+        cache, transport, data_root, profile, downloaded, resumed, true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn install_cached_mode(
+    cache: &Cache,
+    transport: &PublishedTransport,
+    data_root: &Path,
+    profile: &ReleaseProfile,
+    downloaded: u64,
+    resumed: u64,
+    activate: bool,
+) -> Result<SyncOutcome, AssetError> {
+    let install = if activate {
+        super::local::install_transport_handle(transport.install_handle()?, data_root)
+    } else {
+        super::local::install_transport_handle_inactive(transport.install_handle()?, data_root)
+    };
+    match install {
         Ok(installed) => Ok(sync_outcome(
             installed.status,
             profile,
@@ -3356,6 +3438,45 @@ mod tests {
         let transport = root.join("alternate-transport");
         super::super::pack_bundle_for_test(&bundle, &transport).expect("pack alternate fixture");
         transport
+    }
+
+    #[test]
+    fn staged_snv_keeps_the_prior_active_bundle_and_both_installed() {
+        let temp = Temp::new();
+        let first_transport = fixture(&temp.0);
+        let second_transport = alternate_fixture(&temp.0);
+        let data = temp.0.join("data");
+        let first = crate::install_transport(&first_transport, &data).expect("first install");
+        let staged = crate::local::install_transport_handle_inactive(
+            File::open(&second_transport).expect("open staged transport"),
+            &data,
+        )
+        .expect("stage replacement");
+        assert_ne!(first.bundle_id, staged.bundle_id);
+        assert_eq!(
+            crate::active_bundle(&data)
+                .expect("active remains old")
+                .bundle_id,
+            first.bundle_id
+        );
+        let locked = crate::local::acquire_shared_install_lock(&data).expect("inspect installed");
+        assert_eq!(
+            crate::local::inspect_installed_snv_locked(&locked.root, &staged.bundle_id)
+                .expect("staged SNV is complete")
+                .bundle_id,
+            staged.bundle_id,
+        );
+        drop(locked);
+        let promoted =
+            crate::install_transport(&second_transport, &data).expect("explicit activation");
+        assert_eq!(promoted.bundle_id, staged.bundle_id);
+        let locked = crate::local::acquire_shared_install_lock(&data).expect("inspect retained");
+        assert_eq!(
+            crate::local::inspect_installed_snv_locked(&locked.root, &first.bundle_id)
+                .expect("prior SNV remains installed")
+                .bundle_id,
+            first.bundle_id,
+        );
     }
 
     #[test]

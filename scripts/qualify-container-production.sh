@@ -25,7 +25,7 @@ esac
 
 umask 077
 mkdir "$download"
-profile="$source_tree/release-profiles/runtime-release-profile.json"
+profile="$source_tree/release-profiles/runtime-release-profile-v2.json"
 while IFS=$'\t' read -r name bytes digest url; do
   [[ "$name" =~ ^[A-Za-z0-9._-]+$ && "$digest" =~ ^[0-9a-f]{64}$ && "$bytes" =~ ^[0-9]+$ ]]
   curl --fail --location --silent --show-error --output "$download/$name" "$url"
@@ -33,7 +33,7 @@ while IFS=$'\t' read -r name bytes digest url; do
   printf '%s  %s\n' "$digest" "$download/$name" | sha256sum --check --strict >/dev/null
 done < <(jq -r '.transport.members[] | [.asset_name, (.size|tostring), (.sha256|sub("^sha256:";"")), .url] | @tsv' "$profile")
 [[ "$(find "$download" -maxdepth 1 -type f | wc -l)" == 10 ]]
-[[ "$(find "$download" -maxdepth 1 -type f -printf '%s\n' | awk '{n += $1} END {print n}')" == 691874664 ]]
+[[ "$(find "$download" -maxdepth 1 -type f -printf '%s\n' | awk '{n += $1} END {print n}')" == 691874669 ]]
 
 runtime="$download-decoded"
 [[ ! -e "$runtime" ]]
