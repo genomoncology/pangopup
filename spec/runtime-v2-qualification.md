@@ -15,7 +15,9 @@ Usage: pangopup-runtime-v2-qualify prepare --v1-transport <ABSOLUTE_DIR> --spars
        pangopup-runtime-v2-qualify admit --data-dir <ABSOLUTE_DIR> --expected-snv <SHA256_ID>
 ```
 
-```bash run id=runtime-v2-qualification
+The qualification invokes nine feature-specific builds and 24 exact test selections. A passing run took 65.82 seconds on the macOS development host. The bound below applies only to this block.
+
+```bash run id=runtime-v2-qualification timeout=180
 ../tests/runtime-v2-qualification.sh | tail -n 1
 ```
 
