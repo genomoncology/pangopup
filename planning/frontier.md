@@ -1,6 +1,6 @@
 # Frontier
 
-Updated: 2026-09-19
+Updated: 2026-09-23
 
 ## Current release state
 
@@ -13,7 +13,7 @@ and certification, and typed SNV lookup are established. Pangopup is standalone
 open-source software. Its shipped CLI accepts an explicit GRCh38 SNV and
 optional gene filter and returns all matching source records by default from an
 explicit fixed-v1 or sparse-direct-v1 bundle or the active Linux or macOS
-user-data installation. The active installation remains fixed-v1.
+user-data installation. The release branch selects sparse v2 after complete runtime activation.
 Deterministic local transport, atomic install,
 status, active discovery, cheap reuse, and the fast 1,000-case regression are
 established. The first-user README now presents one accessible, release-neutral
@@ -83,14 +83,14 @@ bounded open, and touched-record corruption. Exhaustive certification now
 admits either format and checks the sparse size ceiling before mapping or
 hashing. Unfiltered production performance and whole-genome throughput remain
 unmeasured. The retained runtime-v2 run and release-specific cache, upgrade,
-and rollback evidence are complete. Activation still requires the production
-authority switch. The active profile moves only after every gate passes.
-Fixed-v1 remains the shipped, readable rollback format.
-Sparse release tooling now authenticates the complete immutable v1 corpus authority, records distinct candidate and assembler provenance, and produces deterministic bundle, transport, proof, and profile bytes. Two independent retained complete runs reproduced the v2 local publication set and passed exhaustive certification, isolated installation, and the checked lookup workload. No v2 authority is active or published.
-Production code now independently authenticates those exact checked v2 proof
-and profile bytes and can derive an inactive inner runtime profile after
-exhaustive sparse-bundle certification. The ordinary release selector, sync,
-installed discovery, and trusted runtime admission remain v1-only.
+and rollback evidence are complete. The release branch pins the v2 production
+authority. The active profile moves only after the complete v2 tuple validates.
+Fixed-v1 remains a readable explicit rollback format.
+Sparse release tooling authenticates the complete immutable v1 corpus authority, records distinct candidate and assembler provenance, and produces deterministic bundle, transport, proof, and profile bytes. Two independent retained complete runs reproduced the v2 local publication set and passed exhaustive certification, isolated installation, and the checked lookup workload. Public release verification remains a prerequisite to merging the v2 selector.
+Production code independently authenticates those exact checked v2 proof
+and profile bytes. Ordinary sync and trusted runtime admission select v2;
+installed discovery follows the active runtime profile. V1 remains admitted
+for explicit rollback.
 Deterministic inactive runtime-v2 preparation now preserves the eight model-side
 members byte for byte while changing only the sparse-bound inner profile and
 outer transport manifest. One executable semantic gate proves 1,000 direct

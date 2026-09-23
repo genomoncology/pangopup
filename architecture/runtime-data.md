@@ -9,20 +9,19 @@ and alternate select the record. The bundle already contains the source Ensembl
 gene identity, masked gain/loss values, and their relative positions. It does
 not need a FASTA, GTF, transcript database, or network call on this path.
 
-The active `snv-grch38-v1` release and runtime profile remain fixed-v1. Sparse
-runtime opening does not publish, install, or activate the qualified sparse
-candidate. Exhaustive asset certification accepts either admitted format and
+Ordinary sync selects `snv-grch38-v2` and its matching runtime profile. Fixed v1
+remains readable for explicit rollback. Exhaustive asset certification accepts either admitted format and
 returns one format-neutral member identity and decoded summary. Sparse
 certification applies the 3,221,225,472-byte held and declared member ceiling
 before mapping or hashing, then streams the complete payload without a
 fixed-style gene buffer. Benchmark measurement and sparse-candidate conversion
 remain explicitly fixed-only.
 
-Production code authenticates the exact checked `snv-grch38-v2` proof and release profile as an inactive authority. An internal accessor exposes only its exact sparse SNV descriptor. Canonical runtime-profile preparation may substitute that descriptor after independent exhaustive certification. This substitution keeps the model, reference, mask, scoring policy, software version, and effective CPU policy fixed. The runtime-profile, scoring, and data-set identities change through their existing derivation functions. Trusted production admission, installed discovery, remote sync, and the compiled runtime release remain v1-only. Sparse fixture lookup parity proves provider behavior. It makes no active HTTP or full-route performance claim.
+Production code authenticates the exact checked `snv-grch38-v2` proof and release profile. Canonical runtime-profile preparation substitutes that descriptor after independent exhaustive certification. This substitution keeps the model, reference, mask, scoring policy, software version, and effective CPU policy fixed. The runtime-profile, scoring, and data-set identities change through their existing derivation functions. Trusted production admission accepts the exact v1 and v2 tuples. Installed discovery selects the SNV named by the active runtime profile. Sparse fixture lookup parity and retained complete-route qualification prove supported behavior. Whole-genome throughput remains unmeasured.
 
-The separate `runtime-v2-qualification` build feature adds `pangopup-runtime-v2-qualify`. Its `prepare` command accepts only absolute paths for the exact production-v1 runtime transport, checked sparse bundle, private absent scratch directory, and absent output directory. It authenticates v1, exhaustively certifies the sparse bundle through the existing profile-preparation boundary, packs the new transport, and verifies the checked sparse profile plus all eight unchanged model-side transport members before an atomic no-replace publication. Held directory and member identities remain bound through publication. A handled failure removes only paths whose ownership still matches. A cleanup or ownership failure returns JSON that names the retained invocation or output directory. An interrupted process may leave the caller-named scratch directory, but it never activates product data. The same feature exposes narrow install and admission functions for isolated retained tests. Default builds omit the binary and those functions. Ordinary sync, installation, discovery, and service admission remain v1-only.
+The separate `runtime-v2-qualification` build feature adds `pangopup-runtime-v2-qualify`. Its `prepare` command accepts only absolute paths for the exact production-v1 runtime transport, checked sparse bundle, private absent scratch directory, and absent output directory. It authenticates v1, exhaustively certifies the sparse bundle through the existing profile-preparation boundary, packs the new transport, and verifies the checked sparse profile plus all eight unchanged model-side transport members before an atomic no-replace publication. Held directory and member identities remain bound through publication. A handled failure removes only paths whose ownership still matches. A cleanup or ownership failure returns JSON that names the retained invocation or output directory. An interrupted process may leave the caller-named scratch directory, but it never activates product data. The same feature exposes narrow install and admission functions for isolated retained tests. Default builds omit the binary and those functions.
 
-On Linux and macOS, `pangopup sync` downloads both exact compiled-in public transports into disposable XDG cache and passes them to the same `pangopup assets install` boundary that reconstructs a supplied transport under XDG user data. The installer records its canonical receipt and atomically selects it in `active.json`. Normal lookup discovers that active bundle without a `--bundle` argument and performs only cheap manifest, size, and structure checks. `--bundle` remains an explicit override. Lookup never downloads data or scans the complete score payload at startup. Only the explicit sync command uses the network.
+On Linux and macOS, `pangopup sync` downloads both exact compiled-in transports into disposable XDG cache. It installs the SNV bundle without changing the selected tuple, installs the matching runtime members, then atomically selects the complete runtime profile. Normal lookup discovers the SNV named by that profile without a `--bundle` argument and performs only cheap manifest, size, and structure checks. `--bundle` remains an explicit override. Lookup never downloads data or scans the complete score payload at startup. Only the explicit sync command uses the network.
 
 The request's reference allele remains part of the key. A wrong reference
 therefore fails or misses rather than returning the score for a different
@@ -123,7 +122,7 @@ metadata exactly, carries the checked GENCODE attribution notice, and creates
 separate deterministic Zstandard frames for `model.onnx`, `reference.pgr`, and
 `domains.pgm`. The canonical manifest binds stored and reconstructed identities
 and the runtime-profile identity. The SNV facts remain profile metadata; the
-15 GB score member is never opened.
+score member is never opened.
 
 `verify` streams all three frames without materializing runtime files. `unpack`
 uses the same one-pass authentication while writing private staged outputs,

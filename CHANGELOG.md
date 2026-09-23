@@ -5,7 +5,7 @@ describes what a consumer sees. A version that must be acted on before upgrading
 says so first. The tickets, records and `planning/` folder carry the internal
 work; this file does not.
 
-`snv-grch38-v1` and `runtime-grch38-v1` tag the separately versioned scoring
+`snv-grch38-v2` and `runtime-grch38-v2` tag the separately versioned scoring
 assets. They are not software releases and have no section here.
 
 ## 0.5.0 - unreleased
@@ -32,8 +32,10 @@ upgrade discards the file the previous release wrote and prints
 `discarded model cache <path>: an earlier layout wrote it` on standard error.
 That run still returns its answer. There is no migration and no flag.
 
-No published asset digest moved. A consumer holding assets installed by 0.4.1
-re-syncs nothing.
+The SNV and runtime asset digests move to the smaller sparse v2 index. Run
+`pangopup sync` after upgrading. An existing 0.4.1 installation remains usable
+until the complete v2 runtime profile activates. The fixed v1 assets remain
+available for an explicit rollback.
 
 `gene_names` comes from a gene-name index built into the executable. It is not
 downloadable and not installable, and gene names refresh only by upgrading.

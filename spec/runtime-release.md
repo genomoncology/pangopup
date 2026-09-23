@@ -17,7 +17,7 @@ pangopup-build runtime-transport pack \
   --output ../target/spec/runtime-release/mini >/dev/null
 ```
 
-The inactive v2 command is separate. It requires the commit compiled into a clean preparation tool and an independently supplied release target. It does not change the ordinary v1 selector, sync, installation, or admission paths.
+The v2 preparation command is separate. It requires the commit compiled into a clean preparation tool and an independently supplied release target. The shipped selector pins the retained output of that command.
 
 ```bash
 pangopup-build runtime-release prepare-v2 --help \

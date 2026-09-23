@@ -20,7 +20,9 @@ use pangopup_assets::{
     open_active_bundle, open_installed_runtime_profile, runtime_profile_id,
 };
 #[cfg(feature = "service-test-fixtures")]
-use pangopup_assets::{open_test_runtime_profile, parse_runtime_profile};
+use pangopup_assets::{
+    RuntimeProfile, open_test_installed_bundle, open_test_runtime_profile, parse_runtime_profile,
+};
 use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
 use pangopup_cli::render_result_raw;
 use pangopup_core::{
@@ -764,9 +766,24 @@ fn bounded_integer(
 async fn serve(options: ServeOptions) -> Result<(), Failure> {
     std::panic::set_hook(Box::new(|_| eprintln!("model worker failed")));
     let data = data_root(options.data_dir.clone())?;
+    #[cfg(feature = "service-test-fixtures")]
+    let test_profile = read_service_test_profile()?;
+    #[cfg(feature = "service-test-fixtures")]
+    let (active, bundle) = if let Some(profile) = test_profile.as_ref() {
+        open_test_installed_bundle(&data, &profile.snv.bundle_id)
+    } else {
+        open_active_bundle(&data)
+    }
+    .map_err(|error| map_startup_asset_error(error, super::map_lookup_asset_error))?;
+    #[cfg(not(feature = "service-test-fixtures"))]
     let (active, bundle) = open_active_bundle(&data)
         .map_err(|error| map_startup_asset_error(error, super::map_lookup_asset_error))?;
-    let installed = open_service_runtime(&data, &active.bundle_id)?;
+    let installed = open_service_runtime(
+        &data,
+        &active.bundle_id,
+        #[cfg(feature = "service-test-fixtures")]
+        test_profile.as_ref(),
+    )?;
     let (profile, _, conversion_reference, _) = installed.into_parts();
     let policy = CpuPolicy::new(
         CpuExecutionMode::Sequential,
@@ -845,7 +862,12 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
     }
     let mut backends: Vec<Box<dyn WorkerBackend>> = Vec::with_capacity(options.workers);
     for _ in 0..options.workers {
-        let installed = open_service_runtime(&data, &active.bundle_id)?;
+        let installed = open_service_runtime(
+            &data,
+            &active.bundle_id,
+            #[cfg(feature = "service-test-fixtures")]
+            test_profile.as_ref(),
+        )?;
         let (_, model, reference, mask) = installed.into_parts();
         let mask = mask.open().map_err(|_| Failure::profile_corrupt())?;
         let model = model
@@ -933,16 +955,26 @@ fn map_startup_asset_error(
 fn open_service_runtime(
     data: &std::path::Path,
     snv_bundle_id: &str,
+    #[cfg(feature = "service-test-fixtures")] test_profile: Option<&RuntimeProfile>,
 ) -> Result<pangopup_assets::InstalledRuntimeProfile, Failure> {
     #[cfg(feature = "service-test-fixtures")]
-    if let Some(path) = std::env::var_os("PANGOPUP_SERVICE_TEST_PROFILE") {
-        let bytes = std::fs::read(path).map_err(|_| Failure::profile_corrupt())?;
-        let profile = parse_runtime_profile(&bytes).map_err(|_| Failure::profile_corrupt())?;
+    if let Some(profile) = test_profile {
         return open_test_runtime_profile(data, snv_bundle_id, &profile)
             .map_err(|error| map_startup_asset_error(error, super::map_runtime_error));
     }
     open_installed_runtime_profile(data, snv_bundle_id)
         .map_err(|error| map_startup_asset_error(error, super::map_runtime_error))
+}
+
+#[cfg(feature = "service-test-fixtures")]
+fn read_service_test_profile() -> Result<Option<RuntimeProfile>, Failure> {
+    let Some(path) = std::env::var_os("PANGOPUP_SERVICE_TEST_PROFILE") else {
+        return Ok(None);
+    };
+    let bytes = std::fs::read(path).map_err(|_| Failure::profile_corrupt())?;
+    parse_runtime_profile(&bytes)
+        .map(Some)
+        .map_err(|_| Failure::profile_corrupt())
 }
 
 fn open_cache(options: &CacheOptions, setup: &CacheIdentity) -> Result<ModelResultCache, Failure> {

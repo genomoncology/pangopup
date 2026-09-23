@@ -45,8 +45,7 @@ pub(crate) struct QualifiedSparseRelease {
     pub(crate) snv: SnvProfile,
 }
 
-/// Return the descriptor from the one reviewed sparse authority. This is not
-/// the ordinary production selector and does not admit or activate a runtime.
+/// Return the descriptor from the one reviewed sparse authority.
 pub(crate) fn qualified_v2_profile() -> Result<QualifiedSparseRelease, AssetError> {
     let (proof, _) =
         validate_qualified_v2_contract_bytes(QUALIFIED_V2_PROOF, QUALIFIED_V2_PROFILE)?;
@@ -64,6 +63,23 @@ pub(crate) fn production_profile()
 -> Result<(&'static [u8], &'static str, ReleaseProfile), AssetError> {
     let (_, profile) = validate_production_contract()?;
     Ok((PRODUCTION_PROFILE, PRODUCTION_PROFILE_SHA256, profile))
+}
+
+/// The sync engine consumes only the tag, bundle identity, and transport
+/// members. The v2 proof authenticates those fields before this adapter is built.
+pub(crate) fn current_sync_profile() -> Result<(&'static str, ReleaseProfile), AssetError> {
+    let (_, sparse) =
+        validate_qualified_v2_contract_bytes(QUALIFIED_V2_PROOF, QUALIFIED_V2_PROFILE)?;
+    let (_, _, mut profile) = production_profile()?;
+    profile.profile = sparse.profile;
+    profile.schema = sparse.schema;
+    profile.release = sparse.release;
+    profile.bundle.schema = sparse.bundle.schema;
+    profile.bundle.index_format = sparse.bundle.index_format;
+    profile.bundle.bundle_id = sparse.bundle.bundle_id;
+    profile.transport = sparse.transport;
+    profile.proof = sparse.proof;
+    Ok((QUALIFIED_V2_PROFILE_SHA256, profile))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1508,7 +1524,7 @@ mod tests {
     }
 
     #[test]
-    fn qualified_sparse_authority_is_exact_closed_and_separate_from_production() {
+    fn qualified_sparse_authority_is_exact_closed_and_selected_for_sync() {
         assert_eq!(QUALIFIED_V2_PROOF.len(), 5_405);
         assert_eq!(sha256(QUALIFIED_V2_PROOF), QUALIFIED_V2_PROOF_SHA256);
         assert_eq!(QUALIFIED_V2_PROFILE.len(), 4_755);
@@ -1518,6 +1534,12 @@ mod tests {
         assert_eq!(qualified.snv.format, "pangopup.sparse-direct.v1");
         assert_eq!(qualified.snv.member_bytes, 2_035_371_437);
         assert_eq!(qualified.snv.member_sha256, V2_SCORE_SHA256);
+        let (digest, selected) = current_sync_profile().expect("current sync authority");
+        assert_eq!(digest, QUALIFIED_V2_PROFILE_SHA256);
+        assert_eq!(selected.profile, "snv-grch38-v2");
+        assert_eq!(selected.bundle.bundle_id, V2_BUNDLE_ID);
+        assert_eq!(selected.transport.transport_id, V2_TRANSPORT_ID);
+        assert_eq!(selected.transport.members.len(), 5);
 
         let (_, production) = validate_production_contract().expect("production authority");
         assert_eq!(production.profile, "snv-grch38-v1");

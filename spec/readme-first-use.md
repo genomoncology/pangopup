@@ -13,7 +13,7 @@ The figures are the size of the file as it stands, not a ceiling above it. They
 were 270 lines and 1,770 words. The README measured 260 lines and 1,766 words
 then, so ten lines and four words stood unclaimed. The presentation section in
 commit `e14e822` took the README to 271 lines and 1,829 words, and the figures
-now say exactly that. `tests/readme-budget-exactness.sh` holds every figure on
+matched that tree. `tests/readme-budget-exactness.sh` holds every figure on
 this page to what `README.md` measures, so raising one means stating a new
 measurement of a real tree.
 
@@ -22,16 +22,14 @@ admit the change that needs it leaves nothing standing: the next sentence
 arrives carrying the same argument, and a figure that moves whenever it binds
 has stopped saying anything.
 
-The trade, stated once so that nobody plans against a stale number. The README
-measures 271 lines and 1,829 words and the figures say exactly that. Nothing
-stands unclaimed, so the link is paid for in full. The sentence carrying it
-runs to eighteen words, and wherever it stands it costs lines as well as
-words. The guide gives up both, in the same commit as the addition. A reader
-then sees what was traded for what.
+The motivation link used the full measured budget at that point. The sparse-v2
+release update now measures 265 lines and 1,841 words. The new pins match that
+tree exactly. The update replaces obsolete size and performance claims without
+adding a section.
 
 ```bash
-test "$(wc -l < ../README.md)" -le 271
-test "$(wc -w < ../README.md)" -le 1829
+test "$(wc -l < ../README.md)" -le 265
+test "$(wc -w < ../README.md)" -le 1841
 test "$(sed -n '1p' ../README.md)" = '# PangoPup'
 headings=$(rg '^## ' ../README.md)
 test "$headings" = "$(printf '%s\n' \
@@ -104,8 +102,8 @@ Quick start contains one complete direct-CLI path and no competing modality.
 quick=$(awk '/^## Quick start$/ { on=1; next } /^## / { if (on) exit } on' ../README.md)
 for text in \
   'Linux x86-64/amd64 with GLIBC 2.39 or newer' \
-  '2.44 GiB' \
-  '14.76 GiB' \
+  '1.86 GiB' \
+  '2.65 GiB' \
   '25 GB free' \
   'raw.githubusercontent.com/genomoncology/pangopup/v0.5.0/install.sh' \
   'bash -s -- --version 0.5.0' \
@@ -216,12 +214,12 @@ removal guidance useful to operators.
 ops=$(awk '/^## Storage and operations$/ { on=1; next } /^## / { if (on) exit } on' ../README.md)
 for text in \
   'SNV lookup' \
-  '~1.80 GiB' \
-  '~14.00 GiB' \
+  '~1.22 GiB' \
+  '~1.90 GiB' \
   '~660 MiB' \
   '~775 MiB' \
-  '~2.44 GiB' \
-  '~14.76 GiB' \
+  '~1.86 GiB' \
+  '~2.65 GiB' \
   'memory-mapped rather than loaded wholly into RAM' \
   '256 MiB RAM' \
   '~/.local/share/pangopup' \

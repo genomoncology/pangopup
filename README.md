@@ -31,15 +31,9 @@ the process boundary that keeps the GPL model separate. Recorded September 10, 2
 <details>
 <summary><strong>Performance overview in text</strong></summary>
 
-PangoPup routes a covered SNV to the published-score index. A supported non-SNV, supported lookup miss, or explicit `--model-only` request runs through the Pangolin model with CPU ONNX Runtime. Exact modeled results are saved in SQLite, so the same request can be reused without another inference. The 15 GB SNV index is memory-mapped. Linux and macOS bring in only the file pages a query touches and may reclaim those pages instead of copying the whole index into application memory. Every score reports whether a precomputed lookup, the Pangolin model, or the SQLite cache answered it.
+PangoPup routes a covered SNV to the published-score index. A supported non-SNV, supported lookup miss, or explicit `--model-only` request runs through the Pangolin model with CPU ONNX Runtime. Exact modeled results are saved in SQLite, so the same request can be reused without another inference. The 2 GB SNV index is memory-mapped. Linux and macOS bring in only the file pages a query touches and may reclaim those pages instead of copying the whole index into application memory. Every score reports whether a precomputed lookup, the Pangolin model, or the SQLite cache answered it.
 
-Retained measurements are an already-open filtered SNV lookup p50 of **0.441 µs**; about
-**12 MiB** peak RSS for a one-SNV CLI call; **4.3 s → 0.7 ms** median for uncached model
-inference followed by a fresh-service SQLite hit; and a **2.44 GiB** asset download with
-about **14.76 GiB** installed. These are warm-page-cache observations on an AMD Ryzen 7
-5825U running Linux, not cross-host guarantees. See the retained
-[lookup benchmark](planning/artifacts/004-snv-lookup-performance.md) and
-[runtime measurements](planning/artifacts/053-current-runtime-resources.md).
+Retained measurements are an already-open filtered sparse SNV lookup p50 of **1.663 µs** and **4.3 s → 0.7 ms** median for uncached model inference followed by a fresh-service SQLite hit. The current asset set downloads about **1.86 GiB** and installs about **2.65 GiB**. The lookup and model observations used different retained runs on an AMD Ryzen 7 5825U running Linux. They are not cross-host guarantees. See the retained [sparse lookup benchmark](planning/artifacts/0133-sparse-index-latency.md) and [model/cache measurements](planning/artifacts/053-current-runtime-resources.md).
 
 The two principal prior works are the [Pangolin model and software](https://github.com/tkzeng/Pangolin)
 by Zeng and Li and the [published Pangolin SNV scores](https://doi.org/10.5281/zenodo.15649338)
@@ -50,7 +44,7 @@ by Wagner and Neverov.
 ## Quick start
 
 The direct executable requires Linux x86-64/amd64 with GLIBC 2.39 or newer. The first
-sync downloads about 2.44 GiB, installs about 14.76 GiB, and needs at least 25 GB free.
+sync downloads about 1.86 GiB and installs about 2.65 GiB. Allow at least 25 GB free when upgrading from 0.4.1 while both asset sets are retained.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/genomoncology/pangopup/v0.5.0/install.sh \
@@ -183,9 +177,9 @@ Metal.
 
 | Component | Download | Installed |
 |---|---:|---:|
-| SNV lookup | ~1.80 GiB | ~14.00 GiB |
+| SNV lookup | ~1.22 GiB | ~1.90 GiB |
 | Model, reference, and mask | ~660 MiB | ~775 MiB |
-| Combined | ~2.44 GiB | ~14.76 GiB |
+| Combined | ~1.86 GiB | ~2.65 GiB |
 
 The SNV index is memory-mapped rather than loaded wholly into RAM. Linux and macOS read the pages queries touch and can reclaim them. For one default foreground service, 256 MiB RAM is a practical starting allocation. Measure against your workload before setting a production limit.
 

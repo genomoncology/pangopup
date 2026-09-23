@@ -22,3 +22,23 @@ Ordinary sync, installation, discovery, and scoring select the published sparse 
 ## Boundary
 
 Do not publish v0.5.0 executable or container artifacts, delete or mutate v1 releases, change score precision or semantics, add indel precomputation or threshold triage, or modify a downstream consumer.
+
+## Implementation evidence, pending public verification
+
+The isolated `ticket/0151` implementation pins the retained v2 SNV proof,
+SNV release profile, runtime release profile, and runtime transport by exact
+bytes. Combined sync stages the v2 SNV without changing the selected tuple.
+Runtime activation selects the complete v2 profile only after all four assets
+validate. Discovery follows the selected runtime profile. The exact v1 profile
+remains admitted for rollback; crossed tuples fail closed.
+
+Focused evidence on 2026-09-23: the asset library passes 140 tests with the
+runtime-v2 qualification feature, the service fixture lifecycle passes 23
+tests with two intentionally ignored, and the exact v1-verifier test passes.
+The runtime fault regression proves a distinct staged SNV, consumed
+pre-activation fault, prior-pair preservation, successful retry, and explicit
+rollback. A retained real-data clone also completed v1→v2→v1 through ordinary
+install commands and was removed after verification. Independent implementation
+review accepted the remediation. `make lint`, `make test`, `make spec`, anonymous
+public asset verification, and the final real public upgrade remain required.
+Do not merge this selector until ticket 0150 verifies the public v2 assets.
