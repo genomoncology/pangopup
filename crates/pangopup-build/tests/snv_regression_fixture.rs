@@ -62,6 +62,8 @@ fn checked_regression_fixture_regenerates_byte_exactly() {
     let manifest_path = Path::new("bundle/manifest.json");
     let generated_manifest = fs::read(generated.join(manifest_path)).expect("generated manifest");
     let checked_manifest = fs::read(checked.join(manifest_path)).expect("checked manifest");
+    let historical_manifest: serde_json::Value =
+        serde_json::from_slice(&checked_manifest).expect("checked manifest JSON");
     let generated_id = format!("sha256:{:x}", Sha256::digest(&generated_manifest));
     let checked_id = format!("sha256:{:x}", Sha256::digest(&checked_manifest));
     for relative in checked_files {
@@ -70,7 +72,14 @@ fn checked_regression_fixture_regenerates_byte_exactly() {
             let mut value: serde_json::Value =
                 serde_json::from_slice(&actual).expect("generated manifest JSON");
             assert_eq!(value["builder"]["version"], env!("CARGO_PKG_VERSION"));
+            assert_eq!(
+                value["builder"]["source_sha256"].as_str(),
+                Some("sha256:7e3c23058526103a2a9f3161670e6f4a634c39fa0ed6b3aefb4c904db1c5e8df"),
+                "generated manifest must carry the checked current SNV builder fingerprint"
+            );
             value["builder"]["version"] = serde_json::Value::String("0.1.0".to_owned());
+            value["builder"]["source_sha256"] =
+                historical_manifest["builder"]["source_sha256"].clone();
             actual = serde_jcs::to_vec(&value).expect("historically rebound manifest");
         } else if actual
             .windows(generated_id.len())
