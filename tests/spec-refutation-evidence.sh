@@ -25,7 +25,8 @@ set -euo pipefail
 #   3. Every refutation that is not the receiving end of a pipe names a path.
 #      One that names neither reads whatever standard input the gate inherited,
 #      and on a terminal that read never returns.
-#   4. A block that builds a FIFO runs every command in it under `timeout`. A
+#   4. A block that builds a FIFO runs every command in it under the repository's
+#      portable `scripts/timeout` helper. A
 #      writerless FIFO can stop a command that opens it, and a stopped command
 #      hangs the gate instead of failing it. See the settlement below.
 #   5. Refutations go through scripts/spec-refutes.sh, which reports the ways a
@@ -78,10 +79,10 @@ set -euo pipefail
 # what it restores.
 #
 # The pin is back, as an exact-output pin rather than a `--fails` refutation,
-# and bounded by `timeout`. The two shapes matter. `--fails` reads a command
-# killed by `timeout` as a satisfied refutation, so it would go green on a
+# and bounded by the repository's `scripts/timeout`. The two shapes matter.
+# `--fails` reads a command killed by the helper as a satisfied refutation, so it would go green on a
 # command that still hangs; an exact-output pin goes green only on the refusal
-# text verify actually prints. `timeout` is what keeps the gate failing rather
+# text verify actually prints. The helper keeps the gate failing rather
 # than waiting while verify is still wrong. Section 4 below holds that bound in
 # place for any block that builds a FIFO.
 # ---------------------------------------------------------------------------
@@ -219,7 +220,7 @@ fi
 # The pin on a FIFO member is live again, so the fixture is allowed; what is
 # refused is an unbounded command beside it. Both shipped commands read
 # transport members, so a `pangopup-build` or `pangopup` line in a block that
-# builds a FIFO has to run under `timeout`, which turns a command that waits
+# builds a FIFO has to run under `../scripts/timeout`, which turns a command that waits
 # back into a block that fails.
 fifo_blocks=$(printf '%s\n' "$all_lines" \
     | awk -F'\t' '$4 ~ /^bash/ && $6 ~ /(^|[^[:alnum:]_.\/-])mkfifo([[:space:]]|$)/ { print $1 "\t" $2 }' | sort -u)
@@ -229,14 +230,14 @@ if [[ -n "$fifo_blocks" ]]; then
         $4 !~ /^bash/ { next }
         !(($1 "\t" $2) in fifo) { next }
         $6 !~ /(^|[^[:alnum:]_.\/-])(pangopup-build|pangopup)([[:space:]]|$)/ { next }
-        $6 ~ /(^|[^[:alnum:]_.\/-])timeout[[:space:]]/ { next }
+        $6 ~ /(^|[[:space:]])\.\.\/scripts\/timeout[[:space:]]/ { next }
         { printf "%s\t%d\t%s\n", $1, $3, $6 }
     ')
     if [[ -n "$unbounded" ]]; then
         printf 'spec refutation evidence: these spec lines run a command unbounded inside a block that builds a FIFO, and a command that waits on a writerless FIFO hangs the gate instead of failing it:\n' >&2
         printf '%s\n' "$unbounded" \
             | awk -F'\t' -v root="$repository/" '{ sub("^" root, "", $1); printf "  %s:%d: %s\n", $1, $2, $3 }' >&2
-        printf 'Put the command under `timeout` so that the block fails on a command that never returns.\n' >&2
+        printf 'Put the command under `../scripts/timeout` so that the block fails on a command that never returns.\n' >&2
         exit 1
     fi
 fi
