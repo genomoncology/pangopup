@@ -126,6 +126,8 @@ Ticket 0144 makes both published entropy byte totals traceable to the retained a
 
 Ticket 0147 makes production qualification own its service endpoint. The runner asks the child for an ephemeral loopback port, validates the existing listening event, requires that its owned child remains active before every connection, and sends requests only to that reported address. Focused fixture cases cover an occupied or externally unavailable port 18080, a valid event buffered by an exited child, request isolation, startup failure, invalid events, bounded waiting, and child cleanup. Draft 0117 is archived.
 
+Ticket 0148 guards the README and motivation page against claims that one score establishes pathogenicity, clinical significance, diagnosis, or stand-alone evidence. The checker accepts direct clinical limitations and the existing splice-prediction purpose sentence. It uses focused positive and negative fixtures on both pages and changes no score semantics or public text. Draft 0120 is archived; the separate legal-advice draft 0118 remains open.
+
 ## Asset readiness — preserve, package, then publish
 
 The large source work is not a rebuild queue:

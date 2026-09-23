@@ -22,14 +22,19 @@ printf 'one README link reaches why this project exists\n' | mustmatch like 'one
 
 The material behind that link states every claim about another party as a
 quotation attributed to that party with the date that party was read, says
-plainly that it is not legal advice, asserts no legal conclusion, and does not
-say what a score is evidence for. The architecture folder opens with how the
-system is arranged rather than with the order the work happened in.
+plainly that it is not legal advice, and asserts no legal conclusion. Both this
+page and the README may say that scores predict possible splice changes. Neither
+page may claim that a score alone establishes pathogenicity, clinical
+significance, a diagnosis, or stand-alone clinical evidence. A direct statement
+of a limit, such as "A score alone does not establish a diagnosis," is allowed.
+The architecture folder opens with how the system is arranged rather than with
+the order the work happened in.
 
 `tests/repository-sourcing.sh` reads that requirement out of the material
 itself, so removing a citation, or the date beside it, turns this block red. It
 proves each refusal against a fixture repository first, in both directions,
-before it reads this one.
+before it reads this one. Its clinical wording check is a narrow lexical guard
+for the four named meanings on the two named pages, not a general prose parser.
 
 ```bash
 bash ../tests/repository-sourcing.sh
