@@ -1031,13 +1031,12 @@ expect_http_contract_rejected cross-item-identity http-model-only.txt identity-m
 expect_http_contract_rejected cached-item-identity http-model-cached.txt identity-mismatch \
   'HTTP cached model scoring identity mismatch'
 expect_http_contract_rejected status-identity http-status.txt status-identity-mismatch \
-  'HTTP SNV scoring identity mismatch'
+  'HTTP status scoring identity does not match canonical preimage'
 expect_http_contract_rejected extra-item-property http-model-only.txt extra-item-property \
   'HTTP model-only SNV item shape mismatch'
 # The value a consumer stores rides on the item. The release checker holds it
-# to the same five rules it holds the deployment identity to: present, a
-# string, a well-formed digest, equal across items, and equal to the value the
-# status response reports.
+# to the same envelope and cross-item rules it holds the deployment identity
+# to. The checker also recomputes the status value from its canonical preimage.
 expect_http_contract_rejected missing-version http-snv.txt missing-version \
   'HTTP SNV item shape mismatch'
 expect_http_contract_rejected version-type http-model.txt version-type \
@@ -1049,7 +1048,7 @@ expect_http_contract_rejected cross-item-version http-model-only.txt version-mis
 expect_http_contract_rejected cached-item-version http-model-cached.txt version-mismatch \
   'HTTP cached model data-set version mismatch'
 expect_http_contract_rejected status-version http-status.txt status-version-mismatch \
-  'HTTP SNV data-set version mismatch'
+  'HTTP status data-set version does not match canonical preimage'
 expect_http_contract_rejected status-version-missing http-status.txt status-version-missing \
   'HTTP status data-set version is invalid'
 # The status response's third digest. It was published and unread: neither this
@@ -1077,14 +1076,10 @@ expect_http_contract_rejected integer-as-float http-snv.txt integer-as-float \
 expect_http_contract_rejected boolean-as-integer http-model.txt boolean-as-integer \
   'HTTP model response mismatch'
 
-# A deployment that published one digest under two names is not a deployment
-# with a mutated field: every item agrees with the status response, every value
-# is a well-formed digest, and every comparison the checker already makes is
-# satisfied. The collapse is visible only by comparing the three published
-# values with each other. So each collapse is applied across the whole
-# deployment rather than to one file, and each brings exactly one of the three
-# pairs together and leaves the other two apart. That is what holds the checker
-# to all three pairs rather than to whichever one it happens to compare.
+# Each collapse keeps the affected items consistent with status and leaves
+# every value well formed. The checker rejects the equal pair before it checks
+# canonical preimages. Apply each collapse across the whole deployment and
+# bring exactly one of the three pairs together. This tests all three pairs.
 expect_collapsed_deployment_rejected() {
   local label=$1 collapse=$2 expected=$3
   local changed="$root/collapsed-$label"

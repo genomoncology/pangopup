@@ -567,10 +567,8 @@ def main() -> None:
     status_profile = status.get("runtime_profile_id")
     if not isinstance(status_profile, str) or SCORING_IDENTITY.fullmatch(status_profile) is None:
         fail("HTTP status runtime profile id is invalid")
-    # The three digests hash three different preimages, so a deployment that
-    # published one value under two of these names collapsed something. Every
-    # other rule the checker applies is satisfied by such a deployment, so the
-    # collapse shows up only by comparing the published values with each other.
+    # These three digests hash different preimages. Reject a collapsed pair
+    # explicitly before recomputing the canonical status values.
     published = (
         ("scoring_identity", status_identity),
         ("data_set_version", status_version),
