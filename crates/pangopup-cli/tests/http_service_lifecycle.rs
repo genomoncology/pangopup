@@ -1528,6 +1528,7 @@ mod installed_success {
         let served = &scored["results"][0]["records"][0];
 
         let output = support::pangopup()
+            .env("PANGOPUP_SERVICE_TEST_PROFILE", &profile_path)
             .args([
                 "lookup",
                 "--data-dir",
@@ -1625,6 +1626,7 @@ mod installed_success {
         // No naming asset is installed under this data root. Names come from
         // the build, so a freshly installed runtime already reports them.
         let output = support::pangopup()
+            .env("PANGOPUP_SERVICE_TEST_PROFILE", &profile_path)
             .args([
                 "lookup",
                 "--data-dir",

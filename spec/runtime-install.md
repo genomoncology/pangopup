@@ -27,7 +27,7 @@ pangopup assets runtime status --mask /tmp/domains.pgm
 {"status":"error","code":"CLI_USAGE","message":"unknown assets runtime option --mask","details":null}
 ```
 
-A valid production profile cannot install without an already certified active
+A valid production profile cannot install without its already certified
 SNV object. Later source paths are not opened and no runtime pointer or
 component is created.
 
@@ -38,7 +38,7 @@ pangopup assets runtime install --profile ../planning/artifacts/024-four-asset-r
 ```
 
 ```text expect=runtime-install-needs-snv exact
-{"status":"error","code":"ASSETS_MISSING","message":"an active SNV bundle is required","details":null}
+{"status":"error","code":"ASSETS_MISSING","message":"required SNV bundle is not installed","details":null}
 ```
 
 ```bash
@@ -62,5 +62,5 @@ pangopup status --data-dir "$data"
 ```
 
 ```text expect=runtime-status-malformed exact
-{"status":"error","code":"ASSET_STATUS_INVALID","message":"installed asset state is invalid","details":{"snv":{"status":"missing"},"runtime":{"status":"error","code":"PROFILE_CORRUPT","message":"installed runtime profile is invalid"}}}
+{"status":"error","code":"ASSET_STATUS_INVALID","message":"installed asset state is invalid","details":{"snv":{"status":"error","code":"BUNDLE_INVALID","message":"installed runtime profile is invalid"},"runtime":{"status":"error","code":"PROFILE_CORRUPT","message":"installed runtime profile is invalid"}}}
 ```

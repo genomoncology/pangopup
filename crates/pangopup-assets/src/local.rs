@@ -227,7 +227,12 @@ pub fn install_transport(transport: &Path, data_root: &Path) -> Result<InstallOu
         AssetErrorKind::InputIo,
         AssetErrorKind::PartSetInvalid,
     )?;
-    install_transport_directory(transport, &root, active_before)
+    let activate = super::runtime_install::active_runtime_snv_bundle_id(&root)?.is_none();
+    let mut result = install_transport_directory(transport, &root, active_before, activate)?;
+    if !activate {
+        result.status = "staged";
+    }
+    Ok(result)
 }
 
 pub(crate) fn install_transport_handle(
@@ -247,13 +252,35 @@ pub(crate) fn install_transport_handle(
         AssetErrorKind::InputIo,
         AssetErrorKind::PartSetInvalid,
     )?;
-    install_transport_directory(transport, &root, active_before)
+    let activate = super::runtime_install::active_runtime_snv_bundle_id(&root)?.is_none();
+    let mut result = install_transport_directory(transport, &root, active_before, activate)?;
+    if !activate {
+        result.status = "staged";
+    }
+    Ok(result)
+}
+
+pub(crate) fn install_transport_handle_inactive(
+    transport: File,
+    data_root: &Path,
+) -> Result<InstallOutcome, AssetError> {
+    let locked = acquire_shared_install_lock(data_root)?;
+    let active_before = read_active_optional_for_install(&locked.root)?;
+    let transport = held_directory_from_file(
+        transport,
+        AssetErrorKind::InputIo,
+        AssetErrorKind::PartSetInvalid,
+    )?;
+    let mut result = install_transport_directory(transport, &locked.root, active_before, false)?;
+    result.status = "staged";
+    Ok(result)
 }
 
 fn install_transport_directory(
     transport: Dir,
     root: &Root,
     active_before: Option<ActiveBundle>,
+    activate: bool,
 ) -> Result<InstallOutcome, AssetError> {
     let verified = inspect_transport_held(&transport)?;
     let bundle_id = verified.manifest.bundle.bundle_id.clone();
@@ -261,7 +288,12 @@ fn install_transport_directory(
     let bundles = ensure_private_dir(&root.dir, "bundles", root)?;
     let staging = ensure_private_dir(&root.dir, ".staging", root)?;
 
-    let recovered = reconcile_staging(root, &bundles, &staging, Some((&bundle_id, &transport_id)))?;
+    let recovered = reconcile_staging(
+        root,
+        &bundles,
+        &staging,
+        activate.then_some((&*bundle_id, &*transport_id)),
+    )?;
     if recovered {
         let active = read_active_optional_for_install(root)?.ok_or_else(|| {
             AssetError::new(
@@ -294,11 +326,13 @@ fn install_transport_directory(
                 "published bundle identity conflicts with the requested transport",
             ));
         }
-        activate_existing(root, &staging, &installed.active)?;
+        if activate {
+            activate_existing(root, &staging, &installed.active)?;
+        }
         return Ok(outcome("reused", installed.active));
     }
 
-    install_new(root, &bundles, &staging, &transport, verified)
+    install_new(root, &bundles, &staging, &transport, verified, activate)
 }
 
 pub fn local_status(data_root: &Path) -> Result<LocalStatus, AssetError> {
@@ -331,19 +365,17 @@ pub(crate) fn local_status_locked(locked: &LockedRoot) -> Result<LocalStatus, As
     }
 }
 
-pub(crate) fn inspect_active_snv_locked(root: &Root) -> Result<SnvBundleInspection, AssetError> {
-    let validated = read_active_open_optional(root)?.ok_or_else(|| {
-        AssetError::new(
-            AssetErrorKind::AssetsMissing,
-            "an active SNV bundle is required",
-        )
-    })?;
+pub(crate) fn inspect_installed_snv_locked(
+    root: &Root,
+    bundle_id: &str,
+) -> Result<SnvBundleInspection, AssetError> {
+    let validated = read_installed_open_by_id(root, bundle_id)?;
     let manifest = validated.opened.manifest();
     let scores = manifest
         .members
         .iter()
         .find(|member| member.path == "scores.pgi")
-        .ok_or_else(|| state_invalid("active SNV bundle lacks scores.pgi"))?;
+        .ok_or_else(|| state_invalid("installed SNV bundle lacks scores.pgi"))?;
     Ok(SnvBundleInspection {
         bundle_id: validated.active.bundle_id,
         format: manifest.index_format.clone(),
@@ -384,12 +416,28 @@ pub fn open_active_bundle(data_root: &Path) -> Result<(ActiveBundle, BundleOpen)
     Ok((validated.active, validated.opened))
 }
 
+#[cfg(feature = "test-fixtures")]
+pub fn open_test_installed_bundle(
+    data_root: &Path,
+    bundle_id: &str,
+) -> Result<(ActiveBundle, BundleOpen), AssetError> {
+    let root = open_root(data_root, false)?.ok_or_else(|| {
+        AssetError::new(
+            AssetErrorKind::AssetsMissing,
+            "no Pangopup bundles are installed",
+        )
+    })?;
+    let validated = read_installed_open_by_id(&root, bundle_id)?;
+    Ok((validated.active, validated.opened))
+}
+
 fn install_new(
     root: &Root,
     bundles: &Dir,
     staging: &Dir,
     transport: &Dir,
     verified: VerifiedTransport,
+    activate: bool,
 ) -> Result<InstallOutcome, AssetError> {
     let bundle_id = verified.manifest.bundle.bundle_id.clone();
     let transport_id = verified.manifest.transport_id.clone();
@@ -526,17 +574,23 @@ fn install_new(
             transport_id: transport_id.clone(),
             path: installed_path(root, &suffix),
         };
-        crash_at!(ActiveRename);
-        rename_replace(&stage, "active.candidate.json", &root.dir, "active.json")?;
-        crash_at!(RootSync);
-        root.dir
-            .file
-            .sync_all()
-            .map_err(|error| asset_io("sync data root", error))?;
+        if activate {
+            crash_at!(ActiveRename);
+            rename_replace(&stage, "active.candidate.json", &root.dir, "active.json")?;
+            crash_at!(RootSync);
+            root.dir
+                .file
+                .sync_all()
+                .map_err(|error| asset_io("sync data root", error))?;
+        }
 
-        // The active rename plus root fsync is the durable commit point. Cleanup
-        // failures after it are intentionally deferred to reconciliation.
-        let _ = cleanup_committed_stage(staging, &nonce, root);
+        // Active installation commits at the pointer rename plus root fsync.
+        // Inactive installation commits the immutable bundle without moving it.
+        if activate {
+            let _ = cleanup_committed_stage(staging, &nonce, root);
+        } else {
+            cleanup_failed_stage(staging, &nonce, root)?;
+        }
         Ok(outcome("installed", active))
     })();
 
@@ -617,10 +671,32 @@ fn read_active_open_optional(root: &Root) -> Result<Option<ValidatedInstalled>, 
     read_active_open_optional_kind(root, AssetErrorKind::AssetStateInvalid)
 }
 
+fn read_installed_open_by_id(
+    root: &Root,
+    bundle_id: &str,
+) -> Result<ValidatedInstalled, AssetError> {
+    let suffix = identity_suffix(bundle_id)?;
+    let missing = || {
+        AssetError::new(
+            AssetErrorKind::AssetsMissing,
+            "required SNV bundle is not installed",
+        )
+    };
+    let bundles = open_dir_optional(&root.dir, "bundles", root)?.ok_or_else(missing)?;
+    let bundle_dir = open_dir_optional(&bundles, suffix, root)?.ok_or_else(missing)?;
+    if file_mode(&bundle_dir.file)? != BUNDLE_MODE {
+        return Err(state_invalid("installed bundle wrapper is not immutable"));
+    }
+    validate_installed(root, suffix, &bundle_dir, Some(bundle_id))
+}
+
 fn read_active_open_optional_kind(
     root: &Root,
     wrapper_mode_error: AssetErrorKind,
 ) -> Result<Option<ValidatedInstalled>, AssetError> {
+    if let Some(bundle_id) = super::runtime_install::active_runtime_snv_bundle_id(root)? {
+        return read_installed_open_by_id(root, &bundle_id).map(Some);
+    }
     let Some(bytes) = read_optional_bounded_file(
         &root.dir,
         "active.json",

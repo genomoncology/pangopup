@@ -2,7 +2,7 @@
 
 use crate::{
     AssetError, AssetErrorKind, LocalStatus, RuntimeLocalStatus, RuntimeSyncOutcome, SyncEvent,
-    SyncOutcome, inspect_runtime_cache, local_status, runtime_local_status, sync_assets_observed,
+    SyncOutcome, inspect_runtime_cache, local_status, runtime_local_status,
     sync_runtime_assets_observed,
 };
 use serde::Serialize;
@@ -83,33 +83,36 @@ pub fn sync_all_assets_observed(
     observer: &mut dyn FnMut(SyncEvent),
 ) -> Result<CombinedSyncResult, AssetError> {
     let _lock = crate::local::acquire_provisioning_lock(data_root)?;
-    let snv = match sync_assets_observed(data_root, cache_root, offline, observer) {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            let runtime = if offline && error.kind() == AssetErrorKind::AssetsMissing {
-                match inspect_runtime_cache(cache_root) {
-                    Ok(crate::RuntimeCacheInspection::Complete) => {
-                        RuntimeSyncObservation::NotAttempted(RuntimeNotAttempted {
-                            status: "not_attempted",
-                            reason: "snv_sync_failed",
-                            cache: Some("complete"),
-                        })
+    let snv =
+        match crate::sync::sync_assets_staged_observed(data_root, cache_root, offline, observer) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                let runtime = if offline && error.kind() == AssetErrorKind::AssetsMissing {
+                    match inspect_runtime_cache(cache_root) {
+                        Ok(crate::RuntimeCacheInspection::Complete) => {
+                            RuntimeSyncObservation::NotAttempted(RuntimeNotAttempted {
+                                status: "not_attempted",
+                                reason: "snv_sync_failed",
+                                cache: Some("complete"),
+                            })
+                        }
+                        Err(runtime) => {
+                            RuntimeSyncObservation::Error(component_error(runtime, false))
+                        }
                     }
-                    Err(runtime) => RuntimeSyncObservation::Error(component_error(runtime, false)),
-                }
-            } else {
-                RuntimeSyncObservation::NotAttempted(RuntimeNotAttempted {
-                    status: "not_attempted",
-                    reason: "snv_sync_failed",
-                    cache: None,
-                })
-            };
-            return Ok(CombinedSyncResult::Incomplete(CombinedSyncIncomplete {
-                snv: SnvSyncObservation::Error(component_error(error, false)),
-                runtime,
-            }));
-        }
-    };
+                } else {
+                    RuntimeSyncObservation::NotAttempted(RuntimeNotAttempted {
+                        status: "not_attempted",
+                        reason: "snv_sync_failed",
+                        cache: None,
+                    })
+                };
+                return Ok(CombinedSyncResult::Incomplete(CombinedSyncIncomplete {
+                    snv: SnvSyncObservation::Error(component_error(error, false)),
+                    runtime,
+                }));
+            }
+        };
     let snv_downloaded = snv.downloaded_bytes;
     let snv_resumed = snv.resumed_bytes;
     let (runtime_result, event_error) = {
@@ -911,8 +914,8 @@ mod tests {
         };
         assert_eq!(snv.code, "ASSETS_MISSING");
         assert_eq!(runtime.code, "ASSETS_MISSING");
-        assert!(snv.message.contains("snv-grch38-v1 is incomplete"));
-        assert!(runtime.message.contains("runtime-grch38-v1 is incomplete"));
+        assert!(snv.message.contains("snv-grch38-v2 is incomplete"));
+        assert!(runtime.message.contains("runtime-grch38-v2 is incomplete"));
     }
 
     #[test]

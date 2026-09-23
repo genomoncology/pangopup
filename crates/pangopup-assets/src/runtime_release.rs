@@ -77,6 +77,16 @@ const PRODUCTION_RELEASE_PROFILE: &[u8] =
     include_bytes!("../../../release-profiles/runtime-release-profile.json");
 const PRODUCTION_TRANSPORT_MANIFEST: &[u8] =
     include_bytes!("../../../release-profiles/runtime-transport.json");
+const V2_RELEASE_PROFILE: &[u8] =
+    include_bytes!("../../../release-profiles/runtime-release-profile-v2.json");
+const V2_TRANSPORT_MANIFEST: &[u8] =
+    include_bytes!("../../../release-profiles/runtime-transport-v2.json");
+const V2_RELEASE_PROFILE_SHA256: &str =
+    "sha256:97aaa1a06da278534063124d949dca5d5109afed933cacf9fa785ec20d52b110";
+const V2_TRANSPORT_ID: &str =
+    "sha256:1c893bd4ab177a7d305fd71528752b8c361c84fb87f7f1a21cfd9aea032a4e87";
+const V2_PROFILE_ID: &str =
+    "sha256:ce91b332d04a776f12a4603e60cf40894dc002360c13b3541e03d3b748cd3983";
 const PRODUCTION_RELEASE_PROFILE_SHA256: &str =
     "sha256:d1caf6346bb24378f720056416fa6286f1153ccaf0c6a0778494f557035ef59e";
 const SNV_ID: &str = "sha256:c4c4162b34a73ecd8c44d379f9e4fbc4e5e07869af1967a6695b8d439d2819b3";
@@ -360,10 +370,68 @@ struct ExpectedMember<'a> {
 }
 
 pub fn parse_runtime_release_profile(bytes: &[u8]) -> Result<RuntimeReleaseProfile, AssetError> {
+    if bytes == V2_RELEASE_PROFILE {
+        return production_runtime_release_profile().map(|(_, profile)| profile);
+    }
     parse_profile_with_contract(bytes, v1_contract())
 }
 
 pub(crate) fn production_runtime_release_profile()
+-> Result<(&'static str, RuntimeReleaseProfile), AssetError> {
+    let qualified = crate::release::qualified_v2_profile()?;
+    if super::sha256(V2_RELEASE_PROFILE) != V2_RELEASE_PROFILE_SHA256
+        || super::sha256(V2_TRANSPORT_MANIFEST) != V2_TRANSPORT_ID
+    {
+        return Err(release_invalid(
+            "compiled runtime v2 authority identity mismatch",
+        ));
+    }
+    let profile: RuntimeReleaseProfile = serde_json::from_slice(V2_RELEASE_PROFILE)
+        .map_err(|_| release_invalid("compiled runtime v2 release profile is invalid"))?;
+    let members = profile
+        .transport
+        .members
+        .iter()
+        .map(|member| ExpectedMember {
+            name: &member.asset_name,
+            role: &member.role,
+            size: member.size,
+            sha256: &member.sha256,
+        })
+        .collect::<Vec<_>>();
+    let contract = Contract {
+        schema: V2_SCHEMA,
+        tag: V2_TAG,
+        title: V2_TITLE,
+        command: "runtime-release.prepare-v2",
+        snv_bundle_id: &qualified.snv.bundle_id,
+        converter_commit: MODEL_CONVERTER_COMMIT,
+        tooling_commit: Some("c0c7054dbf5be948f44c2e9b871ed626c57050cc"),
+        source_supplement: true,
+        transport_id: V2_TRANSPORT_ID,
+        runtime_profile_id: V2_PROFILE_ID,
+        members: &members,
+    };
+    if parse_profile_with_contract(V2_RELEASE_PROFILE, contract)? != profile
+        || profile.transport.members[2..]
+            != fixed_runtime_release_profile()?.1.transport.members[2..]
+                .iter()
+                .cloned()
+                .map(|mut member| {
+                    member.url = member.url.replace("runtime-grch38-v1", V2_TAG);
+                    member
+                })
+                .collect::<Vec<_>>()
+    {
+        return Err(release_invalid(
+            "compiled runtime v2 release changes a model-side member",
+        ));
+    }
+    validate_compiled_transport(&profile, V2_TRANSPORT_MANIFEST, V2_TRANSPORT_ID)?;
+    Ok((V2_RELEASE_PROFILE_SHA256, profile))
+}
+
+pub(crate) fn fixed_runtime_release_profile()
 -> Result<(&'static str, RuntimeReleaseProfile), AssetError> {
     if super::sha256(PRODUCTION_RELEASE_PROFILE) != PRODUCTION_RELEASE_PROFILE_SHA256
         || super::sha256(PRODUCTION_TRANSPORT_MANIFEST) != TRANSPORT_ID
@@ -373,15 +441,24 @@ pub(crate) fn production_runtime_release_profile()
         ));
     }
     let profile = parse_runtime_release_profile(PRODUCTION_RELEASE_PROFILE)?;
-    let transport = parse_runtime_transport_manifest_for_release(PRODUCTION_TRANSPORT_MANIFEST)?;
+    validate_compiled_transport(&profile, PRODUCTION_TRANSPORT_MANIFEST, TRANSPORT_ID)?;
+    Ok((PRODUCTION_RELEASE_PROFILE_SHA256, profile))
+}
+
+fn validate_compiled_transport(
+    profile: &RuntimeReleaseProfile,
+    bytes: &[u8],
+    id: &str,
+) -> Result<(), AssetError> {
+    let transport = parse_runtime_transport_manifest_for_release(bytes)?;
     let manifest_member = profile
         .transport
         .members
         .first()
         .ok_or_else(|| release_invalid("runtime transport manifest member is missing"))?;
     if manifest_member.asset_name != "runtime-transport.json"
-        || manifest_member.size != PRODUCTION_TRANSPORT_MANIFEST.len() as u64
-        || manifest_member.sha256 != TRANSPORT_ID
+        || manifest_member.size != bytes.len() as u64
+        || manifest_member.sha256 != id
         || transport.runtime_profile_id != profile.runtime.profile_id
         || transport.members.len() + 1 != profile.transport.members.len()
     {
@@ -403,11 +480,17 @@ pub(crate) fn production_runtime_release_profile()
             return Err(release_invalid("compiled runtime authorities disagree"));
         }
     }
-    Ok((PRODUCTION_RELEASE_PROFILE_SHA256, profile))
+    Ok(())
 }
 
 pub(crate) fn production_runtime_transport_manifest() -> Result<&'static [u8], AssetError> {
     production_runtime_release_profile()?;
+    Ok(V2_TRANSPORT_MANIFEST)
+}
+
+#[cfg(feature = "runtime-v2-qualification")]
+pub(crate) fn fixed_runtime_transport_manifest() -> Result<&'static [u8], AssetError> {
+    fixed_runtime_release_profile()?;
     Ok(PRODUCTION_TRANSPORT_MANIFEST)
 }
 
@@ -1612,15 +1695,22 @@ mod production_contract_tests {
     #[test]
     fn checked_release_and_transport_authorities_are_exact_and_closed() {
         let (digest, profile) = production_runtime_release_profile().expect("production contract");
-        assert_eq!(digest, PRODUCTION_RELEASE_PROFILE_SHA256);
-        assert_eq!(profile.profile, TAG);
+        assert_eq!(
+            parse_runtime_release_profile(V2_RELEASE_PROFILE).expect("public v2 parser"),
+            profile
+        );
+        assert_eq!(
+            digest,
+            "sha256:97aaa1a06da278534063124d949dca5d5109afed933cacf9fa785ec20d52b110"
+        );
+        assert_eq!(profile.profile, V2_TAG);
         assert_eq!(profile.repository, REPOSITORY);
         assert_eq!(
             profile.release.target_commit,
-            "e6d8497aaf1e3db521360ad969252a2ec6fd14e4"
+            "103098bd39b41eddd290618ddba79f26572d455e"
         );
-        assert_eq!(profile.transport.transport_id, TRANSPORT_ID);
-        assert_eq!(profile.runtime.profile_id, PROFILE_ID);
+        assert_eq!(profile.transport.transport_id, V2_TRANSPORT_ID);
+        assert_eq!(profile.runtime.profile_id, V2_PROFILE_ID);
         assert_eq!(profile.transport.members.len(), 10);
         assert_eq!(
             profile

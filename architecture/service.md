@@ -108,7 +108,7 @@ delivery, not runtime behavior: its index contains exactly the two native thin
 leaves and no scoring assets. Each leaf is checked natively with miniature
 assets. A separate manual read-only workflow checks all 14 retained production
 cases through each architecture's final stripped image; ordinary hosted
-publication runners do not download the 15 GB production SNV installation, so
+publication runners do not download the complete production SNV installation, so
 the retained service specs and full-volume Apple run remain the HTTP evidence.
 
 A native systemd example may invoke the same foreground command and point at

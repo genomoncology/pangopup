@@ -360,27 +360,27 @@ pub fn verify_runtime_transport(
     verify_opened_transport(&transport, &opened)
 }
 
-/// Verify the exact compiled production-v1 runtime transport.
+/// Verify the exact retained fixed-v1 runtime transport used to prepare v2.
 ///
 /// This maintainer boundary is intentionally narrower than ordinary
 /// structural transport verification. It does not install or activate data.
 #[doc(hidden)]
 #[cfg(feature = "runtime-v2-qualification")]
-pub fn verify_production_runtime_transport(
+pub fn verify_fixed_runtime_transport(
     transport: &Path,
 ) -> Result<VerifyRuntimeTransportOutcome, AssetError> {
     let transport = open_transport_directory(transport)?;
     let opened = open_transport_held(&transport)?;
-    require_production_manifest(&opened.bytes)?;
-    require_production_profile(&opened)?;
+    require_fixed_manifest(&opened.bytes)?;
+    require_fixed_profile(&opened)?;
     verify_opened_transport(&transport, &opened)
 }
 
 /// Verify the exact checked sparse-v2 profile with the unchanged production
 /// model, reference, and mask transport members.
 ///
-/// This function is available only to the separately enabled retained-data
-/// qualification tool. It does not change ordinary runtime admission.
+/// This function is available to the separately enabled retained-data
+/// qualification tool.
 #[doc(hidden)]
 #[cfg(feature = "runtime-v2-qualification")]
 pub fn verify_qualified_runtime_v2_transport(
@@ -395,8 +395,7 @@ pub fn verify_qualified_runtime_v2_transport(
 /// Install an already prepared checked sparse-v2 transport into an isolated
 /// data root whose active SNV bundle has the same checked sparse identity.
 ///
-/// Ordinary installation remains pinned to production v1. This boundary is
-/// compiled only for retained qualification.
+/// This boundary is compiled only for retained qualification.
 #[doc(hidden)]
 #[cfg(feature = "runtime-v2-qualification")]
 pub fn install_qualified_runtime_v2_transport(
@@ -437,13 +436,29 @@ fn verify_opened_transport(
 }
 
 #[cfg(feature = "runtime-v2-qualification")]
-fn require_production_profile(opened: &OpenedTransport) -> Result<(), AssetError> {
+fn require_fixed_profile(opened: &OpenedTransport) -> Result<(), AssetError> {
     let profile_bytes = opened
         .raw_members
         .get("runtime-profile.json")
         .ok_or_else(|| invalid_manifest("runtime profile member is missing"))?;
-    let profile = super::parse_runtime_profile(profile_bytes).map_err(profile_error)?;
-    profile.require_trusted_production().map_err(profile_error)
+    let fixed = super::canonical_runtime_profile_bytes(&super::production_runtime_profile())
+        .map_err(profile_error)?;
+    if profile_bytes != &fixed {
+        return Err(invalid_manifest(
+            "runtime profile does not match retained fixed-v1 authority",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "runtime-v2-qualification")]
+fn require_fixed_manifest(bytes: &[u8]) -> Result<(), AssetError> {
+    if bytes != super::runtime_release::fixed_runtime_transport_manifest()? {
+        return Err(invalid_manifest(
+            "runtime transport does not match retained fixed-v1 authority",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(feature = "runtime-v2-qualification")]
@@ -1499,13 +1514,42 @@ mod tests {
 
     #[cfg(feature = "runtime-v2-qualification")]
     #[test]
+    fn retained_v1_verifier_rejects_the_current_v2_authority() {
+        let fixed = super::super::runtime_release::fixed_runtime_transport_manifest()
+            .expect("fixed v1 manifest");
+        let current = super::super::runtime_release::production_runtime_transport_manifest()
+            .expect("current v2 manifest");
+        require_fixed_manifest(fixed).expect("retained v1 authority");
+        assert!(require_fixed_manifest(current).is_err());
+
+        let fixed_profile =
+            crate::canonical_runtime_profile_bytes(&crate::production_runtime_profile())
+                .expect("fixed v1 profile");
+        let mut raw_members = BTreeMap::new();
+        raw_members.insert("runtime-profile.json".to_owned(), fixed_profile);
+        let mut opened = checked_v2_opened();
+        opened.raw_members = raw_members;
+        require_fixed_profile(&opened).expect("retained v1 profile");
+        let current_profile = crate::canonical_runtime_profile_bytes(
+            &super::super::runtime_profile::qualified_runtime_v2_authority()
+                .expect("current v2 profile"),
+        )
+        .expect("current v2 profile bytes");
+        opened
+            .raw_members
+            .insert("runtime-profile.json".to_owned(), current_profile);
+        assert!(require_fixed_profile(&opened).is_err());
+    }
+
+    #[cfg(feature = "runtime-v2-qualification")]
+    #[test]
     fn checked_runtime_authorities_reject_every_substituted_descriptor() {
         let exact = checked_v2_opened();
         require_qualified_v2_transport(&exact).expect("checked descriptor combination");
 
         let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
         assert!(
-            verify_production_runtime_transport(&fixtures.join("runtime-transport-mini")).is_err(),
+            verify_fixed_runtime_transport(&fixtures.join("runtime-transport-mini")).is_err(),
             "a valid miniature is not the compiled production transport"
         );
         assert!(

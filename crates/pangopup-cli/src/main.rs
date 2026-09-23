@@ -5,6 +5,10 @@ use pangopup_assets::{
     open_installed_runtime_profile_for_model, resolve_cache_root, resolve_data_root,
     sync_all_assets,
 };
+#[cfg(feature = "service-test-fixtures")]
+use pangopup_assets::{
+    RuntimeProfile, open_test_installed_bundle, open_test_runtime_profile, parse_runtime_profile,
+};
 use pangopup_cache::{CacheIdentity, CacheKey, EntryLimit, ModelResultCache};
 use pangopup_cli::{OutputFormat, RenderRequest, render_requests};
 use pangopup_core::{
@@ -780,7 +784,7 @@ fn run_lookup_with_runtime_opener(
         Some(path) => (BundleOpen::open(&path).map_err(map_open_error)?, None),
         None => {
             let root = data_root(data_dir)?;
-            let (active, bundle) = open_active_bundle(&root).map_err(map_lookup_asset_error)?;
+            let (active, bundle) = open_lookup_bundle(&root).map_err(map_lookup_asset_error)?;
             (bundle, Some((root, active.bundle_id)))
         }
     };
@@ -1210,11 +1214,51 @@ fn admit_installed_model_fallback(
     data_root: &Path,
     snv_bundle_id: Option<&str>,
 ) -> Result<FallbackAdmission, Failure> {
+    #[cfg(feature = "service-test-fixtures")]
+    if let Some(profile) = service_test_profile()? {
+        if let Some(snv_bundle_id) = snv_bundle_id {
+            let installed = open_test_runtime_profile(data_root, snv_bundle_id, &profile)
+                .map_err(map_runtime_error)?;
+            return admitted_installed_model(installed);
+        }
+    }
     let installed = match snv_bundle_id {
         Some(snv_bundle_id) => open_installed_runtime_profile(data_root, snv_bundle_id),
         None => open_installed_runtime_profile_for_model(data_root),
     }
     .map_err(map_runtime_error)?;
+    admitted_installed_model(installed)
+}
+
+fn open_lookup_bundle(
+    data_root: &Path,
+) -> Result<(pangopup_assets::ActiveBundle, BundleOpen), AssetError> {
+    #[cfg(feature = "service-test-fixtures")]
+    if let Some(profile) = service_test_profile().map_err(|_| {
+        AssetError::new(
+            AssetErrorKind::AssetStateInvalid,
+            "service test profile is invalid",
+        )
+    })? {
+        return open_test_installed_bundle(data_root, &profile.snv.bundle_id);
+    }
+    open_active_bundle(data_root)
+}
+
+#[cfg(feature = "service-test-fixtures")]
+fn service_test_profile() -> Result<Option<RuntimeProfile>, Failure> {
+    let Some(path) = std::env::var_os("PANGOPUP_SERVICE_TEST_PROFILE") else {
+        return Ok(None);
+    };
+    let bytes = std::fs::read(path).map_err(|_| Failure::profile_corrupt())?;
+    parse_runtime_profile(&bytes)
+        .map(Some)
+        .map_err(|_| Failure::profile_corrupt())
+}
+
+fn admitted_installed_model(
+    installed: pangopup_assets::InstalledRuntimeProfile,
+) -> Result<FallbackAdmission, Failure> {
     let (profile, model, reference, mask) = installed.into_parts();
     let model_admission = model.admission().clone();
     let provenance = ModelProvenance::new(

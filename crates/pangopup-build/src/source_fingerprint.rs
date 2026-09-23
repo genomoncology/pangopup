@@ -282,7 +282,7 @@ mod tests {
     const EXPECTED_REFERENCE_SHA256: &str =
         "9d19e7cc7dda6d6b7475c80cdb60f2601b2c7ff0ce2ab9274b5d8f078cc5b8cd";
     const EXPECTED_SPARSE_ASSEMBLER_SHA256: &str =
-        "75b5bca6436d67982bd123075bd98f5fcb1fe15495454d0b84ba423655c3a434";
+        "205fb4f370c22f27970054a655faaf1a2c0f64c3f78cfbfff2d868bc7756204d";
     static RESOLVER_SERIAL: AtomicU64 = AtomicU64::new(0);
     static MANIFEST_MODEL: OnceLock<ManifestModel> = OnceLock::new();
 

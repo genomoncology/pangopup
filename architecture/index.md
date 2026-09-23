@@ -159,8 +159,9 @@ benchmark report.
 
 The runtime does not open 19,913 source files. A runtime bundle contains one
 immutable fixed-v1 or sparse-direct-v1 index member, a manifest, and attribution.
-The shipped deployment bundle remains the certified monolithic fixed-v1
-representation.
+Ordinary sync selects the certified sparse-direct-v1 representation under the
+`snv-grch38-v2` release. The monolithic fixed-v1 bundle remains readable for
+explicit rollback.
 
 The logical sections are:
 

@@ -192,8 +192,8 @@ pub fn production_runtime_profile() -> RuntimeProfile {
     }
 }
 
-/// Exhaustively certify one sparse bundle and compose its canonical inactive
-/// runtime profile against the exact checked v2 authority.
+/// Exhaustively certify one sparse bundle and compose its canonical runtime
+/// profile against the exact checked v2 authority.
 #[doc(hidden)]
 pub fn qualified_sparse_runtime_profile(
     path: &Path,
@@ -295,7 +295,7 @@ pub fn runtime_profile_id(bytes: &[u8]) -> Result<RuntimeProfileId, RuntimeProfi
 
 impl RuntimeProfile {
     pub fn require_trusted_production(&self) -> Result<(), RuntimeProfileError> {
-        if self == &production_runtime_profile() {
+        if self == &production_runtime_profile() || self == &qualified_runtime_v2_authority()? {
             Ok(())
         } else {
             Err(RuntimeProfileError::Incompatible)
@@ -633,8 +633,13 @@ mod tests {
         assert_eq!(sparse.reference, fixed.reference);
         assert_eq!(sparse.mask, fixed.mask);
         assert_eq!(sparse.scoring, fixed.scoring);
+        sparse
+            .require_trusted_production()
+            .expect("trusted sparse tuple");
+        let mut crossed = sparse.clone();
+        crossed.snv.bundle_id = fixed.snv.bundle_id.clone();
         assert_eq!(
-            sparse.require_trusted_production(),
+            crossed.require_trusted_production(),
             Err(RuntimeProfileError::Incompatible)
         );
 
