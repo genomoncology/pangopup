@@ -223,6 +223,8 @@ http_request POST /v1/score \
 http_request POST /v1/score \
   '{"variants":["GRCh38:chr12:6801303:G:GA"]}' "$output_dir/http-model.txt"
 http_request POST /v1/score \
+  '{"variants":["GRCh38:chr12:6801303:G:GA"]}' "$output_dir/http-model-cached.txt"
+http_request POST /v1/score \
   '{"variants":["GRCh38:chr12:6801301:G:A"],"model_only":true}' \
   "$output_dir/http-model-only.txt"
 stop_service

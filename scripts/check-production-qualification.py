@@ -62,6 +62,9 @@ TRANSFER = re.compile(
 )
 COMPLETE = re.compile(r"^sync: ready \((\d+) downloaded, (\d+) resumed\)$")
 SCORING_IDENTITY = re.compile(r"sha256:[0-9a-f]{64}")
+CPU_POLICY = re.compile(r"(?:sequential|parallel):[1-8]/[1-8]")
+QUALIFICATION_CPU_POLICY = "sequential:1/1"
+V2_RELEASE_PROFILE_SHA256 = "97aaa1a06da278534063124d949dca5d5109afed933cacf9fa785ec20d52b110"
 
 
 def fail(message: str) -> None:
@@ -169,6 +172,86 @@ def json_equal(actual: object, expected: object) -> bool:
             for actual_item, expected_item in zip(actual, expected)
         )
     return actual == expected
+
+
+def qualified_v2_profile_id(source: pathlib.Path) -> str:
+    """Read the pinned release authority for the installed inner profile."""
+    path = source / "release-profiles/runtime-release-profile-v2.json"
+    try:
+        authority = path.read_bytes()
+    except OSError as error:
+        fail(f"cannot read qualified v2 runtime release profile: {error}")
+    if hashlib.sha256(authority).hexdigest() != V2_RELEASE_PROFILE_SHA256:
+        fail("qualified v2 runtime release profile identity mismatch")
+    try:
+        profile = json.loads(authority, object_pairs_hook=closed_object)
+    except (ValueError, UnicodeError) as error:
+        fail(f"qualified v2 runtime release profile is invalid: {error}")
+    if not isinstance(profile, dict) or profile.get("schema") != "pangopup.runtime-release-profile.v2" \
+       or profile.get("profile") != "runtime-grch38-v2":
+        fail("qualified v2 runtime release profile is invalid")
+    runtime = profile.get("runtime")
+    transport = profile.get("transport")
+    members = transport.get("members") if isinstance(transport, dict) else None
+    if not isinstance(runtime, dict) or not isinstance(members, list):
+        fail("qualified v2 runtime release profile is invalid")
+    inner = [member for member in members if isinstance(member, dict) and member.get("role") == "runtime-profile"]
+    if len(inner) != 1 or inner[0].get("asset_name") != "runtime-profile.json" \
+       or inner[0].get("logical_path") != "runtime-profile.json" \
+       or inner[0].get("size") != 1371:
+        fail("qualified v2 runtime profile member is invalid")
+    profile_id = inner[0].get("sha256")
+    if not isinstance(profile_id, str) or SCORING_IDENTITY.fullmatch(profile_id) is None \
+       or runtime.get("profile_id") != profile_id:
+        fail("qualified v2 runtime profile member is invalid")
+    return profile_id
+
+
+def require_recomputed_identities(
+    status: dict[str, object], version: str, qualified_profile_id: str
+) -> tuple[str, str]:
+    """Verify both published hashes from their independently visible inputs.
+
+    These preimages contain ASCII-only schema, version, profile, and policy
+    strings. Sorted compact JSON is their RFC 8785 byte representation. The
+    checker constructs it here; it never trusts a service-supplied preimage.
+    """
+    if status.get("version") != version:
+        fail("HTTP status software version mismatch")
+    profile = status.get("runtime_profile_id")
+    if not isinstance(profile, str) or SCORING_IDENTITY.fullmatch(profile) is None:
+        fail("HTTP status runtime profile id is invalid")
+    model = status.get("model")
+    policy = model.get("effective_cpu_policy") if isinstance(model, dict) else None
+    if not isinstance(policy, str) or CPU_POLICY.fullmatch(policy) is None:
+        fail("HTTP status effective CPU policy is invalid")
+
+    def digest(schema: str, **inputs: str) -> str:
+        preimage = json.dumps(
+            {"schema": schema, **inputs}, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        return "sha256:" + hashlib.sha256(preimage).hexdigest()
+
+    expected_data_set = digest(
+        "pangopup.scoring-data-set-version.v1",
+        software_version=version,
+        runtime_profile_id=profile,
+    )
+    if status.get("data_set_version") != expected_data_set:
+        fail("HTTP status data-set version does not match canonical preimage")
+    expected_identity = digest(
+        "pangopup.active-scoring-identity.v1",
+        software_version=version,
+        runtime_profile_id=profile,
+        effective_cpu_policy=policy,
+    )
+    if status.get("scoring_identity") != expected_identity:
+        fail("HTTP status scoring identity does not match canonical preimage")
+    if profile != qualified_profile_id:
+        fail("HTTP status runtime profile id does not match qualified profile")
+    if policy != QUALIFICATION_CPU_POLICY:
+        fail("HTTP status effective CPU policy does not match qualification command")
+    return expected_identity, expected_data_set
 
 
 def scoring_bytes(path: pathlib.Path, label: str, version: str | None = None) -> bytes:
@@ -467,6 +550,7 @@ def main() -> None:
     status = http_body(output / "http-status.txt")
     snv = http_body(output / "http-snv.txt")
     modeled = http_body(output / "http-model.txt")
+    cached = http_body(output / "http-model-cached.txt")
     forced = http_body(output / "http-model-only.txt")
     model_value = json.loads(model_expected.read_bytes())
     model_only_value = json.loads(model_only_expected.read_bytes())
@@ -483,10 +567,8 @@ def main() -> None:
     status_profile = status.get("runtime_profile_id")
     if not isinstance(status_profile, str) or SCORING_IDENTITY.fullmatch(status_profile) is None:
         fail("HTTP status runtime profile id is invalid")
-    # The three digests hash three different preimages, so a deployment that
-    # published one value under two of these names collapsed something. Every
-    # other rule the checker applies is satisfied by such a deployment, so the
-    # collapse shows up only by comparing the published values with each other.
+    # These three digests hash different preimages. Reject a collapsed pair
+    # explicitly before recomputing the canonical status values.
     published = (
         ("scoring_identity", status_identity),
         ("data_set_version", status_version),
@@ -498,6 +580,7 @@ def main() -> None:
                 fail(
                     f"HTTP status published one digest under both {first_name} and {second_name}"
                 )
+    require_recomputed_identities(status, version, qualified_v2_profile_id(source))
     automatic_expected = json.loads(
         (source / "tests/fixtures/snv-regression/expected/ENSG00000010610.jsonl")
         .read_text(encoding="utf-8")
@@ -522,6 +605,14 @@ def main() -> None:
         status_identity,
         status_version,
         "model",
+    )
+    require_http_score(
+        cached,
+        model_value,
+        "GRCh38:chr12:6801303:G:GA",
+        status_identity,
+        status_version,
+        "cached model",
     )
     require_http_score(
         forced,

@@ -165,22 +165,29 @@ case "$command" in
       esac
     done
     exec python3 - "$QUALIFICATION_SOURCE" "$listen" <<'PY'
-import errno, http.server, json, os, pathlib, sys
+import errno, hashlib, http.server, json, os, pathlib, sys
 source = pathlib.Path(sys.argv[1])
 listen = sys.argv[2]
 model = json.loads((source / "tests/fixtures/executable-release/m09.jsonl").read_bytes())
 model_only_snv = json.loads((source / "tests/fixtures/executable-release/model-only-snv.jsonl").read_bytes())
 automatic_snv = json.loads((source / "tests/fixtures/snv-regression/expected/ENSG00000010610.jsonl").read_text().splitlines()[0])
-scoring_identity = "sha256:" + "1" * 64
-# The deployment identity and the stored data-set version are two different
-# values. The stub keeps them different so a checker that compares an item
-# against the wrong one fails here instead of at a release.
-data_set_version = "sha256:" + "3" * 64
-# The runtime profile identity is a third value, over a third preimage. A
-# deployment that published one digest under two of these three names collapsed
-# something, so the stub keeps all three apart and the checker is held to
-# noticing when a mutation below brings any two of them together.
-runtime_profile_id = "sha256:" + "7" * 64
+runtime_profile_id = "sha256:ce91b332d04a776f12a4603e60cf40894dc002360c13b3541e03d3b748cd3983"
+software_version = os.environ["QUALIFICATION_SOFTWARE_VERSION"]
+effective_cpu_policy = "sequential:1/1"
+def identity(schema, **inputs):
+    preimage = json.dumps({"schema": schema, **inputs}, sort_keys=True, separators=(",", ":")).encode()
+    return "sha256:" + hashlib.sha256(preimage).hexdigest()
+data_set_version = identity(
+    "pangopup.scoring-data-set-version.v1",
+    software_version=software_version,
+    runtime_profile_id=runtime_profile_id,
+)
+scoring_identity = identity(
+    "pangopup.active-scoring-identity.v1",
+    software_version=software_version,
+    runtime_profile_id=runtime_profile_id,
+    effective_cpu_policy=effective_cpu_policy,
+)
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     def record_request(self):
@@ -199,7 +206,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         values = {
             "/livez": {"status":"live"},
             "/readyz": {"status":"ready"},
-            "/v1/status": {"version":"0.5.0","readiness":"ready","scoring_identity":scoring_identity,"data_set_version":data_set_version,"runtime_profile_id":runtime_profile_id},
+            "/v1/status": {"version":"0.5.0","readiness":"ready","scoring_identity":scoring_identity,"data_set_version":data_set_version,"runtime_profile_id":runtime_profile_id,"model":{"effective_cpu_policy":effective_cpu_policy}},
         }
         self.emit(values[self.path])
     def do_POST(self):
@@ -368,7 +375,7 @@ require_line "$root/candidate-listen.log" '127.0.0.1:0'
 if (( occupier_owned )) && [[ -s "$root/occupied-http.log" ]]; then
   fail 'qualification sent a request to the unrelated service on port 18080'
 fi
-equal 'the number of requests sent to the candidate service' 6 "$(wc -l < "$root/candidate-http.log" | tr -d ' ')"
+equal 'the number of requests sent to the candidate service' 7 "$(wc -l < "$root/candidate-http.log" | tr -d ' ')"
 if kill -0 "$(<"$root/candidate.pid")" 2>/dev/null; then
   fail 'candidate service survived successful runner cleanup'
 fi
@@ -508,7 +515,7 @@ rendered_leaf=$(
     --variant GRCh38:chr12:6801301:G:A --gene ENSG00000010610 \
     | python3 -c 'import json, sys; print(json.dumps(json.loads(sys.stdin.readline())["records"][0]["gene_names"], separators=(",", ":")))'
 )
-for replayed in model-M09.jsonl model-only-SNV.jsonl http-snv.txt http-model.txt http-model-only.txt; do
+for replayed in model-M09.jsonl model-only-SNV.jsonl http-snv.txt http-model.txt http-model-cached.txt http-model-only.txt; do
   if ! grep -Fq "\"gene_names\":$rendered_leaf" "$root/output/$replayed"; then
     printf 'the naming leaf replayed into %s is not the leaf the shipped renderer prints for ENSG00000010610\n' "$replayed" >&2
     exit 1
@@ -526,7 +533,7 @@ for stamped in model-M09.jsonl model-only-SNV.jsonl snv-ENSG00000010610.jsonl; d
     exit 1
   fi
 done
-for unstamped in http-snv.txt http-model.txt http-model-only.txt http-status.txt; do
+for unstamped in http-snv.txt http-model.txt http-model-cached.txt http-model-only.txt http-status.txt; do
   if grep -Fq 'software_version' "$root/output/$unstamped"; then
     printf 'the HTTP surface gained the command-line software version in %s\n' "$unstamped" >&2
     exit 1
@@ -1021,14 +1028,15 @@ expect_http_contract_rejected identity-malformed http-model.txt identity-malform
   'HTTP model scoring identity is invalid'
 expect_http_contract_rejected cross-item-identity http-model-only.txt identity-mismatch \
   'HTTP model-only SNV scoring identity mismatch'
+expect_http_contract_rejected cached-item-identity http-model-cached.txt identity-mismatch \
+  'HTTP cached model scoring identity mismatch'
 expect_http_contract_rejected status-identity http-status.txt status-identity-mismatch \
-  'HTTP SNV scoring identity mismatch'
+  'HTTP status scoring identity does not match canonical preimage'
 expect_http_contract_rejected extra-item-property http-model-only.txt extra-item-property \
   'HTTP model-only SNV item shape mismatch'
 # The value a consumer stores rides on the item. The release checker holds it
-# to the same five rules it holds the deployment identity to: present, a
-# string, a well-formed digest, equal across items, and equal to the value the
-# status response reports.
+# to the same envelope and cross-item rules it holds the deployment identity
+# to. The checker also recomputes the status value from its canonical preimage.
 expect_http_contract_rejected missing-version http-snv.txt missing-version \
   'HTTP SNV item shape mismatch'
 expect_http_contract_rejected version-type http-model.txt version-type \
@@ -1037,8 +1045,10 @@ expect_http_contract_rejected version-malformed http-model.txt version-malformed
   'HTTP model data-set version is invalid'
 expect_http_contract_rejected cross-item-version http-model-only.txt version-mismatch \
   'HTTP model-only SNV data-set version mismatch'
+expect_http_contract_rejected cached-item-version http-model-cached.txt version-mismatch \
+  'HTTP cached model data-set version mismatch'
 expect_http_contract_rejected status-version http-status.txt status-version-mismatch \
-  'HTTP SNV data-set version mismatch'
+  'HTTP status data-set version does not match canonical preimage'
 expect_http_contract_rejected status-version-missing http-status.txt status-version-missing \
   'HTTP status data-set version is invalid'
 # The status response's third digest. It was published and unread: neither this
@@ -1066,14 +1076,10 @@ expect_http_contract_rejected integer-as-float http-snv.txt integer-as-float \
 expect_http_contract_rejected boolean-as-integer http-model.txt boolean-as-integer \
   'HTTP model response mismatch'
 
-# A deployment that published one digest under two names is not a deployment
-# with a mutated field: every item agrees with the status response, every value
-# is a well-formed digest, and every comparison the checker already makes is
-# satisfied. The collapse is visible only by comparing the three published
-# values with each other. So each collapse is applied across the whole
-# deployment rather than to one file, and each brings exactly one of the three
-# pairs together and leaves the other two apart. That is what holds the checker
-# to all three pairs rather than to whichever one it happens to compare.
+# Each collapse keeps the affected items consistent with status and leaves
+# every value well formed. The checker rejects the equal pair before it checks
+# canonical preimages. Apply each collapse across the whole deployment and
+# bring exactly one of the three pairs together. This tests all three pairs.
 expect_collapsed_deployment_rejected() {
   local label=$1 collapse=$2 expected=$3
   local changed="$root/collapsed-$label"
@@ -1085,7 +1091,7 @@ import sys
 
 deployment = pathlib.Path(sys.argv[1])
 collapse = sys.argv[2]
-items = ("http-snv.txt", "http-model.txt", "http-model-only.txt")
+items = ("http-snv.txt", "http-model.txt", "http-model-cached.txt", "http-model-only.txt")
 
 
 def load(name):
@@ -1148,6 +1154,93 @@ expect_collapsed_deployment_rejected identity-profile identity-onto-profile \
   'HTTP status published one digest under both scoring_identity and runtime_profile_id'
 expect_collapsed_deployment_rejected version-profile version-onto-profile \
   'HTTP status published one digest under both data_set_version and runtime_profile_id'
+
+# A full deployment can agree internally on a false digest. Its status and all
+# four returned items then pass the old cross-field checks. Changing one
+# published preimage input or one digest must still fail independent
+# recomputation from the version, profile, and policy visible in status.
+expect_preimage_mutation_rejected() {
+  local label=$1 mutation=$2 expected=$3
+  local changed="$root/preimage-$label"
+  cp -a "$root/output" "$changed"
+  python3 - "$changed" "$mutation" <<'PREIMAGE'
+import hashlib
+import json
+import pathlib
+import sys
+
+deployment = pathlib.Path(sys.argv[1])
+mutation = sys.argv[2]
+items = ("http-snv.txt", "http-model.txt", "http-model-cached.txt", "http-model-only.txt")
+
+def load(name):
+    path = deployment / name
+    head, separator, body = path.read_bytes().partition(b"\r\n\r\n")
+    assert separator, name
+    return path, head, json.loads(body)
+
+def store(path, head, value):
+    path.write_bytes(head + b"\r\n\r\n" + json.dumps(value, separators=(",", ":")).encode() + b"\n")
+
+def digest(schema, **inputs):
+    preimage = json.dumps({"schema": schema, **inputs}, sort_keys=True, separators=(",", ":")).encode()
+    return "sha256:" + hashlib.sha256(preimage).hexdigest()
+
+status_path, status_head, status = load("http-status.txt")
+if mutation == "profile":
+    status["runtime_profile_id"] = "sha256:" + "8" * 64
+elif mutation == "policy":
+    status["model"]["effective_cpu_policy"] = "sequential:1/2"
+elif mutation in ("coherent-profile", "coherent-policy"):
+    if mutation == "coherent-profile":
+        status["runtime_profile_id"] = "sha256:" + "8" * 64
+        status["data_set_version"] = digest(
+            "pangopup.scoring-data-set-version.v1",
+            software_version=status["version"],
+            runtime_profile_id=status["runtime_profile_id"],
+        )
+    else:
+        status["model"]["effective_cpu_policy"] = "sequential:1/2"
+    status["scoring_identity"] = digest(
+        "pangopup.active-scoring-identity.v1",
+        software_version=status["version"],
+        runtime_profile_id=status["runtime_profile_id"],
+        effective_cpu_policy=status["model"]["effective_cpu_policy"],
+    )
+    for name in items:
+        path, head, value = load(name)
+        value["results"][0]["scoring_identity"] = status["scoring_identity"]
+        value["results"][0]["data_set_version"] = status["data_set_version"]
+        store(path, head, value)
+elif mutation in ("scoring-digest", "data-set-digest"):
+    field = "scoring_identity" if mutation == "scoring-digest" else "data_set_version"
+    status[field] = "sha256:" + ("8" if mutation == "scoring-digest" else "9") * 64
+    for name in items:
+        path, head, value = load(name)
+        value["results"][0][field] = status[field]
+        store(path, head, value)
+else:
+    raise AssertionError(mutation)
+store(status_path, status_head, status)
+PREIMAGE
+  if "$repo/scripts/check-production-qualification.py" "$changed" "$repo" \
+    >"$root/preimage-$label.out" 2>"$root/preimage-$label.err"; then
+    fail "checker accepted false canonical identity preimage: $label"
+  fi
+  require_line "$root/preimage-$label.err" "$expected"
+}
+expect_preimage_mutation_rejected profile profile \
+  'HTTP status data-set version does not match canonical preimage'
+expect_preimage_mutation_rejected policy policy \
+  'HTTP status scoring identity does not match canonical preimage'
+expect_preimage_mutation_rejected coherent-profile coherent-profile \
+  'HTTP status runtime profile id does not match qualified profile'
+expect_preimage_mutation_rejected coherent-policy coherent-policy \
+  'HTTP status effective CPU policy does not match qualification command'
+expect_preimage_mutation_rejected scoring-digest scoring-digest \
+  'HTTP status scoring identity does not match canonical preimage'
+expect_preimage_mutation_rejected data-set-digest data-set-digest \
+  'HTTP status data-set version does not match canonical preimage'
 
 cp -a "$root/output" "$root/truncated-output"
 sed -i '$d' "$root/truncated-output/snv-unfiltered.jsonl"

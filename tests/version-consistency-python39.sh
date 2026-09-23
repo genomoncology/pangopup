@@ -237,7 +237,7 @@ try:
     v041_publication_record = original_read("planning/artifacts/060-public-v0.4.1.md")
     v041_release_notes = original_read("planning/artifacts/059-release-notes.md")
     candidate = namespace["workspace_version"]()
-    required_candidate_release_date = "2026-09-06"
+    required_candidate_release_date = "2026-09-23"
     if checker_globals["CANDIDATE_RELEASE_DATE"] != required_candidate_release_date:
         raise AssertionError("checker candidate release date differs from the independent required date")
 

@@ -58,9 +58,7 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64
   -v "$runtime:/runtime:ro" -v "$cache:/var/cache/pangopup" \
   "$image" "${args[@]}" >"$output"
 [[ "$(wc -l <"$output")" == 14 ]]
-jq -e --slurpfile expected "$oracle" \
-  'length == 14 and
-   all(.[]; .provenance == $expected[0].provenance) and
-   map(del(.provenance)) == $expected[0].results' \
-  < <(jq -s . "$output") >/dev/null
+version=$(sed -nE 's/^version = "([^"]+)"$/\1/p' "$source_tree/Cargo.toml")
+python3 "$source_tree/scripts/check-container-model-oracle.py" \
+  "$oracle" "$output" "$version"
 printf 'production container qualified architecture=%s cases=14\n' "$expected_arch"
