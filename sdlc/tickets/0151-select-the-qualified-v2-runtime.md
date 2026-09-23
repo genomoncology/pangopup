@@ -42,3 +42,9 @@ install commands and was removed after verification. Independent implementation
 review accepted the remediation. `make lint`, `make test`, `make spec`, anonymous
 public asset verification, and the final real public upgrade remain required.
 Do not merge this selector until ticket 0150 verifies the public v2 assets.
+
+The v2 selector changes two exports in `pangopup-assets/src/lib.rs`. That file
+belongs to the compiled sparse assembler source inventory, so a fresh build's
+source fingerprint changes. The hard current-source test oracle now matches
+the independently computed digest. The retained v2 asset provenance remains
+bound to its original source and release bytes; this change does not rewrite it.
