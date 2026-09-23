@@ -2127,6 +2127,16 @@ mod installed_success {
         reported
     }
 
+    #[test]
+    fn the_listening_event_means_sigterm_is_ready() {
+        let temp = tempfile::tempdir().expect("temp");
+        let data = temp.path().join("data");
+        let (_profile, profile_path) = install(&data, temp.path());
+        let (mut child, _) = start(&data, &profile_path);
+        assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
+        support::assert_shutdown_succeeded(&mut child, "service exit after listening");
+    }
+
     // An operator restarting the service after an upgrade or an asset change
     // has to be able to tell a cold cache from one this start threw away. The
     // command line says so; the service performs the same discard, so it says

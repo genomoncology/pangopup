@@ -919,6 +919,7 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
         details: None,
     })?;
     let address = address.to_string();
+    let signals = signal_receiver();
     println!(
         "{}",
         serde_json::to_string(&Listening {
@@ -928,7 +929,7 @@ async fn serve(options: ServeOptions) -> Result<(), Failure> {
         .expect("listening event is serializable")
     );
     axum::serve(listener, app(state.clone()))
-        .with_graceful_shutdown(shutdown(state.dispatcher.clone()))
+        .with_graceful_shutdown(shutdown(state.dispatcher.clone(), signals))
         .await
         .map_err(|_| Failure {
             code: "SERVICE_FAILED",
@@ -1847,8 +1848,7 @@ fn json_response(status: StatusCode, value: &impl Serialize) -> Response {
     response
 }
 
-async fn shutdown(dispatcher: Dispatcher) {
-    let mut signals = signal_receiver();
+async fn shutdown(dispatcher: Dispatcher, mut signals: mpsc::UnboundedReceiver<()>) {
     if shutdown_with_signals(&dispatcher, &mut signals).await == ShutdownOutcome::Forced {
         std::process::exit(130);
     }
@@ -1890,8 +1890,12 @@ async fn shutdown_with_signals(
 }
 
 fn signal_receiver() -> mpsc::UnboundedReceiver<()> {
+    let interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .expect("install SIGINT handler");
+    let terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .expect("install SIGTERM handler");
     let (sender, receiver) = mpsc::unbounded_channel();
-    tokio::spawn(signal_pump(sender));
+    tokio::spawn(signal_pump(sender, interrupt, terminate));
     receiver
 }
 
@@ -1906,11 +1910,11 @@ async fn wait_worker_failure(dispatcher: &Dispatcher) {
 }
 
 #[cfg(unix)]
-async fn signal_pump(sender: mpsc::UnboundedSender<()>) {
-    let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
-        .expect("install SIGINT handler");
-    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        .expect("install SIGTERM handler");
+async fn signal_pump(
+    sender: mpsc::UnboundedSender<()>,
+    mut interrupt: tokio::signal::unix::Signal,
+    mut terminate: tokio::signal::unix::Signal,
+) {
     loop {
         tokio::select! {
             _ = interrupt.recv() => {}
