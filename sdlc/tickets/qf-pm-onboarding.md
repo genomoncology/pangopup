@@ -1,6 +1,8 @@
 # Onboard PangoPup to installed pm reporting
 
-Status: awaiting independent review
+Status: complete
+Landed: bd707da2a6d08eef71890a26aee75273639ccb65
+Review: accept
 Owner: Current session for documentation and configuration only; root owns independent review and landing.
 Date: 2026-10-03
 
@@ -17,3 +19,7 @@ Ian authorizes fixes, commit, and push. This documentation Quick Fix prepares ma
 ## Outcome
 
 Documentation and configuration are prepared for review. No independent ACCEPT, landing, product gate, fresh publication check, or product queue ownership is claimed.
+
+## Completed administrative outcome
+
+Fresh independent review and documentation checks passed. The reviewed onboarding source is landed and pushed. Open product issues and parked work keep their documented status. Historical preparation and pending-review statements above describe the initial candidate.

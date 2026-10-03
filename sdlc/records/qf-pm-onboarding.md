@@ -39,3 +39,7 @@ Root owns feedback issue writes. The SDLC tool repository remains read-only. The
 ## Review correction
 
 Fresh independent review found that the current plan hid two open questions from a retained model-cost issue. A current SDLC issue now preserves exact loss-only routing and CPU model-miss cost with its source pointer. Catalogue and accelerator work remain parked. Root requests renewed review before landing.
+
+## Landed onboarding source
+
+Fresh independent review accepts `bd707da2a6d08eef71890a26aee75273639ccb65`. Root fast-forwarded and pushed the reviewed source to origin/main on October3. Candidate read checks and documentation checks remain bound to their actual revisions. The onboarding outcome is complete. Product code, source holds, broader outcomes and historical findings remain unchanged. This receipt releases the administrative lane.
