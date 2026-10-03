@@ -1,6 +1,8 @@
 
 # Splice-to-consequence module: research for the design
 
+Status: open; research proposal only, with downstream ownership and no approved implementation
+
 Prepared 2026-09-04, promoted into this repository on 2026-09-09. Every citation below was verified through BioMCP or Europe PMC on 2026-09-04.
 
 This is research for a design, not an accepted plan. Pangopup owns the splice-score layer. A downstream variant engine owns transcript geometry and the clinical interpretation policy. The split of work described here is a proposal. That consumer settles it.

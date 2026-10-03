@@ -1,6 +1,8 @@
 # Pangopup Planning
 
-This directory is the single source of truth for unfinished Pangopup work.
+Historical process document. Current manual work follows [`sdlc/README.md`](../sdlc/README.md). Retain the earlier process below as evidence. It does not authorize factory dispatch, unattended work, or cleanup.
+
+This directory preserves the earlier Pangopup roadmap and work evidence.
 Durable technical rules belong in `../architecture/`; executable behavior
 belongs in Rust tests and `../spec/`.
 

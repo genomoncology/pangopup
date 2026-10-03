@@ -1,5 +1,7 @@
 # Active Tickets
 
+Historical process document. Current manual work follows [`sdlc/README.md`](../../sdlc/README.md). Retain the earlier process below as evidence. It does not authorize factory dispatch, unattended work, or cleanup.
+
 This directory holds at most one active implementation ticket. The coordinator
 creates it from [`../templates/ticket.md`](../templates/ticket.md) after
 reconciling the previous shipped outcome with the rolling frontier, obtains

@@ -1,5 +1,7 @@
 # Held observations, and what held up under testing
 
+Status: held; revisit the body reply only after a real caller reports it, and position grammar only after a new requirement
+
 Two observations from the 2026-09-04 adversarial session that are deliberately
 NOT ticketed, and a record of the surface that survived the same session. Kept so
 the ground is not covered twice.

@@ -1,0 +1,27 @@
+{
+  "targetRef": "origin/main",
+  "recordNaming": "ticket",
+  "landedProofFromTicketNumber": 1,
+  "ticketStatusMappings": {
+    "awaiting independent review": "in progress"
+  },
+  "issueStatusMappings": {
+    "parked": "blocked",
+    "held": "blocked"
+  },
+  "lanesTable": {
+    "file": "lanes.md",
+    "heading": "Lanes",
+    "claimColumn": "Holds"
+  },
+  "mailroom": {
+    "repo": "sdlc",
+    "name": "pangopup"
+  },
+  "lightGates": [
+    {
+      "name": "documentation whitespace",
+      "command": "git diff --check"
+    }
+  ]
+}

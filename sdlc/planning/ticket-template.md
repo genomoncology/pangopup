@@ -1,3 +1,7 @@
+# Historical factory ticket template
+
+Historical process document. Current manual work follows [`sdlc/README.md`](../README.md). Retain the earlier process below as evidence. It does not authorize factory dispatch, unattended work, or cleanup.
+
 ---
 flow: build
 priority: 5

@@ -1,5 +1,7 @@
 # Can the SNV landscape safely screen indels?
 
+Status: parked; model-positive validation and a downstream threshold contract are required to reopen
+
 2026-09-15 decision: park broad threshold screening after the bounded pilot. The pilot found no model-positive indel at 0.10 and cannot test safety. Its complete-input ceiling was 73.15 percent for the tested flank rule. Do not expand this issue or schedule a classifier without a model-positive validation set and a downstream threshold contract. The exact loss-only route remains a separate arithmetic question. Ian can reopen this issue with those inputs. Observed-indel precomputation is archived by Ian, not a secondary strategy.
 
 Date: 2026-09-12

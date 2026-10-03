@@ -1,5 +1,7 @@
 # sdlc/scripts/
 
+Historical process document. Current manual work follows [`sdlc/README.md`](../README.md). Retain the earlier process below as evidence. It does not authorize factory dispatch, unattended work, or cleanup.
+
 Copied into a repository at onboarding. These scripts are how *this* project
 installs itself and judges its own work — edit them freely; nothing above
 reads them except by name.
