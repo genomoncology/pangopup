@@ -30,7 +30,7 @@ The following table imports authority through references and dispositions. Origi
 | [Runtime trust](../../planning/issues/2026-07-24-runtime-asset-trust-and-durability.md) | Historical closed outcome; retain held-descriptor contract |
 | [Builder fingerprint coupling](../../planning/issues/2026-07-25-artifact-builder-fingerprint-coupling.md) | Historical closed outcome, Ticket 013 |
 | [Index format](../../planning/issues/2026-09-11-index-format-size-versus-latency.md) | ADR 0027 decides the format; numbered qualification and release records retain later outcomes |
-| [Indel model cost](../../planning/issues/2026-09-11-indel-model-cost-and-prefilter-soundness.md) | Historical programme evidence; precomputation remains parked under the September 15 ruling |
+| [Indel model cost](../issues/2026-10-03-retain-indel-model-cost-and-loss-routing.md) | Open for exact loss-only routing and CPU model-miss cost; scored catalogue and accelerator work remain parked |
 | [Route precision](../../planning/issues/2026-09-11-model-route-score-precision.md) | Deferred by equal two-route precision; no model-only third digit |
 | [Accelerators](../../planning/issues/2026-09-11-model-throughput-on-accelerators.md) | Archived by Ian for the precompute programme; faster CPU inference remains an outcome |
 | [Variant triage](../../planning/issues/2026-09-11-triage-which-variants-need-the-model.md) | Parked; catalogue membership supplies no score |

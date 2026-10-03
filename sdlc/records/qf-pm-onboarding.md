@@ -35,3 +35,7 @@ Configuration JSON, current local documentation links, the declared lane heading
 - Zero next or daily exit does not clear loader findings or certify project readiness. The current Quick Fix has a machine status of in progress; item recommends finishing and landing without representing the independent review hold. Root review is still owed.
 
 Root owns feedback issue writes. The SDLC tool repository remains read-only. The separate authority lane's files remain untouched by this session. Fetched `origin/main` and local main both resolve to `7efa7960fa7dd206287c750d08d0efc21f867efd`. This branch does not merge or land either candidate. The exact final candidate HEAD is supplied in the handoff so review can bind to immutable bytes.
+
+## Review correction
+
+Fresh independent review found that the current plan hid two open questions from a retained model-cost issue. A current SDLC issue now preserves exact loss-only routing and CPU model-miss cost with its source pointer. Catalogue and accelerator work remain parked. Root requests renewed review before landing.
