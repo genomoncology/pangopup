@@ -1,0 +1,17 @@
+{
+  "targetRef": "origin/main",
+  "recordNaming": "ticket",
+  "ticketStatusMappings": {},
+  "issueStatusMappings": {},
+  "adrStatusMappings": {},
+  "lanesTable": {
+    "file": "lanes.md",
+    "heading": "Lanes",
+    "claimColumn": "Holds"
+  },
+  "mailroom": {
+    "repo": "sdlc",
+    "name": "pangopup"
+  },
+  "evidenceFromTicketNumber": 159
+}

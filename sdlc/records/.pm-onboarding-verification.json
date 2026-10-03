@@ -1,0 +1,46 @@
+{
+  "toolBuild": "8592e26",
+  "date": "2026-10-03",
+  "commands": {
+    "status": {
+      "jsonExit": 1,
+      "humanExit": 1,
+      "findingRules": {
+        "ticket-dir": 2,
+        "issue-status": 3
+      }
+    },
+    "next": {
+      "jsonExit": 0,
+      "humanExit": 0,
+      "findingRules": {
+        "ticket-dir": 2,
+        "issue-status": 3
+      }
+    },
+    "daily": {
+      "jsonExit": 0,
+      "humanExit": 0,
+      "findingRules": {
+        "ticket-dir": 2,
+        "issue-status": 3
+      }
+    },
+    "item": {
+      "jsonExit": 1,
+      "humanExit": 1,
+      "findingRules": {
+        "ticket-dir": 2,
+        "issue-status": 3
+      }
+    },
+    "lanes": {
+      "jsonExit": 0,
+      "humanExit": 0,
+      "findingRules": {
+        "ticket-dir": 2,
+        "issue-status": 3
+      }
+    }
+  }
+}

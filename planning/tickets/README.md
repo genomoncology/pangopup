@@ -1,6 +1,12 @@
 # Active Tickets
 
-This directory holds at most one active implementation ticket. The coordinator
+## Current authority
+
+PangoPup is ACTIVE. The manual workspace flow and [current SDLC records](../../sdlc/README.md) govern new work. This document's older workflow is retained historical evidence. Its sole-authority, dispatch, publication sequence, and cleanup instructions are superseded. Preserve historical records and artifacts. File new work in `sdlc/`.
+
+## Historical workflow
+
+This directory preserves the prior implementation-ticket workflow. The coordinator
 creates it from [`../templates/ticket.md`](../templates/ticket.md) after
 reconciling the previous shipped outcome with the rolling frontier, obtains
 review from a read-only sub-agent, and dispatches the approved file as the

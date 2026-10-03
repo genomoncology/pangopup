@@ -71,7 +71,7 @@ make test = cargo test across the workspace
 make spec = build the current CLI + execute spec/*.md with mustmatch
 ```
 
-There is no `make check`. Run all three gates before committing.
+There is no `make check`. Product changes run all three gates before committing. Documentation and configuration Quick Fixes use `sdlc/README.md`.
 
 ## Layout and conventions
 
@@ -107,7 +107,7 @@ There is no `make check`. Run all three gates before committing.
   it composes cache admission with fallback but contains no scoring or index
   logic.
 - `architecture/` records durable boundaries and accepted decisions.
-- `planning/` is the single source of truth for unfinished work.
+- `sdlc/` owns current work. Root `planning/` retains historical evidence and roadmap references.
 - Unsafe mmap setup must remain confined to `pangopup-index`; mapped bytes are
   not used until cheap header/section/source checks pass. Lookups validate bytes
   they touch; offline certification owns payload-wide ordering and count checks
@@ -126,27 +126,14 @@ not committed.
 
 ## How work arrives
 
-This repository carries an `sdlc/` folder and is onboarded to the sdlc factory.
-`sdlc/project/` holds the five scripts the factory calls, copied verbatim from
-the canonical set and never hand-edited. `sdlc/scripts/` holds this project's
-own `install`, `lint`, `test` and `spec`, which run the gates above.
+Use the manual workspace ticket flow in workspace AGENTS. `sdlc/README.md` governs current repository records and lightweight documentation verification. `sdlc/planning/lanes.md` declares current assignments and claims. Root owns queue coordination and independent review. The retired factory does not dispatch this repository.
 
-- Drafts live in `sdlc/tickets/drafts/`. Sync never sees them.
-- A top-level ticket on `origin/main` is approved and will be dispatched
-  unattended. Promotion is approval. Make the human decision before you move
-  the file, not after.
-- Tickets carry `flow` and `priority` frontmatter and are numbered
-  `NNNN-slug.md` on one counter shared with `sdlc/records/` and
-  `sdlc/tickets/archive/`. Never choose that number by hand. Run `file-ticket`
-  (or `next-id` for a draft) from inside the repo.
-- Sync reads `origin/main`, never a working tree. An unpushed ticket does not
-  exist.
-- A completed ticket gets a matching record in `sdlc/records/`. The ticket file
-  moves to `sdlc/tickets/archive/`.
-- Keep tickets short. One behavior, why it matters, observable acceptance
-  criteria. Never add a changing status field. Never write the design into the
-  ticket. The design stage owns it.
-- Never start a manual bot run while a factory attempt is live.
+- File current work in `sdlc/`. Preserve drafts, archived tickets, records, and retained factory scripts as evidence.
+- Reserve new numbered tickets with the installed `pm ticket new` after root selects the work. Directory placement alone does not authorize dispatch.
+- Tickets state an explicit status and bounded observable outcome. Records distinguish preparation, review, checked implementation, and landing.
+- Complete requires an actual finished outcome and landing proof. Built, reviewed, and accepted do not mean landed.
+- Push complete fixes to the isolated ticket branch. Independent review and relevant checks precede root-approved landing.
+- Documentation and configuration Quick Fixes use the light checks in `sdlc/README.md`. Product changes retain the ordinary product gates.
 
 A ticket must identify its observable acceptance test, its inside-out tests,
 and the performance or size evidence required for a format-sensitive change.
@@ -158,6 +145,4 @@ bundle.
 Documentation is part of the implementation, not cleanup. A ticket names the
 durable and user-facing documents its outcome changes.
 
-`planning/` holds the history of the coordinator-and-sub-agent workflow this
-repository used before the factory. Read it as a record. Do not file new work
-there.
+Root `planning/` retains historical workflows and product evidence. `sdlc/planning/current.md` reconciles those references for the active manual queue. File new work in `sdlc/`.

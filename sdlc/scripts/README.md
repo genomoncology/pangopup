@@ -1,5 +1,11 @@
 # sdlc/scripts/
 
+## Current manual authority
+
+Use workspace AGENTS and `../README.md` for current delivery. These project scripts remain available for the repository product gates. Documentation and configuration Quick Fixes use the light checks in `../README.md`. The factory invocation, dispatch, landing, and teardown descriptions below record the retired mechanism. They grant no current authority. Preserve them for historical reproduction.
+
+## Historical factory contract
+
 Copied into a repository at onboarding. These scripts are how *this* project
 installs itself and judges its own work — edit them freely; nothing above
 reads them except by name.

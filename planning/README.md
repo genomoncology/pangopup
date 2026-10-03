@@ -1,6 +1,12 @@
 # Pangopup Planning
 
-This directory is the single source of truth for unfinished Pangopup work.
+## Current authority
+
+PangoPup is ACTIVE. The manual workspace flow and [current SDLC records](../sdlc/README.md) govern new work. This document's older workflow is retained historical evidence. Its sole-authority, dispatch, publication sequence, and cleanup instructions are superseded. Preserve historical records and artifacts. File new work in `sdlc/`.
+
+## Historical workflow
+
+This directory preserves the prior Pangopup planning workflow and product evidence.
 Durable technical rules belong in `../architecture/`; executable behavior
 belongs in Rust tests and `../spec/`.
 
