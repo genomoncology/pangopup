@@ -4,7 +4,7 @@ Date: 2026-10-03
 State: Prepared for root independent review. No landing or independent acceptance is claimed.
 Owner: Current session for the documentation Quick Fix; root owns independent review and landing.
 
-See [the Quick Fix](../tickets/qf-pm-onboarding.md), [current plan](../planning/plan.md), and [lane assignments](../planning/lanes.md). Ian authorized documentation and configuration fixes, commit, and push. This preparation reconciles retired factory process and historical planning authority. It preserves product evidence, archived tickets, and existing worktrees. A separately reserved authority worktree has another writer's overlapping changes. Root must choose or reconcile candidates before landing; this session edits only its own branch.
+See [the Quick Fix](../tickets/qf-pm-onboarding.md), [current plan](../planning/plan.md), and [lane assignments](../planning/lanes.md). Ian authorized documentation and configuration fixes, commit, and push. This preparation reconciles retired factory process and historical planning authority. It preserves product evidence, archived tickets, and existing worktrees. At inspection, a separately reserved authority worktree had another writer's overlapping changes. Root must choose or reconcile candidates before landing; this session edits only its own branch.
 
 ## Verification
 
@@ -19,7 +19,7 @@ JSON parsing, documentation paths and headings, whitespace, and the normal insta
 | `status` | 1 | 1 | One Quick Fix in progress, zero ready or complete tickets; one open and two blocked issues; two retained ticket-dir findings |
 | `next` | 0 | 0 | No ready candidates; documentation lane on its ticket branch; the unassigned product and review lanes show no worktree declared |
 | `daily` | 0 | 0 | No landings today; documented lane assignments resolve; one historical record is classified as an open review |
-| `item qf-pm-onboarding` | 0 | 0 | Finds the current ticket, maps its waiting state to in progress, and links its verification record |
+| `item qf-pm-onboarding` | 0 | 0 | Finds the current ticket and maps its waiting state to in progress; linked records remain empty |
 | `item 0152` | 1 | 1 | Not found; archive ticket and publication record remain intact |
 | `lanes` | 0 | 0 | Three declared lanes; documentation worktree resolves; explicit path claims parse; no contradictions or claim violations |
 
@@ -30,7 +30,8 @@ Configuration JSON, current local documentation links, the declared lane heading
 - Archive and drafts directories receive `ticket-dir` findings even though the manual flow preserves them as historical material. Historical ticket 0152 cannot be inspected through item; root can consider archive visibility or explicit historical lookup support.
 - `daily` lists record `0033-a-reviewed-descendant-can-finalize-a-staged-release.md` as an open review although its prose states that independent reviews accepted and gates passed. Its filename is historical outcome text. It is not this onboarding's pending review.
 - Lane output omits the human State and Owner columns. The idle product lane and review lane blocked on assignment both display no worktree declared. Git can resolve the current documentation worktree and claims; no process or lock is declared or certified. `processCheck` is false on this host. The table remains the assignment authority.
+- `item qf-pm-onboarding` returns an empty records array despite the ticket's explicit verification-record link and the matching qf record slug. The Markdown link remains useful to readers; machine association is a candidate tool gap.
 - A worktree invocation labels the repository with its checkout directory name. The explicit mailroom identity remains `pangopup` and resolves the sibling `sdlc` checkout. No mail is sent.
 - Zero next or daily exit does not clear loader findings or certify project readiness. The current Quick Fix has a machine status of in progress; item recommends finishing and landing without representing the independent review hold. Root review is still owed.
 
-Root owns feedback issue writes. The SDLC tool repository remains read-only. The separate authority lane's dirty changes remain untouched. Fetched `origin/main` and local main both resolve to `7efa7960fa7dd206287c750d08d0efc21f867efd`. This branch does not merge or land either candidate. The exact final candidate HEAD is supplied in the handoff so review can bind to immutable bytes.
+Root owns feedback issue writes. The SDLC tool repository remains read-only. The separate authority lane's files remain untouched by this session. Fetched `origin/main` and local main both resolve to `7efa7960fa7dd206287c750d08d0efc21f867efd`. This branch does not merge or land either candidate. The exact final candidate HEAD is supplied in the handoff so review can bind to immutable bytes.
