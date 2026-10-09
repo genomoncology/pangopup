@@ -15,7 +15,7 @@
     "claimColumn": "Holds"
   },
   "mailroom": {
-    "repo": "sdlc",
+    "repo": "agents",
     "name": "pangopup"
   },
   "lightGates": [
