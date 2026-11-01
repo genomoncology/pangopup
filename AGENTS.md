@@ -126,27 +126,8 @@ not committed.
 
 ## How work arrives
 
-This repository carries an `sdlc/` folder and is onboarded to the sdlc factory.
-`sdlc/project/` holds the five scripts the factory calls, copied verbatim from
-the canonical set and never hand-edited. `sdlc/scripts/` holds this project's
-own `install`, `lint`, `test` and `spec`, which run the gates above.
-
-- Drafts live in `sdlc/tickets/drafts/`. Sync never sees them.
-- A top-level ticket on `origin/main` is approved and will be dispatched
-  unattended. Promotion is approval. Make the human decision before you move
-  the file, not after.
-- Tickets carry `flow` and `priority` frontmatter and are numbered
-  `NNNN-slug.md` on one counter shared with `sdlc/records/` and
-  `sdlc/tickets/archive/`. Never choose that number by hand. Run `file-ticket`
-  (or `next-id` for a draft) from inside the repo.
-- Sync reads `origin/main`, never a working tree. An unpushed ticket does not
-  exist.
-- A completed ticket gets a matching record in `sdlc/records/`. The ticket file
-  moves to `sdlc/tickets/archive/`.
-- Keep tickets short. One behavior, why it matters, observable acceptance
-  criteria. Never add a changing status field. Never write the design into the
-  ticket. The design stage owns it.
-- Never start a manual bot run while a factory attempt is live.
+`sdlc/scripts/` holds this project's own `install`, `lint`, `test` and `spec`,
+which run the gates above.
 
 A ticket must identify its observable acceptance test, its inside-out tests,
 and the performance or size evidence required for a format-sensitive change.
